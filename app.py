@@ -1558,7 +1558,36 @@ AUTH_BASE_CSS = r"""
   a:hover{ text-decoration: underline; }
   .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
   .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
-</style>
+
+    /* ===== NEW: Coach marks (first-run guidance) ===== */
+    .coachGlow{
+      position: relative;
+      z-index: 90;
+      border-color: rgba(124,58,237,.95) !important;
+      box-shadow: 0 0 0 3px rgba(124,58,237,.22), 0 0 26px rgba(59,130,246,.22);
+      animation: coachPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes coachPulse{
+      0%{ box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(59,130,246,.16); }
+      50%{ box-shadow: 0 0 0 4px rgba(124,58,237,.26), 0 0 30px rgba(59,130,246,.22); }
+      100%{ box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(59,130,246,.16); }
+    }
+    .coachBubble{
+      position: fixed;
+      z-index: 140;
+      width: min(360px, calc(100vw - 24px));
+      background: rgba(10,14,30,.94);
+      border:1px solid rgba(42,58,106,.8);
+      border-radius:16px;
+      padding:12px 12px 10px 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.45), 0 0 24px rgba(124,58,237,.12);
+      backdrop-filter: blur(10px);
+    }
+    .coachTitle{ font-weight: 800; font-size: 13px; margin-bottom: 6px; }
+    .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+
+  </style>
 """
 
 LOGIN_HTML = r"""
@@ -2821,12 +2850,13 @@ HTML = r"""
     }
 
     function hideAllModalForms(){
-      $("modalBody").style.display = "block";
-      $("modalForm").style.display = "none";
-      $("manageForm").style.display = "none";
-      $("createForm").style.display = "none";
-      $("frameworkForm").style.display = "none";
-      $("modalImg").style.display = "none";
+      if($("modalBody")) $("modalBody").style.display = "block";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
     }
 
     function showModal(title, body, imgUrl){
@@ -4400,14 +4430,21 @@ HTML = r"""
       }
     }
 
-    function showSettingsModal(){
+    function showSettingsModal(auto=false){
       showModal();
-      $("frameworkForm").style.display = "none";
-      $("teamForm").style.display = "none";
-      $("createForm").style.display = "none";
-      $("settingsForm").style.display = "block";
-      $("modalImg").style.display = "none";
+      // ensure all other forms are hidden (avoid null errors that can break the Settings button)
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "block";
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
+      if(auto){
+        // slight UI nudge so first-time users know what to do
+        $("modalTitle").innerText = "Settings: connect your key + email";
+      }
     }
 
     $("settingsBtn").onclick = () => showSettingsModal();
@@ -4437,13 +4474,128 @@ HTML = r"""
           return;
         }
         $("settingsStatus").innerText = "Saved";
+          try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
     };
 
+    // =========================
+    // NEW: FIRST-RUN GUIDANCE (coach marks)
+    // =========================
+    const ONBOARD_VER = "v1";
+    function onboardKey(name, username){
+      return `rt_onboard_${ONBOARD_VER}_${name}_${username||"anon"}`;
+    }
+    function markOnboardDone(name, username){
+      try{ localStorage.setItem(onboardKey(name, username), "1"); }catch(e){}
+    }
+    function isOnboardDone(name, username){
+      try{ return localStorage.getItem(onboardKey(name, username)) === "1"; }catch(e){ return false; }
+    }
 
-    $("saveFramework").onclick = async () => {
+    function clearCoach(){
+      const el = document.getElementById("coachBubble");
+      if(el) el.remove();
+      document.querySelectorAll(".coachGlow").forEach(n => n.classList.remove("coachGlow"));
+    }
+
+    function placeCoach(targetEl, title, body, ctaText){
+      clearCoach();
+      if(!targetEl) return null;
+      targetEl.classList.add("coachGlow");
+
+      const r = targetEl.getBoundingClientRect();
+      const bubble = document.createElement("div");
+      bubble.id = "coachBubble";
+      bubble.className = "coachBubble";
+      bubble.innerHTML = `
+        <div class="coachTitle">${title}</div>
+        <div class="coachBody">${body}</div>
+        <div class="coachActions">
+          <button class="btn btnTiny" id="coachSkip">Skip</button>
+          <button class="btn btnTiny btnPrimary" id="coachGo">${ctaText || "Open"}</button>
+        </div>
+      `;
+      document.body.appendChild(bubble);
+
+      // position near target
+      const pad = 10;
+      const top = Math.max(70, r.bottom + pad);
+      const left = Math.min(window.innerWidth - bubble.offsetWidth - 12, Math.max(12, r.left));
+      bubble.style.top = top + "px";
+      bubble.style.left = left + "px";
+      return bubble;
+    }
+
+    async function runFirstRunGuidance(){
+      let me = null;
+      try{
+        const res = await fetch("/api/me");
+        me = await res.json();
+      }catch(e){ return; }
+      if(!me || !me.ok) return;
+
+      const username = (me.user && me.user.username) ? me.user.username : "anon";
+      const needsKey = !me.has_openai_key;
+      const needsEmail = !me.has_smtp;
+
+      if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
+        // auto open settings, and show a coach bubble on the Settings button
+        try{ showSettingsModal(true); }catch(e){}
+        const b = placeCoach($("settingsBtn"),
+          "Start here: Settings",
+          "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
+          "Open settings"
+        );
+        if(b){
+          $("coachSkip").onclick = () => { clearCoach(); markOnboardDone("settings_prompted", username); };
+          $("coachGo").onclick = () => { clearCoach(); showSettingsModal(true); markOnboardDone("settings_prompted", username); };
+        }
+        return;
+      }
+
+      if(!isOnboardDone("install_full_nudged", username)){
+        const installedCount = (state && state.installed_order && state.installed_order.length) ? state.installed_order.length : 0;
+        if(installedCount < 3){
+          const b = placeCoach($("installFullBtn"),
+            "Quick setup: Install full team",
+            "One click installs the full round table so you can start talking to each seat immediately.",
+            "Install"
+          );
+          if(b){
+            $("coachSkip").onclick = () => { clearCoach(); markOnboardDone("install_full_nudged", username); };
+            $("coachGo").onclick = () => {
+              clearCoach();
+              markOnboardDone("install_full_nudged", username);
+              if($("installFullBtn")) $("installFullBtn").click();
+            };
+          }
+        }else{
+          markOnboardDone("install_full_nudged", username);
+        }
+      }
+    }
+
+    async function afterSettingsSaved(){
+      try{ await loadState(); }catch(e){}
+      try{ await runFirstRunGuidance(); }catch(e){}
+    }
+
+    // Clicking outside bubble clears it
+    window.addEventListener("click", (e) => {
+      const b = document.getElementById("coachBubble");
+      if(!b) return;
+      if(b.contains(e.target)) return;
+      if(e.target && e.target.id && (e.target.id === "settingsBtn" || e.target.id === "installFullBtn")) return;
+      clearCoach();
+    });
+    window.addEventListener("resize", () => { clearCoach(); });
+
+    // run on load (after state is available)
+    setTimeout(() => { try{ runFirstRunGuidance(); }catch(e){} }, 600);
+
+$("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saving...";
       const fw = $("frameworkText").value || "";
       const res = await fetch("/api/framework", {
@@ -4599,5 +4751,4 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True)
-
 
