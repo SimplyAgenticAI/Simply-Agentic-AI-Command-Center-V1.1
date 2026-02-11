@@ -21,7 +21,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", "Agentic AI Round Table Command Center")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table ")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -4599,3 +4599,5 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True)
+
+
