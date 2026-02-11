@@ -44,7 +44,7 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Round Table Command Center")
 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
-client = OpenAI(api_key=OPENAI_API_KEY) if (OPENAI_API_KEY or "").strip() else None
+client = OpenAI(api_key=OPENAI_API_KEY)
 app = Flask(__name__)
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
@@ -170,73 +170,18 @@ def _auth_guard():
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
-
-    key_to_use = user_key or (OPENAI_API_KEY or "").strip()
-    if key_to_use:
-        g.openai_client = OpenAI(api_key=key_to_use)
-    else:
-        g.openai_client = None
+    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
 
     return None
 
 def get_openai_client():
     c = getattr(g, "openai_client", None)
-    if c is not None:
-        return c
-    if client is not None:
-        return client
-    raise OpenAIAuthError("No OpenAI API key configured. Open Settings and add your OpenAI API key.")
+    return c or client
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
-# =========================
-# OPENAI KEY HELPERS
-# =========================
-
-class OpenAIRequestError(Exception):
-    pass
-
-class OpenAIAuthError(OpenAIRequestError):
-    pass
-
-def _mask_key(key: str) -> str:
-    k = (key or "").strip()
-    if len(k) <= 8:
-        return "••••"
-    return "••••" + k[-4:]
-
-def _looks_like_placeholder(val: str) -> bool:
-    s = (val or "").strip()
-    if not s:
-        return False
-    # common placeholders users paste back in by accident
-    if set(s) <= set("*•") and len(s) >= 4:
-        return True
-    if "example" in s.lower():
-        return True
-    return False
-
-def _normalize_openai_key(val: str) -> str:
-    s = (val or "").strip()
-    # remove accidental quotes/spaces
-    s = s.strip("\"'")
-
-    return s
-
-
-def _is_openai_auth_error(e: Exception) -> bool:
-    # OpenAI SDK exceptions vary by version; use robust string and attribute checks.
-    sc = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
-    if sc == 401:
-        return True
-    s = (str(e) or "").lower()
-    if "incorrect api key" in s or "invalid_api_key" in s or "authenticationerror" in s:
-        return True
-    if "error code: 401" in s or "status': 401" in s:
-        return True
-    return False
 
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
@@ -1014,19 +959,30 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
     return parts
 
 
+
+def _classify_openai_error(e: Exception) -> Tuple[int, str]:
+    """
+    Returns (http_status, user_message)
+    """
+    s = (str(e) or "").lower()
+    if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
+        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-."
+    if "model" in s and ("not found" in s or "does not exist" in s):
+        return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
+    if "rate limit" in s or "429" in s:
+        return 429, "Rate limit hit. Try again in a moment."
+    return 500, "AI request failed. Check server logs for details."
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     try:
         resp = get_openai_client().chat.completions.create(
             model=MODEL,
             messages=[{"role": "system", "content": system}] + messages,
             temperature=temperature,
-            timeout=45,
+                    timeout=60,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        if _is_openai_auth_error(e):
-            raise OpenAIAuthError("Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-.")
-        # If we sent images to a model/SDK path that rejected them, retry once with text-only.
         safe_msgs: List[Dict[str, Any]] = []
         for m in messages:
             c = m.get("content", "")
@@ -1036,25 +992,23 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                     if isinstance(part, dict) and part.get("type") == "text":
                         texts.append(part.get("text", ""))
                     elif isinstance(part, dict) and part.get("type") == "image_url":
-                        texts.append("[Image attached]")
+                        texts.append("[Image attached but model did not accept image input]")
                 c2 = "\n".join([t for t in texts if t]).strip()
                 safe_msgs.append({"role": m.get("role", "user"), "content": c2})
             else:
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
-
         try:
             resp2 = get_openai_client().chat.completions.create(
-                model=MODEL,
-                messages=[{"role": "system", "content": system}] + safe_msgs,
-                temperature=temperature,
-                timeout=45,
-            )
-            out = (resp2.choices[0].message.content or "").strip()
-            return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+            model=MODEL,
+            messages=[{"role": "system", "content": system}] + safe_msgs,
+            temperature=temperature,
+            timeout=60,
+        )
         except Exception as e2:
-            if _is_openai_auth_error(e2):
-                raise OpenAIAuthError("Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-.")
-            raise OpenAIRequestError(str(e2)) from e2
+            # bubble up for route handlers to return a clean JSON error
+            raise e2
+        out = (resp2.choices[0].message.content or "").strip()
+        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
 
 
 def is_assembly(prompt: str) -> bool:
@@ -1151,23 +1105,30 @@ def api_get_user_settings():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
-    # do not leak password or API key
+
+    key = (settings.get("openai_key") or "").strip()
+    key_hint = ""
+    if key:
+        # show only last 4 chars to confirm something is saved, never return the key
+        key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
+
+    # do not leak password
     safe_smtp = {
         "host": smtp.get("host", ""),
         "port": smtp.get("port", 587),
         "user": smtp.get("user", ""),
         "from_name": smtp.get("from_name", "")
     }
-    k = (settings.get("openai_key") or "").strip()
     return jsonify({
         "ok": True,
         "settings": {
-            "openai_key": "",
-            "openai_key_set": bool(k),
-            "openai_key_last4": (k[-4:] if k else ""),
+            "has_openai_key": bool(key),
+            "openai_key_hint": key_hint,
             "smtp": safe_smtp
         }
     })
+
+
 
 @app.post("/api/user/settings")
 def api_set_user_settings():
@@ -1176,10 +1137,8 @@ def api_set_user_settings():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     data = request.get_json(force=True) or {}
-
-    openai_key_in = _normalize_openai_key(data.get("openai_key") or "")
-    if _looks_like_placeholder(openai_key_in):
-        openai_key_in = ""
+    openai_key_in = (data.get("openai_key") or "")
+    openai_key = openai_key_in.strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -1196,12 +1155,9 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-
-    # Only overwrite the OpenAI key if the user actually provided a new one.
-    if openai_key_in:
-        if not openai_key_in.startswith("sk-"):
-            return jsonify({"ok": False, "error": "OpenAI key looks invalid. Paste the full key that starts with sk-."}), 400
-        rec["settings"]["openai_key"] = openai_key_in
+    if openai_key and openai_key.startswith("sk-"):
+        rec["settings"]["openai_key"] = openai_key
+    # if user leaves it blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -1218,7 +1174,7 @@ def api_set_user_settings():
     users["users"][uname] = rec
     save_users(users)
 
-    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list((data or {}).keys())})
+    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     return jsonify({"ok": True})
 
 
@@ -1397,7 +1353,7 @@ def api_convene():
     atlis_sys = teammate_system_prompt(atlis)
     try:
         atlis_report = call_llm(
-        atlis_sys,
+            atlis_sys,
         [{"role": "user", "content": json.dumps({
             "task": "Integrity preflight check",
             "rules": [
@@ -1409,10 +1365,10 @@ def api_convene():
         }, indent=2)}],
         temperature=0.2
         )
-    except OpenAIAuthError as e:
-        return jsonify({"ok": False, "error": str(e), "code": "invalid_openai_key"}), 401
-    except OpenAIRequestError as e:
-        return jsonify({"ok": False, "error": "OpenAI request failed: " + str(e)}), 502
+    except Exception as e:
+        status, msg = _classify_openai_error(e)
+        append_log("convene_error", {"where":"atlis_preflight","error": str(e)})
+        return jsonify({"ok": False, "error": msg}), status
 
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
@@ -1433,10 +1389,10 @@ def api_convene():
 
         try:
             text = call_llm(sys, msgs, temperature=0.65)
-        except OpenAIAuthError as e:
-            return jsonify({"ok": False, "error": str(e), "code": "invalid_openai_key"}), 401
-        except OpenAIRequestError as e:
-            return jsonify({"ok": False, "error": "OpenAI request failed: " + str(e)}), 502
+        except Exception as e:
+            status, msg = _classify_openai_error(e)
+            append_log("convene_error", {"where": name, "error": str(e)})
+            return jsonify({"ok": False, "error": msg}), status
 
         new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
         save_thread(name, new_thread)
@@ -1497,12 +1453,7 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except OpenAIAuthError as e:
-        return jsonify({"ok": False, "error": str(e), "code": "invalid_openai_key"}), 401
-    except OpenAIRequestError as e:
-        return jsonify({"ok": False, "error": "OpenAI request failed: " + str(e)}), 502
+    text = call_llm(sys, msgs, temperature=0.65)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -3881,10 +3832,9 @@ HTML = r"""
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-       };
-       const keyVal = ($("openaiKey").value || "").trim();
-       if(keyVal){ payload.openai_key = keyVal; }
-       try{
+      };
+
+      try{
         rec.start();
       }catch(e){
         status.innerText = "Mic: error";
@@ -4510,11 +4460,10 @@ HTML = r"""
           return;
         }
         const s = data.settings || {};
-        // Never load the raw key into the browser. Show a hint instead.
-const hasKey = !!s.openai_key_set;
-const last4 = (s.openai_key_last4 || "").trim();
-$("openaiKey").value = "";
-$("openaiKey").placeholder = hasKey ? (`Saved (${last4 ? "••••"+last4 : "••••"})`) : "Paste your OpenAI API key (sk-...)";
+        // Never auto-fill the key. Show a hint only.
+        const hint = s.openai_key_hint || "";
+        $("openaiKey").value = "";
+        $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
@@ -4549,7 +4498,10 @@ $("openaiKey").placeholder = hasKey ? (`Saved (${last4 ? "••••"+last4 : 
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
-      const payload = {        smtp: {
+      const keyVal = ($("openaiKey").value || "").trim();
+      const payload = {
+        openai_key: (keyVal && keyVal.startsWith("sk-")) ? keyVal : "",
+        smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
           user: ($("smtpUser").value || "").trim(),
