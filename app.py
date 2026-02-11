@@ -4,16 +4,20 @@ import re
 import smtplib
 import uuid
 import base64
+import secrets
+import hashlib
+import hmac
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 
-from flask import Flask, request, render_template_string, jsonify
+from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g
 from dotenv import load_dotenv
 from openai import OpenAI
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
 
@@ -38,11 +42,11 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Round Table Command Center")
 
-if not OPENAI_API_KEY:
-    raise ValueError("Missing OPENAI_API_KEY in .env")
+# Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 app = Flask(__name__)
+
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 BASE = Path(__file__).parent
@@ -58,6 +62,121 @@ DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
+
+# =========================
+# AUTH + PER-USER SETTINGS
+# =========================
+
+USERS_PATH = DATA / "users.json"
+SECRET_PATH = DATA / "session_secret.key"
+
+def _load_or_create_secret() -> str:
+    try:
+        if SECRET_PATH.exists():
+            s = SECRET_PATH.read_text(encoding="utf-8").strip()
+            if s:
+                return s
+    except Exception:
+        pass
+    s = secrets.token_hex(32)
+    try:
+        SECRET_PATH.write_text(s, encoding="utf-8")
+    except Exception:
+        pass
+    return s
+
+app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+def load_users() -> Dict[str, Any]:
+    data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"users": {}, "updated_at": None}
+    data.setdefault("users", {})
+    return data
+
+def save_users(data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(USERS_PATH, data)
+
+def has_any_user() -> bool:
+    data = load_users()
+    return bool((data.get("users") or {}))
+
+def _clean_username(u: str) -> str:
+    u = (u or "").strip().lower()
+    u = re.sub(r"[^a-z0-9_\.\-]+", "", u)
+    return u
+
+def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
+    return {
+        "username": username,
+        "password_hash": generate_password_hash(password),
+        "email": (email or "").strip(),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "settings": {
+            "openai_key": "",
+            "smtp": {
+                "host": "",
+                "port": 587,
+                "user": "",
+                "pass": "",
+                "from_name": ""
+            }
+        },
+        "reset": {"token_hash": "", "created_at": None}
+    }
+
+def current_user() -> Optional[Dict[str, Any]]:
+    uname = session.get("user")
+    if not uname:
+        return None
+    data = load_users()
+    return (data.get("users") or {}).get(uname)
+
+def login_required_api() -> bool:
+    p = request.path or ""
+    if p.startswith("/api/") and p not in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
+        return True
+    return False
+
+@app.before_request
+def _auth_guard():
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
+        return None
+    if request.path.startswith("/static/"):
+        return None
+
+    # allow setup if no users exist
+    if request.path.startswith("/setup") and not has_any_user():
+        return None
+
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
+        return None
+
+    if request.path.startswith("/api/") and not session.get("user"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    if request.path == "/" and not session.get("user"):
+        # if no users exist, send to setup
+        if not has_any_user():
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
+
+    # attach per-user OpenAI client for this request
+    u = current_user()
+    user_key = ""
+    if u:
+        user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
+    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
+
+    return None
+
+def get_openai_client():
+    c = getattr(g, "openai_client", None)
+    return c or client
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
@@ -681,12 +800,41 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
 # EMAIL
 # =========================
 
+def _user_smtp_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    smtp = (((u or {}).get("settings") or {}).get("smtp") or {})
+    if not isinstance(smtp, dict):
+        smtp = {}
+    return {
+        "host": (smtp.get("host") or "").strip() or SMTP_HOST,
+        "port": int(smtp.get("port") or SMTP_PORT),
+        "user": (smtp.get("user") or "").strip(),
+        "pass": (smtp.get("pass") or "").strip(),
+        "from_name": (smtp.get("from_name") or "").strip() or SMTP_FROM_NAME
+    }
+
+def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
+    s = _user_smtp_settings(u)
+    if s["user"] and s["pass"]:
+        return True, ""
+    # Disabled global SMTP fallback
+    return False, "No SMTP connected. Add your email in Settings."
+    return False, "No SMTP connected. Add your email in Settings."
+
+def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str, port: int, user: str, password: str, from_name: str) -> None:
+    msg = MIMEMultipart()
+    msg["From"] = f"{from_name} <{user}>"
+    msg["To"] = to_addr
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    with smtplib.SMTP(host, port) as server:
+        server.starttls()
+        server.login(user, password)
+        server.send_message(msg)
+
 def smtp_ready() -> Tuple[bool, str]:
-    if not SMTP_USER or not SMTP_PASS:
-        return False, "SMTP_USER and SMTP_PASS are not set in .env"
-    return True, ""
-
-
+    # Backward compatible, used in a few places
+    return smtp_ready_for_user(current_user())
 def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_addr: str) -> None:
     msg = MIMEMultipart()
     msg["From"] = f"{from_name} <{from_addr}>"
@@ -813,7 +961,7 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     try:
-        resp = client.chat.completions.create(
+        resp = get_openai_client().chat.completions.create(
             model=MODEL,
             messages=[{"role": "system", "content": system}] + messages,
             temperature=temperature,
@@ -834,7 +982,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c2})
             else:
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        resp2 = client.chat.completions.create(
+        resp2 = get_openai_client().chat.completions.create(
             model=MODEL,
             messages=[{"role": "system", "content": system}] + safe_msgs,
             temperature=temperature,
@@ -873,7 +1021,8 @@ def api_state():
     installed = reg["installed"]
     installed_order = reg["installed_order"]
     active_order = reg.get("active_order") or []
-    ready, reason = smtp_ready()
+    u = current_user()
+    ready, reason = smtp_ready_for_user(u)
     return jsonify({
         "ok": True,
         "app_title": APP_TITLE,
@@ -909,6 +1058,91 @@ def api_state():
             "length": len(load_core_framework() or "")
         }
     })
+
+
+
+@app.get("/api/me")
+def api_me():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    settings = (u.get("settings") or {})
+    smtp = (settings.get("smtp") or {})
+    return jsonify({
+        "ok": True,
+        "user": {
+            "username": u.get("username", ""),
+            "email": u.get("email", "")
+        },
+        "has_openai_key": bool((settings.get("openai_key") or "").strip()),
+        "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
+    })
+
+@app.get("/api/user/settings")
+def api_get_user_settings():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    settings = (u.get("settings") or {})
+    smtp = (settings.get("smtp") or {})
+    # do not leak password
+    safe_smtp = {
+        "host": smtp.get("host", ""),
+        "port": smtp.get("port", 587),
+        "user": smtp.get("user", ""),
+        "from_name": smtp.get("from_name", "")
+    }
+    return jsonify({
+        "ok": True,
+        "settings": {
+            "openai_key": settings.get("openai_key", ""),
+            "smtp": safe_smtp
+        }
+    })
+
+@app.post("/api/user/settings")
+def api_set_user_settings():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(force=True) or {}
+    openai_key = (data.get("openai_key") or "").strip()
+
+    smtp_in = data.get("smtp") or {}
+    if not isinstance(smtp_in, dict):
+        smtp_in = {}
+
+    smtp_host = (smtp_in.get("host") or "").strip()
+    smtp_port = int(smtp_in.get("port") or 587)
+    smtp_user = (smtp_in.get("user") or "").strip()
+    smtp_pass = (smtp_in.get("pass") or "").strip()
+    smtp_from_name = (smtp_in.get("from_name") or "").strip()
+
+    users = load_users()
+    uname = u.get("username")
+    rec = (users.get("users") or {}).get(uname) or u
+
+    rec.setdefault("settings", {})
+    rec["settings"]["openai_key"] = openai_key
+
+    rec["settings"].setdefault("smtp", {})
+    if smtp_host != "":
+        rec["settings"]["smtp"]["host"] = smtp_host
+    rec["settings"]["smtp"]["port"] = smtp_port
+    if smtp_user != "":
+        rec["settings"]["smtp"]["user"] = smtp_user
+    if smtp_pass != "":
+        rec["settings"]["smtp"]["pass"] = smtp_pass
+    if smtp_from_name != "":
+        rec["settings"]["smtp"]["from_name"] = smtp_from_name
+
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+
+    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
+    return jsonify({"ok": True})
 
 
 @app.get("/api/framework")
@@ -1208,7 +1442,8 @@ def api_thread(name: str):
 
 @app.post("/api/send_email")
 def api_send_email():
-    ready, reason = smtp_ready()
+    u = current_user()
+    ready, reason = smtp_ready_for_user(u)
     if not ready:
         return jsonify({"ok": False, "error": reason}), 400
 
@@ -1225,12 +1460,23 @@ def api_send_email():
         return jsonify({"ok": False, "error": "Invalid recipient email"}), 400
 
     try:
-        send_email_smtp(
+        s = _user_smtp_settings(u)
+        host = s["host"]
+        port = s["port"]
+        user = s["user"] or SMTP_USER
+        password = s["pass"] or SMTP_PASS
+        from_name = s["from_name"]
+        if not user or not password:
+            raise ValueError("Missing SMTP credentials")
+        send_email_smtp_with_creds(
             to_addr=to_addr,
             subject=subject,
             body=body,
-            from_name=SMTP_FROM_NAME,
-            from_addr=SMTP_USER
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            from_name=from_name
         )
     except Exception as e:
         append_log("email_error", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "error": str(e)})
@@ -1238,6 +1484,304 @@ def api_send_email():
 
     append_log("email_sent", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "sent_at": now_iso()})
     return jsonify({"ok": True})
+
+
+
+# =========================
+# AUTH ROUTES
+# =========================
+
+AUTH_BASE_CSS = r"""
+<style>
+  :root{ --text:#e6edff; --muted:#b8c4ffcc; }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: Arial, sans-serif;
+    background:
+      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
+      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
+      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+    color:var(--text);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 26px 14px;
+  }
+  .card{
+    width: 520px;
+    max-width: calc(100vw - 22px);
+    background: rgba(14,22,48,.82);
+    border:1px solid rgba(42,58,106,.9);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
+  }
+  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
+  .dot{
+    width:10px;height:10px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
+    box-shadow: 0 0 14px rgba(124,58,237,.55);
+  }
+  .muted{ color: var(--muted); font-size: 12px; }
+  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  input{
+    width:100%;
+    border-radius: 12px;
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(11,16,36,.92);
+    color: var(--text);
+    padding:10px;
+    outline:none;
+    font-size:13px;
+    line-height:1.3;
+  }
+  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
+  .btn{
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(11,16,36,.9);
+    color:var(--text);
+    padding:10px 12px;
+    border-radius:12px;
+    cursor:pointer;
+    font-size:13px;
+  }
+  .btn:hover{ background: rgba(20,28,60,.92); }
+  .btnPrimary{
+    border:1px solid rgba(124,58,237,.75);
+    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
+    box-shadow: 0 0 24px rgba(124,58,237,.18);
+  }
+  a{ color: #c7d2fe; text-decoration:none; }
+  a:hover{ text-decoration: underline; }
+  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
+  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
+</style>
+"""
+
+LOGIN_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{app_title}} | Login</title>
+""" + AUTH_BASE_CSS + r"""
+</head><body>
+  <div class="card">
+    <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+    <div class="muted">Login to access your command center.</div>
+
+    <form method="post" action="/login">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required/>
+      <label>Password</label>
+      <input name="password" type="password" autocomplete="current-password" required/>
+      <div class="row">
+        <label style="margin:0; display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" name="remember" value="1" style="width:auto; margin:0;"> Remember me
+        </label>
+        <button class="btn btnPrimary" type="submit">Login</button>
+      </div>
+    </form>
+
+    <div class="row">
+      <div class="muted"><a href="/reset">Reset password</a></div>
+      {% if allow_setup %}
+        <div class="muted"><a href="/setup">First time setup</a></div>
+      {% endif %}
+    </div>
+
+    {% if error %}<div class="err">{{error}}</div>{% endif %}
+  </div>
+</body></html>
+"""
+
+SETUP_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{app_title}} | Setup</title>
+""" + AUTH_BASE_CSS + r"""
+</head><body>
+  <div class="card">
+    <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+    <div class="muted">Create the first account.</div>
+
+    <form method="post" action="/setup">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required/>
+      <label>Email (optional)</label>
+      <input name="email" autocomplete="email"/>
+      <label>Password</label>
+      <input name="password" type="password" autocomplete="new-password" required/>
+      <div class="row">
+        <button class="btn btnPrimary" type="submit">Create account</button>
+        <a class="muted" href="/login">Back to login</a>
+      </div>
+    </form>
+
+    {% if error %}<div class="err">{{error}}</div>{% endif %}
+  </div>
+</body></html>
+"""
+
+RESET_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{app_title}} | Reset Password</title>
+""" + AUTH_BASE_CSS + r"""
+</head><body>
+  <div class="card">
+    <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+    <div class="muted">Request a reset token, then set a new password.</div>
+
+    <form method="post" action="/reset">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required/>
+      <div class="row">
+        <button class="btn btnPrimary" type="submit">Generate reset token</button>
+        <a class="muted" href="/login">Back to login</a>
+      </div>
+    </form>
+
+    {% if token %}<div class="ok">Reset token (copy this): {{token}}</div>{% endif %}
+    {% if error %}<div class="err">{{error}}</div>{% endif %}
+
+    <div style="height:14px"></div>
+
+    <form method="post" action="/reset_password">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required/>
+      <label>Reset token</label>
+      <input name="token" required/>
+      <label>New password</label>
+      <input name="new_password" type="password" autocomplete="new-password" required/>
+      <div class="row">
+        <button class="btn btnPrimary" type="submit">Set new password</button>
+      </div>
+    </form>
+
+    {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
+  </div>
+</body></html>
+"""
+
+def _make_token() -> str:
+    return secrets.token_urlsafe(18)
+
+def _hash_token(token: str) -> str:
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+@app.get("/setup")
+def setup():
+    if has_any_user():
+        return redirect(url_for("login"))
+    return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=None)
+
+@app.post("/setup")
+def setup_post():
+    if has_any_user():
+        return redirect(url_for("login"))
+    username = _clean_username(request.form.get("username", ""))
+    email = (request.form.get("email") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    if not username or not password:
+        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Missing username or password")
+
+    if len(username) < 3:
+        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters")
+    if len(password) < 8:
+        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters")
+
+    data = load_users()
+    data["users"][username] = _new_user(username=username, password=password, email=email)
+    save_users(data)
+
+    session["user"] = username
+    session.permanent = True
+    return redirect(url_for("index"))
+
+@app.get("/login")
+def login():
+    allow_setup = not has_any_user()
+    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup)
+
+@app.post("/login")
+def login_post():
+    username = _clean_username(request.form.get("username", ""))
+    password = (request.form.get("password") or "").strip()
+    remember = (request.form.get("remember") or "").strip()
+
+    data = load_users()
+    u = (data.get("users") or {}).get(username)
+    if not u or not check_password_hash(u.get("password_hash",""), password):
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user()))
+
+    session["user"] = username
+    session.permanent = bool(remember)
+    # if remember is checked, keep for 30 days
+    if remember:
+        app.permanent_session_lifetime = timedelta(days=30)
+
+    return redirect(url_for("index"))
+
+@app.get("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+@app.get("/reset")
+def reset():
+    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=None)
+
+@app.post("/reset")
+def reset_post():
+    username = _clean_username(request.form.get("username", ""))
+    data = load_users()
+    u = (data.get("users") or {}).get(username)
+    if not u:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
+
+    token = _make_token()
+    u.setdefault("reset", {})
+    u["reset"]["token_hash"] = _hash_token(token)
+    u["reset"]["created_at"] = now_iso()
+    u["updated_at"] = now_iso()
+
+    data["users"][username] = u
+    save_users(data)
+
+    # Token is shown once on screen (copy it). In production you'd email this.
+    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=token, ok=None)
+
+@app.post("/reset_password")
+def reset_password_post():
+    username = _clean_username(request.form.get("username", ""))
+    token = (request.form.get("token") or "").strip()
+    new_password = (request.form.get("new_password") or "").strip()
+
+    if len(new_password) < 8:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="New password must be at least 8 characters", token=None, ok=None)
+
+    data = load_users()
+    u = (data.get("users") or {}).get(username)
+    if not u:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
+
+    th = ((u.get("reset") or {}).get("token_hash")) or ""
+    if not th or _hash_token(token) != th:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token", token=None, ok=None)
+
+    u["password_hash"] = generate_password_hash(new_password)
+    u["reset"]["token_hash"] = ""
+    u["reset"]["created_at"] = None
+    u["updated_at"] = now_iso()
+    data["users"][username] = u
+    save_users(data)
+
+    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
 
 
 # =========================
@@ -1869,6 +2413,8 @@ HTML = r"""
       <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
+      <button class="btn" id="settingsBtn">Settings</button>
+      <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
   </div>
 
@@ -2017,6 +2563,39 @@ HTML = r"""
                   <button class="btn btnPrimary" id="saveFramework">Save framework</button>
                 </div>
                 <div class="tiny" id="frameworkStatus" style="margin-top:10px;"></div>
+              </div>
+
+
+              <div class="modalForm" id="settingsForm">
+                <div class="tiny" style="margin-bottom:10px;">
+                  Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
+                </div>
+
+                <label>OpenAI API Key</label>
+                <input id="openaiKey" type="password" placeholder="sk-..." />
+
+                <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
+
+                <label>SMTP Host</label>
+                <input id="smtpHost" placeholder="smtp.gmail.com" />
+
+                <label>SMTP Port</label>
+                <input id="smtpPort" type="number" placeholder="587" />
+
+                <label>SMTP Username (from address)</label>
+                <input id="smtpUser" placeholder="you@example.com" />
+
+                <label>SMTP Password (app password recommended)</label>
+                <input id="smtpPass" type="password" placeholder="••••••••" />
+
+                <label>From Name</label>
+                <input id="smtpFromName" placeholder="Your Name" />
+
+                <div class="actions">
+                  <button class="btn" id="cancelSettings">Cancel</button>
+                  <button class="btn btnPrimary" id="saveSettings">Save settings</button>
+                </div>
+                <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
 
               <img id="modalImg" class="imgPreview" alt="Preview"/>
@@ -3797,6 +4376,73 @@ HTML = r"""
 
     $("cancelFramework").onclick = () => hideModal();
 
+    // ===== Settings (per-user OpenAI key + email SMTP) =====
+    async function loadSettings(){
+      $("settingsStatus").innerText = "Loading...";
+      try{
+        const res = await fetch("/api/user/settings");
+        const data = await res.json();
+        if(!data.ok){
+          $("settingsStatus").innerText = data.error || "Load failed";
+          return;
+        }
+        const s = data.settings || {};
+        $("openaiKey").value = s.openai_key || "";
+        const smtp = s.smtp || {};
+        $("smtpHost").value = smtp.host || "";
+        $("smtpPort").value = smtp.port || 587;
+        $("smtpUser").value = smtp.user || "";
+        $("smtpPass").value = "";
+        $("smtpFromName").value = smtp.from_name || "";
+        $("settingsStatus").innerText = "Ready";
+      }catch(e){
+        $("settingsStatus").innerText = "Load failed";
+      }
+    }
+
+    function showSettingsModal(){
+      showModal();
+      $("frameworkForm").style.display = "none";
+      $("teamForm").style.display = "none";
+      $("createForm").style.display = "none";
+      $("settingsForm").style.display = "block";
+      $("modalImg").style.display = "none";
+      loadSettings();
+    }
+
+    $("settingsBtn").onclick = () => showSettingsModal();
+    $("cancelSettings").onclick = () => hideModal();
+
+    $("saveSettings").onclick = async () => {
+      $("settingsStatus").innerText = "Saving...";
+      const payload = {
+        openai_key: ($("openaiKey").value || "").trim(),
+        smtp: {
+          host: ($("smtpHost").value || "").trim(),
+          port: parseInt(($("smtpPort").value || "587").trim(), 10),
+          user: ($("smtpUser").value || "").trim(),
+          pass: ($("smtpPass").value || "").trim(),
+          from_name: ($("smtpFromName").value || "").trim()
+        }
+      };
+      try{
+        const res = await fetch("/api/user/settings", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(!data.ok){
+          $("settingsStatus").innerText = data.error || "Save failed";
+          return;
+        }
+        $("settingsStatus").innerText = "Saved";
+      }catch(e){
+        $("settingsStatus").innerText = "Save failed";
+      }
+    };
+
+
     $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saving...";
       const fw = $("frameworkText").value || "";
@@ -3953,4 +4599,3 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True)
-
