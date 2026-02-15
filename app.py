@@ -19,6 +19,19 @@ from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
+# If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
+try:
+    from google.oauth2.credentials import Credentials as GoogleCredentials
+    from google_auth_oauthlib.flow import Flow as GoogleOAuthFlow
+    from googleapiclient.discovery import build as google_build
+    from googleapiclient.errors import HttpError as GoogleHttpError
+except Exception:
+    GoogleCredentials = None
+    GoogleOAuthFlow = None
+    google_build = None
+    GoogleHttpError = Exception
+
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table ")
@@ -41,6 +54,13 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Round Table Command Center")
+
+# Gmail OAuth (recommended for Gmail accounts; avoids SMTP 535 BadCredentials)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
@@ -205,6 +225,362 @@ def append_log(name: str, payload: Dict[str, Any]) -> None:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
 
+# =========================
+# TASK LOG (APPEND-ONLY)
+# =========================
+
+TASK_LOG_DIR = DATA / "task_logs"
+
+def _safe_name(s: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", (s or "anon"))[:80] or "anon"
+
+def _task_log_path_for_user(username: Optional[str]) -> Path:
+    TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return TASK_LOG_DIR / f"{_safe_name(username or 'anon')}.jsonl"
+
+def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", status: str = "success") -> None:
+    """Append-only task log. One JSON object per line (JSONL)."""
+    try:
+        username = session.get("user") or "anon"
+        path = _task_log_path_for_user(username)
+        entry = {
+            "id": str(uuid.uuid4()),
+            "ts": now_iso(),
+            "user": username,
+            "teammate": teammate or record.get("name") or record.get("from_teammate") or "",
+            "action": action,
+            "status": status,
+            "record": record,
+        }
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        # Task logging must never break core flows
+        pass
+
+def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> List[Dict[str, Any]]:
+    username = session.get("user") or "anon"
+    path = _task_log_path_for_user(username)
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        # take the most recent N lines (small, safe default)
+        lines = lines[-max(1, min(2000, limit * 3)):]
+        out: List[Dict[str, Any]] = []
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if teammate and (obj.get("teammate") or "") != teammate:
+                continue
+            if status and (obj.get("status") or "") != status:
+                continue
+            out.append(obj)
+            if len(out) >= limit:
+                break
+        return list(reversed(out))
+    except Exception:
+        return []
+
+
+# =========================
+# TEAMMATE ACTION STACKS (Sequence Runner)
+# =========================
+#
+# Per-teammate stacks that run steps sequentially.
+# Scheduling is safe: no background threads at import.
+# Schedules run via /api/action_stack_schedules/tick which the UI pings.
+
+ACTION_STACKS_DIR = DATA / "action_stacks"
+ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
+ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
+ACTION_STACK_SCHEDULES_DIR = DATA / "action_stack_schedules"
+
+ACTION_STACKS_DIR.mkdir(exist_ok=True)
+ACTION_STACK_RUNS_DIR.mkdir(exist_ok=True)
+ACTION_STACK_MEMORY_DIR.mkdir(exist_ok=True)
+ACTION_STACK_SCHEDULES_DIR.mkdir(exist_ok=True)
+
+def _action_user_dir(root: Path, username: str) -> Path:
+    d = root / _safe_name(username or "anon")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _stacks_path(u: str, teammate: str) -> Path:
+    d = _action_user_dir(ACTION_STACKS_DIR, u)
+    return d / f"{_safe_name(teammate)}.json"
+
+def _runs_path(u: str) -> Path:
+    d = _action_user_dir(ACTION_STACK_RUNS_DIR, u)
+    return d / "runs.json"
+
+def _memory_path(u: str) -> Path:
+    d = _action_user_dir(ACTION_STACK_MEMORY_DIR, u)
+    return d / "memory.json"
+
+def _schedules_path(u: str) -> Path:
+    d = _action_user_dir(ACTION_STACK_SCHEDULES_DIR, u)
+    return d / "schedules.json"
+
+def _load_saved_stacks(u: str, teammate: str) -> Dict[str, Any]:
+    return load_json(_stacks_path(u, teammate), {"stacks": {}, "updated_at": None}) or {"stacks": {}, "updated_at": None}
+
+def _save_saved_stacks(u: str, teammate: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_stacks_path(u, teammate), data)
+
+def _load_runs(u: str) -> Dict[str, Any]:
+    return load_json(_runs_path(u), {"runs": {}, "updated_at": None}) or {"runs": {}, "updated_at": None}
+
+def _save_runs(u: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_runs_path(u), data)
+
+def _load_action_memory(u: str) -> Dict[str, Any]:
+    return load_json(_memory_path(u), {"memory": {}, "updated_at": None}) or {"memory": {}, "updated_at": None}
+
+def _save_action_memory(u: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_memory_path(u), data)
+
+def _load_schedules(u: str) -> List[Dict[str, Any]]:
+    data = load_json(_schedules_path(u), {"schedules": [], "updated_at": None}) or {"schedules": [], "updated_at": None}
+    return data.get("schedules") or []
+
+def _save_schedules(u: str, schedules: List[Dict[str, Any]]) -> None:
+    save_json(_schedules_path(u), {"schedules": schedules, "updated_at": now_iso()})
+
+def _parse_local_dt(dt_local: str) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(dt_local)
+    except Exception:
+        return None
+
+def _safe_render(template: str, ctx: Dict[str, Any]) -> str:
+    out = template or ""
+    for k, v in (ctx or {}).items():
+        out = out.replace("{{" + k + "}}", str(v))
+    return out
+
+def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids: Optional[List[str]] = None) -> str:
+    file_ids = file_ids or []
+    # Use existing followup core if available
+    try:
+        if "_execute_followup_core" in globals():
+            try:
+                res = _execute_followup_core(teammate, prompt, file_ids=file_ids, user_override=u)  # type: ignore[name-defined]
+            except TypeError:
+                res = _execute_followup_core(teammate, prompt, file_ids=file_ids)  # type: ignore[name-defined]
+            return (res or {}).get("reply", "") or ""
+    except Exception:
+        pass
+
+    reg = load_registry()
+    defn = (reg.get("installed") or {}).get(teammate)
+    if not defn:
+        return ""
+    sys = teammate_system_prompt(defn)
+    msg2, _, vision_images = build_prompt_with_attachments(prompt, file_ids)
+    user_content = _build_user_content(msg2, vision_images)
+    return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
+
+def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if isinstance(steps, list):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            typ = (s.get("type") or "").strip().lower()
+            if typ not in ("prompt", "ask_user", "wait", "save_memory", "route"):
+                typ = "prompt"
+            out.append({
+                "type": typ,
+                "label": (s.get("label") or "").strip()[:80],
+                "prompt": (s.get("prompt") or ""),
+                "seconds": int(s.get("seconds") or 0),
+                "key": (s.get("key") or "").strip()[:80],
+                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
+            })
+    return out
+
+def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
+    run_id = uuid.uuid4().hex
+    return {
+        "id": run_id,
+        "user": u,
+        "teammate": teammate,
+        "stack_name": stack_name,
+        "created_at": now_iso(),
+        "status": "running",
+        "cursor": 0,
+        "error": "",
+        "input": user_input or "",
+        "steps": steps,
+        "outputs": {},
+        "log": [],
+    }
+
+def _persist_run(run: Dict[str, Any]) -> None:
+    u = run.get("user") or "anon"
+    runs = _load_runs(u)
+    runs.setdefault("runs", {})
+    runs["runs"][run["id"]] = run
+    _save_runs(u, runs)
+
+def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> None:
+    run.setdefault("log", [])
+    run["log"].append({"ts": now_iso(), "event": event, "data": data})
+
+def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
+    u = run.get("user") or "anon"
+    mem = (_load_action_memory(u).get("memory") or {})
+    steps = run.get("steps") or []
+    outputs = run.get("outputs") or {}
+    cursor = int(run.get("cursor") or 0)
+    last_output = outputs.get(str(cursor-1), "") if cursor > 0 else ""
+
+    while cursor < len(steps):
+        step = steps[cursor]
+        stype = step.get("type", "prompt")
+        ctx = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
+        for i, out in outputs.items():
+            try:
+                idx = int(i)
+                ctx[f"step{idx+1}.output"] = out
+            except Exception:
+                continue
+        # expose memory keys as memory.key
+        for k, v in mem.items():
+            ctx[f"memory.{k}"] = v
+
+        try:
+            if stype == "ask_user":
+                run["status"] = "needs_input"
+                run["cursor"] = cursor
+                _append_run_log(run, "needs_input", {"step": cursor+1, "label": step.get("label","")})
+                _persist_run(run)
+                return run
+
+            if stype == "wait":
+                secs = max(0, min(3600, int(step.get("seconds") or 0)))
+                run["status"] = "waiting"
+                run["cursor"] = cursor
+                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
+                _append_run_log(run, "wait", {"step": cursor+1, "seconds": secs})
+                _persist_run(run)
+                return run
+
+            if stype == "save_memory":
+                key = (step.get("key") or "").strip()
+                val_t = step.get("prompt") or "{{last}}"
+                val = _safe_render(val_t, ctx)
+                if key:
+                    mem2 = _load_action_memory(u)
+                    mem2.setdefault("memory", {})
+                    mem2["memory"][key] = val
+                    _save_action_memory(u, mem2)
+                    mem = mem2["memory"]
+                outputs[str(cursor)] = val
+                last_output = val
+                _append_run_log(run, "save_memory", {"step": cursor+1, "key": key})
+
+            if stype == "route":
+                to_tm = (step.get("to_teammate") or "").strip()
+                p = _safe_render(step.get("prompt") or "{{last}}", ctx)
+                out = _call_teammate_prompt_for_user(u, to_tm, p)
+                outputs[str(cursor)] = out
+                last_output = out
+                _append_run_log(run, "route", {"step": cursor+1, "to": to_tm})
+
+            if stype == "prompt":
+                p = _safe_render(step.get("prompt") or "", ctx)
+                out = _call_teammate_prompt_for_user(u, run.get("teammate",""), p)
+                outputs[str(cursor)] = out
+                last_output = out
+                _append_run_log(run, "prompt", {"step": cursor+1, "label": step.get("label","")})
+
+            run["outputs"] = outputs
+            cursor += 1
+            run["cursor"] = cursor
+            run["status"] = "running"
+            _persist_run(run)
+
+        except Exception as e:
+            run["status"] = "failed"
+            run["error"] = str(e)
+            run["cursor"] = cursor
+            _append_run_log(run, "error", {"step": cursor+1, "error": str(e)})
+            _persist_run(run)
+            return run
+
+    run["status"] = "complete"
+    run["cursor"] = len(steps)
+    _append_run_log(run, "complete", {"steps": len(steps)})
+    _persist_run(run)
+    return run
+
+def _run_due_schedules_once() -> None:
+    if not ACTION_STACK_SCHEDULES_DIR.exists():
+        return
+    now_local = datetime.now()
+    for user_dir in ACTION_STACK_SCHEDULES_DIR.iterdir():
+        if not user_dir.is_dir():
+            continue
+        u = user_dir.name
+        schedules = _load_schedules(u)
+        if not schedules:
+            continue
+        changed = False
+        for s in schedules:
+            try:
+                teammate = s.get("teammate") or ""
+                stack_name = s.get("stack_name") or ""
+                mode = s.get("mode") or ""
+                last_run = s.get("last_run")
+                due = False
+
+                if mode == "once":
+                    dt = _parse_local_dt(s.get("run_at") or "")
+                    if dt and now_local >= dt and not last_run:
+                        due = True
+                elif mode == "daily":
+                    t = s.get("time") or ""
+                    if re.match(r"^\d{2}:\d{2}$", t):
+                        hh, mm = t.split(":")
+                        target = now_local.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+                        if abs((now_local - target).total_seconds()) <= 45:
+                            if last_run:
+                                try:
+                                    lr = datetime.fromisoformat(str(last_run).replace("Z",""))
+                                    due = (lr.date() != now_local.date())
+                                except Exception:
+                                    due = True
+                            else:
+                                due = True
+
+                if not due:
+                    continue
+
+                data = _load_saved_stacks(u, teammate)
+                stack = (data.get("stacks") or {}).get(stack_name)
+                if not stack:
+                    continue
+                steps = _normalize_steps(stack.get("steps"))
+                run = _init_run(u=u, teammate=teammate, stack_name=stack_name, steps=steps, user_input="")
+                _persist_run(run)
+                _run_action_stack_engine(run)
+
+                s["last_run"] = now_iso()
+                changed = True
+            except Exception:
+                continue
+        if changed:
+            _save_schedules(u, schedules)
 
 # =========================
 # CORE FRAMEWORK (ENFORCED)
@@ -820,6 +1196,84 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
     return False, "No SMTP connected. Add your email in Settings."
     return False, "No SMTP connected. Add your email in Settings."
 
+
+def _gmail_libs_ready() -> Tuple[bool, str]:
+    if GoogleOAuthFlow is None or GoogleCredentials is None or google_build is None:
+        return False, "Gmail OAuth libraries are not installed on the server. Add google-auth, google-auth-oauthlib, google-api-python-client to requirements.txt."
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
+        return False, "Gmail OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
+    return True, ""
+
+def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not u:
+        return {}
+    settings = (u.get("settings") or {})
+    return (settings.get("gmail_oauth") or {})
+
+def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
+    users = load_users()
+    uname = u.get("username")
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    if token_info:
+        rec["settings"]["gmail_oauth"] = token_info
+    else:
+        # disconnect
+        if "gmail_oauth" in rec.get("settings", {}):
+            rec["settings"].pop("gmail_oauth", None)
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+
+def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[Any], str]:
+    ok, reason = _gmail_libs_ready()
+    if not ok:
+        return None, reason
+    token_info = _user_gmail_oauth(u)
+    if not token_info:
+        return None, "Gmail not connected. Go to Settings and connect Gmail."
+    try:
+        creds = GoogleCredentials.from_authorized_user_info(token_info, scopes=GMAIL_SCOPES)
+    except Exception:
+        return None, "Gmail token is invalid or corrupted. Disconnect and reconnect Gmail."
+    # Refresh if needed
+    try:
+        if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
+            from google.auth.transport.requests import Request as GoogleRequest
+            creds.refresh(GoogleRequest())  # type: ignore[attr-defined]
+    except Exception:
+        # If refresh fails, require reconnect
+        return None, "Gmail session expired and could not be refreshed. Disconnect and reconnect Gmail."
+    # Persist refreshed token fields if possible
+    try:
+        token_info2 = json.loads(creds.to_json())
+        _save_user_gmail_oauth(u, token_info2)
+    except Exception:
+        pass
+    return creds, ""
+
+def _gmail_send_message(creds: Any, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
+    # Build RFC 2822 message
+    from_header = "me"
+    if from_name:
+        # Gmail API uses the authenticated mailbox; From name can be set via "From:" header.
+        from_header = f"{from_name} <me>"
+    msg = MIMEMultipart()
+    msg["To"] = to_addr
+    msg["Subject"] = subject
+    msg["From"] = from_header
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+    service = google_build("gmail", "v1", credentials=creds)
+    service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+def _email_capability_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    # Returns what can be used right now
+    gmail_connected = bool(_user_gmail_oauth(u))
+    smtp_ok, _ = smtp_ready_for_user(u)
+    return {"gmail_connected": gmail_connected, "smtp_ready": smtp_ok}
+
 def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str, port: int, user: str, password: str, from_name: str) -> None:
     msg = MIMEMultipart()
     msg["From"] = f"{from_name} <{user}>"
@@ -1081,6 +1535,141 @@ def api_state():
 
 
 
+@app.get("/api/task_log")
+def api_task_log():
+    # Optional query params: teammate, status, limit
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except Exception:
+        limit = 200
+    limit = max(1, min(500, limit))
+    teammate = (request.args.get("teammate") or "").strip()
+    status = (request.args.get("status") or "").strip()
+    return jsonify({"ok": True, "entries": read_task_log(limit=limit, teammate=teammate, status=status)})
+# -------------------------
+# Action Stack API
+# -------------------------
+
+@app.get("/api/teammates/<teammate>/stacks")
+def api_action_stacks_list(teammate: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    data = _load_saved_stacks(uname, teammate)
+    names = list((data.get("stacks") or {}).keys())
+    names.sort(key=lambda x: x.lower())
+    return jsonify({"ok": True, "stacks": names})
+
+@app.get("/api/teammates/<teammate>/stacks/<stack_name>")
+def api_action_stacks_get(teammate: str, stack_name: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    data = _load_saved_stacks(uname, teammate)
+    stack = (data.get("stacks") or {}).get(stack_name)
+    if not stack:
+        return jsonify({"ok": False, "error": "Stack not found"}), 404
+    return jsonify({"ok": True, "stack": stack})
+
+@app.post("/api/teammates/<teammate>/stacks/<stack_name>")
+def api_action_stacks_save(teammate: str, stack_name: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    steps = _normalize_steps(payload.get("steps"))
+    data = _load_saved_stacks(uname, teammate)
+    data.setdefault("stacks", {})
+    data["stacks"][stack_name] = {"name": stack_name, "teammate": teammate, "steps": steps, "updated_at": now_iso()}
+    _save_saved_stacks(uname, teammate, data)
+    return jsonify({"ok": True})
+
+@app.post("/api/teammates/<teammate>/stacks/<stack_name>/run")
+def api_action_stacks_run(teammate: str, stack_name: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    user_input = (payload.get("input") or "").strip()
+    data = _load_saved_stacks(uname, teammate)
+    stack = (data.get("stacks") or {}).get(stack_name)
+    if not stack:
+        return jsonify({"ok": False, "error": "Stack not found"}), 404
+    steps = _normalize_steps(stack.get("steps"))
+    run = _init_run(u=uname, teammate=teammate, stack_name=stack_name, steps=steps, user_input=user_input)
+    _persist_run(run)
+    run2 = _run_action_stack_engine(run)
+    return jsonify({"ok": True, "run": run2})
+
+@app.get("/api/teammates/<teammate>/stacks/schedules")
+def api_action_stacks_schedules_list(teammate: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    schedules = [s for s in _load_schedules(uname) if (s.get("teammate") == teammate)]
+    return jsonify({"ok": True, "schedules": schedules})
+
+@app.post("/api/teammates/<teammate>/stacks/schedule")
+def api_action_stacks_schedules_create(teammate: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    mode = (payload.get("mode") or "").strip().lower()
+    stack_name = (payload.get("stack_name") or "").strip()
+    if not stack_name:
+        return jsonify({"ok": False, "error": "Missing stack_name"}), 400
+    data = _load_saved_stacks(uname, teammate)
+    if stack_name not in (data.get("stacks") or {}):
+        return jsonify({"ok": False, "error": "Stack not found"}), 404
+    schedules = _load_schedules(uname)
+    sid = uuid.uuid4().hex
+    if mode == "once":
+        run_at = (payload.get("run_at") or "").strip()
+        if not _parse_local_dt(run_at):
+            return jsonify({"ok": False, "error": "Invalid run_at"}), 400
+        schedules.append({"id": sid, "teammate": teammate, "stack_name": stack_name, "mode": "once", "run_at": run_at, "last_run": None, "created_at": now_iso()})
+    elif mode == "daily":
+        t = (payload.get("time") or "").strip()
+        if not re.match(r"^\\d{2}:\\d{2}$", t):
+            return jsonify({"ok": False, "error": "Invalid time"}), 400
+        schedules.append({"id": sid, "teammate": teammate, "stack_name": stack_name, "mode": "daily", "time": t, "last_run": None, "created_at": now_iso()})
+    else:
+        return jsonify({"ok": False, "error": "Invalid mode"}), 400
+    _save_schedules(uname, schedules)
+    return jsonify({"ok": True, "schedule_id": sid})
+
+@app.post("/api/teammates/<teammate>/stacks/schedule/delete")
+def api_action_stacks_schedules_delete(teammate: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    sid = (payload.get("schedule_id") or "").strip()
+    if not sid:
+        return jsonify({"ok": False, "error": "Missing schedule_id"}), 400
+    schedules = [s for s in _load_schedules(uname) if s.get("id") != sid]
+    _save_schedules(uname, schedules)
+    return jsonify({"ok": True})
+
+@app.post("/api/action_stack_schedules/tick")
+def api_action_stack_schedules_tick():
+    try:
+        _run_due_schedules_once()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+
+
 @app.get("/api/me")
 def api_me():
     u = current_user()
@@ -1095,7 +1684,8 @@ def api_me():
             "email": u.get("email", "")
         },
         "has_openai_key": bool((settings.get("openai_key") or "").strip()),
-        "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
+        "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
+        "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
 
 @app.get("/api/user/settings")
@@ -1124,6 +1714,7 @@ def api_get_user_settings():
         "settings": {
             "has_openai_key": bool(key),
             "openai_key_hint": key_hint,
+            "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
     })
@@ -1370,6 +1961,20 @@ def api_convene():
         append_log("convene_error", {"where":"atlis_preflight","error": str(e)})
         return jsonify({"ok": False, "error": msg}), status
 
+    # Task log: Atlis preflight (append-only)
+    append_task_log(
+        "atlis_preflight",
+        {
+            "prompt": prompt,
+            "prompt_with_attachments": prompt2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "report_preview": (atlis_report[:800] + ("..." if len(atlis_report) > 800 else "")),
+        },
+        teammate="Atlis",
+        status="success"
+    )
+
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
 
@@ -1398,6 +2003,20 @@ def api_convene():
         save_thread(name, new_thread)
 
         outputs[name] = text
+
+        # Task log per teammate response (append-only)
+        append_task_log(
+            "teammate_convene",
+            {
+                "prompt": prompt,
+                "prompt_with_attachments": prompt2,
+                "attachment_meta": attach_meta,
+                "vision_images_count": len(vision_images),
+                "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
+            },
+            teammate=name,
+            status="success"
+        )
 
         d = extract_email_draft(text)
         if d:
@@ -1471,6 +2090,23 @@ def api_followup():
         "email_draft": draft
     })
 
+
+    # Task log (append-only)
+    append_task_log(
+        "teammate_followup",
+        {
+            "name": name,
+            "message": msg,
+            "message_with_attachments": msg2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "email_draft": draft,
+            "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
+        },
+        teammate=name,
+        status="success"
+    )
+
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
 
@@ -1486,11 +2122,10 @@ def api_thread(name: str):
 @app.post("/api/send_email")
 def api_send_email():
     u = current_user()
-    ready, reason = smtp_ready_for_user(u)
-    if not ready:
-        return jsonify({"ok": False, "error": reason}), 400
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(force=True)
+    data = request.get_json(force=True) or {}
     to_addr = (data.get("to") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
@@ -1498,37 +2133,183 @@ def api_send_email():
 
     if not to_addr or not subject or not body:
         return jsonify({"ok": False, "error": "Missing to, subject, or body"}), 400
-
     if not EMAIL_RE.match(to_addr):
         return jsonify({"ok": False, "error": "Invalid recipient email"}), 400
 
+    # Prefer Gmail OAuth (Option C). If not connected, fall back to SMTP if configured.
+    cap = _email_capability_for_user(u)
+
     try:
-        s = _user_smtp_settings(u)
-        host = s["host"]
-        port = s["port"]
-        user = s["user"] or SMTP_USER
-        password = s["pass"] or SMTP_PASS
-        from_name = s["from_name"]
-        if not user or not password:
-            raise ValueError("Missing SMTP credentials")
-        send_email_smtp_with_creds(
-            to_addr=to_addr,
-            subject=subject,
-            body=body,
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            from_name=from_name
-        )
+        if cap["gmail_connected"]:
+            creds, reason = _gmail_creds_for_user(u)
+            if not creds:
+                return jsonify({"ok": False, "error": reason}), 400
+            _gmail_send_message(creds, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
+            provider = "gmail_oauth"
+        else:
+            ready, reason = smtp_ready_for_user(u)
+            if not ready:
+                return jsonify({
+                    "ok": False,
+                    "error": reason,
+                    "hint": "Connect Gmail (recommended) or add SMTP credentials in Settings. For Gmail SMTP you must use an App Password."
+                }), 400
+
+            s = _user_smtp_settings(u)
+            host = s["host"]
+            port = s["port"]
+            user = s["user"] or SMTP_USER
+            password = s["pass"] or SMTP_PASS
+            from_name = s["from_name"]
+            if not user or not password:
+                return jsonify({"ok": False, "error": "Missing SMTP credentials"}), 400
+            send_email_smtp_with_creds(
+                to_addr=to_addr,
+                subject=subject,
+                body=body,
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                from_name=from_name
+            )
+            provider = "smtp"
     except Exception as e:
         append_log("email_error", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "error": str(e)})
-        return jsonify({"ok": False, "error": f"SMTP send failed: {e}"}), 500
 
-    append_log("email_sent", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "sent_at": now_iso()})
+        append_task_log(
+            "send_email",
+            {
+                "to": to_addr,
+                "subject": subject,
+                "from_teammate": from_teammate,
+                "provider": cap,
+                "error": str(e),
+            },
+            teammate=from_teammate or "",
+            status="failed"
+        )
+
+        return jsonify({"ok": False, "error": f"Email send failed: {e}"}), 500
+
+    append_log("email_sent", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "provider": provider, "sent_at": now_iso()})
+
+    append_task_log(
+        "send_email",
+        {
+            "to": to_addr,
+            "subject": subject,
+            "from_teammate": from_teammate,
+            "provider": provider,
+            "sent_at": now_iso(),
+        },
+        teammate=from_teammate or "",
+        status="success"
+    )
+
+    return jsonify({"ok": True, "provider": provider})
+
+
+
+# =========================
+# GMAIL OAUTH ROUTES (Option C)
+# =========================
+
+@app.get("/api/gmail/status")
+def api_gmail_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    connected = bool(_user_gmail_oauth(u))
+    return jsonify({"ok": True, "connected": connected})
+
+@app.post("/api/gmail/disconnect")
+def api_gmail_disconnect():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _save_user_gmail_oauth(u, None)
+    append_log("gmail_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
 
+@app.get("/gmail/connect")
+def gmail_connect():
+    u = current_user()
+    if not u:
+        return redirect("/login")
 
+    ok, reason = _gmail_libs_ready()
+    if not ok:
+        return make_response(f"Gmail OAuth not ready: {reason}", 400)
+
+    # OAuth state protection
+    state = secrets.token_urlsafe(24)
+    session["gmail_oauth_state"] = state
+
+    redirect_uri = f"{PUBLIC_BASE_URL}/gmail/callback"
+    flow = GoogleOAuthFlow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=GMAIL_SCOPES,
+        state=state,
+    )
+    flow.redirect_uri = redirect_uri
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    return redirect(auth_url)
+
+@app.get("/gmail/callback")
+def gmail_callback():
+    u = current_user()
+    if not u:
+        return redirect("/login")
+
+    ok, reason = _gmail_libs_ready()
+    if not ok:
+        return make_response(f"Gmail OAuth not ready: {reason}", 400)
+
+    state = request.args.get("state", "")
+    expected = session.get("gmail_oauth_state", "")
+    if not state or not expected or state != expected:
+        return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
+
+    redirect_uri = f"{PUBLIC_BASE_URL}/gmail/callback"
+    flow = GoogleOAuthFlow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=GMAIL_SCOPES,
+        state=state,
+    )
+    flow.redirect_uri = redirect_uri
+    try:
+        flow.fetch_token(authorization_response=request.url)
+        creds = flow.credentials
+        token_info = json.loads(creds.to_json())
+        _save_user_gmail_oauth(u, token_info)
+        append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
+    except Exception as e:
+        append_log("gmail_connect_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
+        return make_response(f"Failed to connect Gmail: {e}", 400)
+
+    # Send them back to the app home
+    return redirect("/#settings")
 
 # =========================
 # AUTH ROUTES
@@ -1630,7 +2411,23 @@ AUTH_BASE_CSS = r"""
     .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
     .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
 
-  </style>
+  /* Mobile responsiveness */
+@media (max-width: 640px){
+  body{ overflow-x:hidden; }
+  .container{ padding: 10px; }
+  .row{ flex-wrap: wrap; gap: 10px; }
+  .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
+  .seatToolBtn{ font-size: 13px; }
+  .actions{ flex-wrap: wrap; }
+  .grid{ grid-template-columns: 1fr !important; gap: 10px; }
+  #modalWin{ width: calc(100vw - 16px) !important; left: 8px !important; right: 8px !important; top: 8px !important; height: calc(100vh - 16px) !important; max-height: calc(100vh - 16px) !important; }
+  #modalScroll{ max-height: calc(100vh - 120px) !important; }
+  .seatTools{ flex-wrap: wrap; gap: 8px; }
+  .seat{ min-width: 160px; }
+  textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
+}
+
+</style>
 """
 
 LOGIN_HTML = r"""
@@ -2899,6 +3696,7 @@ HTML = r"""
       if($("createForm")) $("createForm").style.display = "none";
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("stackForm")) $("stackForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -3021,6 +3819,8 @@ HTML = r"""
     }
 
     function hideModal(){
+      try{ document.body.style.overflow = ""; }catch(_){ }
+
       $("overlay").classList.remove("show");
       if(assemblyPulseActive){
         assemblyPulseActive = false;
@@ -3312,6 +4112,20 @@ HTML = r"""
       });
 
       tools.appendChild(editBtn);
+
+      const stackBtn = document.createElement("button");
+      stackBtn.className = "seatToolBtn";
+      stackBtn.innerText = "Stack";
+      stackBtn.title = "Open Stack (queue multiple prompts and schedule)";
+      stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
+      stackBtn.addEventListener("touchstart", (e) => { try{ if(window.openStackForTeammate) window.openStackForTeammate(defn.name); }catch(_){ } }, {passive:true});
+      stackBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if(window.openStackForTeammate) window.openStackForTeammate(defn.name);
+      });
+      tools.appendChild(stackBtn);
+
       seat.appendChild(tools);
 
       const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:defn.name.slice(0,1).toUpperCase()};
@@ -4781,7 +5595,31 @@ $("saveFramework").onclick = async () => {
 
 })();
 
+
+// Stack UI bindings
+if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
+  const p = ($("stackPrompt").value || "").trim();
+  if(!p){ $("stackStatus").innerText = "Enter a prompt for the step."; return; }
+  ActionStack.steps.push({type:"prompt", prompt: p});
+  $("stackPrompt").value = "";
+  $("stackStatus").innerText = "";
+  renderStackSteps();
+};
+if($("stackClearBtn")) $("stackClearBtn").onclick = () => { ActionStack.steps = []; renderStackSteps(); $("stackStatus").innerText = "Cleared."; };
+if($("stackSaveBtn")) $("stackSaveBtn").onclick = saveCurrentStack;
+if($("stackRunBtn")) $("stackRunBtn").onclick = runCurrentStack;
+if($("cancelStack")) $("cancelStack").onclick = () => hideModal();
+if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
+if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
+if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
+if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
+
+// Safe schedule runner tick (no background threads)
+setInterval(() => {
+  fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
+}, 20000);
 </script>
+
 
 </body>
 </html>
@@ -4798,3 +5636,10 @@ def index():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=True)
+
+
+
+
+
+
+
