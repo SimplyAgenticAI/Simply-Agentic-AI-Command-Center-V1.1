@@ -3747,7 +3747,59 @@ HTML = r"""
       .modal{ width: calc(100vw - 22px); }
       .modalBarTitle{ max-width: 240px; }
     }
-  </style>
+  
+
+    /* Mobile responsiveness */
+    @media (max-width: 720px){
+      body{ overflow-x:hidden; }
+      .topbar{ height:auto; }
+      .topbarInner{ flex-wrap:wrap; height:auto; gap:10px; padding:10px 12px; }
+      .rightmeta{ justify-content:flex-start; }
+      .stage{ grid-template-columns: 1fr !important; }
+      .side{ padding: 0 12px 22px 12px; }
+      .sideCard{ position: relative; top:auto; max-height:none; }
+      .arena{ padding: 12px 0 12px 0; }
+
+      /* Round table becomes a clean vertical list to prevent overlap */
+      .tableWrap{
+        width: calc(100vw - 24px);
+        height: auto !important;
+        min-height: 0 !important;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: 10px;
+        padding-bottom: 14px;
+      }
+      .table{
+        position:relative !important;
+        inset:auto !important;
+        transform:none !important;
+        width: min(520px, 100%);
+        height: 120px;
+        margin: 0 auto 6px auto;
+      }
+      .seat{
+        position:relative !important;
+        left:auto !important;
+        top:auto !important;
+        transform:none !important;
+        width: min(520px, 100%) !important;
+        max-width: 100% !important;
+        height: auto !important;
+        min-height: 118px;
+        cursor: default;
+      }
+      .seatTools{ flex-wrap:wrap; gap:8px; }
+      .seatToolBtn{ flex: 1 1 auto; }
+
+      /* Prevent any long labels from forcing overlap */
+      .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+
+      /* iOS: prevent zoom on focus */
+      textarea, input, select{ font-size: 16px; }
+    }
+</style>
 </head>
 <body>
   <div class="topbar">
