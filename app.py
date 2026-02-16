@@ -64,24 +64,6 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googl
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
-def _get_google_oauth_config(req=None) -> Dict[str, str]:
-    """
-    Read Google OAuth configuration from environment at request-time (so redeploy/order issues are minimized),
-    with sensible fallbacks for base URL.
-    """
-    # Support a few common env var name variants to avoid silent misconfig
-    client_id = (os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GOOGLECLIENT_ID") or os.getenv("GOOGLE_OAUTH_CLIENT_ID") or "").strip()
-    client_secret = (os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GOOGLECLIENT_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_SECRET") or "").strip()
-    base_url = (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
-    if not base_url and req is not None:
-        try:
-            # request.url_root includes trailing slash
-            base_url = req.url_root.rstrip("/")
-        except Exception:
-            base_url = ""
-    return {"client_id": client_id, "client_secret": client_secret, "base_url": base_url}
-
-
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
 # =========================
@@ -101,7 +83,7 @@ def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
     # Manual URL build (avoid extra deps)
     from urllib.parse import urlencode
     params = {
-        "client_id": cfg["client_id"],
+        "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scope_str,
@@ -113,8 +95,7 @@ def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
     return f"{GOOGLE_AUTH_URI}?{urlencode(params)}"
 
 def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return None, reason
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
@@ -124,8 +105,8 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
             GOOGLE_TOKEN_URI,
             data={
                 "code": code,
-                "client_id": cfg["client_id"],
-                "client_secret": cfg["client_secret"],
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -143,8 +124,7 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
         return None, f"Token exchange error: {e}"
 
 def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optional[Dict[str, Any]], str]:
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return None, reason
     try:
@@ -152,8 +132,8 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
-                "client_id": cfg["client_id"],
-                "client_secret": cfg["client_secret"],
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },
@@ -286,10 +266,30 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
 
 def current_user() -> Optional[Dict[str, Any]]:
     uname = session.get("user")
+    # Historically we stored the username string in session["user"].
+    # Some earlier builds accidentally stored a dict here; support both.
+    if isinstance(uname, dict):
+        uname = uname.get("username")
     if not uname:
         return None
     data = load_users()
     return (data.get("users") or {}).get(uname)
+
+def ensure_local_owner_user() -> str:
+    """Ensure a local owner user exists for first-run / setup-less deployments.
+
+    Returns the username to place in session["user"].
+    """
+    data = load_users()
+    users = data.get("users") or {}
+    if "local" not in users:
+        # Create a deterministic local owner user.
+        # Password is irrelevant for this bootstrap flow; the UI can still
+        # support full login/reset if you later enable it.
+        users["local"] = _new_user("local", password=str(uuid.uuid4()), email="")
+        data["users"] = users
+        save_users(data)
+    return "local"
 
 def login_required_api() -> bool:
     p = request.path or ""
@@ -315,7 +315,7 @@ def _auth_guard():
         # Local-first: if no users exist yet (fresh install), allow Settings so you can add your API key
         # without getting blocked by auth. We create a temporary local session user.
         if (not has_any_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
-            session["user"] = {"username": "local", "role": "owner"}
+            session["user"] = ensure_local_owner_user()
         else:
             return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -1497,19 +1497,10 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
 
 
 
-def _google_oauth_ready(req=None) -> Tuple[bool, str]:
+def _google_oauth_ready() -> Tuple[bool, str]:
     # Manual OAuth flow (no google-auth libraries required).
-    cfg = _get_google_oauth_config(req)
-    missing = []
-    if not cfg.get("client_id"):
-        missing.append("GOOGLE_CLIENT_ID")
-    if not cfg.get("client_secret"):
-        missing.append("GOOGLE_CLIENT_SECRET")
-    # PUBLIC_BASE_URL can be inferred from the current request host.
-    if not cfg.get("base_url"):
-        missing.append("PUBLIC_BASE_URL")
-    if missing:
-        return False, "Google OAuth is not configured. Missing: " + ", ".join(missing) + ". Set them as server environment variables (Render → Environment) and redeploy."
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
+        return False, "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
     return True, ""
 
 def _gmail_libs_ready() -> Tuple[bool, str]:
@@ -2666,8 +2657,7 @@ def gmail_connect():
     u = current_user()
     if not u:
         return redirect("/login")
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
@@ -2682,8 +2672,7 @@ def gmail_callback():
     u = current_user()
     if not u:
         return redirect("/login")
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
@@ -2739,8 +2728,7 @@ def calendar_connect():
     u = current_user()
     if not u:
         return redirect("/login")
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
@@ -2755,8 +2743,7 @@ def calendar_callback():
     u = current_user()
     if not u:
         return redirect("/login")
-    ok, reason = _google_oauth_ready(request)
-    cfg = _get_google_oauth_config(request)
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
@@ -4153,7 +4140,7 @@ HTML = r"""
                   </div>
                 </div>
 
-                <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL (or let base URL auto-detect) on your server to enable Google connect.</div>
+                <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
 
 
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
@@ -7341,17 +7328,3 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
-@app.route("/api/google_oauth/diagnose", methods=["GET"])
-def api_google_oauth_diagnose():
-    cfg = _get_google_oauth_config(request)
-    # Only reveal presence/length, never secrets
-    return jsonify({
-        "client_id_present": bool(cfg.get("client_id")),
-        "client_id_suffix": (cfg.get("client_id")[-12:] if cfg.get("client_id") else ""),
-        "client_secret_present": bool(cfg.get("client_secret")),
-        "base_url": cfg.get("base_url", ""),
-        "missing": [k for k in ["GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","PUBLIC_BASE_URL"] if not cfg.get({"GOOGLE_CLIENT_ID":"client_id","GOOGLE_CLIENT_SECRET":"client_secret","PUBLIC_BASE_URL":"base_url"}[k])],
-        "render_hint": "If values look missing here, ensure you set env vars on the correct Render service and click Save, rebuild, and deploy."
-    })
-
-
