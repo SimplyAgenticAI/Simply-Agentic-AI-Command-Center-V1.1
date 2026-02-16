@@ -34,7 +34,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table ")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -1812,7 +1812,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-."
+        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
@@ -4129,7 +4129,7 @@ HTML = r"""
                 </div>
 
                 <label>OpenAI API Key</label>
-                <input id="openaiKey" type="password" placeholder="sk-..." />
+                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
