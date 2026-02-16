@@ -61,6 +61,8 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
@@ -1393,6 +1395,83 @@ def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any
     users["users"][uname] = rec
     save_users(users)
 
+# =========================
+# GOOGLE CALENDAR OAUTH
+# =========================
+
+def _calendar_libs_ready() -> Tuple[bool, str]:
+    # Uses the same optional Google libraries and env vars as Gmail OAuth
+    if GoogleOAuthFlow is None or GoogleCredentials is None or google_build is None:
+        return False, "Google OAuth libraries are not installed on the server. Add google-auth, google-auth-oauthlib, google-api-python-client to requirements.txt."
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
+        return False, "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
+    return True, ""
+
+def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not u:
+        return {}
+    settings = (u.get("settings") or {})
+    return (settings.get("calendar_oauth") or {})
+
+def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
+    users = load_users()
+    uname = u.get("username")
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    if token_info:
+        rec["settings"]["calendar_oauth"] = token_info
+    else:
+        if "calendar_oauth" in rec.get("settings", {}):
+            rec["settings"].pop("calendar_oauth", None)
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+
+def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[Any], str]:
+    ok, reason = _calendar_libs_ready()
+    if not ok:
+        return None, reason
+    token_info = _user_calendar_oauth(u)
+    if not token_info:
+        return None, "Calendar not connected. Go to Settings and connect Google Calendar."
+    try:
+        creds = GoogleCredentials.from_authorized_user_info(token_info, scopes=CALENDAR_SCOPES)
+    except Exception:
+        return None, "Calendar token is invalid or corrupted. Disconnect and reconnect Google Calendar."
+    try:
+        if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
+            from google.auth.transport.requests import Request as GoogleRequest
+            creds.refresh(GoogleRequest())  # type: ignore[attr-defined]
+    except Exception:
+        return None, "Calendar session expired and could not be refreshed. Disconnect and reconnect Google Calendar."
+    try:
+        token_info2 = json.loads(creds.to_json())
+        _save_user_calendar_oauth(u, token_info2)
+    except Exception:
+        pass
+    return creds, ""
+
+def _calendar_create_event(creds: Any, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
+    service = google_build("calendar", "v3", credentials=creds)
+    event: Dict[str, Any] = {
+        "summary": title,
+        "description": description or "",
+        "location": location or "",
+        "start": {"dateTime": start_iso, "timeZone": timezone},
+        "end": {"dateTime": end_iso, "timeZone": timezone},
+    }
+    if attendees:
+        clean = []
+        for a in attendees:
+            a = (a or "").strip()
+            if not a:
+                continue
+            clean.append({"email": a})
+        if clean:
+            event["attendees"] = clean
+    created = service.events().insert(calendarId="primary", body=event).execute()
+    return created
+
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[Any], str]:
     ok, reason = _gmail_libs_ready()
     if not ok:
@@ -2527,6 +2606,134 @@ def gmail_callback():
     # Send them back to the app home
     return redirect("/#settings")
 
+
+
+# =========================
+# GOOGLE CALENDAR OAUTH ROUTES
+# =========================
+
+@app.get("/api/calendar/status")
+def api_calendar_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    connected = bool(_user_calendar_oauth(u))
+    return jsonify({"ok": True, "connected": connected})
+
+@app.post("/api/calendar/disconnect")
+def api_calendar_disconnect():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _save_user_calendar_oauth(u, None)
+    append_log("calendar_disconnected", {"user": u.get("username", ""), "at": now_iso()})
+    return jsonify({"ok": True})
+
+@app.get("/calendar/connect")
+def calendar_connect():
+    u = current_user()
+    if not u:
+        return redirect("/login")
+
+    ok, reason = _calendar_libs_ready()
+    if not ok:
+        return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
+
+    state = secrets.token_urlsafe(24)
+    session["calendar_oauth_state"] = state
+
+    redirect_uri = f"{PUBLIC_BASE_URL}/calendar/callback"
+    flow = GoogleOAuthFlow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=CALENDAR_SCOPES,
+        state=state,
+    )
+    flow.redirect_uri = redirect_uri
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+    return redirect(auth_url)
+
+@app.get("/calendar/callback")
+def calendar_callback():
+    u = current_user()
+    if not u:
+        return redirect("/login")
+
+    ok, reason = _calendar_libs_ready()
+    if not ok:
+        return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
+
+    state = request.args.get("state", "")
+    expected = session.get("calendar_oauth_state", "")
+    if not state or not expected or state != expected:
+        return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
+
+    redirect_uri = f"{PUBLIC_BASE_URL}/calendar/callback"
+    flow = GoogleOAuthFlow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [redirect_uri],
+            }
+        },
+        scopes=CALENDAR_SCOPES,
+        state=state,
+    )
+    flow.redirect_uri = redirect_uri
+    try:
+        flow.fetch_token(authorization_response=request.url)
+        creds = flow.credentials
+        token_info = json.loads(creds.to_json())
+        _save_user_calendar_oauth(u, token_info)
+        append_log("calendar_connected", {"user": u.get("username", ""), "at": now_iso()})
+    except Exception as e:
+        append_log("calendar_connect_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
+        return make_response(f"Failed to connect Google Calendar: {e}", 400)
+
+    return redirect("/#settings")
+
+@app.post("/api/calendar/create_event")
+def api_calendar_create_event():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    creds, reason = _calendar_creds_for_user(u)
+    if not creds:
+        return jsonify({"ok": False, "error": reason}), 400
+    payload = request.get_json(force=True, silent=True) or {}
+    title = (payload.get("title") or payload.get("summary") or "Call").strip()
+    start = (payload.get("start") or "").strip()
+    end = (payload.get("end") or "").strip()
+    timezone = (payload.get("timezone") or "America/New_York").strip()
+    attendees = payload.get("attendees") or []
+    if isinstance(attendees, str):
+        attendees = [a.strip() for a in attendees.split(',') if a.strip()]
+    description = (payload.get("description") or "").strip()
+    location = (payload.get("location") or "").strip()
+
+    if not start or not end:
+        return jsonify({"ok": False, "error": "Missing start/end. Provide ISO datetime strings."}), 400
+    try:
+        created = _calendar_create_event(creds, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location)
+        append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
+        return jsonify({"ok": True, "event": created})
+    except Exception as e:
+        append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
+        return jsonify({"ok": False, "error": str(e)}), 500
 # =========================
 # AUTH ROUTES
 # =========================
@@ -3784,6 +3991,28 @@ HTML = r"""
 
                 <label>OpenAI API Key</label>
                 <input id="openaiKey" type="password" placeholder="sk-..." />
+
+                <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
+
+                <div class="row2">
+                  <div>
+                    <div class="tiny" id="gmailOAuthStatus">Gmail: checking...</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                      <button class="btn btnMini" id="gmailConnectBtn">Connect Gmail</button>
+                      <button class="btn btnMini" id="gmailDisconnectBtn">Disconnect Gmail</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="tiny" id="calendarOAuthStatus">Calendar: checking...</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                      <button class="btn btnMini" id="calendarConnectBtn">Connect Calendar</button>
+                      <button class="btn btnMini" id="calendarDisconnectBtn">Disconnect Calendar</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
+
 
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
@@ -6214,6 +6443,34 @@ function makeSeat(defn, idx){
     $("cancelFramework").onclick = () => hideModal();
 
     // ===== Settings (per-user OpenAI key + email SMTP) =====
+    // ===== Google connect status helpers (Gmail + Calendar) =====
+    async function refreshGoogleStatuses(){
+      // Gmail
+      try{
+        const r1 = await fetch('/api/gmail/status');
+        const d1 = await r1.json();
+        const ok1 = d1 && d1.ok;
+        const c1 = ok1 && d1.connected;
+        if($('gmailOAuthStatus')) $('gmailOAuthStatus').innerText = ok1 ? ('Gmail: ' + (c1 ? 'connected' : 'not connected')) : 'Gmail: unavailable';
+        if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').style.display = c1 ? 'inline-block' : 'none';
+      }catch(e){
+        if($('gmailOAuthStatus')) $('gmailOAuthStatus').innerText = 'Gmail: unavailable';
+        if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').style.display = 'none';
+      }
+      // Calendar
+      try{
+        const r2 = await fetch('/api/calendar/status');
+        const d2 = await r2.json();
+        const ok2 = d2 && d2.ok;
+        const c2 = ok2 && d2.connected;
+        if($('calendarOAuthStatus')) $('calendarOAuthStatus').innerText = ok2 ? ('Calendar: ' + (c2 ? 'connected' : 'not connected')) : 'Calendar: unavailable';
+        if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').style.display = c2 ? 'inline-block' : 'none';
+      }catch(e){
+        if($('calendarOAuthStatus')) $('calendarOAuthStatus').innerText = 'Calendar: unavailable';
+        if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').style.display = 'none';
+      }
+    }
+
     async function loadSettings(){
       $("settingsStatus").innerText = "Loading...";
       try{
@@ -6235,6 +6492,7 @@ function makeSeat(defn, idx){
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
         $("settingsStatus").innerText = "Ready";
+        try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
       }
@@ -6289,6 +6547,19 @@ function makeSeat(defn, idx){
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
+    };
+
+    // Google connect buttons (open OAuth flow)
+    if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
+    if($('calendarConnectBtn')) $('calendarConnectBtn').onclick = () => { window.location = '/calendar/connect'; };
+
+    if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
+      try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
+      try{ await refreshGoogleStatuses(); }catch(e){}
+    };
+    if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').onclick = async () => {
+      try{ await fetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
+      try{ await refreshGoogleStatuses(); }catch(e){}
     };
 
     // =========================
