@@ -24,4 +24,5 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 Werkzeug==3.1.5
 gunicorn==21.2.0
+requests>=2.31.0
 
