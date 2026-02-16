@@ -2110,6 +2110,11 @@ def api_me():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2143,6 +2148,11 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -2165,7 +2175,7 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-    if openai_key and openai_key.startswith("sk-"):
+    if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
     # if user leaves it blank, do NOT overwrite the saved key
 
@@ -6651,7 +6661,7 @@ function makeSeat(defn, idx){
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
-        openai_key: (keyVal && keyVal.startsWith("sk-")) ? keyVal : "",
+        openai_key: keyVal,
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
