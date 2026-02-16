@@ -67,6 +67,10 @@ GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googl
 client = OpenAI(api_key=OPENAI_API_KEY)
 app = Flask(__name__)
 
+# Quiet noisy request logs (especially the stack tick poll)
+import logging
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 BASE = Path(__file__).parent
@@ -173,11 +177,16 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        # Local-first: if no users exist yet (fresh install), allow Settings so you can add your API key
+        # without getting blocked by auth. We create a temporary local session user.
+        if (not has_any_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
+            session["user"] = {"username": "local", "role": "owner"}
+        else:
+            return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
         # if no users exist, send to setup
@@ -234,6 +243,54 @@ TASK_LOG_DIR = DATA / "task_logs"
 def _safe_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (s or "anon"))[:80] or "anon"
 
+# ---------------- Client Memory Profiles (additive) ----------------
+def _clients_path_for_user(username: str) -> str:
+    base = os.path.join(DATA_DIR, "clients")
+    os.makedirs(base, exist_ok=True)
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", username or "anon")
+    return os.path.join(base, f"{safe}.json")
+
+def _load_clients(username: str) -> Dict[str, Any]:
+    path = _clients_path_for_user(username)
+    if not os.path.exists(path):
+        return {"active_client_id": "", "clients": {}}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {"active_client_id": "", "clients": {}}
+        data.setdefault("active_client_id", "")
+        data.setdefault("clients", {})
+        if not isinstance(data["clients"], dict):
+            data["clients"] = {}
+        return data
+    except Exception:
+        return {"active_client_id": "", "clients": {}}
+
+def _save_clients(username: str, data: Dict[str, Any]) -> None:
+    path = _clients_path_for_user(username)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+def _get_active_client(username: str) -> Dict[str, Any]:
+    data = _load_clients(username)
+    cid = (data.get("active_client_id") or "").strip()
+    clients = data.get("clients") or {}
+    if cid and cid in clients and isinstance(clients[cid], dict):
+        c = clients[cid]
+        c.setdefault("id", cid)
+        return c
+    return {}
+
+def _get_session_username() -> str:
+    u = session.get("user")
+    return (u.get("username") if isinstance(u, dict) else None) or (u if isinstance(u, str) else None) or "anon"
+
+def _new_client_id() -> str:
+    return "c_" + uuid.uuid4().hex[:10]
+
 def _task_log_path_for_user(username: Optional[str]) -> Path:
     TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
     return TASK_LOG_DIR / f"{_safe_name(username or 'anon')}.jsonl"
@@ -241,7 +298,8 @@ def _task_log_path_for_user(username: Optional[str]) -> Path:
 def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", status: str = "success") -> None:
     """Append-only task log. One JSON object per line (JSONL)."""
     try:
-        username = session.get("user") or "anon"
+        u = session.get("user")
+        username = (u.get("username") if isinstance(u, dict) else None) or (u if isinstance(u, str) else None) or "anon"
         path = _task_log_path_for_user(username)
         entry = {
             "id": str(uuid.uuid4()),
@@ -299,6 +357,8 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 ACTION_STACKS_DIR = DATA / "action_stacks"
 ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
+OPERATOR_PROFILE_DIR = DATA / "operator_profile"
+
 ACTION_STACK_SCHEDULES_DIR = DATA / "action_stack_schedules"
 
 ACTION_STACKS_DIR.mkdir(exist_ok=True)
@@ -437,32 +497,80 @@ def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> No
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
 
 def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a stack until it completes or pauses.
+
+    Pause states:
+      - needs_input: stops on an ask_user step until resumed via API
+      - waiting: stops on a wait step until wait_until (UTC) has passed
+    """
     u = run.get("user") or "anon"
-    mem = (_load_action_memory(u).get("memory") or {})
     steps = run.get("steps") or []
     outputs = run.get("outputs") or {}
+
+    # If we were waiting, only resume when due
+    try:
+        if (run.get("status") == "waiting") and run.get("wait_until"):
+            w = str(run.get("wait_until"))
+            w_dt = None
+            try:
+                w_dt = datetime.fromisoformat(w.replace("Z", ""))
+            except Exception:
+                w_dt = None
+            if w_dt and datetime.utcnow() < w_dt:
+                # still waiting
+                _persist_run(run)
+                return run
+            # due now, continue
+            run["status"] = "running"
+            run.pop("wait_until", None)
+    except Exception:
+        pass
+
+    mem = (_load_action_memory(u).get("memory") or {})
     cursor = int(run.get("cursor") or 0)
-    last_output = outputs.get(str(cursor-1), "") if cursor > 0 else ""
+    last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
+
+    def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
+        # Logging must never break execution
+        try:
+            append_task_log(
+                action="stack_step" if status == "success" else "stack_error",
+                record={
+                    "teammate": run.get("teammate", ""),
+                    "stack": run.get("stack_name", ""),
+                    "run_id": run.get("id", ""),
+                    "step": step_num,
+                    "type": stype,
+                    "output": output,
+                    "extra": extra or {},
+                },
+                teammate=run.get("teammate", ""),
+                status=status,
+            )
+        except Exception:
+            pass
 
     while cursor < len(steps):
         step = steps[cursor]
         stype = step.get("type", "prompt")
-        ctx = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
+
+        # Build a render context
+        ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
         for i, out in outputs.items():
             try:
                 idx = int(i)
                 ctx[f"step{idx+1}.output"] = out
             except Exception:
                 continue
-        # expose memory keys as memory.key
-        for k, v in mem.items():
+        for k, v in (mem or {}).items():
             ctx[f"memory.{k}"] = v
 
         try:
             if stype == "ask_user":
                 run["status"] = "needs_input"
                 run["cursor"] = cursor
-                _append_run_log(run, "needs_input", {"step": cursor+1, "label": step.get("label","")})
+                _stack_task_log(cursor + 1, "ask_user", "", {"label": step.get("label", "")})
+                _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
                 _persist_run(run)
                 return run
 
@@ -471,7 +579,8 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 run["status"] = "waiting"
                 run["cursor"] = cursor
                 run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
-                _append_run_log(run, "wait", {"step": cursor+1, "seconds": secs})
+                _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
+                _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
                 _persist_run(run)
                 return run
 
@@ -487,22 +596,28 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                     mem = mem2["memory"]
                 outputs[str(cursor)] = val
                 last_output = val
-                _append_run_log(run, "save_memory", {"step": cursor+1, "key": key})
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
+                _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
 
-            if stype == "route":
+            elif stype == "route":
                 to_tm = (step.get("to_teammate") or "").strip()
                 p = _safe_render(step.get("prompt") or "{{last}}", ctx)
                 out = _call_teammate_prompt_for_user(u, to_tm, p)
                 outputs[str(cursor)] = out
                 last_output = out
-                _append_run_log(run, "route", {"step": cursor+1, "to": to_tm})
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "route", out, {"to": to_tm})
+                _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm})
 
-            if stype == "prompt":
+            else:  # "prompt" default
                 p = _safe_render(step.get("prompt") or "", ctx)
-                out = _call_teammate_prompt_for_user(u, run.get("teammate",""), p)
+                out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
                 outputs[str(cursor)] = out
                 last_output = out
-                _append_run_log(run, "prompt", {"step": cursor+1, "label": step.get("label","")})
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", "")})
+                _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", "")})
 
             run["outputs"] = outputs
             cursor += 1
@@ -514,12 +629,28 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
             run["status"] = "failed"
             run["error"] = str(e)
             run["cursor"] = cursor
-            _append_run_log(run, "error", {"step": cursor+1, "error": str(e)})
+            _stack_task_log(cursor + 1, "error", "", {"error": str(e)}, status="error")
+            _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
             _persist_run(run)
             return run
 
     run["status"] = "complete"
     run["cursor"] = len(steps)
+    try:
+        append_task_log(
+            action="stack_complete",
+            record={
+                "teammate": run.get("teammate", ""),
+                "stack": run.get("stack_name", ""),
+                "run_id": run.get("id", ""),
+                "steps": len(steps),
+                "last_output": run.get("last_output", ""),
+            },
+            teammate=run.get("teammate", ""),
+            status="success",
+        )
+    except Exception:
+        pass
     _append_run_log(run, "complete", {"steps": len(steps)})
     _persist_run(run)
     return run
@@ -581,6 +712,43 @@ def _run_due_schedules_once() -> None:
                 continue
         if changed:
             _save_schedules(u, schedules)
+
+def _resume_due_runs_once() -> None:
+    """Resume any waiting runs that are due."""
+    if not ACTION_STACK_RUNS_DIR.exists():
+        return
+    now_utc = datetime.utcnow()
+    for user_dir in ACTION_STACK_RUNS_DIR.iterdir():
+        if not user_dir.is_dir():
+            continue
+        u = user_dir.name
+        runs_data = _load_runs(u)
+        runs = runs_data.get("runs") or {}
+        changed = False
+        for rid, run in list(runs.items()):
+            try:
+                if not isinstance(run, dict):
+                    continue
+                if run.get("status") != "waiting":
+                    continue
+                w = run.get("wait_until")
+                if not w:
+                    continue
+                try:
+                    w_dt = datetime.fromisoformat(str(w).replace("Z", ""))
+                except Exception:
+                    w_dt = None
+                if w_dt and now_utc >= w_dt:
+                    run["status"] = "running"
+                    run.pop("wait_until", None)
+                    runs[rid] = _run_action_stack_engine(run)
+                    changed = True
+            except Exception:
+                continue
+        if changed:
+            runs_data["runs"] = runs
+            _save_runs(u, runs_data)
+
 
 # =========================
 # CORE FRAMEWORK (ENFORCED)
@@ -1379,9 +1547,30 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
         "```\n"
         "Do not claim the email was sent.\n"
         "No em dashes.\n"
+            + operator_block
     )
 
-    framework = load_core_framework()
+    # Operator profile (shared business context)
+    try:
+        _op_user = _get_session_username()
+    except Exception:
+        _op_user = "anon"
+    _op = _load_operator_profile(_op_user or "anon")
+    operator_block = (
+        "\n\nOPERATOR PROFILE (shared context)\n"
+        f"Operator: {_op.get('display_name','Operator')}\n"
+        f"Business: {_op.get('business','').strip()}\n"
+        f"Offers: {_op.get('offers','').strip()}\n"
+        f"Audience: {_op.get('audience','').strip()}\n"
+        f"Goals: {_op.get('goals','').strip()}\n"
+        f"Constraints: {_op.get('constraints','').strip()}\n"
+        f"Tone rules: {_op.get('tone_rules','').strip()}\n"
+        f"Notes: {_op.get('notes','').strip()}\n"
+            + operator_block
+    )
+
+    framework = load_core_framework(        + operator_block
+    )
 
     return (
         "You are a persistent, role locked Agentic AI Teammate.\n"
@@ -1394,8 +1583,8 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
         f"{email_rules}\n"
         f"CORE FRAMEWORK:\n{framework}\n\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
+            + operator_block
     )
-
 
 ContentType = Union[str, List[Dict[str, Any]]]
 
@@ -1604,6 +1793,33 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     _persist_run(run)
     run2 = _run_action_stack_engine(run)
     return jsonify({"ok": True, "run": run2})
+
+@app.post("/api/action_stack_runs/<run_id>/resume")
+def api_action_stack_run_resume(run_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    user_input = (payload.get("input") or "").strip()
+
+    runs_data = _load_runs(uname)
+    runs = runs_data.get("runs") or {}
+    run = runs.get(run_id)
+    if not run:
+        return jsonify({"ok": False, "error": "Run not found"}), 404
+    if run.get("status") != "needs_input":
+        return jsonify({"ok": False, "error": f"Run not waiting for input (status={run.get('status')})"}), 400
+
+    run["input"] = user_input
+    run["status"] = "running"
+    runs[run_id] = run
+    runs_data["runs"] = runs
+    _save_runs(uname, runs_data)
+
+    run2 = _run_action_stack_engine(run)
+    return jsonify({"ok": True, "run": run2})
+
 
 @app.get("/api/teammates/<teammate>/stacks/schedules")
 def api_action_stacks_schedules_list(teammate: str):
@@ -2414,7 +2630,7 @@ AUTH_BASE_CSS = r"""
   /* Mobile responsiveness */
 @media (max-width: 640px){
   body{ overflow-x:hidden; }
-  .container{ padding: 10px; }
+  .container{ padding: 12px; padding-bottom: 40px; }
   .row{ flex-wrap: wrap; gap: 10px; }
   .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
   .seatToolBtn{ font-size: 13px; }
@@ -2427,6 +2643,12 @@ AUTH_BASE_CSS = r"""
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
 }
 
+
+/* UI polish */
+.seat{ box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+.modalWin{ box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.btnPrimary{ filter: saturate(1.05); }
+.pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
 </style>
 """
 
@@ -2654,6 +2876,36 @@ def reset_password_post():
 
 
 # =========================
+# Operator Profile (shared context)
+# =========================
+
+@app.get("/api/operator_profile")
+def api_operator_profile_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    prof = _load_operator_profile(uname)
+    return jsonify({"ok": True, "profile": prof})
+
+@app.post("/api/operator_profile")
+def api_operator_profile_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    prof = _load_operator_profile(uname)
+    # only update known keys (additive safety)
+    for k in ["display_name","business","offers","audience","goals","constraints","tone_rules","notes"]:
+        if k in payload:
+            prof[k] = (payload.get(k) or "")
+    _save_operator_profile(uname, prof)
+    return jsonify({"ok": True, "profile": prof})
+
+
+
+# =========================
 # UI
 # =========================
 
@@ -2873,7 +3125,28 @@ HTML = r"""
       }
     }
 
-    .seatPulse{
+    
+    .seatOperator{
+      border-color: rgba(34,211,238,.55) !important;
+      box-shadow:
+        0 0 0 1px rgba(17,24,39,.35) inset,
+        0 0 16px rgba(34,211,238,.24);
+    }
+    .seatOperatorPulse{
+      animation: operatorPulse 2.4s ease-in-out infinite;
+      border-color: rgba(34,211,238,.90) !important;
+      box-shadow:
+        0 0 0 1px rgba(17,24,39,.35) inset,
+        0 0 34px rgba(34,211,238,.38),
+        0 0 52px rgba(124,58,237,.18);
+    }
+    @keyframes operatorPulse{
+      0%{ transform: translate(-50%,0) scale(1); }
+      50%{ transform: translate(-50%,0) scale(1.03); }
+      100%{ transform: translate(-50%,0) scale(1); }
+    }
+
+.seatPulse{
       animation: seatPulse 1.9s ease-in-out infinite;
       border-color: rgba(124,58,237,.92) !important;
       box-shadow:
@@ -2902,7 +3175,7 @@ HTML = r"""
     .seat{
       position:absolute;
       width: 190px;
-      height: 104px;
+      height: 124px;
       background: rgba(14,22,48,.78);
       border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
@@ -2915,7 +3188,7 @@ HTML = r"""
       backdrop-filter: blur(10px);
       box-shadow: 0 0 22px rgba(0,0,0,.28);
       user-select:none;
-      touch-action:none;
+      touch-action: manipulation;
       z-index: 12;
     }
     .seat:active{ cursor: grabbing; }
@@ -2964,10 +3237,10 @@ HTML = r"""
 
     .seatTools{
       position:absolute;
-      top:6px;
-      right:6px;
+      bottom:8px;
+      right:8px;
       display:flex;
-      gap:6px;
+      gap:10px;
       pointer-events:auto;
       z-index: 40;
     }
@@ -3283,6 +3556,7 @@ HTML = r"""
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
+            <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
   </div>
@@ -3303,6 +3577,56 @@ HTML = r"""
 
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
+
+
+<div id="stackForm" class="modalForm" style="display:none;">
+  <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
+
+  <div class="grid" style="margin-top:10px;">
+    <div>
+      <label>Stack name</label>
+      <input id="stackName" placeholder="e.g. Welcome Sequence" />
+    </div>
+    <div>
+      <label>Saved stacks</label>
+      <select id="stackSelect"></select>
+    </div>
+  </div>
+
+  <div style="margin-top:10px;">
+    <label>Add Prompt step</label>
+    <textarea id="stackPrompt" rows="3" placeholder="Example: Write the welcome email for {{input}}"></textarea>
+    <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
+      <button class="btn" id="stackAddPromptBtn">Add step</button>
+      <button class="btn" id="stackClearBtn">Clear</button>
+      <button class="btn" id="stackSaveBtn">Save</button>
+      <button class="btn btnPrimary" id="stackRunBtn">Run</button>
+      <button class="btn" id="cancelStack">Close</button>
+    </div>
+  </div>
+
+  <div id="stackSteps" style="margin-top:10px;"></div>
+  <div id="stackStatus" class="tiny" style="margin-top:10px;"></div>
+
+  <div class="tiny" style="margin:14px 0 6px;">Scheduling</div>
+  <div class="grid">
+    <div>
+      <label>Run once at</label>
+      <input id="stackRunAt" type="datetime-local" />
+    </div>
+    <div>
+      <label>Run daily at</label>
+      <input id="stackDailyAt" type="time" />
+    </div>
+  </div>
+  <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
+    <button class="btn" id="stackScheduleOnceBtn">Schedule once</button>
+    <button class="btn" id="stackScheduleDailyBtn">Schedule daily</button>
+    <button class="btn" id="stackRefreshSchedulesBtn">Refresh</button>
+  </div>
+  <div id="stackSchedules" style="margin-top:8px;"></div>
+</div>
+
 
               <div class="modalForm" id="modalForm">
                 <div class="tiny" id="editHint" style="margin-bottom:10px;">
@@ -3352,6 +3676,24 @@ HTML = r"""
 
                 <div class="tiny" id="editStatus" style="margin-top:10px;"></div>
               </div>
+
+<div id="apiKeyHelpForm" class="modalForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Quick setup: create an OpenAI API key, then paste it into Settings.</div>
+  <div class="pill" style="margin:8px 0;">Steps</div>
+  <ol style="margin: 8px 0 0 18px; line-height:1.5;">
+    <li>Open the OpenAI API Keys page</li>
+    <li>Click <b>Create new secret key</b> and copy it (you only see it once)</li>
+    <li>Back here: click <b>Settings</b> and paste the key into <b>OpenAI API Key</b></li>
+    <li>Click <b>Save</b>, then run a test prompt</li>
+  </ol>
+  <div style="margin-top:12px;">
+    <a class="btn btnPrimary" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Open API Keys page</a>
+    <button class="btn" id="closeApiKeyHelpBtn" style="margin-left:8px;">Close</button>
+  </div>
+  <div class="tiny" style="margin-top:12px; opacity:.85;">
+    Tip: Never share your key publicly. If it leaks, revoke it and create a new one.
+  </div>
+</div>
 
               <div class="modalForm" id="manageForm">
                 <div class="tiny" style="margin-bottom:10px;">
@@ -3608,6 +3950,7 @@ HTML = r"""
 
     const STORE_KEY = "round_table_seat_positions_v1";
     const MODAL_POS_KEY = "round_table_modal_pos_v1";
+    const MODAL_SIZE_KEY = "round_table_modal_size_v1";
 
     let state = null;
     let selectedSeat = "";
@@ -3666,6 +4009,21 @@ HTML = r"""
       }catch(e){ return null; }
     }
 
+    function loadModalSize(){
+      try{
+        const raw = localStorage.getItem(MODAL_SIZE_KEY);
+        if(!raw) return null;
+        const obj = JSON.parse(raw);
+        if(!obj || typeof obj !== "object") return null;
+        if(typeof obj.width !== "number" || typeof obj.height !== "number") return null;
+        return obj;
+      }catch(e){ return null; }
+    }
+
+    function saveModalSize(width, height){
+      try{ localStorage.setItem(MODAL_SIZE_KEY, JSON.stringify({width, height})); }catch(e){}
+    }
+
     function saveModalPos(left, top){
       try{
         localStorage.setItem(MODAL_POS_KEY, JSON.stringify({left, top}));
@@ -3677,6 +4035,11 @@ HTML = r"""
       if(!win) return;
 
       const saved = loadModalPos();
+      const savedSize = loadModalSize();
+      if(savedSize){
+        win.style.width = Math.max(360, savedSize.width) + "px";
+        win.style.height = Math.max(260, savedSize.height) + "px";
+      }
       if(saved){
         win.style.transform = "none";
         win.style.left = saved.left + "px";
@@ -3697,6 +4060,7 @@ HTML = r"""
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "none";
       if($("stackForm")) $("stackForm").style.display = "none";
+      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -3902,6 +4266,22 @@ HTML = r"""
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
 
+    (function initModalResizePersist(){
+      const win = $("modalWin");
+      if(!win) return;
+      try{
+        const ro = new ResizeObserver((entries)=>{
+          for(const ent of entries){
+            const cr = ent.contentRect;
+            if(cr && cr.width && cr.height){
+              saveModalSize(cr.width, cr.height);
+            }
+          }
+        });
+        ro.observe(win);
+      }catch(e){}
+    })();
+
     function setOpStatus(text){
       $("opStatus").innerText = text;
     }
@@ -4084,7 +4464,300 @@ HTML = r"""
       showModal("Saved", "Teammate framework updated.");
     };
 
-    function makeSeat(defn, idx){
+    // -------- Action Stacks (Sequence Runner) --------
+const ActionStack = { teammate: "", steps: [] };
+
+function showStackTab(title){
+  try{ document.body.style.overflow = "hidden"; }catch(_){}
+  if($("modalTitle")) $("modalTitle").innerText = title || "Stack";
+  if(typeof hideAllModalForms === "function") hideAllModalForms();
+  if($("modalBody")) $("modalBody").style.display = "none";
+  if($("stackForm")) $("stackForm").style.display = "block";
+  if($("overlay")) $("overlay").classList.add("show");
+  if(typeof applyModalPos === "function") applyModalPos();
+  const sc = $("modalScroll");
+  if(sc) sc.scrollTop = 0;  if($("clientsForm")) $("clientsForm").style.display = "none";
+}
+
+
+
+function renderRunOutputs(run){
+  const box = $("stackStatus");
+  if(!box || !run) return;
+  const outputs = run.outputs || {};
+  const keys = Object.keys(outputs).map(k => parseInt(k,10)).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+  if(keys.length === 0){
+    box.innerHTML = `<div class="tiny">Run status: ${run.status}</div>`;
+    return;
+  }
+  const lastKey = keys[keys.length-1];
+  const last = outputs[String(lastKey)] || "";
+  box.innerHTML = `<div class="tiny">Run status: ${run.status} • Last output shown below</div>`;
+  if(run.status === "needs_input"){
+    const wrap = document.createElement("div");
+    wrap.className = "pillRow";
+    wrap.style.marginTop = "10px";
+    const inp = document.createElement("input");
+    inp.id = "stackResumeInput";
+    inp.className = "input";
+    inp.placeholder = "Reply for Ask user step...";
+    inp.style.flex = "1";
+    const btn = document.createElement("button");
+    btn.id = "stackResumeBtn";
+    btn.className = "btn btnPrimary";
+    btn.innerText = "Resume";
+    btn.onclick = async()=>{
+      try{
+        const r = await fetch(`/api/action_stack_runs/${encodeURIComponent(run.id)}/resume`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({input: inp.value||""})});
+        const d = await r.json();
+        if(d.ok){ renderStackSteps(); renderRunOutputs(d.run); }
+        else{ if($('stackStatus')) $('stackStatus').innerText = d.error || 'Resume failed.'; }
+      }catch(e){ if($('stackStatus')) $('stackStatus').innerText = 'Resume failed.'; }
+    };
+    wrap.appendChild(inp);
+    wrap.appendChild(btn);
+    box.appendChild(wrap);
+  }
+  const stepsBox = $("stackSteps");
+  // Remove previous output blocks if any
+  try{ Array.from(document.querySelectorAll('.stackLastOutputBlock')).forEach(n=>n.remove()); }catch(_){ }
+  if(stepsBox){
+    const hr = document.createElement("div");
+    hr.style.height="1px"; hr.style.background="rgba(42,58,106,.55)"; hr.style.margin="10px 0";
+    const outTitle = document.createElement("div");
+    outTitle.className="tiny";
+    outTitle.className = (outTitle.className || "") + " stackLastOutputBlock";
+    outTitle.innerText="Latest run outputs";
+    const outPre = document.createElement("div");
+    outPre.className="tiny";
+    outPre.style.whiteSpace="pre-wrap";
+    outPre.style.padding="10px";
+    outPre.style.border="1px solid rgba(42,58,106,.65)";
+    outPre.style.borderRadius="12px";
+    outPre.style.background="rgba(7,10,20,.25)";
+    outPre.className = (outPre.className || "") + " stackLastOutputBlock";
+    outPre.innerText = String(last).slice(0,8000);
+    hr.className = "stackLastOutputBlock";
+    stepsBox.appendChild(hr);
+    stepsBox.appendChild(outTitle);
+    stepsBox.appendChild(outPre);
+  }
+}
+
+function renderStackSteps(){
+  const box = $("stackSteps");
+  if(!box) return;
+  box.innerHTML = "";
+  if(ActionStack.steps.length === 0){
+    const t = document.createElement("div");
+    t.className = "tiny";
+    t.innerText = "No steps yet. Add one or more prompt steps.";
+    box.appendChild(t);
+    return;
+  }
+  ActionStack.steps.forEach((s, idx) => {
+    const row = document.createElement("div");
+    row.className = "pillRow";
+    row.style.marginTop = "6px";
+
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    pill.innerText = `Step ${idx+1}: Prompt`;
+    row.appendChild(pill);
+
+    const del = document.createElement("button");
+    del.className = "btn";
+    del.innerText = "Delete";
+    del.onclick = () => { ActionStack.steps.splice(idx,1); renderStackSteps(); };
+    row.appendChild(del);
+
+    const up = document.createElement("button");
+    up.className = "btn";
+    up.innerText = "Up";
+    up.onclick = () => {
+      if(idx === 0) return;
+      const tmp = ActionStack.steps[idx-1];
+      ActionStack.steps[idx-1] = ActionStack.steps[idx];
+      ActionStack.steps[idx] = tmp;
+      renderStackSteps();
+    };
+    row.appendChild(up);
+
+    const down = document.createElement("button");
+    down.className = "btn";
+    down.innerText = "Down";
+    down.onclick = () => {
+      if(idx >= ActionStack.steps.length-1) return;
+      const tmp = ActionStack.steps[idx+1];
+      ActionStack.steps[idx+1] = ActionStack.steps[idx];
+      ActionStack.steps[idx] = tmp;
+      renderStackSteps();
+    };
+    row.appendChild(down);
+
+    box.appendChild(row);
+
+    const pre = document.createElement("div");
+    pre.className = "tiny";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.style.marginTop = "4px";
+    pre.innerText = (s.prompt || "").slice(0, 1200);
+    box.appendChild(pre);
+  });
+}
+
+async function loadStacksForTeammate(teammate){
+  const sel = $("stackSelect");
+  if(!sel) return;
+  sel.innerHTML = "";
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
+  const data = await res.json();
+  if(!data.ok) return;
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.text = "(select)";
+  sel.appendChild(opt0);
+  (data.stacks || []).forEach((n) => {
+    const opt = document.createElement("option");
+    opt.value = n;
+    opt.text = n;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadStackDetail(teammate, name){
+  if(!name) return;
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
+  const data = await res.json();
+  if(!data.ok) return;
+  const stack = data.stack || {};
+  ActionStack.steps = (stack.steps || []).map(s => ({type:"prompt", prompt: s.prompt || ""}));
+  if($("stackName")) $("stackName").value = stack.name || name;
+  renderStackSteps();
+}
+
+async function loadSchedulesForTeammate(teammate){
+  const box = $("stackSchedules");
+  if(!box) return;
+  box.innerHTML = "";
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
+  const data = await res.json();
+  if(!data.ok) return;
+  const items = data.schedules || [];
+  if(items.length === 0){
+    const t = document.createElement("div");
+    t.className = "tiny";
+    t.innerText = "No schedules yet.";
+    box.appendChild(t);
+    return;
+  }
+  items.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "pillRow";
+    row.style.marginTop = "6px";
+    const pill = document.createElement("div");
+    pill.className = "pill";
+    const mode = s.mode || "once";
+    const when = mode === "daily" ? (`daily @ ${s.time || ""}`) : (s.run_at || "");
+        const lr = s.last_run ? (` • last: ${s.last_run}`) : "";
+        
+    pill.innerText = `${s.stack_name || ""} • ${when}${lr}`;
+    row.appendChild(pill);
+
+    const del = document.createElement("button");
+    del.className = "btn";
+    del.innerText = "Delete";
+    del.onclick = async () => {
+      await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({schedule_id: s.id})
+      });
+      loadSchedulesForTeammate(teammate);
+    };
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+}
+
+async function saveCurrentStack(){
+  const teammate = ActionStack.teammate;
+  const name = (($("stackName") && $("stackName").value) || "").trim();
+  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
+  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Enter a stack name."; return; }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({steps: ActionStack.steps})
+  });
+  const data = await res.json();
+  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
+  loadStacksForTeammate(teammate);
+}
+
+async function runCurrentStack(){
+  const teammate = ActionStack.teammate;
+  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
+  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
+  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({input: (($("mainPrompt") && $("mainPrompt").value) || "").trim(), client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")})
+  });
+  const data = await res.json();
+  if(!data.ok){ if($("stackStatus")) $("stackStatus").innerText = data.error || "Run failed."; return; }
+  renderStackSteps();
+  renderRunOutputs(data.run);
+}
+
+async function scheduleOnce(){
+  const teammate = ActionStack.teammate;
+  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
+  const runAt = ($("stackRunAt") && $("stackRunAt").value) || "";
+  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
+  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
+  if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a datetime."; return; }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
+  });
+  const data = await res.json();
+  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
+  loadSchedulesForTeammate(teammate);
+}
+
+async function scheduleDaily(){
+  const teammate = ActionStack.teammate;
+  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
+  const t = ($("stackDailyAt") && $("stackDailyAt").value) || "";
+  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
+  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
+  if(!t){ if($("stackStatus")) $("stackStatus").innerText = "Pick a daily time."; return; }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({mode:"daily", stack_name:name, time: t})
+  });
+  const data = await res.json();
+  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
+  loadSchedulesForTeammate(teammate);
+}
+
+window.openStackForTeammate = function(name){
+  ActionStack.teammate = name;
+  ActionStack.steps = [];
+  if($("stackName")) $("stackName").value = "";
+  if($("stackPrompt")) $("stackPrompt").value = "";
+  if($("stackStatus")) $("stackStatus").innerText = "";
+  renderStackSteps();
+  showStackTab(`Stack: ${name}`);
+  loadStacksForTeammate(name);
+  loadSchedulesForTeammate(name);
+};
+
+function makeSeat(defn, idx){
       const wrap = $("tableWrap");
       const wrapRect = wrap.getBoundingClientRect();
 
@@ -4256,17 +4929,28 @@ HTML = r"""
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
 
+      // Operator seat (always available)
+      try{
+        wrap.appendChild(makeOperatorSeat(0));
+      }catch(err){
+        console.error("Operator seat failed to render:", err);
+      }
+
+
       const order = activeOrder();
       const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
 
       if(seats.length === 0){
+        // keep operator seat usable even with zero teammates
+        if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
+
         showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
         $("seatSub").innerText = "No active teammate selected.";
-        selectedSeat = "";
+        if(selectedSeat !== "Operator") selectedSeat = "";
         renderThread([]);
         return;
       }
@@ -4286,6 +4970,155 @@ HTML = r"""
 
       updateTablePulseFromStatuses();
     }
+    function makeOperatorSeat(idx){
+      const wrap = $("tableWrap");
+
+      const seat = document.createElement("div");
+      seat.className = "seat seatOperator";
+      seat.dataset.name = "Operator";
+      seat.tabIndex = 0;
+
+      const tools = document.createElement("div");
+      tools.className = "seatTools";
+
+      const profBtn = document.createElement("button");
+      profBtn.className = "seatToolBtn";
+      profBtn.innerText = "Profile";
+      profBtn.title = "Edit Operator Profile (shared context)";
+      profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
+      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
+      tools.appendChild(profBtn);
+
+      seat.appendChild(tools);
+
+      const avatar = document.createElement("div");
+      avatar.className = "avatar";
+      avatar.style.background = "#0f172a";
+      avatar.style.color = "#67e8f9";
+      avatar.innerText = "O";
+      seat.appendChild(avatar);
+
+      const nameEl = document.createElement("div");
+      nameEl.className = "seatName";
+      nameEl.innerText = "Operator";
+      seat.appendChild(nameEl);
+
+      const meta = document.createElement("div");
+      meta.className = "seatMeta";
+      meta.innerText = "Profile";
+      seat.appendChild(meta);
+
+      // Default position like other seats (with saved drag positions)
+      try{
+        const saved = loadSeatPositions();
+        if(saved && saved["Operator"] && typeof saved["Operator"].left === "number" && typeof saved["Operator"].top === "number"){
+          seat.style.left = saved["Operator"].left + "px";
+          seat.style.top = saved["Operator"].top + "px";
+        }else{
+          // Use the same placement math as teammate seats so it never renders off-screen.
+          const r = wrap.getBoundingClientRect();
+          const w = 190, h = 124; // match .seat size
+          const pos = {x: 50, y: 18}; // slightly lower so it can't hide under header
+          let left = (pos.x/100) * r.width - (w/2);
+          let top  = (pos.y/100) * r.height - (h/2);
+
+          // Clamp into visible bounds (mirrors drag constraints)
+          const maxLeft = r.width - 110;
+          const maxTop  = r.height - 110;
+
+          // If the table area hasn't laid out yet, fall back to safe pixels.
+          if(r.width < 260 || r.height < 260){
+            left = 20; top = 20;
+          }else{
+            left = clamp(left, 10, Math.max(10, maxLeft));
+            top  = clamp(top, 10, Math.max(10, maxTop));
+          }
+
+          seat.style.left = left + "px";
+          seat.style.top  = top + "px";
+        }
+      }catch(_){
+        seat.style.left = "50%";
+        seat.style.top = "12%";
+      }
+
+      // Click / keyboard select
+      seat.addEventListener("click", (e) => { e.preventDefault(); selectSeat("Operator"); });
+      seat.addEventListener("keydown", (e) => {
+        if(e.key === "Enter" || e.key === " "){
+          e.preventDefault(); selectSeat("Operator");
+        }
+      });
+
+      // Drag behavior (same as other seats)
+      let dragging = false;
+      let moved = false;
+      let startX = 0, startY = 0;
+      let offsetX = 0, offsetY = 0;
+
+      seat.addEventListener("pointerdown", (e) => {
+        if(e.button !== undefined && e.button !== 0) return;
+        dragging = true;
+        moved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+
+        const r = seat.getBoundingClientRect();
+        offsetX = e.clientX - r.left;
+        offsetY = e.clientY - r.top;
+
+        seat.classList.add("dragging");
+        seat.setPointerCapture(e.pointerId);
+      });
+
+      seat.addEventListener("pointermove", (e) => {
+        if(!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+
+        const wrapRect = wrap.getBoundingClientRect();
+        const left = e.clientX - wrapRect.left - offsetX;
+        const top = e.clientY - wrapRect.top - offsetY;
+
+        const maxLeft = wrapRect.width - 110;
+        const maxTop = wrapRect.height - 110;
+
+        seat.style.left = clamp(left, 10, Math.max(10, maxLeft)) + "px";
+        seat.style.top = clamp(top, 10, Math.max(10, maxTop)) + "px";
+      });
+
+      seat.addEventListener("pointerup", (e) => {
+        if(!dragging) return;
+        dragging = false;
+        seat.classList.remove("dragging");
+
+        try{
+          const saved = loadSeatPositions() || {};
+          const r = seat.getBoundingClientRect();
+          const wr = wrap.getBoundingClientRect();
+          saved["Operator"] = {left: (r.left - wr.left), top: (r.top - wr.top)};
+          saveSeatPositions(saved);
+        }catch(_){}
+
+        try{ seat.releasePointerCapture(e.pointerId); }catch(_){}
+
+        // If user dragged, don't also "click" select (prevents accidental open)
+        if(moved){
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+
+      seat.addEventListener("pointercancel", () => {
+        dragging = false;
+        seat.classList.remove("dragging");
+      });
+
+      return seat;
+    }
+
+
 
     async function loadState(){
       const res = await fetch("/api/state");
@@ -4313,6 +5146,31 @@ HTML = r"""
           el.classList.remove("seatPulse");
         }
       });
+    }
+
+    function _cssEscape(s){
+      try{
+        if(window.CSS && CSS.escape) return CSS.escape(s);
+      }catch(_){}
+      return (s || "").replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
+    }
+
+    // Force the same visible "glow + switch" feedback as a click.
+    // This also restarts the pulse animation if the seat was already selected.
+    function forceSeatSelectUI(name){
+      try{
+        selectedSeat = name;
+        markActiveSeat();
+        const el = document.querySelector('.seat[data-name="' + _cssEscape(name) + '"]');
+        if(!el) return;
+        // Restart CSS animation
+        el.classList.remove("seatPulse");
+        void el.offsetWidth; // reflow
+        el.classList.add("seatPulse");
+        // Bring into view and focus for accessibility
+        try{ el.focus({preventScroll:true}); }catch(_){}
+        try{ el.scrollIntoView({behavior:"smooth", block:"center", inline:"center"}); }catch(_){}
+      }catch(_){}
     }
 
     async function selectSeat(name){
@@ -4352,9 +5210,100 @@ HTML = r"""
       });
       box.scrollTop = box.scrollHeight;
     }
+    function renderOperatorProfile(p){
+      const box = $("thread");
+      box.innerHTML = "";
+      const card = document.createElement("div");
+      card.className = "msg assistant";
+      const safe = (v)=> (v==null? "" : String(v));
+      card.innerHTML = `
+        <div class="who">Operator Profile</div>
+        <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
+        <div class="pillRow" style="gap:10px; flex-wrap:wrap">
+          <div style="flex:1; min-width:240px">
+            <div class="tiny">Display name</div>
+            <input id="op_display_name" class="input" placeholder="Operator" value="${safe(p.display_name||"Operator")}" />
+          </div>
+          <div style="flex:1; min-width:240px">
+            <div class="tiny">Audience</div>
+            <input id="op_audience" class="input" placeholder="Who you serve" value="${safe(p.audience||"")}" />
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Business</div>
+        <textarea id="op_business" class="followBox" style="min-height:90px" placeholder="What your business does...">${safe(p.business||"")}</textarea>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Offers</div>
+        <textarea id="op_offers" class="followBox" style="min-height:80px" placeholder="Your offers, pricing model, deliverables...">${safe(p.offers||"")}</textarea>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Goals</div>
+        <textarea id="op_goals" class="followBox" style="min-height:70px" placeholder="Current goals and KPIs...">${safe(p.goals||"")}</textarea>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Constraints</div>
+        <textarea id="op_constraints" class="followBox" style="min-height:70px" placeholder="Rules, boundaries, what not to do...">${safe(p.constraints||"")}</textarea>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Tone rules</div>
+        <textarea id="op_tone_rules" class="followBox" style="min-height:70px" placeholder="How teammates should speak and write...">${safe(p.tone_rules||"")}</textarea>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny">Notes</div>
+        <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Anything else teammates should know...">${safe(p.notes||"")}</textarea>
+
+        <div style="height:12px"></div>
+        <div class="pillRow" style="justify-content:flex-end">
+          <button class="btn btnMini" id="opReload">Reload</button>
+          <button class="btn btnPrimary" id="opSave">Save</button>
+        </div>
+      `;
+      box.appendChild(card);
+
+      const bind = (id, fn)=>{ const el=$(id); if(el) el.addEventListener("click", fn); };
+      bind("opReload", async()=>{ await refreshThread(); });
+      bind("opSave", async()=>{
+        const payload = {
+          display_name: $("op_display_name").value,
+          audience: $("op_audience").value,
+          business: $("op_business").value,
+          offers: $("op_offers").value,
+          goals: $("op_goals").value,
+          constraints: $("op_constraints").value,
+          tone_rules: $("op_tone_rules").value,
+          notes: $("op_notes").value
+        };
+        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(data.ok){
+          showToast("Saved Operator Profile");
+        }else{
+          showToast("Save failed: " + (data.error||"unknown"));
+        }
+      });
+    }
+
+
 
     async function refreshThread(){
       if(!selectedSeat) return;
+
+      if(selectedSeat === "Operator"){
+        const res = await fetch("/api/operator_profile");
+        const data = await res.json();
+        if(!data.ok){ renderThread([]); return; }
+        renderOperatorProfile(data.profile || {});
+        return;
+      }
+
       const res = await fetch("/api/thread/" + encodeURIComponent(selectedSeat));
       const data = await res.json();
       if(!data.ok){
@@ -4829,6 +5778,7 @@ HTML = r"""
 
             // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
+            forceSeatSelectUI(hit.name);
 
             // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
@@ -5596,6 +6546,130 @@ $("saveFramework").onclick = async () => {
 })();
 
 
+// -------- Client Memory Profiles (UI) --------
+const ClientStore = { list: [], active_id: "", current: null };
+
+function openClientsPanel(){
+  try{ document.body.style.overflow = "hidden"; }catch(_){}
+  if(typeof hideAllModalForms === "function") hideAllModalForms();
+  if($("modalTitle")) $("modalTitle").innerText = "Client Memory Profiles";
+  if($("modalBody")) $("modalBody").style.display = "none";
+  if($("clientsForm")) $("clientsForm").style.display = "block";
+  if($("overlay")) $("overlay").classList.add("show");
+  const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
+  loadClients();
+}
+
+function _fillClientForm(c){
+  ClientStore.current = c || null;
+  $("clientName").value = (c && c.name) || "";
+  $("clientCompany").value = (c && c.company) || "";
+  $("clientEmail").value = (c && c.email) || "";
+  $("clientTags").value = (c && c.tags) || "";
+  $("clientNotes").value = (c && c.notes) || "";
+  $("clientSummary").value = (c && c.last_summary) || "";
+}
+
+function _renderClientSelect(filterText){
+  const sel = $("activeClientSelect");
+  if(!sel) return;
+  const f = (filterText || "").toLowerCase();
+  sel.innerHTML = "";
+  const optNone = document.createElement("option");
+  optNone.value = "";
+  optNone.text = "(no active client)";
+  sel.appendChild(optNone);
+
+  ClientStore.list
+    .filter(c => !f || ((c.name||"").toLowerCase().includes(f) || (c.company||"").toLowerCase().includes(f) || (c.email||"").toLowerCase().includes(f) || (c.tags||"").toLowerCase().includes(f)))
+    .forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.text = c.company ? `${c.name} • ${c.company}` : c.name;
+      sel.appendChild(opt);
+    });
+
+  sel.value = ClientStore.active_id || "";
+}
+
+async function loadClients(){
+  const res = await fetch("/api/clients");
+  const data = await res.json();
+  if(!data.ok) return;
+  ClientStore.list = data.clients || [];
+  ClientStore.active_id = data.active_client_id || "";
+  _renderClientSelect(($("clientSearch") && $("clientSearch").value) || "");
+  const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
+  _fillClientForm(active);
+}
+
+async function setActiveClient(cid){
+  await fetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
+  ClientStore.active_id = cid || "";
+  const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
+  _fillClientForm(active);
+}
+
+async function createNewClient(){
+  const name = ($("clientName").value || "").trim() || "New Client";
+  const payload = {
+    name,
+    company: ($("clientCompany").value || "").trim(),
+    email: ($("clientEmail").value || "").trim(),
+    tags: ($("clientTags").value || "").trim(),
+    notes: ($("clientNotes").value || "").trim(),
+    last_summary: ($("clientSummary").value || "").trim(),
+  };
+  const res = await fetch("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const data = await res.json();
+  if(!data.ok) return;
+  await loadClients();
+  if(data.active_client_id) {
+    ClientStore.active_id = data.active_client_id;
+    $("activeClientSelect").value = ClientStore.active_id;
+  }
+}
+
+async function saveCurrentClient(){
+  const cid = ClientStore.active_id;
+  if(!cid){
+    // if no active client, create new
+    return createNewClient();
+  }
+  const payload = {
+    name: ($("clientName").value || "").trim(),
+    company: ($("clientCompany").value || "").trim(),
+    email: ($("clientEmail").value || "").trim(),
+    tags: ($("clientTags").value || "").trim(),
+    notes: ($("clientNotes").value || "").trim(),
+    last_summary: ($("clientSummary").value || "").trim(),
+  };
+  const res = await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const data = await res.json();
+  if(!data.ok) return;
+  await loadClients();
+  $("activeClientSelect").value = cid;
+}
+
+async function deleteCurrentClient(){
+  const cid = ClientStore.active_id;
+  if(!cid) return;
+  await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"DELETE"});
+  await loadClients();
+  $("activeClientSelect").value = ClientStore.active_id || "";
+}
+
+function openApiKeyHelp(){
+  try{ document.body.style.overflow = "hidden"; }catch(_){}
+  if(typeof hideAllModalForms === "function") hideAllModalForms();
+  if($("modalTitle")) $("modalTitle").innerText = "How to get and set your OpenAI API key";
+  if($("modalBody")) $("modalBody").style.display = "none";
+  if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "block";
+  if($("overlay")) $("overlay").classList.add("show");
+  if(typeof applyModalPos === "function") applyModalPos();
+  const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
+}
+
 // Stack UI bindings
 if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
   const p = ($("stackPrompt").value || "").trim();
@@ -5615,16 +6689,89 @@ if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => 
 if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
 
 // Safe schedule runner tick (no background threads)
-setInterval(() => {
-  fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
-}, 20000);
+if(!window.__stackTickInterval){
+  window.__stackTickInterval = setInterval(() => {
+    fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
+  }, 20000);
+}
+// API key help button
+if($("openApiKeyHelpBtn")) $("openApiKeyHelpBtn").onclick = () => openApiKeyHelp();
+if($("closeApiKeyHelpBtn")) $("closeApiKeyHelpBtn").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
+
+
+// Client form bindings (safe)
+if($("activeClientSelect")) $("activeClientSelect").onchange = () => setActiveClient($("activeClientSelect").value);
+if($("clientSearch")) $("clientSearch").oninput = () => _renderClientSelect($("clientSearch").value);
+
+// Stack UI bindings (safe)
+if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
+  const p = ($("stackPrompt").value || "").trim();
+  if(!p){ $("stackStatus").innerText = "Enter a prompt for the step."; return; }
+  ActionStack.steps.push({type:"prompt", prompt: p});
+  $("stackPrompt").value = "";
+  $("stackStatus").innerText = "";
+  renderStackSteps();
+};
+if($("stackClearBtn")) $("stackClearBtn").onclick = () => { ActionStack.steps = []; renderStackSteps(); $("stackStatus").innerText = "Cleared."; };
+if($("stackSaveBtn")) $("stackSaveBtn").onclick = saveCurrentStack;
+if($("stackRunBtn")) $("stackRunBtn").onclick = runCurrentStack;
+if($("cancelStack")) $("cancelStack").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
+if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
+if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
+if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
+if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
+
+// Safe schedule runner tick (no background threads)
+if(!window.__stackTickInterval){
+  window.__stackTickInterval = setInterval(() => {
+    fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
+  }, 20000);
+}
+// API key help delegation (works even if elements render later)
+document.addEventListener("click", (e) => {
+          // Clients delegation
+
+  const t = e.target;
+  if(!t) return;
+  if(t.id === "openClientsBtn"){
+  e.preventDefault();
+  openClientsPanel();
+}
+if(t.id === "closeClientsBtn"){
+  e.preventDefault();
+  try{ document.body.style.overflow = ""; }catch(_){}
+  hideModal();
+}
+if(t.id === "newClientBtn"){
+  e.preventDefault();
+  _fillClientForm(null);
+  ClientStore.active_id = "";
+  if($("activeClientSelect")) $("activeClientSelect").value = "";
+}
+if(t.id === "saveClientBtn"){
+  e.preventDefault();
+  saveCurrentClient();
+}
+if(t.id === "deleteClientBtn"){
+  e.preventDefault();
+  deleteCurrentClient();
+}
+
+if(t.id === "openApiKeyHelpBtn"){
+    e.preventDefault();
+    openApiKeyHelp();
+  }
+  if(t.id === "closeApiKeyHelpBtn"){
+    e.preventDefault();
+    try{ document.body.style.overflow = ""; }catch(_){}
+    hideModal();
+  }
+});
 </script>
 
 
-</body>
-</html>
 
-  </script>
+
 </body>
 </html>
 """
@@ -5634,12 +6781,150 @@ def index():
     return render_template_string(HTML, app_title=APP_TITLE, model=MODEL)
 
 
+
+
+
+
+
+
+
+@app.route("/api/clients", methods=["GET"])
+def api_clients_list():
+    username = _get_session_username()
+    data = _load_clients(username)
+    # return list
+    out = []
+    for cid, c in (data.get("clients") or {}).items():
+        if isinstance(c, dict):
+            item = dict(c)
+            item.setdefault("id", cid)
+            out.append(item)
+    out.sort(key=lambda x: (x.get("name") or "").lower())
+    return jsonify({"ok": True, "active_client_id": data.get("active_client_id",""), "clients": out})
+
+@app.route("/api/clients/active", methods=["GET"])
+def api_clients_active():
+    username = _get_session_username()
+    c = _get_active_client(username)
+    return jsonify({"ok": True, "client": c})
+
+@app.route("/api/clients/active", methods=["POST"])
+def api_clients_set_active():
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    cid = (payload.get("client_id") or "").strip()
+    data = _load_clients(username)
+    if cid and cid not in (data.get("clients") or {}):
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    data["active_client_id"] = cid
+    _save_clients(username, data)
+    return jsonify({"ok": True, "active_client_id": cid})
+
+@app.route("/api/clients", methods=["POST"])
+def api_clients_create():
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    data = _load_clients(username)
+    cid = _new_client_id()
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    client = {
+        "id": cid,
+        "name": name,
+        "company": (payload.get("company") or "").strip(),
+        "email": (payload.get("email") or "").strip(),
+        "tags": (payload.get("tags") or "").strip(),
+        "notes": (payload.get("notes") or "").strip(),
+        "last_summary": (payload.get("last_summary") or "").strip(),
+        "updated_at": now,
+    }
+    data["clients"][cid] = client
+    # auto-activate if none
+    if not (data.get("active_client_id") or "").strip():
+        data["active_client_id"] = cid
+    _save_clients(username, data)
+    return jsonify({"ok": True, "client": client, "active_client_id": data.get("active_client_id","")})
+
+@app.route("/api/clients/<client_id>", methods=["POST"])
+def api_clients_update(client_id):
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    data = _load_clients(username)
+    clients = data.get("clients") or {}
+    if client_id not in clients or not isinstance(clients[client_id], dict):
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    c = clients[client_id]
+    for k in ["name","company","email","tags","notes","last_summary"]:
+        if k in payload:
+            c[k] = (payload.get(k) or "").strip()
+    c["updated_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    clients[client_id] = c
+    data["clients"] = clients
+    _save_clients(username, data)
+    c2 = dict(c); c2.setdefault("id", client_id)
+    return jsonify({"ok": True, "client": c2})
+
+@app.route("/api/clients/<client_id>", methods=["DELETE"])
+def api_clients_delete(client_id):
+    username = _get_session_username()
+    data = _load_clients(username)
+    clients = data.get("clients") or {}
+    if client_id in clients:
+        clients.pop(client_id, None)
+    if data.get("active_client_id") == client_id:
+        data["active_client_id"] = ""
+    data["clients"] = clients
+    _save_clients(username, data)
+    return jsonify({"ok": True})
+
+
+def _load_operator_profile(username: str) -> Dict[str, Any]:
+    """Per-user operator profile teammates can reference."""
+    try:
+        OPERATOR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
+    if not path.exists():
+        return {
+            "display_name": "Operator",
+            "business": "",
+            "offers": "",
+            "audience": "",
+            "goals": "",
+            "constraints": "",
+            "tone_rules": "",
+            "notes": "",
+            "updated_at": ""
+        }
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "display_name": "Operator",
+            "business": "",
+            "offers": "",
+            "audience": "",
+            "goals": "",
+            "constraints": "",
+            "tone_rules": "",
+            "notes": "",
+            "updated_at": ""
+        }
+
+def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
+    try:
+        OPERATOR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    profile = dict(profile or {})
+    profile["updated_at"] = now
+    path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
+    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=True)
-
-
-
-
-
-
-
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
