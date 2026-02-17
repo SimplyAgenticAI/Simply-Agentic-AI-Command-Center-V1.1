@@ -34,7 +34,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.11")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -1812,7 +1812,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
@@ -4129,7 +4129,7 @@ HTML = r"""
                 </div>
 
                 <label>OpenAI API Key</label>
-                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <input id="openaiKey" type="password" placeholder="sk-..." />
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -6214,7 +6214,31 @@ function makeSeat(defn, idx){
       }
     };
 
-    async function conveneAll(){
+    
+    // -------------------------
+    // NEW: Robust fetch wrapper (prevents "stuck thinking" on network/timeouts)
+    // -------------------------
+    async function fetchJsonWithTimeout(url, options, timeoutMs){
+      const ms = timeoutMs || 90000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ms);
+      try{
+        const res = await fetch(url, Object.assign({}, options || {}, {signal: controller.signal}));
+        let data = null;
+        try{ data = await res.json(); }catch(e){ data = null; }
+        if(!res.ok){
+          return { ok:false, error: (data && (data.error || data.message)) ? (data.error || data.message) : ("HTTP " + res.status) };
+        }
+        return data || { ok:false, error:"Bad response" };
+      }catch(e){
+        const msg = (e && e.name === "AbortError") ? "Request timed out" : "Network error";
+        return { ok:false, error: msg };
+      }finally{
+        clearTimeout(timer);
+      }
+    }
+
+async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
         showModal("Missing prompt", "Type a group prompt in the center card.");
@@ -6237,14 +6261,12 @@ function makeSeat(defn, idx){
         assemblyPulseActive = false;
       }
 
-      const res = await fetch("/api/convene", {
+      const data = await fetchJsonWithTimeout("/api/convene", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({prompt, file_ids: groupFileIds})
-      });
-      const data = await res.json();
-
-      if(!data.ok){
+      }, 120000);
+if(!data.ok){
         order.forEach(n => setSeatLive(n, "waiting"));
         setOpStatus("Error");
         showModal("Error", data.error || "Group send failed");
@@ -6302,14 +6324,12 @@ function makeSeat(defn, idx){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
+      const data = await fetchJsonWithTimeout("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds})
-      });
-      const data = await res.json();
-
-      if(!data.ok){
+      }, 120000);
+if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
         showModal("Error", data.error || "Send failed");
