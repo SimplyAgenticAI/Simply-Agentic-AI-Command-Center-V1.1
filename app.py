@@ -34,8 +34,8 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table ")
-MODEL = os.getenv("MODEL", "gpt-4o-mini")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table v1.13 ")
+MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
 
@@ -2125,6 +2125,24 @@ def api_upload():
     return jsonify({"ok": True, "file": rec})
 
 
+
+# ===== API JSON ERROR GUARD (prevents HTML 500s that leave the UI stuck on "Thinking") =====
+from werkzeug.exceptions import HTTPException
+
+@app.errorhandler(Exception)
+def _api_json_error(err):
+    # For API routes, always return JSON so the frontend can unwind cleanly.
+    try:
+        if request.path.startswith("/api/"):
+            if isinstance(err, HTTPException):
+                return jsonify({"ok": False, "error": err.description or "Request failed"}), err.code or 500
+            append_log("api_exception", {"path": request.path, "error": str(err)})
+            return jsonify({"ok": False, "error": "Server error"}), 500
+    except Exception:
+        pass
+    # Non-API routes: re-raise as a 500 (Flask will handle rendering)
+    raise err
+
 @app.post("/api/convene")
 def api_convene():
     data = request.get_json(force=True)
@@ -2289,11 +2307,13 @@ def api_followup():
     msgs.append({"role": "user", "content": user_content})
 
     try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except Exception as e:
-        status, msg = _classify_openai_error(e)
-        append_log("followup_error", {"where": name, "error": str(e)})
-        return jsonify({"ok": False, "error": msg}), status
+    text = call_llm(sys, msgs, temperature=0.65)
+except Exception as e:
+    status, emsg = _classify_openai_error(e)
+    append_log("followup_error", {"where": name, "error": str(e)})
+    # Ensure UI does not hang on non-JSON 500s
+    return jsonify({"ok": False, "error": emsg}), status
+
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -3788,7 +3808,7 @@ HTML = r"""
                 </div>
 
                 <label>OpenAI API Key</label>
-                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="none" spellcheck="false" />
+                <input id="openaiKey" type="password" placeholder="sk-..." />
 
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
@@ -5851,7 +5871,43 @@ function makeSeat(defn, idx){
       }
     };
 
-    async function conveneAll(){
+    
+async function apiPostJson(url, payload, timeoutMs){
+  const controller = new AbortController();
+  const to = setTimeout(() => { try{ controller.abort(); }catch(_){} }, timeoutMs || 60000);
+  try{
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload || {}),
+      signal: controller.signal
+    });
+
+    // Always try to parse JSON; if server returned HTML, convert to a readable error.
+    let data = null;
+    try{
+      data = await res.json();
+    }catch(parseErr){
+      const raw = await res.text().catch(() => "");
+      return { ok: false, error: `HTTP ${res.status} (non-JSON response)` };
+    }
+
+    if(!res.ok && data && data.ok !== true){
+      // Keep server-provided error
+      return data;
+    }
+    return data || { ok:false, error: `HTTP ${res.status}` };
+  }catch(err){
+    if(err && err.name === "AbortError"){
+      return { ok:false, error: "Request timed out" };
+    }
+    return { ok:false, error: (err && err.message) ? err.message : "Network error" };
+  }finally{
+    clearTimeout(to);
+  }
+}
+
+async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
         showModal("Missing prompt", "Type a group prompt in the center card.");
@@ -5874,12 +5930,7 @@ function makeSeat(defn, idx){
         assemblyPulseActive = false;
       }
 
-      const res = await fetch("/api/convene", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({prompt, file_ids: groupFileIds})
-      });
-      const data = await res.json();
+      const data = await apiPostJson("/api/convene", {prompt, file_ids: groupFileIds}, 90000);
 
       if(!data.ok){
         order.forEach(n => setSeatLive(n, "waiting"));
