@@ -34,12 +34,8 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table ")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
-IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1")
-IMAGE_SIZE = os.getenv("IMAGE_SIZE", "1024x1024")  # 1024x1024 | 1024x1536 | 1536x1024
-IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "medium")  # low | medium | high
-IMAGE_OUTPUT_FORMAT = os.getenv("IMAGE_OUTPUT_FORMAT", "png")  # png | webp | jpeg
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
 
@@ -65,10 +61,128 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
+
+# =========================
+# MANUAL GOOGLE OAUTH (no extra deps)
+# =========================
+
+GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+def _now_epoch() -> int:
+    try:
+        return int(datetime.utcnow().timestamp())
+    except Exception:
+        return 0
+
+def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
+    redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
+    scope_str = " ".join(scopes)
+    # Manual URL build (avoid extra deps)
+    from urllib.parse import urlencode
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": scope_str,
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent",
+        "state": state,
+    }
+    return f"{GOOGLE_AUTH_URI}?{urlencode(params)}"
+
+def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    ok, reason = _google_oauth_ready()
+    if not ok:
+        return None, reason
+    redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
+    try:
+        import requests
+        r = requests.post(
+            GOOGLE_TOKEN_URI,
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            timeout=20,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            return None, f"Token exchange failed: {data}"
+        # Normalize expiry
+        expires_in = int(data.get("expires_in") or 0)
+        if expires_in:
+            data["expires_at"] = _now_epoch() + max(0, expires_in - 30)
+        return data, ""
+    except Exception as e:
+        return None, f"Token exchange error: {e}"
+
+def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optional[Dict[str, Any]], str]:
+    ok, reason = _google_oauth_ready()
+    if not ok:
+        return None, reason
+    try:
+        import requests
+        r = requests.post(
+            GOOGLE_TOKEN_URI,
+            data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=20,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            return None, f"Token refresh failed: {data}"
+        expires_in = int(data.get("expires_in") or 0)
+        if expires_in:
+            data["expires_at"] = _now_epoch() + max(0, expires_in - 30)
+        # refresh response often doesn't include refresh_token; keep the old one
+        data.setdefault("refresh_token", refresh_token)
+        return data, ""
+    except Exception as e:
+        return None, f"Token refresh error: {e}"
+
+def _token_expired(token_info: Dict[str, Any]) -> bool:
+    try:
+        exp = int(token_info.get("expires_at") or 0)
+        if exp <= 0:
+            return False
+        return _now_epoch() >= exp
+    except Exception:
+        return False
+
+def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
+    if not token_info:
+        return None, None, "Not connected."
+    # refresh if needed
+    if _token_expired(token_info) and token_info.get("refresh_token"):
+        refreshed, err = _oauth_refresh_token(token_info.get("refresh_token"), scopes)
+        if not refreshed:
+            return None, None, err or "Token refresh failed."
+        return refreshed.get("access_token"), refreshed, ""
+    return token_info.get("access_token"), None, ""
+
+
 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = None  # lazy init to avoid import time crashes
+
+def _get_global_openai_client():
+    global client
+    if client is None:
+        client = OpenAI(api_key=(OPENAI_API_KEY or ""))
+    return client
+
 app = Flask(__name__)
 
 # Quiet noisy request logs (especially the stack tick poll)
@@ -77,42 +191,9 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
-# ---------------------------------------------------------------------
-# API error guard: Always return JSON for /api/* errors (prevents UI "stuck thinking")
-# Set DEBUG_ERRORS=1 to include detail + traceback in responses while debugging.
-# ---------------------------------------------------------------------
-import uuid as _uuid
-import traceback as _traceback
-from flask import request as _request, jsonify as _jsonify
-
-@app.errorhandler(Exception)
-def _api_json_error_guard(e):
-    try:
-        path = getattr(_request, "path", "") or ""
-        if path.startswith("/api/"):
-            err_id = _uuid.uuid4().hex[:8]
-            tb = _traceback.format_exc()
-            # Log full traceback to server logs
-            print(f"[API_ERROR {err_id}] {tb}")
-            payload = {"ok": False, "error": f"HTTP 500: Server error ({err_id})"}
-            if str(os.getenv("DEBUG_ERRORS", "")).lower() in ("1", "true", "yes", "on"):
-                payload["detail"] = str(e)
-                # cap trace to avoid huge responses
-                payload["trace"] = tb[-4000:]
-            return _jsonify(payload), 500
-    except Exception:
-        # If the guard itself fails, fall through to default 500.
-        pass
-    # Non-API routes: keep a minimal HTML error with an id in logs.
-    return (
-        "<h1>Internal Server Error</h1><p>Check server logs for details.</p>",
-        500,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
-
-
 BASE = Path(__file__).parent
 DATA = BASE / "data"
+DATA_DIR = str(DATA)
 REGISTRY_PATH = DATA / "teammates.json"
 THREADS_DIR = DATA / "threads"
 LOGS_DIR = DATA / "logs"
@@ -193,10 +274,30 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
 
 def current_user() -> Optional[Dict[str, Any]]:
     uname = session.get("user")
+    # Historically we stored the username string in session["user"].
+    # Some earlier builds accidentally stored a dict here; support both.
+    if isinstance(uname, dict):
+        uname = uname.get("username")
     if not uname:
         return None
     data = load_users()
     return (data.get("users") or {}).get(uname)
+
+def ensure_local_owner_user() -> str:
+    """Ensure a local owner user exists for first-run / setup-less deployments.
+
+    Returns the username to place in session["user"].
+    """
+    data = load_users()
+    users = data.get("users") or {}
+    if "local" not in users:
+        # Create a deterministic local owner user.
+        # Password is irrelevant for this bootstrap flow; the UI can still
+        # support full login/reset if you later enable it.
+        users["local"] = _new_user("local", password=str(uuid.uuid4()), email="")
+        data["users"] = users
+        save_users(data)
+    return "local"
 
 def login_required_api() -> bool:
     p = request.path or ""
@@ -222,7 +323,7 @@ def _auth_guard():
         # Local-first: if no users exist yet (fresh install), allow Settings so you can add your API key
         # without getting blocked by auth. We create a temporary local session user.
         if (not has_any_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
-            session["user"] = {"username": "local", "role": "owner"}
+            session["user"] = ensure_local_owner_user()
         else:
             return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -243,68 +344,10 @@ def _auth_guard():
 
 def get_openai_client():
     c = getattr(g, "openai_client", None)
-    return c or client
+    return c or _get_global_openai_client()
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
-IMAGE_PROMPT_BLOCK_RE = re.compile(r"\[\[IMAGE_PROMPT\]\]([\s\S]*?)\[\[/IMAGE_PROMPT\]\]", re.IGNORECASE)
-
-def _generated_dir() -> Path:
-    d = Path(__file__).parent / "static" / "generated"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-def extract_image_prompt(text: str) -> Optional[str]:
-    if not text:
-        return None
-    m = IMAGE_PROMPT_BLOCK_RE.search(text)
-    if m:
-        p = (m.group(1) or "").strip()
-        return p or None
-    m2 = re.search(r"```image\s*([\s\S]*?)```", text, re.IGNORECASE)
-    if m2:
-        p = (m2.group(1) or "").strip()
-        return p or None
-    return None
-
-def generate_image_from_prompt(prompt: str, *, size: str = None, quality: str = None, output_format: str = None) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Returns (url_path, error). On success, url_path is like /static/generated/xxx.png
-    """
-    prompt = (prompt or "").strip()
-    if not prompt:
-        return None, "Missing image prompt"
-    size = (size or IMAGE_SIZE).strip()
-    quality = (quality or IMAGE_QUALITY).strip()
-    output_format = (output_format or IMAGE_OUTPUT_FORMAT).strip()
-
-    try:
-        client = get_openai_client()
-        if client is None:
-            return None, "OpenAI client not configured. Add your OpenAI API key in Settings."
-        resp = client.images.generate(
-            model=IMAGE_MODEL,
-            prompt=prompt,
-            size=size,
-            quality=quality,
-            output_format=output_format,
-        )
-        if not getattr(resp, "data", None):
-            return None, "Image generation returned no data"
-        first = resp.data[0]
-        b64 = getattr(first, "b64_json", None)
-        if not b64:
-            url = getattr(first, "url", None)
-            if url:
-                return url, None
-            return None, "Image generation response missing image content"
-        img_bytes = base64.b64decode(b64)
-        fname = f"{uuid.uuid4().hex}.{output_format}"
-        out_path = _generated_dir() / fname
-        out_path.write_bytes(img_bytes)
-        return f"/static/generated/{fname}", None
-    except Exception as e:
-        return None, f"Image generation failed: {e}"
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
 
@@ -1461,12 +1504,16 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
     return False, "No SMTP connected. Add your email in Settings."
 
 
-def _gmail_libs_ready() -> Tuple[bool, str]:
-    if GoogleOAuthFlow is None or GoogleCredentials is None or google_build is None:
-        return False, "Gmail OAuth libraries are not installed on the server. Add google-auth, google-auth-oauthlib, google-api-python-client to requirements.txt."
+
+def _google_oauth_ready() -> Tuple[bool, str]:
+    # Manual OAuth flow (no google-auth libraries required).
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
-        return False, "Gmail OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
+        return False, "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
     return True, ""
+
+def _gmail_libs_ready() -> Tuple[bool, str]:
+    # Backward-compatible name used by older code paths.
+    return _google_oauth_ready()
 
 def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not u:
@@ -1489,38 +1536,102 @@ def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any
     users["users"][uname] = rec
     save_users(users)
 
-def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[Any], str]:
+# =========================
+# GOOGLE CALENDAR OAUTH
+# =========================
+
+
+def _calendar_libs_ready() -> Tuple[bool, str]:
+    # Backward-compatible name used by older code paths.
+    return _google_oauth_ready()
+
+def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not u:
+        return {}
+    settings = (u.get("settings") or {})
+    return (settings.get("calendar_oauth") or {})
+
+def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
+    users = load_users()
+    uname = u.get("username")
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    if token_info:
+        rec["settings"]["calendar_oauth"] = token_info
+    else:
+        if "calendar_oauth" in rec.get("settings", {}):
+            rec["settings"].pop("calendar_oauth", None)
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+
+
+def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
+    ok, reason = _calendar_libs_ready()
+    if not ok:
+        return None, reason
+    token_info = _user_calendar_oauth(u)
+    if not token_info:
+        return None, "Calendar not connected. Go to Settings and connect Google Calendar."
+    access_token, refreshed, err = _get_access_token_from_store(token_info, CALENDAR_SCOPES)
+    if not access_token:
+        return None, err or "Calendar session expired. Disconnect and reconnect Google Calendar."
+    if refreshed:
+        try:
+            _save_user_calendar_oauth(u, refreshed)
+        except Exception:
+            pass
+    return access_token, ""
+
+def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
+    import requests
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    event: Dict[str, Any] = {
+        "summary": title,
+        "description": description or "",
+        "location": location or "",
+        "start": {"dateTime": start_iso, "timeZone": timezone},
+        "end": {"dateTime": end_iso, "timeZone": timezone},
+    }
+    if attendees:
+        clean = []
+        for a in attendees:
+            a = (a or "").strip()
+            if not a:
+                continue
+            clean.append({"email": a})
+        if clean:
+            event["attendees"] = clean
+
+    r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=event, timeout=20)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise Exception(f"Calendar API error: {data}")
+    return data
+
+
+def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
     if not ok:
         return None, reason
     token_info = _user_gmail_oauth(u)
     if not token_info:
         return None, "Gmail not connected. Go to Settings and connect Gmail."
-    try:
-        creds = GoogleCredentials.from_authorized_user_info(token_info, scopes=GMAIL_SCOPES)
-    except Exception:
-        return None, "Gmail token is invalid or corrupted. Disconnect and reconnect Gmail."
-    # Refresh if needed
-    try:
-        if getattr(creds, "expired", False) and getattr(creds, "refresh_token", None):
-            from google.auth.transport.requests import Request as GoogleRequest
-            creds.refresh(GoogleRequest())  # type: ignore[attr-defined]
-    except Exception:
-        # If refresh fails, require reconnect
-        return None, "Gmail session expired and could not be refreshed. Disconnect and reconnect Gmail."
-    # Persist refreshed token fields if possible
-    try:
-        token_info2 = json.loads(creds.to_json())
-        _save_user_gmail_oauth(u, token_info2)
-    except Exception:
-        pass
-    return creds, ""
+    access_token, refreshed, err = _get_access_token_from_store(token_info, GMAIL_SCOPES)
+    if not access_token:
+        return None, err or "Gmail session expired. Disconnect and reconnect Gmail."
+    if refreshed:
+        try:
+            _save_user_gmail_oauth(u, refreshed)
+        except Exception:
+            pass
+    return access_token, ""
 
-def _gmail_send_message(creds: Any, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
+def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
+    import requests
     # Build RFC 2822 message
     from_header = "me"
     if from_name:
-        # Gmail API uses the authenticated mailbox; From name can be set via "From:" header.
         from_header = f"{from_name} <me>"
     msg = MIMEMultipart()
     msg["To"] = to_addr
@@ -1529,8 +1640,12 @@ def _gmail_send_message(creds: Any, to_addr: str, subject: str, body: str, from_
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
-    service = google_build("gmail", "v1", credentials=creds)
-    service.users().messages().send(userId="me", body={"raw": raw}).execute()
+    url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+    r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json={"raw": raw}, timeout=20)
+    if r.status_code >= 400:
+        data = r.json() if r.content else {}
+        raise Exception(f"Gmail API error: {data}")
+
 
 def _email_capability_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     # Returns what can be used right now
@@ -1633,17 +1748,16 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
     email_rules = (
         "EMAIL CAPABILITY\n"
         "You can draft emails, but you cannot send emails.\n"
-        "If the user asks you to send an email, you must output a structured email draft so the UI can auto fill fields.\n"
-        "You must use this exact format when an email draft is appropriate:\n"
+        "If the user asks you to send an email, output a structured email draft so the UI can auto fill fields.\n"
+        "Use this exact format when an email draft is appropriate:\n"
         "```email\n"
         "To: recipient@email.com\n"
         "Subject: subject line\n"
         "Body: first line of body\n"
-        "rest of body...\n"
+        "rest of body.\n"
         "```\n"
         "Do not claim the email was sent.\n"
         "No em dashes.\n"
-            + operator_block
     )
 
     # Operator profile (shared business context)
@@ -1651,36 +1765,50 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
         _op_user = _get_session_username()
     except Exception:
         _op_user = "anon"
+
     _op = _load_operator_profile(_op_user or "anon")
     operator_block = (
         "\n\nOPERATOR PROFILE (shared context)\n"
         f"Operator: {_op.get('display_name','Operator')}\n"
-        f"Business: {_op.get('business','').strip()}\n"
-        f"Offers: {_op.get('offers','').strip()}\n"
-        f"Audience: {_op.get('audience','').strip()}\n"
-        f"Goals: {_op.get('goals','').strip()}\n"
-        f"Constraints: {_op.get('constraints','').strip()}\n"
-        f"Tone rules: {_op.get('tone_rules','').strip()}\n"
-        f"Notes: {_op.get('notes','').strip()}\n"
-            + operator_block
+        f"Business: {(_op.get('business','') or '').strip()}\n"
+        f"Offers: {(_op.get('offers','') or '').strip()}\n"
+        f"Audience: {(_op.get('audience','') or '').strip()}\n"
+        f"Goals: {(_op.get('goals','') or '').strip()}\n"
+        f"Constraints: {(_op.get('constraints','') or '').strip()}\n"
+        f"Tone rules: {(_op.get('tone_rules','') or '').strip()}\n"
+        f"Notes: {(_op.get('notes','') or '').strip()}\n"
     )
 
-    framework = load_core_framework(        + operator_block
-    )
+    # Active client (memory profiles) if available
+    client_block = ""
+    try:
+        _active = _get_active_client(_op_user or "anon") or {}
+        if isinstance(_active, dict) and _active:
+            client_block = (
+                "\n\nACTIVE CLIENT (memory profile)\n"
+                f"Client name: {(_active.get('name') or '').strip()}\n"
+                f"Email: {(_active.get('email') or '').strip()}\n"
+                f"Phone: {(_active.get('phone') or '').strip()}\n"
+                f"Company: {(_active.get('company') or '').strip()}\n"
+                f"Notes: {(_active.get('notes') or '').strip()}\n"
+            )
+    except Exception:
+        client_block = ""
+
+    framework = load_core_framework()
 
     return (
-        "You are a persistent, role locked Agentic AI Teammate.\n"
-        "You are not a general assistant.\n"
-        "Default mode is architect first, not task execution.\n\n"
-        "You must obey the Core Framework below and the role block.\n"
-        "If any request violates one or more pillars, pause, explain the conflict, and propose a compliant alternative.\n"
-        "If a decision affects structure, memory, versioning, or long term behavior, ask one clarifying question and stop.\n"
+        "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
+        "Follow the core framework and role block.\n"
+        "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
         f"{email_rules}\n"
-        f"CORE FRAMEWORK:\n{framework}\n\n"
+        f"CORE FRAMEWORK:\n{framework}\n"
+        f"{operator_block}"
+        f"{client_block}\n\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
-            + operator_block
     )
+
 
 ContentType = Union[str, List[Dict[str, Any]]]
 
@@ -1705,7 +1833,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key that starts with sk-."
+        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
@@ -2003,6 +2131,11 @@ def api_me():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2036,6 +2169,11 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -2058,7 +2196,7 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-    if openai_key and openai_key.startswith("sk-"):
+    if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
     # if user leaves it blank, do NOT overwrite the saved key
 
@@ -2384,27 +2522,7 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except Exception as e:
-        append_log("followup_error", {"name": name, "error": str(e)})
-        return jsonify({"ok": False, "error": f"AI request failed: {e}"}), 500
-
-    image_url = None
-    if name.strip().lower() == "luna":
-        img_prompt = extract_image_prompt(text)
-        if not img_prompt and any(k in msg.lower() for k in ["graphic", "image", "design", "logo", "poster", "flyer"]):
-            img_prompt = msg2
-        if img_prompt:
-            image_url, img_err = generate_image_from_prompt(img_prompt)
-            if image_url:
-                text = (text + """
-
-    [[IMAGE]]""" + image_url).strip()
-            else:
-                text = (text + f"""
-
-    (Image generation failed: {img_err})""").strip()
+    text = call_llm(sys, msgs, temperature=0.65)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -2439,24 +2557,8 @@ def api_followup():
         status="success"
     )
 
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta, "image_url": image_url})
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
-
-
-
-
-@app.post("/api/image_generate")
-def api_image_generate():
-    data = request.get_json(force=True)
-    prompt = (data.get("prompt") or "").strip()
-    size = (data.get("size") or "").strip() or None
-    quality = (data.get("quality") or "").strip() or None
-    output_format = (data.get("output_format") or "").strip() or None
-
-    url_path, err = generate_image_from_prompt(prompt, size=size, quality=quality, output_format=output_format)
-    if not url_path:
-        return jsonify({"ok": False, "error": err or "Image generation failed"}), 400
-    return jsonify({"ok": True, "url": url_path})
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -2580,49 +2682,28 @@ def api_gmail_disconnect():
     append_log("gmail_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
 
+
 @app.get("/gmail/connect")
 def gmail_connect():
     u = current_user()
     if not u:
         return redirect("/login")
-
-    ok, reason = _gmail_libs_ready()
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
-    # OAuth state protection
     state = secrets.token_urlsafe(24)
     session["gmail_oauth_state"] = state
-
-    redirect_uri = f"{PUBLIC_BASE_URL}/gmail/callback"
-    flow = GoogleOAuthFlow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri],
-            }
-        },
-        scopes=GMAIL_SCOPES,
-        state=state,
-    )
-    flow.redirect_uri = redirect_uri
-    auth_url, _ = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        prompt="consent",
-    )
+    auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
+
 
 @app.get("/gmail/callback")
 def gmail_callback():
     u = current_user()
     if not u:
         return redirect("/login")
-
-    ok, reason = _gmail_libs_ready()
+    ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
@@ -2631,34 +2712,122 @@ def gmail_callback():
     if not state or not expected or state != expected:
         return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
 
-    redirect_uri = f"{PUBLIC_BASE_URL}/gmail/callback"
-    flow = GoogleOAuthFlow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [redirect_uri],
-            }
-        },
-        scopes=GMAIL_SCOPES,
-        state=state,
-    )
-    flow.redirect_uri = redirect_uri
-    try:
-        flow.fetch_token(authorization_response=request.url)
-        creds = flow.credentials
-        token_info = json.loads(creds.to_json())
-        _save_user_gmail_oauth(u, token_info)
-        append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
-    except Exception as e:
-        append_log("gmail_connect_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
-        return make_response(f"Failed to connect Gmail: {e}", 400)
+    code = request.args.get("code", "")
+    if not code:
+        return make_response("Missing authorization code from Google.", 400)
 
-    # Send them back to the app home
+    token_info, err = _oauth_exchange_code(code, "/gmail/callback")
+    if not token_info:
+        append_log("gmail_connect_error", {"user": u.get("username", ""), "error": err, "at": now_iso()})
+        return make_response(f"Failed to connect Gmail: {err}", 400)
+
+    # Keep refresh_token if Google didn't re-send it
+    old = _user_gmail_oauth(u) or {}
+    if old.get("refresh_token") and not token_info.get("refresh_token"):
+        token_info["refresh_token"] = old.get("refresh_token")
+
+    _save_user_gmail_oauth(u, token_info)
+    append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
     return redirect("/#settings")
 
+
+
+# =========================
+# GOOGLE CALENDAR OAUTH ROUTES
+# =========================
+
+@app.get("/api/calendar/status")
+def api_calendar_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    connected = bool(_user_calendar_oauth(u))
+    return jsonify({"ok": True, "connected": connected})
+
+@app.post("/api/calendar/disconnect")
+def api_calendar_disconnect():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _save_user_calendar_oauth(u, None)
+    append_log("calendar_disconnected", {"user": u.get("username", ""), "at": now_iso()})
+    return jsonify({"ok": True})
+
+
+@app.get("/calendar/connect")
+def calendar_connect():
+    u = current_user()
+    if not u:
+        return redirect("/login")
+    ok, reason = _google_oauth_ready()
+    if not ok:
+        return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
+
+    state = secrets.token_urlsafe(24)
+    session["calendar_oauth_state"] = state
+    auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
+    return redirect(auth_url)
+
+
+@app.get("/calendar/callback")
+def calendar_callback():
+    u = current_user()
+    if not u:
+        return redirect("/login")
+    ok, reason = _google_oauth_ready()
+    if not ok:
+        return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
+
+    state = request.args.get("state", "")
+    expected = session.get("calendar_oauth_state", "")
+    if not state or not expected or state != expected:
+        return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
+
+    code = request.args.get("code", "")
+    if not code:
+        return make_response("Missing authorization code from Google.", 400)
+
+    token_info, err = _oauth_exchange_code(code, "/calendar/callback")
+    if not token_info:
+        append_log("calendar_connect_error", {"user": u.get("username", ""), "error": err, "at": now_iso()})
+        return make_response(f"Failed to connect Google Calendar: {err}", 400)
+
+    old = _user_calendar_oauth(u) or {}
+    if old.get("refresh_token") and not token_info.get("refresh_token"):
+        token_info["refresh_token"] = old.get("refresh_token")
+
+    _save_user_calendar_oauth(u, token_info)
+    append_log("calendar_connected", {"user": u.get("username", ""), "at": now_iso()})
+    return redirect("/#settings")
+
+@app.post("/api/calendar/create_event")
+def api_calendar_create_event():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    access_token, reason = _calendar_creds_for_user(u)
+    if not creds:
+        return jsonify({"ok": False, "error": reason}), 400
+    payload = request.get_json(force=True, silent=True) or {}
+    title = (payload.get("title") or payload.get("summary") or "Call").strip()
+    start = (payload.get("start") or "").strip()
+    end = (payload.get("end") or "").strip()
+    timezone = (payload.get("timezone") or "America/New_York").strip()
+    attendees = payload.get("attendees") or []
+    if isinstance(attendees, str):
+        attendees = [a.strip() for a in attendees.split(',') if a.strip()]
+    description = (payload.get("description") or "").strip()
+    location = (payload.get("location") or "").strip()
+
+    if not start or not end:
+        return jsonify({"ok": False, "error": "Missing start/end. Provide ISO datetime strings."}), 400
+    try:
+        created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location)
+        append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
+        return jsonify({"ok": True, "event": created})
+    except Exception as e:
+        append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
+        return jsonify({"ok": False, "error": str(e)}), 500
 # =========================
 # AUTH ROUTES
 # =========================
@@ -3672,7 +3841,73 @@ HTML = r"""
       .modal{ width: calc(100vw - 22px); }
       .modalBarTitle{ max-width: 240px; }
     }
-  </style>
+  
+
+    /* Mobile responsiveness */
+    @media (max-width: 720px){
+      body{ overflow-x:hidden; }
+      .topbar{ height:auto; }
+      .topbarInner{ flex-wrap:wrap; height:auto; gap:10px; padding:10px 12px; }
+      .rightmeta{ justify-content:flex-start; }
+      .stage{ grid-template-columns: 1fr !important; }
+      .side{ padding: 0 12px 22px 12px; }
+      .sideCard{ position: relative; top:auto; max-height:none; }
+      .arena{ padding: 12px 0 12px 0; }
+
+      /* Round table becomes a clean vertical list to prevent overlap */
+      .tableWrap{
+        width: calc(100vw - 24px);
+        height: auto !important;
+        min-height: 0 !important;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: 10px;
+        padding-bottom: 14px;
+      }
+      .table{
+        position:relative !important;
+        inset:auto !important;
+        transform:none !important;
+        width: min(520px, 100%);
+        height: 120px;
+        margin: 0 auto 6px auto;
+      }
+      .seat{
+        position:relative !important;
+        left:auto !important;
+        top:auto !important;
+        transform:none !important;
+        width: min(520px, 100%) !important;
+        max-width: 100% !important;
+        height: auto !important;
+        min-height: 118px;
+        cursor: default;
+      }
+      .seatTools{ flex-wrap:wrap; gap:8px; }
+      .seatToolBtn{ flex: 1 1 auto; }
+
+      /* Prevent any long labels from forcing overlap */
+      .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+
+
+/* Mobile: make modal truly full-screen so it never covers seats awkwardly */
+.overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
+#modalWin{
+  position: fixed !important;
+  left: 10px !important;
+  right: 10px !important;
+  top: 10px !important;
+  bottom: 10px !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
+}
+#modalScroll{ max-height: calc(100vh - 170px) !important; }
+      /* iOS: prevent zoom on focus */
+      textarea, input, select{ font-size: 16px; }
+    }
+</style>
 </head>
 <body>
   <div class="topbar">
@@ -3915,7 +4150,29 @@ HTML = r"""
                 </div>
 
                 <label>OpenAI API Key</label>
-                <input id="openaiKey" type="password" placeholder="sk-..." />
+                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+
+                <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
+
+                <div class="row2">
+                  <div>
+                    <div class="tiny" id="gmailOAuthStatus">Gmail: checking...</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                      <button class="btn btnMini" id="gmailConnectBtn">Connect Gmail</button>
+                      <button class="btn btnMini" id="gmailDisconnectBtn">Disconnect Gmail</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="tiny" id="calendarOAuthStatus">Calendar: checking...</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                      <button class="btn btnMini" id="calendarConnectBtn">Connect Calendar</button>
+                      <button class="btn btnMini" id="calendarDisconnectBtn">Disconnect Calendar</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
+
 
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
@@ -4117,53 +4374,6 @@ HTML = r"""
     let alwaysFinalBaseline = "";
 
     const $ = (id) => document.getElementById(id);
-
-    async function apiPostJson(url, payload, timeoutMs=90000){
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), timeoutMs);
-      try{
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(payload || {}),
-          signal: controller.signal
-        });
-
-        const ct = (res.headers.get("content-type") || "").toLowerCase();
-        let raw = "";
-        let data = null;
-
-        try{
-          if(ct.includes("application/json")){
-            data = await res.json();
-          }else{
-            raw = await res.text();
-            try{ data = JSON.parse(raw); }catch(e){ data = null; }
-          }
-        }catch(e){
-          try{ raw = await res.text(); }catch(_e){}
-        }
-
-        if(!data || typeof data !== "object"){
-          const snippet = (raw || "").slice(0, 400);
-          return {ok:false, error:`HTTP ${res.status}: Non-JSON response${snippet ? " — " + snippet : ""}`};
-        }
-
-        if(!res.ok && data.ok !== false){
-          // Normalize unexpected shapes
-          data.ok = false;
-          data.error = data.error || `HTTP ${res.status}`;
-        }
-        return data;
-      }catch(e){
-        if(e && e.name === "AbortError"){
-          return {ok:false, error:"Request timed out"};
-        }
-        return {ok:false, error:`Network error: ${e && e.message ? e.message : String(e)}`};
-      }finally{
-        clearTimeout(t);
-      }
-    }
 
     function isAssemblyPhrase(p){
       const s = (p || "").trim().toLowerCase();
@@ -6048,7 +6258,12 @@ function makeSeat(defn, idx){
         assemblyPulseActive = false;
       }
 
-      const data = await apiPostJson("/api/convene", {prompt, file_ids: groupFileIds});
+      const res = await fetch("/api/convene", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({prompt, file_ids: groupFileIds})
+      });
+      const data = await res.json();
 
       if(!data.ok){
         order.forEach(n => setSeatLive(n, "waiting"));
@@ -6108,7 +6323,12 @@ function makeSeat(defn, idx){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const data = await apiPostJson("/api/followup", {name: selectedSeat, message: msg, file_ids: dmFileIds});
+      const res = await fetch("/api/followup", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds})
+      });
+      const data = await res.json();
 
       if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
@@ -6383,6 +6603,34 @@ function makeSeat(defn, idx){
     $("cancelFramework").onclick = () => hideModal();
 
     // ===== Settings (per-user OpenAI key + email SMTP) =====
+    // ===== Google connect status helpers (Gmail + Calendar) =====
+    async function refreshGoogleStatuses(){
+      // Gmail
+      try{
+        const r1 = await fetch('/api/gmail/status');
+        const d1 = await r1.json();
+        const ok1 = d1 && d1.ok;
+        const c1 = ok1 && d1.connected;
+        if($('gmailOAuthStatus')) $('gmailOAuthStatus').innerText = ok1 ? ('Gmail: ' + (c1 ? 'connected' : 'not connected')) : 'Gmail: unavailable';
+        if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').style.display = c1 ? 'inline-block' : 'none';
+      }catch(e){
+        if($('gmailOAuthStatus')) $('gmailOAuthStatus').innerText = 'Gmail: unavailable';
+        if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').style.display = 'none';
+      }
+      // Calendar
+      try{
+        const r2 = await fetch('/api/calendar/status');
+        const d2 = await r2.json();
+        const ok2 = d2 && d2.ok;
+        const c2 = ok2 && d2.connected;
+        if($('calendarOAuthStatus')) $('calendarOAuthStatus').innerText = ok2 ? ('Calendar: ' + (c2 ? 'connected' : 'not connected')) : 'Calendar: unavailable';
+        if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').style.display = c2 ? 'inline-block' : 'none';
+      }catch(e){
+        if($('calendarOAuthStatus')) $('calendarOAuthStatus').innerText = 'Calendar: unavailable';
+        if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').style.display = 'none';
+      }
+    }
+
     async function loadSettings(){
       $("settingsStatus").innerText = "Loading...";
       try{
@@ -6404,6 +6652,7 @@ function makeSeat(defn, idx){
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
         $("settingsStatus").innerText = "Ready";
+        try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
       }
@@ -6433,7 +6682,7 @@ function makeSeat(defn, idx){
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
-        openai_key: (keyVal && keyVal.startsWith("sk-")) ? keyVal : "",
+        openai_key: keyVal,
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -6458,6 +6707,19 @@ function makeSeat(defn, idx){
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
+    };
+
+    // Google connect buttons (open OAuth flow)
+    if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
+    if($('calendarConnectBtn')) $('calendarConnectBtn').onclick = () => { window.location = '/calendar/connect'; };
+
+    if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
+      try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
+      try{ await refreshGoogleStatuses(); }catch(e){}
+    };
+    if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').onclick = async () => {
+      try{ await fetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
+      try{ await refreshGoogleStatuses(); }catch(e){}
     };
 
     // =========================
@@ -6998,7 +7260,7 @@ def api_clients_create():
         return jsonify({"ok": False, "error": "Name is required"}), 400
     data = _load_clients(username)
     cid = _new_client_id()
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.utcnow().isoformat() + "Z"
     client = {
         "id": cid,
         "name": name,
@@ -7028,7 +7290,7 @@ def api_clients_update(client_id):
     for k in ["name","company","email","tags","notes","last_summary"]:
         if k in payload:
             c[k] = (payload.get(k) or "").strip()
-    c["updated_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    c["updated_at"] = datetime.utcnow().isoformat() + "Z"
     clients[client_id] = c
     data["clients"] = clients
     _save_clients(username, data)
@@ -7088,7 +7350,7 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
         OPERATOR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.utcnow().isoformat() + "Z"
     profile = dict(profile or {})
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
