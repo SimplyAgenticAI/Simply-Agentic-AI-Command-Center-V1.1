@@ -4084,6 +4084,53 @@ HTML = r"""
 
     const $ = (id) => document.getElementById(id);
 
+    async function apiPostJson(url, payload, timeoutMs=90000){
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      try{
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload || {}),
+          signal: controller.signal
+        });
+
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        let raw = "";
+        let data = null;
+
+        try{
+          if(ct.includes("application/json")){
+            data = await res.json();
+          }else{
+            raw = await res.text();
+            try{ data = JSON.parse(raw); }catch(e){ data = null; }
+          }
+        }catch(e){
+          try{ raw = await res.text(); }catch(_e){}
+        }
+
+        if(!data || typeof data !== "object"){
+          const snippet = (raw || "").slice(0, 400);
+          return {ok:false, error:`HTTP ${res.status}: Non-JSON response${snippet ? " — " + snippet : ""}`};
+        }
+
+        if(!res.ok && data.ok !== false){
+          // Normalize unexpected shapes
+          data.ok = false;
+          data.error = data.error || `HTTP ${res.status}`;
+        }
+        return data;
+      }catch(e){
+        if(e && e.name === "AbortError"){
+          return {ok:false, error:"Request timed out"};
+        }
+        return {ok:false, error:`Network error: ${e && e.message ? e.message : String(e)}`};
+      }finally{
+        clearTimeout(t);
+      }
+    }
+
     function isAssemblyPhrase(p){
       const s = (p || "").trim().toLowerCase();
       const triggers = [
@@ -5967,12 +6014,7 @@ function makeSeat(defn, idx){
         assemblyPulseActive = false;
       }
 
-      const res = await fetch("/api/convene", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({prompt, file_ids: groupFileIds})
-      });
-      const data = await res.json();
+      const data = await apiPostJson("/api/convene", {prompt, file_ids: groupFileIds});
 
       if(!data.ok){
         order.forEach(n => setSeatLive(n, "waiting"));
@@ -6032,12 +6074,7 @@ function makeSeat(defn, idx){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds})
-      });
-      const data = await res.json();
+      const data = await apiPostJson("/api/followup", {name: selectedSeat, message: msg, file_ids: dmFileIds});
 
       if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
