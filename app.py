@@ -77,6 +77,40 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
+# ---------------------------------------------------------------------
+# API error guard: Always return JSON for /api/* errors (prevents UI "stuck thinking")
+# Set DEBUG_ERRORS=1 to include detail + traceback in responses while debugging.
+# ---------------------------------------------------------------------
+import uuid as _uuid
+import traceback as _traceback
+from flask import request as _request, jsonify as _jsonify
+
+@app.errorhandler(Exception)
+def _api_json_error_guard(e):
+    try:
+        path = getattr(_request, "path", "") or ""
+        if path.startswith("/api/"):
+            err_id = _uuid.uuid4().hex[:8]
+            tb = _traceback.format_exc()
+            # Log full traceback to server logs
+            print(f"[API_ERROR {err_id}] {tb}")
+            payload = {"ok": False, "error": f"HTTP 500: Server error ({err_id})"}
+            if str(os.getenv("DEBUG_ERRORS", "")).lower() in ("1", "true", "yes", "on"):
+                payload["detail"] = str(e)
+                # cap trace to avoid huge responses
+                payload["trace"] = tb[-4000:]
+            return _jsonify(payload), 500
+    except Exception:
+        # If the guard itself fails, fall through to default 500.
+        pass
+    # Non-API routes: keep a minimal HTML error with an id in logs.
+    return (
+        "<h1>Internal Server Error</h1><p>Check server logs for details.</p>",
+        500,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
 BASE = Path(__file__).parent
 DATA = BASE / "data"
 REGISTRY_PATH = DATA / "teammates.json"
