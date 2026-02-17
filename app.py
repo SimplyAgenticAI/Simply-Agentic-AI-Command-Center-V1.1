@@ -2591,10 +2591,10 @@ def api_send_email():
 
     try:
         if cap["gmail_connected"]:
-            access_token, reason = _gmail_creds_for_user(u)
+            creds, reason = _gmail_creds_for_user(u)
             if not creds:
                 return jsonify({"ok": False, "error": reason}), 400
-            _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
+            _gmail_send_message(creds, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
             provider = "gmail_oauth"
         else:
             ready, reason = smtp_ready_for_user(u)
