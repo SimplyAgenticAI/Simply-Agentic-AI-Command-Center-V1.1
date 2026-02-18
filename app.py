@@ -2591,10 +2591,10 @@ def api_send_email():
 
     try:
         if cap["gmail_connected"]:
-            creds, reason = _gmail_creds_for_user(u)
+            access_token, reason = _gmail_creds_for_user(u)
             if not creds:
                 return jsonify({"ok": False, "error": reason}), 400
-            _gmail_send_message(creds, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
+            _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
             provider = "gmail_oauth"
         else:
             ready, reason = smtp_ready_for_user(u)
@@ -6238,56 +6238,112 @@ function makeSeat(defn, idx){
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
-        showModal("Missing prompt", "Type a group prompt in the center card.");
+        showModal("Missing prompt", "Type a prompt first.");
         return;
       }
 
-      const order = activeOrder();
-      if(!order.length){
-        showModal("No active teammates", "Use Add or dismiss teammates to add seats to the table.");
+      const reg = state?.registry || null;
+      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
+      if(!order || !order.length){
+        showModal("No active teammates", "Add teammates to the round table first.");
         return;
       }
 
       order.forEach(n => setSeatLive(n, "thinking"));
       setOpStatus("Sending to all");
 
+      // Assembly roll-call stays on the server (fast path)
       if(isAssemblyPhrase(prompt)){
         assemblyPulseActive = true;
         updateTablePulseFromStatuses();
-      }else{
-        assemblyPulseActive = false;
+
+        try{
+          const res = await fetch("/api/convene", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({prompt, file_ids: groupFileIds})
+          });
+          const data = await res.json();
+
+          if(!data.ok){
+            order.forEach(n => setSeatLive(n, "waiting"));
+            setOpStatus("Error");
+            showModal("Error", data.error || "Group send failed");
+            assemblyPulseActive = false;
+            updateTablePulseFromStatuses();
+            return;
+          }
+
+          if(data.mode === "assembly"){
+            order.forEach(n => setSeatLive(n, "idle"));
+            setOpStatus("Assembly only");
+            const lines = (data.roll || []).map(r => `${r.name} | ${r.job_title} | ${r.version}`).join("\n");
+            showModal("ROLL CALL (assembly only)", lines || "No teammates found.");
+            return;
+          }
+        }catch(e){
+          order.forEach(n => setSeatLive(n, "waiting"));
+          setOpStatus("Error");
+          showModal("Error", String(e || "Assembly failed"));
+          assemblyPulseActive = false;
+          updateTablePulseFromStatuses();
+          return;
+        }finally{
+          assemblyPulseActive = false;
+          updateTablePulseFromStatuses();
+        }
       }
 
-      const res = await fetch("/api/convene", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({prompt, file_ids: groupFileIds})
-      });
-      const data = await res.json();
+      // NEW: client-side fanout using the working single-teammate endpoint (/api/followup)
+      // This prevents the server from timing out on long multi-call requests, and ensures
+      // each teammate completes (or fails) independently without freezing the UI.
+      const outputs = {};
+      const drafts = {};
 
-      if(!data.ok){
-        order.forEach(n => setSeatLive(n, "waiting"));
-        setOpStatus("Error");
-        showModal("Error", data.error || "Group send failed");
-        assemblyPulseActive = false;
-        updateTablePulseFromStatuses();
-        return;
+      for(const n of order){
+        try{
+          const controller = new AbortController();
+          const t = setTimeout(() => controller.abort(), 120000); // 120s safety
+          const res = await fetch("/api/followup", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
+            signal: controller.signal
+          });
+          clearTimeout(t);
+
+          let data = null;
+          try{
+            data = await res.json();
+          }catch(_){
+            // Non-JSON response from server: mark as failed but do not freeze
+            setSeatLive(n, "waiting");
+            continue;
+          }
+
+          if(!data.ok){
+            setSeatLive(n, "waiting");
+            continue;
+          }
+
+          const text = data.response || "";
+          outputs[n] = text;
+          if(data.email_draft){
+            drafts[n] = data.email_draft;
+          }
+
+          // Update the group panel incrementally
+          renderGroupReplies(outputs, drafts);
+          setSeatLive(n, "done");
+        }catch(e){
+          setSeatLive(n, "waiting");
+        }
       }
 
-      if(data.mode === "assembly"){
-        order.forEach(n => setSeatLive(n, "idle"));
-        setOpStatus("Assembly only");
-        const lines = data.roll.map(r => `${r.name} | ${r.job_title} | ${r.version}`).join("\n");
-        showModal("ROLL CALL (assembly only)", lines);
-        return;
-      }
-
-      const outputs = data.outputs || {};
-      const drafts = data.email_drafts || {};
       lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts);
 
-      Object.keys(outputs).forEach(n => setSeatLive(n, "done"));
+      // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
