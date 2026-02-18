@@ -6242,8 +6242,7 @@ function makeSeat(defn, idx){
         return;
       }
 
-      const reg = state?.registry || null;
-      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
+      const order = (state?.active_order && state.active_order.length) ? state.active_order : (state?.installed_order || []);
       if(!order || !order.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
