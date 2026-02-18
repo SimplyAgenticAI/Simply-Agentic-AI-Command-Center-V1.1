@@ -1795,32 +1795,6 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
     except Exception:
         client_block = ""
 
-# Client directory (limited). Helps teammates resolve names to emails without needing manual lookup.
-directory_block = ""
-try:
-    _cd = _load_clients(_op_user or "anon") or {}
-    _clients_map = _cd.get("clients") or {}
-    lines: List[str] = []
-    # Keep this small to avoid prompt bloat.
-    for cid, c in list(_clients_map.items())[:30]:
-        if not isinstance(c, dict):
-            continue
-        nm = (c.get("name") or "").strip()
-        if not nm:
-            continue
-        em = (c.get("email") or "").strip()
-        comp = (c.get("company") or "").strip()
-        tags = (c.get("tags") or "").strip()
-        lines.append(f"- {nm} | {em} | {comp} | {tags}".strip())
-    if lines:
-        directory_block = (
-            "\n\nCLIENT DIRECTORY (use this to fill recipient fields when a client is referenced by name)\n"
-            + "\n".join(lines)
-            + "\n"
-        )
-except Exception:
-    directory_block = ""
-
     framework = load_core_framework()
 
     return (
@@ -1831,8 +1805,7 @@ except Exception:
         f"{email_rules}\n"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
-        f"{client_block}"
-        f"{directory_block}\n\n"
+        f"{client_block}\n\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
 
@@ -2619,7 +2592,7 @@ def api_send_email():
     try:
         if cap["gmail_connected"]:
             access_token, reason = _gmail_creds_for_user(u)
-            if not creds:
+            if not access_token:
                 return jsonify({"ok": False, "error": reason}), 400
             _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
             provider = "gmail_oauth"
@@ -5673,20 +5646,6 @@ function makeSeat(defn, idx){
 
         <div style="height:10px"></div>
 
-<div style="height:10px"></div>
-
-<div class="tiny">Client memory</div>
-<div class="pillRow" style="gap:10px; flex-wrap:wrap; align-items:flex-end">
-  <div style="flex:1; min-width:260px">
-    <div class="tiny">Active client</div>
-    <select id="opActiveClientSelect" class="input"></select>
-    <div class="tiny" id="opActiveClientHint" style="margin-top:6px; opacity:.85"></div>
-  </div>
-  <div>
-    <button class="btn btnMini" id="opManageClients">Manage clients</button>
-  </div>
-</div>
-
         <div class="tiny">Notes</div>
         <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Anything else teammates should know...">${safe(p.notes||"")}</textarea>
 
@@ -5720,51 +5679,6 @@ function makeSeat(defn, idx){
         }
       });
     }
-
-bind("opManageClients", ()=>{ try{ openClientsPanel(); }catch(_){ } });
-
-const hydrateOpClientSelect = async()=>{
-  try{
-    await loadClients();
-    const sel = $("opActiveClientSelect");
-    if(!sel) return;
-
-    sel.innerHTML = "";
-    const optNone = document.createElement("option");
-    optNone.value = "";
-    optNone.text = "(no active client)";
-    sel.appendChild(optNone);
-
-    (ClientStore.list || []).forEach(c => {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.text = c.company ? `${c.name} • ${c.company}` : c.name;
-      sel.appendChild(opt);
-    });
-
-    sel.value = ClientStore.active_id || "";
-
-    const active = (ClientStore.list || []).find(c => c.id === (ClientStore.active_id || "")) || null;
-    const hint = $("opActiveClientHint");
-    if(hint){
-      if(active && active.email){
-        hint.innerText = `Email: ${active.email}`;
-      }else if(active){
-        hint.innerText = "No email saved yet.";
-      }else{
-        hint.innerText = "";
-      }
-    }
-
-    sel.onchange = async()=>{
-      await setActiveClient(sel.value);
-      await hydrateOpClientSelect();
-    };
-  }catch(e){}
-};
-
-hydrateOpClientSelect();
-
 
 
 
@@ -6328,8 +6242,7 @@ hydrateOpClientSelect();
         return;
       }
 
-      const reg = state?.registry || null;
-      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
+      const order = (state?.active_order && state.active_order.length) ? state.active_order : (state?.installed_order || []);
       if(!order || !order.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
@@ -7501,3 +7414,4 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
