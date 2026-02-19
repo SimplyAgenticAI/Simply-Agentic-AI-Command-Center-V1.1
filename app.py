@@ -2592,7 +2592,7 @@ def api_send_email():
     try:
         if cap["gmail_connected"]:
             access_token, reason = _gmail_creds_for_user(u)
-            if not access_token:
+            if not creds:
                 return jsonify({"ok": False, "error": reason}), 400
             _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
             provider = "gmail_oauth"
@@ -3907,6 +3907,72 @@ HTML = r"""
       /* iOS: prevent zoom on focus */
       textarea, input, select{ font-size: 16px; }
     }
+
+
+/* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
+.mobileBar{ display:none; }
+.mobileDrawerOverlay{ display:none; }
+.mobileDrawer{
+  position:absolute;
+  left:10px;
+  right:10px;
+  bottom: calc(66px + env(safe-area-inset-bottom));
+  background: rgba(10,14,30,96);
+  border:1px solid rgba(42,58,106,8);
+  border-radius:18px;
+  box-shadow: 0 18px 60px rgba(0,0,0,55), 0 0 26px rgba(124,58,237,12);
+  backdrop-filter: blur(10px);
+  overflow:hidden;
+}
+.mobileDrawerHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 12px 10px 12px;
+  border-bottom:1px solid rgba(42,58,106,7);
+}
+.mobileDrawerTitle{ font-weight:900; font-size: 13px; }
+.mobileDrawerSub{ font-size:12px; color: var(--muted); margin-top: 2px; }
+.mobileDrawerGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  padding:12px;
+}
+.mobileDrawerGrid .btn{ width:100%; justify-content:center; }
+.mobileDrawerFoot{
+  display:flex;
+  gap:10px;
+  padding: 0 12px 12px 12px;
+}
+.mobileDrawerFoot .btn{ flex: 1 1 auto; }
+
+@media (max-width: 720px){
+  /* keep top brand, move actions to bottom bar + drawer */
+  .rightmeta{ display:none !important; }
+  .mobileBar{
+    display:flex;
+    position:fixed;
+    left:0; right:0; bottom:0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(7,10,20,86);
+    border-top:1px solid rgba(42,58,106,7);
+    z-index: 120;
+    gap:10px;
+    justify-content: space-between;
+    backdrop-filter: blur(10px);
+  }
+  .mobileBar .btn{ flex: 1 1 auto; padding: 10px 10px; }
+  body{ padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .mobileDrawerOverlay.show{
+    display:block;
+    position:fixed;
+    inset:0;
+    background: rgba(2,6,16,62);
+    z-index: 130;
+  }
+}
 </style>
 </head>
 <body>
@@ -3927,6 +3993,43 @@ HTML = r"""
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
   </div>
+
+  <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
+  <div class="mobileBar" id="mobileBar">
+    <button class="btn" id="mobileMenuBtn">Menu</button>
+    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
+    <button class="btn" id="mobileManageBtn">Team</button>
+    <button class="btn" id="mobileSettingsBtn">Settings</button>
+  </div>
+
+  <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
+    <div class="mobileDrawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile menu">
+      <div class="mobileDrawerHead">
+        <div>
+          <div class="mobileDrawerTitle">{{app_title}}</div>
+          <div class="mobileDrawerSub">Model: {{model}}</div>
+        </div>
+        <button class="btn btnMini" id="mobileCloseMenuBtn">Close</button>
+      </div>
+
+      <div class="mobileDrawerGrid">
+        <button class="btn" data-click="assembleBtn">Assemble all</button>
+        <button class="btn" data-click="frameworkBtn">Core framework</button>
+        <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
+        <button class="btn" data-click="createTeamBtn">Create teammate</button>
+        <button class="btn" data-click="installFullBtn">Install full team</button>
+        <button class="btn" data-click="settingsBtn">Settings</button>
+        <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
+        <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
+      </div>
+
+      <div class="mobileDrawerFoot">
+        <button class="btn" id="mobileScrollTopBtn">Top</button>
+        <button class="btn btnPrimary" id="mobileCloseMenuBtn2">Done</button>
+      </div>
+    </div>
+  </div>
+
 
   <div class="stage">
     <div>
@@ -6242,7 +6345,8 @@ function makeSeat(defn, idx){
         return;
       }
 
-      const order = (state?.active_order && state.active_order.length) ? state.active_order : (state?.installed_order || []);
+      const reg = state?.registry || null;
+      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
@@ -7253,6 +7357,79 @@ if(t.id === "openApiKeyHelpBtn"){
     hideModal();
   }
 });
+
+
+// ===== NEW: Mobile Vertical UI v2 wiring (additive) =====
+function initMobileUIv2(){
+  const isMobile = () => window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+
+  const overlay = $("mobileDrawerOverlay");
+  const drawer = $("mobileDrawer");
+  const openBtn = $("mobileMenuBtn");
+  const closeBtn = $("mobileCloseMenuBtn");
+  const closeBtn2 = $("mobileCloseMenuBtn2");
+
+  function openMenu(){
+    if(!overlay) return;
+    overlay.classList.add("show");
+    overlay.setAttribute("aria-hidden", "false");
+    try{ document.body.style.overflow = "hidden"; }catch(_){}
+  }
+  function closeMenu(){
+    if(!overlay) return;
+    overlay.classList.remove("show");
+    overlay.setAttribute("aria-hidden", "true");
+    try{ document.body.style.overflow = ""; }catch(_){}
+  }
+
+  if(openBtn) openBtn.onclick = () => { if(isMobile()) openMenu(); };
+  if(closeBtn) closeBtn.onclick = () => closeMenu();
+  if(closeBtn2) closeBtn2.onclick = () => closeMenu();
+
+  // Bottom bar shortcuts
+  const mAssemble = $("mobileAssembleBtn");
+  if(mAssemble) mAssemble.onclick = () => { closeMenu(); if($("assembleBtn")) $("assembleBtn").click(); };
+  const mManage = $("mobileManageBtn");
+  if(mManage) mManage.onclick = () => { closeMenu(); if($("manageTeamBtn")) $("manageTeamBtn").click(); };
+  const mSettings = $("mobileSettingsBtn");
+  if(mSettings) mSettings.onclick = () => { closeMenu(); if($("settingsBtn")) $("settingsBtn").click(); };
+
+  // Drawer buttons that map to existing topbar actions
+  if(drawer){
+    drawer.addEventListener("click", (e) => {
+      const t = e.target;
+      if(!t) return;
+      const btn = t.closest ? t.closest("[data-click]") : null;
+      if(btn){
+        const id = btn.getAttribute("data-click");
+        if(id && $(id)){
+          closeMenu();
+          $(id).click();
+        }
+      }
+    });
+  }
+
+  // Tap outside drawer closes
+  if(overlay){
+    overlay.addEventListener("click", (e) => {
+      if(e.target === overlay) closeMenu();
+    });
+  }
+
+  // Escape closes
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape"){
+      if(overlay && overlay.classList.contains("show")) closeMenu();
+    }
+  });
+
+  // Handy: scroll to top from drawer
+  const topBtn = $("mobileScrollTopBtn");
+  if(topBtn) topBtn.onclick = () => { try{ window.scrollTo({top:0, behavior:"smooth"}); }catch(_){ window.scrollTo(0,0); } closeMenu(); };
+}
+
+try{ initMobileUIv2(); }catch(e){}
 </script>
 
 
@@ -7414,4 +7591,3 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
-
