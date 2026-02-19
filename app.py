@@ -1172,6 +1172,27 @@ def load_registry() -> Dict[str, Any]:
         reg["active_order"] = list(reg.get("installed_order") or [])
 
     installed = reg.get("installed") or {}
+
+    # NEW: Registry self-heal for older/corrupted states where teammates exist but ordering lists are empty.
+    # This is additive and prevents "No active teammates" when installed entries are present.
+    installed_order = reg.get("installed_order") or []
+    if installed and (not isinstance(installed_order, list) or len(installed_order) == 0):
+        # Prefer DEFAULT_ORDER for stable UX, then include any additional installed keys.
+        rebuilt: List[str] = []
+        try:
+            for n in DEFAULT_ORDER:
+                if n in installed and n not in rebuilt:
+                    rebuilt.append(n)
+        except Exception:
+            pass
+        for n in installed.keys():
+            if n not in rebuilt:
+                rebuilt.append(n)
+        reg["installed_order"] = rebuilt
+
+    # If active_order is empty after filtering, default to installed_order.
+    if not (reg.get("active_order") or []):
+        reg["active_order"] = list(reg.get("installed_order") or [])
     reg["active_order"] = [n for n in (reg.get("active_order") or []) if n in installed]
 
     return reg
