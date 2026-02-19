@@ -5641,6 +5641,15 @@ function makeSeat(defn, idx){
         return;
       }
 
+      // NEW (compat): mirror top-level teammate order into state.registry for conveneAll()
+      // This is additive and prevents "No active teammates" when /api/state returns active_order at top-level.
+      if(!state.registry){
+        state.registry = {active_order: (state.active_order||[]), installed_order: (state.installed_order||[])};
+      } else {
+        if(!state.registry.active_order) state.registry.active_order = (state.active_order||[]);
+        if(!state.registry.installed_order) state.registry.installed_order = (state.installed_order||[]);
+      }
+
       const email = state.email || {};
       const ok = !!email.smtp_ready;
       $("smtpStatus").innerText = ok ? `SMTP: ready (${email.smtp_user})` : `SMTP: not ready (${email.smtp_reason || "missing"})`;
