@@ -2592,7 +2592,7 @@ def api_send_email():
     try:
         if cap["gmail_connected"]:
             access_token, reason = _gmail_creds_for_user(u)
-            if not creds:
+            if not access_token:
                 return jsonify({"ok": False, "error": reason}), 400
             _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
             provider = "gmail_oauth"
@@ -2806,7 +2806,7 @@ def api_calendar_create_event():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     access_token, reason = _calendar_creds_for_user(u)
-    if not creds:
+    if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
     payload = request.get_json(force=True, silent=True) or {}
     title = (payload.get("title") or payload.get("summary") or "Call").strip()
