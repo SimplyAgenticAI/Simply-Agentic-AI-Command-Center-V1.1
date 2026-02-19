@@ -1969,6 +1969,52 @@ def api_state():
 
 
 
+@app.get("/api/diagnostics")
+def api_diagnostics():
+    """Lightweight, read-only diagnostics for debugging UI state.
+    Additive endpoint: does not change behavior of any existing flows.
+    """
+    reg = load_registry()
+    u = current_user()
+    # Email capability
+    email_cap = _email_capability_for_user(u) if u else {"gmail_connected": False, "smtp_ready": False}
+    # Calendar capability (best-effort)
+    cal_connected = False
+    cal_reason = ""
+    try:
+        if u:
+            cal_token, cal_reason = _calendar_creds_for_user(u)
+            cal_connected = bool(cal_token)
+    except Exception as e:
+        cal_connected = False
+        cal_reason = str(e)
+
+    # Basic session flags (safe)
+    sess = {
+        "authenticated": bool(u),
+        "user": (u or ""),
+    }
+
+    return jsonify({
+        "ok": True,
+        "app_title": APP_TITLE,
+        "model": MODEL,
+        "session": sess,
+        "registry": {
+            "installed_order": reg.get("installed_order") or [],
+            "active_order": reg.get("active_order") or [],
+            "installed_keys": sorted(list((reg.get("installed") or {}).keys())),
+        },
+        "capabilities": {
+            "email": email_cap,
+            "calendar": {
+                "calendar_connected": cal_connected,
+                "reason": cal_reason,
+            }
+        }
+    })
+
+
 @app.get("/api/task_log")
 def api_task_log():
     # Optional query params: teammate, status, limit
@@ -3994,6 +4040,125 @@ HTML = r"""
     z-index: 130;
   }
 }
+
+/* NEW: Diagnostics Panel v1 (additive) */
+#diagFab{
+  position:fixed;
+  right:14px;
+  bottom:14px;
+  z-index: 260;
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+#diagFab button{
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(9,14,28,.78);
+  color: var(--text);
+  padding:10px 12px;
+  border-radius: 999px;
+  cursor:pointer;
+  font-weight:700;
+  letter-spacing:.2px;
+  backdrop-filter: blur(8px);
+}
+#diagFab button:active{ transform: translateY(1px); }
+#diagOverlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index: 270;
+  background: rgba(2,6,16,.62);
+}
+#diagOverlay.show{ display:block; }
+#diagPanel{
+  position:fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 14px;
+  width: min(980px, calc(100% - 18px));
+  max-height: min(72vh, 720px);
+  z-index: 280;
+  display:none;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius: 16px;
+  overflow:hidden;
+  background: rgba(7,10,22,.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+#diagPanel.show{ display:block; }
+#diagHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  gap:10px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+#diagHeader .title{
+  font-weight:800;
+  font-size: 14px;
+  color: var(--text);
+  opacity:.95;
+}
+#diagHeader .actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.diagBtn{
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  padding:8px 10px;
+  border-radius: 10px;
+  cursor:pointer;
+  font-weight:700;
+  font-size:12px;
+}
+.diagBtn:active{ transform: translateY(1px); }
+#diagBody{
+  padding: 10px 12px 12px 12px;
+}
+#diagGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-bottom:10px;
+}
+.diagCard{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  background: rgba(255,255,255,.04);
+  padding:10px;
+  min-height: 72px;
+}
+.diagLabel{ font-size:12px; color: var(--muted); margin-bottom:6px; }
+.diagValue{ font-size:13px; color: var(--text); line-height:1.35; word-break:break-word; }
+#diagPre{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  background: rgba(0,0,0,.25);
+  padding:10px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height:1.35;
+  overflow:auto;
+  max-height: 42vh;
+  white-space: pre-wrap;
+}
+@media (max-width: 820px){
+  #diagGrid{ grid-template-columns: 1fr; }
+  #diagPanel{
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    width: calc(100% - 18px);
+  }
+  #diagFab{
+    bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}
 </style>
 </head>
 <body>
@@ -4448,6 +4613,33 @@ HTML = r"""
       </div>
     </div>
   </div>
+
+  <!-- NEW: Diagnostics Panel v1 (additive) -->
+  <div id="diagFab" title="Diagnostics">
+    <button id="diagOpenBtn" type="button">Diag</button>
+  </div>
+  <div id="diagOverlay"></div>
+  <div id="diagPanel" role="dialog" aria-modal="true" aria-label="Diagnostics Panel">
+    <div id="diagHeader">
+      <div class="title">System Diagnostics</div>
+      <div class="actions">
+        <button class="diagBtn" id="diagRefreshBtn" type="button">Refresh</button>
+        <button class="diagBtn" id="diagCopyBtn" type="button">Copy</button>
+        <button class="diagBtn" id="diagCloseBtn" type="button">Close</button>
+      </div>
+    </div>
+    <div id="diagBody">
+      <div id="diagGrid">
+        <div class="diagCard"><div class="diagLabel">Active teammates (detected)</div><div class="diagValue" id="diagActive">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Installed teammates</div><div class="diagValue" id="diagInstalled">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Email capability</div><div class="diagValue" id="diagEmail">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Calendar capability</div><div class="diagValue" id="diagCal">…</div></div>
+      </div>
+      <div class="diagLabel">Raw payload</div>
+      <pre id="diagPre">Loading…</pre>
+    </div>
+  </div>
+
 
   <script>
     const POS = [
@@ -7459,7 +7651,86 @@ function initMobileUIv2(){
   if(topBtn) topBtn.onclick = () => { try{ window.scrollTo({top:0, behavior:"smooth"}); }catch(_){ window.scrollTo(0,0); } closeMenu(); };
 }
 
+
+/* NEW: Diagnostics Panel v1 (additive) */
+function initDiagnosticsPanelV1(){
+  const openBtn = document.getElementById("diagOpenBtn");
+  const closeBtn = document.getElementById("diagCloseBtn");
+  const refreshBtn = document.getElementById("diagRefreshBtn");
+  const copyBtn = document.getElementById("diagCopyBtn");
+  const overlay = document.getElementById("diagOverlay");
+  const panel = document.getElementById("diagPanel");
+  const pre = document.getElementById("diagPre");
+  const vActive = document.getElementById("diagActive");
+  const vInstalled = document.getElementById("diagInstalled");
+  const vEmail = document.getElementById("diagEmail");
+  const vCal = document.getElementById("diagCal");
+
+  if(!openBtn || !panel || !overlay) return;
+
+  let timer = null;
+  let lastPayload = null;
+
+  function show(){
+    overlay.classList.add("show");
+    panel.classList.add("show");
+    load();
+    if(timer) clearInterval(timer);
+    timer = setInterval(load, 6000);
+  }
+  function hide(){
+    overlay.classList.remove("show");
+    panel.classList.remove("show");
+    if(timer) clearInterval(timer);
+    timer = null;
+  }
+
+  async function load(){
+    try{
+      const r = await fetch("/api/diagnostics", {method:"GET", headers:{"Accept":"application/json"}});
+      const j = await r.json();
+      lastPayload = j;
+      pre.textContent = JSON.stringify(j, null, 2);
+
+      const active = (j && j.registry && Array.isArray(j.registry.active_order)) ? j.registry.active_order : [];
+      const installed = (j && j.registry && Array.isArray(j.registry.installed_order)) ? j.registry.installed_order : [];
+      vActive.textContent = active.length ? active.join(", ") : "(none)";
+      vInstalled.textContent = installed.length ? installed.join(", ") : "(none)";
+
+      const email = j && j.capabilities && j.capabilities.email ? j.capabilities.email : {};
+      const cal = j && j.capabilities && j.capabilities.calendar ? j.capabilities.calendar : {};
+      vEmail.textContent = ("gmail_connected" in email || "smtp_ready" in email) ? JSON.stringify(email) : String(email || "");
+      vCal.textContent = ("calendar_connected" in cal) ? JSON.stringify(cal) : String(cal || "");
+    }catch(e){
+      pre.textContent = "Diagnostics failed to load. " + (e && e.message ? e.message : String(e));
+    }
+  }
+
+  function copy(){
+    try{
+      const txt = pre ? pre.textContent : (lastPayload ? JSON.stringify(lastPayload, null, 2) : "");
+      if(!txt) return;
+      navigator.clipboard.writeText(txt);
+      copyBtn.textContent = "Copied";
+      setTimeout(()=>{ copyBtn.textContent = "Copy"; }, 900);
+    }catch(e){}
+  }
+
+  openBtn.onclick = show;
+  if(closeBtn) closeBtn.onclick = hide;
+  if(overlay) overlay.onclick = hide;
+  if(refreshBtn) refreshBtn.onclick = load;
+  if(copyBtn) copyBtn.onclick = copy;
+
+  document.addEventListener("keydown", (ev)=>{
+    if(ev.key === "Escape") hide();
+  });
+}
+
 try{ initMobileUIv2(); }catch(e){}
+
+try{ initDiagnosticsPanelV1(); }catch(e){}
+
 </script>
 
 
