@@ -3123,6 +3123,107 @@ AUTH_BASE_CSS = r"""
   html, body{ overflow-x: auto !important; }
 }
 
+
+
+/* ===== NEW: Mobile Table Hero v1 (centered scene + fixed hero height) ===== */
+@media (max-width: 640px){
+  /* Stack operator -> hero -> side panels cleanly */
+  .tableWrap{ display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:12px !important; }
+
+  /* Put Group Console first on mobile */
+  .operator{ order: 0 !important; }
+
+  /* Hero container injected by JS */
+  #tableHero{
+    order: 1 !important;
+    width: 100% !important;
+    border: 1px solid rgba(42,58,106,.55);
+    background: rgba(10,14,28,.42);
+    border-radius: 20px;
+    padding: 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  #tableHeroHead{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  #tableHeroHead .hTitle{
+    font-weight: 900;
+    letter-spacing: .2px;
+  }
+  #tableHeroHead .hSub{
+    font-size: 12px;
+    opacity:.72;
+    margin-top:2px;
+  }
+  #tableHeroViewport{
+    width: 100%;
+    height: min(52vh, 360px);
+    max-height: 380px;
+    border-radius: 18px;
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 520px at 50% 40%, rgba(77,66,210,.20), rgba(0,0,0,0) 62%),
+      radial-gradient(800px 520px at 50% 60%, rgba(18,210,220,.09), rgba(0,0,0,0) 58%);
+  }
+
+  #tableScene{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform: translate(-50%,-50%) scale(var(--sceneScale, .72)) translateX(var(--sceneShiftX, 0px));
+    transform-origin: center center;
+    width: 640px;  /* virtual canvas for seats */
+    height: 640px;
+    pointer-events: none; /* seats will enable pointer events selectively */
+  }
+
+  /* Table core stays in center of the scene */
+  #tableCore{
+    position:absolute !important;
+    left:50% !important;
+    top:50% !important;
+    transform: translate(-50%,-50%) !important;
+    width: 420px !important;
+    height: 420px !important;
+  }
+
+  /* Mini seats for mobile: small, non-draggable, tap-to-select */
+  .seat.seatMini{
+    pointer-events: auto;
+    cursor: pointer !important;
+    width: 58px !important;
+    height: 58px !important;
+    min-width: 58px !important;
+    padding: 0 !important;
+    border-radius: 999px !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:0 !important;
+    background: rgba(14,22,48,.82) !important;
+    border: 1px solid rgba(90,110,210,.35) !important;
+    box-shadow: 0 10px 26px rgba(0,0,0,.35) !important;
+    user-select: none !important;
+    touch-action: manipulation !important;
+  }
+  .seat.seatMini .seatTools{ display:none !important; }
+  .seat.seatMini .seatMeta{ display:none !important; }
+  .seat.seatMini .avatar{ width: 42px !important; height: 42px !important; border-radius: 999px !important; }
+  .seat.seatMini .avatarTxt{ font-size: 16px !important; font-weight: 900 !important; }
+  .seat.seatMini .dot{ position:absolute; right:6px; bottom:6px; width:10px; height:10px; border-radius:999px; background: rgba(120,255,180,.85); box-shadow: 0 0 10px rgba(120,255,180,.35); border:1px solid rgba(0,0,0,.35); }
+
+  /* Side panel should come after hero */
+  .side{ order: 2 !important; width: 100% !important; max-width: 100% !important; }
+
+  /* Remove previous horizontal-pan hack for mobile */
+  html, body, .container{ overflow-x: hidden !important; }
+}
+
 </style>
 """
 
@@ -5969,11 +6070,16 @@ window.openStackForTeammate = function(name){
 };
 
 function makeSeat(defn, idx){
-      const wrap = $("tableWrap");
+      const wrap = getSeatHostV1();
+      const seatHost = getSeatHostV1();
       const wrapRect = wrap.getBoundingClientRect();
 
       const seat = document.createElement("div");
       seat.className = "seat";
+      const mini = isMobileLayoutV1();
+      if(mini) seat.classList.add("seatMini");
+      const mini = isMobileLayoutV1();
+      if(mini) seat.classList.add("seatMini");
       seat.dataset.name = defn.name;
       seat.tabIndex = 0;
 
@@ -6066,6 +6172,7 @@ function makeSeat(defn, idx){
       let offsetX = 0, offsetY = 0;
 
       seat.addEventListener("pointerdown", (e) => {
+        if(mini){ e.preventDefault(); e.stopPropagation(); return; }
         if(e.button !== undefined && e.button !== 0) return;
         dragging = true;
         moved = false;
@@ -6138,11 +6245,11 @@ function makeSeat(defn, idx){
 
     function renderTable(){
       const wrap = $("tableWrap");
-      Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
+      Array.from(seatHost.querySelectorAll(".seat")).forEach(x => x.remove());
 
       // Operator seat (always available)
       try{
-        wrap.appendChild(makeOperatorSeat(0));
+        seatHost.appendChild(makeOperatorSeat(0));
       }catch(err){
         console.error("Operator seat failed to render:", err);
       }
@@ -6182,7 +6289,7 @@ function makeSeat(defn, idx){
       updateTablePulseFromStatuses();
     }
     function makeOperatorSeat(idx){
-      const wrap = $("tableWrap");
+      const wrap = getSeatHostV1();
 
       const seat = document.createElement("div");
       seat.className = "seat seatOperator";
@@ -6254,7 +6361,9 @@ function makeSeat(defn, idx){
       }
 
       // Click / keyboard select
-      seat.addEventListener("click", (e) => { e.preventDefault(); selectSeat("Operator"); });
+      seat.addEventListener("click", (e) => {
+        if(mini){ try{ focusSeatV1("Operator"); }catch(_){ } }
+        if(mini){ try{ focusSeatV1(defn.name); }catch(_){ } } e.preventDefault(); selectSeat("Operator"); });
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
           e.preventDefault(); selectSeat("Operator");
@@ -8423,6 +8532,161 @@ function bindMobileViewportV3(){
     setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120);
     window.addEventListener('resize', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120); }, {passive:true});
     window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
+  }catch(e){}
+}
+
+
+
+// ===== NEW: Mobile Table Hero v1 (additive, no breaking) =====
+function isMobileLayoutV1(){
+  const w = Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
+  return w <= 640;
+}
+function getSeatHostV1(){
+  // Prefer scene host if present, otherwise fallback to existing tableWrap
+  const s = document.getElementById("tableScene");
+  return s || document.getElementById("tableWrap");
+}
+
+function initMobileTableHeroV1(){
+  try{
+    if(!isMobileLayoutV1()) return;
+
+    const wrap = document.getElementById("tableWrap");
+    const tableCore = document.getElementById("tableCore");
+    if(!wrap || !tableCore) return;
+
+    // Only inject once
+    if(document.getElementById("tableHero")) return;
+
+    // Create hero container
+    const hero = document.createElement("div");
+    hero.id = "tableHero";
+
+    const head = document.createElement("div");
+    head.id = "tableHeroHead";
+    head.innerHTML = `
+      <div>
+        <div class="hTitle">Round Table</div>
+        <div class="hSub">Tap a seat to select. Mini seats on mobile.</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn btnMini" id="sceneFitBtn" type="button">Fit</button>
+        <button class="btn btnMini" id="sceneZoomOutBtn" type="button">−</button>
+        <button class="btn btnMini" id="sceneZoomInBtn" type="button">+</button>
+      </div>
+    `;
+    hero.appendChild(head);
+
+    const vp = document.createElement("div");
+    vp.id = "tableHeroViewport";
+
+    const scene = document.createElement("div");
+    scene.id = "tableScene";
+
+    // Move table core inside the scene
+    scene.appendChild(tableCore);
+    vp.appendChild(scene);
+    hero.appendChild(vp);
+
+    // Insert hero right after operator (Group Console)
+    const op = document.getElementById("operator");
+    if(op && op.parentElement === wrap){
+      wrap.insertBefore(hero, op.nextSibling);
+    }else{
+      wrap.insertBefore(hero, wrap.firstChild);
+    }
+
+    // Wire controls
+    const root = document.documentElement;
+    const getScale = ()=>{
+      const v = getComputedStyle(root).getPropertyValue("--sceneScale").trim();
+      const f = parseFloat(v);
+      return isFinite(f) ? f : 0.72;
+    };
+    const setScale = (s)=>{
+      if(s < 0.35) s = 0.35;
+      if(s > 1.00) s = 1.00;
+      root.style.setProperty("--sceneScale", s.toFixed(2));
+      setTimeout(()=>{ try{ autoFitSceneV1(); }catch(e){} }, 0);
+    };
+
+    const zin = document.getElementById("sceneZoomInBtn");
+    const zout = document.getElementById("sceneZoomOutBtn");
+    const fit = document.getElementById("sceneFitBtn");
+    if(zin) zin.addEventListener("click", ()=> setScale(getScale()+0.05));
+    if(zout) zout.addEventListener("click", ()=> setScale(getScale()-0.05));
+    if(fit) fit.addEventListener("click", ()=>{ try{ autoFitSceneV1(true); }catch(e){} });
+
+    // Auto-fit on load + orientation changes
+    setTimeout(()=>{ try{ renderTable(); }catch(e){}; try{ autoFitSceneV1(true); }catch(e){} }, 80);
+    window.addEventListener("resize", ()=>{ setTimeout(()=>{ try{ autoFitSceneV1(true); }catch(e){} }, 120); }, {passive:true});
+    window.addEventListener("orientationchange", ()=>{ setTimeout(()=>{ try{ autoFitSceneV1(true); }catch(e){} }, 240); }, {passive:true});
+  }catch(e){}
+}
+
+function autoFitSceneV1(forceCenter){
+  try{
+    if(!isMobileLayoutV1()) return;
+
+    const heroVp = document.getElementById("tableHeroViewport");
+    const scene = document.getElementById("tableScene");
+    if(!heroVp || !scene) return;
+
+    const root = document.documentElement;
+
+    // Measure available viewport space
+    const vpRect = heroVp.getBoundingClientRect();
+    const availW = Math.max(240, vpRect.width - 12);
+    const availH = Math.max(240, vpRect.height - 12);
+
+    // Our virtual scene is 640x640, but seats may overflow if positioned outside.
+    // Use the scene scroll box size (fixed) and scale to fit both dimensions.
+    const base = 640;
+    let s = Math.min(availW/base, availH/base);
+
+    // Clamp
+    if(s > 1.00) s = 1.00;
+    if(s < 0.35) s = 0.35;
+
+    root.style.setProperty("--sceneScale", s.toFixed(2));
+
+    if(forceCenter){
+      root.style.setProperty("--sceneShiftX", "0px");
+    }
+
+    // Tiny correction pass based on actual rendered bounding box
+    setTimeout(()=>{
+      try{
+        const r = scene.getBoundingClientRect();
+        const center = r.left + r.width/2;
+        const target = (Math.max(document.documentElement.clientWidth||0, window.innerWidth||0))/2;
+        let dx = (target - center);
+        if(dx > 18) dx = 18;
+        if(dx < -18) dx = -18;
+        root.style.setProperty("--sceneShiftX", dx.toFixed(2)+"px");
+      }catch(e){}
+    }, 50);
+  }catch(e){}
+}
+
+// Tap seat -> select teammate and scroll thread into view (adds polish)
+function focusSeatV1(name){
+  try{
+    // Select seat in existing logic if available
+    if(typeof window.selectSeatByName === "function"){
+      window.selectSeatByName(name);
+    }
+    // Scroll to side panel thread area so user sees selection
+    const thread = document.getElementById("thread");
+    if(thread) thread.scrollIntoView({behavior:"smooth", block:"start"});
+    // Quick visual pulse on seat title
+    const st = document.getElementById("seatTitle");
+    if(st){
+      st.style.transition = "transform .12s ease";
+      st.style.transform = "scale(1.03)";
+      setTimeout(()=>{ st.style.transform = "scale(1)"; }, 140);
+    }
   }catch(e){}
 }
 
