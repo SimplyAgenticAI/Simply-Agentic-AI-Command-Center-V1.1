@@ -3977,6 +3977,53 @@ HTML = r"""
 
 
 /* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
+
+/* ===== NEW: Mobile Layout Cleanup v1 (operator on top, teammates below) ===== */
+@media (max-width: 640px){
+  /* Use normal document flow on mobile so panels never overlap */
+  .tableWrap{
+    display:flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  /* Move the group prompt console to the top, full width */
+  .operator{
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    order: -10 !important;
+  }
+
+  /* Keep the table circle visible but non-overlapping */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    max-width: 560px;
+    margin: 0 auto !important;
+    order: -5 !important;
+  }
+
+  /* Ensure any absolutely-positioned children can anchor correctly */
+  #tableCore{ position: relative !important; }
+
+  /* Give the prompt textarea breathing room */
+  .opText{ min-height: 108px; }
+
+  /* Avoid the bottom mobile bar covering content */
+  .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
+}
+
 .mobileBar{ display:none; }
 .mobileDrawerOverlay{ display:none; }
 .mobileDrawer{
