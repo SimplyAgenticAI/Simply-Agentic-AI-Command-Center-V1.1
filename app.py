@@ -4106,6 +4106,61 @@ HTML = r"""
 /* ===== NEW: Mobile Layout Cleanup v1 (operator on top, teammates below) ===== */
 
 /* ===== NEW: Mobile Fit & Modal Fix v1 (no cutoffs, no drag, full-screen popups) ===== */
+
+/* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
+:root{
+  --mobile-pad: 12px;
+}
+
+/* Safe-area aware page padding */
+@media (max-width: 900px){
+  .container{
+    padding-left: max(var(--mobile-pad), env(safe-area-inset-left)) !important;
+    padding-right: max(var(--mobile-pad), env(safe-area-inset-right)) !important;
+  }
+}
+
+/* Portrait phones: ensure table + seats fit without clipping */
+@media (max-width: 640px) and (orientation: portrait){
+  .table{
+    width: min(calc(100vw - 24px), 520px) !important;
+    max-width: min(calc(100vw - 24px), 520px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    transform: scale(0.94) !important;
+    transform-origin: center top !important;
+  }
+}
+
+/* Landscape phones: side-by-side layout */
+@media (max-width: 900px) and (orientation: landscape){
+  html, body{ overflow-x:hidden !important; }
+  .tableWrap{
+    display:flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .operator{
+    order: 0 !important;
+    width: min(420px, 44vw) !important;
+    flex: 0 0 auto !important;
+  }
+
+  .table{
+    order: 1 !important;
+    flex: 1 1 auto !important;
+    width: min(calc(56vw - 24px), 520px) !important;
+    max-width: min(calc(56vw - 24px), 520px) !important;
+    transform: scale(0.88) !important;
+    transform-origin: center top !important;
+    margin: 0 auto !important;
+  }
+
+  .container{ padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+}
+
 @media (max-width: 640px){
 
   /* Prevent sideways drag/scroll and keep everything centered */
