@@ -4110,6 +4110,24 @@ HTML = r"""
 /* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
 
 /* ===== NEW: Mobile Centering & Symmetry Fix v1 (true centered, no right-lean) ===== */
+
+/* ===== NEW: Mobile Auto-Center v1 (measured centering to eliminate browser quirks) ===== */
+@media (max-width: 640px){
+  :root{ --tableShiftX: 0px; --tableScale: 0.90; }
+  .table{
+    /* allow JS to nudge horizontally to true center */
+    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
+    transform-origin: center top !important;
+  }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  :root{ --tableShiftX: 0px; --tableScale: 0.88; }
+  .table{
+    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
+    transform-origin: center top !important;
+  }
+}
+
 @media (max-width: 900px){
   /* Use symmetric inline padding accounting for safe areas */
   .container{
@@ -7951,6 +7969,59 @@ if(t.id === "openApiKeyHelpBtn"){
 
 
 // ===== NEW: Mobile Vertical UI v2 wiring (additive) =====
+
+
+// ===== NEW: Mobile Auto-Center v1 (additive) =====
+function autoCenterTableV1(){
+  try{
+    const table = document.querySelector('.table');
+    if(!table) return;
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    if(vw <= 0) return;
+
+    // Reset shift before measuring so we don't compound offsets.
+    document.documentElement.style.setProperty('--tableShiftX', '0px');
+
+    const r = table.getBoundingClientRect();
+    const center = r.left + (r.width/2);
+    const target = vw/2;
+
+    // Positive delta means move right; negative move left.
+    let delta = (target - center);
+
+    // Clamp to avoid wild jumps.
+    if(delta > 24) delta = 24;
+    if(delta < -24) delta = -24;
+
+    // Only apply if meaningful.
+    if(Math.abs(delta) >= 0.5){
+      document.documentElement.style.setProperty('--tableShiftX', `${delta.toFixed(2)}px`);
+    }else{
+      document.documentElement.style.setProperty('--tableShiftX', '0px');
+    }
+  }catch(e){}
+}
+
+function bindAutoCenterTableV1(){
+  try{
+    // Run after layout settles
+    setTimeout(autoCenterTableV1, 60);
+    setTimeout(autoCenterTableV1, 220);
+
+    window.addEventListener('resize', ()=>{ setTimeout(autoCenterTableV1, 60); }, {passive:true});
+    window.addEventListener('orientationchange', ()=>{ setTimeout(autoCenterTableV1, 220); }, {passive:true});
+
+    // If we open/close overlays that might change scrollbars, re-center
+    document.addEventListener('click', (ev)=>{
+      const t = ev.target;
+      if(!t) return;
+      if(t.id === 'mobileMenuBtn' || t.id === 'drawerCloseBtn' || t.id === 'diagOpenBtn' || t.id === 'diagCloseBtn'){
+        setTimeout(autoCenterTableV1, 120);
+      }
+    }, true);
+  }catch(e){}
+}
+
 function initMobileUIv2(){
   const isMobile = () => window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
 
