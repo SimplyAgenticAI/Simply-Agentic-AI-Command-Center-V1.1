@@ -4109,6 +4109,43 @@ HTML = r"""
 
 /* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
 
+/* ===== NEW: Mobile Centering & Symmetry Fix v1 (true centered, no right-lean) ===== */
+@media (max-width: 900px){
+  /* Use symmetric inline padding accounting for safe areas */
+  .container{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding-left: calc(var(--mobile-pad) + env(safe-area-inset-left)) !important;
+    padding-right: calc(var(--mobile-pad) + env(safe-area-inset-right)) !important;
+  }
+  .tableWrap{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Place diagnostics button bottom-left above the mobile bar to avoid any overlap */
+@media (max-width: 640px){
+  #diagFab{
+    left: 12px !important;
+    right: auto !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  #diagFab{
+    left: 12px !important;
+    right: auto !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+
 /* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
 @media (max-width: 640px) and (orientation: portrait){
   .table{
