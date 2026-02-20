@@ -4115,8 +4115,8 @@ HTML = r"""
 
 /* ===== NEW: Mobile Table Zoom Controls v1 ===== */
 @media (max-width: 640px){
-  :root{ --tableScale: 0.82; --tableShiftX: 0px; }
-  .table{ transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin:center top !important; }
+  :root{ --tableScale: 0.74; --tableShiftX: 0px; }
+  .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
   #tableZoomFab{
     position: fixed;
     right: 12px;
@@ -4149,10 +4149,7 @@ HTML = r"""
 }
 @media (max-width: 900px) and (orientation: landscape){
   :root{ --tableShiftX: 0px; --tableScale: 0.88; }
-  .table{
-    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
-    transform-origin: center top !important;
-  }
+  .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
 }
 
 @media (max-width: 900px){
@@ -5042,6 +5039,7 @@ HTML = r"""
   <!-- NEW: Mobile table zoom controls (additive) -->
   <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
     <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
+    <button class="zbtn" id="zoomFitBtn" title="Fit to screen">Fit</button>
     <button class="zbtn" id="zoomCenterBtn" title="Center table">⦿</button>
     <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
   </div>
@@ -8065,6 +8063,7 @@ function initTableZoomV1(){
       }
     };
     applyFabVis();
+    try{ if(_isMobileV1()) autoFitTableV1(); }catch(e){}
     window.addEventListener('resize', ()=>{ setTimeout(applyFabVis, 60); }, {passive:true});
     window.addEventListener('orientationchange', ()=>{ setTimeout(applyFabVis, 220); }, {passive:true});
 
@@ -8073,9 +8072,49 @@ function initTableZoomV1(){
       const f = parseFloat(v);
       return isFinite(f) ? f : 0.82;
     };
+    
+function autoFitTableV1(){
+  try{
+    const table = document.querySelector('.table');
+    if(!table) return;
+    const root = document.documentElement;
+
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    if(vw <= 0) return;
+
+    // conservative padding: container padding + safe-area + tiny buffer
+    const targetW = Math.max(240, vw - 28);
+
+    // Snapshot current vars
+    const prevScale = (getComputedStyle(root).getPropertyValue('--tableScale') || '').trim() || '0.74';
+    const prevShift = (getComputedStyle(root).getPropertyValue('--tableShiftX') || '').trim() || '0px';
+
+    // Measure base width at scale 1
+    root.style.setProperty('--tableShiftX','0px');
+    root.style.setProperty('--tableScale','1');
+    // Let layout settle
+    const r = table.getBoundingClientRect();
+    const baseW = Math.max(1, r.width);
+
+    // Scale needed to fit
+    let s = targetW / baseW;
+    if(!isFinite(s) || s <= 0) s = parseFloat(prevScale) || 0.74;
+
+    // Clamp for usability
+    if(s > 1.00) s = 1.00;
+    if(s < 0.35) s = 0.35;
+
+    root.style.setProperty('--tableScale', s.toFixed(2));
+
+    // Restore shift and then re-center precisely
+    root.style.setProperty('--tableShiftX', prevShift);
+    setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 60);
+  }catch(e){}
+}
+
     const setScale = (s)=>{
       // clamp
-      if(s < 0.70) s = 0.70;
+      if(s < 0.35) s = 0.35;
       if(s > 1.00) s = 1.00;
       document.documentElement.style.setProperty('--tableScale', s.toFixed(2));
       // re-center after scaling
