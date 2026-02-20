@@ -3979,6 +3979,88 @@ HTML = r"""
 /* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
 
 /* ===== NEW: Mobile Layout Cleanup v1 (operator on top, teammates below) ===== */
+
+/* ===== NEW: Mobile Fit & Modal Fix v1 (no cutoffs, no drag, full-screen popups) ===== */
+@media (max-width: 640px){
+
+  /* Prevent sideways drag/scroll and keep everything centered */
+  html, body{
+    overflow-x: hidden !important;
+    overscroll-behavior-x: none;
+  }
+  body{ touch-action: manipulation; }
+
+  /* Ensure the main content can't exceed viewport width */
+  .container, .tableWrap{
+    max-width: 100vw !important;
+  }
+  .tableWrap{
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* Round table always fits within viewport */
+  .table{
+    width: min(calc(100vw - 24px), 560px) !important;
+    max-width: min(calc(100vw - 24px), 560px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  /* Seats never push layout wider than the screen */
+  .seat{
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* Overlays and popups must be fully visible on mobile */
+  .overlay{
+    padding-top: calc(env(safe-area-inset-top) + 10px) !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    align-items: flex-start !important;
+  }
+
+  /* Generic modal: full-screen, scrollable body, no resize/drag */
+  .modal{
+    position: fixed !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    resize: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+  .modalBar{
+    cursor: default !important;
+  }
+  .modalBodyWrap{
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* If your implementation uses these ids, force full-screen too */
+  #modalWin{
+    width: 100vw !important;
+    height: 100vh !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  #modalScroll{
+    max-height: calc(100vh - 140px) !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 @media (max-width: 640px){
   /* Use normal document flow on mobile so panels never overlap */
   .tableWrap{
