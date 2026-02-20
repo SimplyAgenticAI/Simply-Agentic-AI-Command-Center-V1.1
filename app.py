@@ -192,7 +192,33 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 BASE = Path(__file__).parent
-DATA = BASE / "data"
+
+# ===== NEW: Persistent data directory support (additive) =====
+# Use DATA_DIR env var if provided. Otherwise prefer /var/data when present (common persistent mount),
+# falling back to local ./data next to app.py.
+_DATA_ENV = (os.getenv("DATA_DIR") or "").strip()
+_DEFAULT_PERSIST = Path("/var/data")
+_OLD_DATA = BASE / "data"
+if _DATA_ENV:
+    DATA = Path(_DATA_ENV)
+elif _DEFAULT_PERSIST.exists():
+    DATA = _DEFAULT_PERSIST
+else:
+    DATA = _OLD_DATA
+
+# One-time best-effort migration from old local data folder if the new DATA dir is different and empty-ish.
+try:
+    DATA.mkdir(parents=True, exist_ok=True)
+    if DATA.resolve() != _OLD_DATA.resolve():
+        # migrate key json files if they exist in old dir and not in new
+        for fname in ["users.json", "registry.json", "memory.json", "secrets.json", "audit.json"]:
+            srcf = _OLD_DATA / fname
+            dstf = DATA / fname
+            if srcf.exists() and (not dstf.exists()):
+                shutil.copy2(srcf, dstf)
+except Exception:
+    pass
+
 DATA_DIR = str(DATA)
 REGISTRY_PATH = DATA / "teammates.json"
 THREADS_DIR = DATA / "threads"
@@ -3045,12 +3071,52 @@ LOGIN_HTML = r"""
 
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
+      {% if allow_signup %}
+        <div class="muted"><a href="/register">Create account</a></div>
+      {% endif %}
       {% if allow_setup %}
         <div class="muted"><a href="/setup">First time setup</a></div>
       {% endif %}
     </div>
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
+  </div>
+</body></html>
+"""
+
+
+REGISTER_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{app_title}} | Create Account</title>
+""" + AUTH_BASE_CSS + r"""
+</head><body>
+  <div class="card">
+    <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+    <div class="muted">Create a new account.</div>
+
+    <form method="post" action="/register">
+      <label>Username</label>
+      <input name="username" autocomplete="username" required/>
+      <label>Email (optional)</label>
+      <input name="email" autocomplete="email"/>
+      <label>Password</label>
+      <input name="password" type="password" autocomplete="new-password" required/>
+      <label>Confirm password</label>
+      <input name="password2" type="password" autocomplete="new-password" required/>
+      {% if require_code %}
+        <label>Invite code</label>
+        <input name="invite_code" autocomplete="one-time-code" required/>
+        <div class="tiny">Ask the owner for an invite code.</div>
+      {% endif %}
+      <div class="row">
+        <button class="btn btnPrimary" type="submit">Create account</button>
+        <a class="muted" href="/login">Back to login</a>
+      </div>
+    </form>
+
+    {% if error %}<div class="err">{{error}}</div>{% endif %}
+    {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
   </div>
 </body></html>
 """
@@ -3165,7 +3231,7 @@ def setup_post():
 @app.get("/login")
 def login():
     allow_setup = not has_any_user()
-    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup)
+    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled())
 
 @app.post("/login")
 def login_post():
@@ -3176,7 +3242,7 @@ def login_post():
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u or not check_password_hash(u.get("password_hash",""), password):
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user()))
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user(, allow_signup=_signup_enabled())))
 
     session["user"] = username
     session.permanent = bool(remember)
@@ -3186,6 +3252,65 @@ def login_post():
 
     return redirect(url_for("index"))
 
+
+
+# ===== NEW: Account registration (additive) =====
+def _signup_enabled() -> bool:
+    # Allow signups if explicitly enabled, or if there are no users yet (first run).
+    v = (os.getenv("ALLOW_SIGNUP") or "").strip().lower()
+    if v in ("1","true","yes","y","on"):
+        return True
+    if v in ("0","false","no","n","off"):
+        return False
+    return (not has_any_user())
+
+def _require_invite_code() -> bool:
+    v = (os.getenv("REQUIRE_INVITE_CODE") or "").strip().lower()
+    return v in ("1","true","yes","y","on")
+
+def _invite_code_value() -> str:
+    return (os.getenv("INVITE_CODE") or "").strip()
+
+@app.get("/register")
+def register_get():
+    allow = _signup_enabled()
+    if not allow:
+        return redirect(url_for("login"))
+    return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code())
+
+@app.post("/register")
+def register_post():
+    if not _signup_enabled():
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
+    username = _clean_username(request.form.get("username",""))
+    email = (request.form.get("email","") or "").strip()
+    pw = (request.form.get("password","") or "").strip()
+    pw2 = (request.form.get("password2","") or "").strip()
+
+    if not username or len(username) < 3:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=_require_invite_code())
+    if len(pw) < 8:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=_require_invite_code())
+    if pw != pw2:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=_require_invite_code())
+
+    if _require_invite_code():
+        got = (request.form.get("invite_code") or "").strip()
+        want = _invite_code_value()
+        if not want:
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invite code is not configured on the server.", ok=None, require_code=True)
+        if got != want:
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invalid invite code.", ok=None, require_code=True)
+
+    data = load_users()
+    users = data.get("users") or {}
+    if username in users:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=_require_invite_code())
+
+    users[username] = _new_user(username, pw, email=email)
+    data["users"] = users
+    save_users(data)
+    return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok="Account created. You can log in now.", require_code=_require_invite_code())
 @app.get("/logout")
 def logout():
     session.clear()
