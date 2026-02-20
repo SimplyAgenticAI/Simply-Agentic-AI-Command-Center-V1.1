@@ -3043,6 +3043,49 @@ AUTH_BASE_CSS = r"""
 .modalWin{ box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .btnPrimary{ filter: saturate(1.05); }
 .pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
+
+
+/* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
+@media (max-width: 640px){
+  /* Allow horizontal pan if anything still overflows */
+  html, body{ overflow-x: auto !important; }
+  .container{ overflow-x: auto !important; }
+
+  /* Force the round table region to behave like a centered block */
+  .tableWrap{
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: unset !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: flex !important;
+    justify-content: center !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Lock the table itself: no absolute centering math on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+
+    width: min(92vw, 520px) !important;
+    max-width: min(92vw, 520px) !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+
+    /* Zoom + nudge, without translate(-50%,-50%) */
+    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
+    transform-origin: center center !important;
+  }
+}
+
 </style>
 """
 
@@ -4115,7 +4158,7 @@ HTML = r"""
 
 /* ===== NEW: Mobile Table Zoom Controls v1 ===== */
 @media (max-width: 640px){
-  :root{ --tableScale: 0.74; --tableShiftX: 0px; }
+  :root{ --tableScale: 0.68; --tableShiftX: 0px; }
   .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
   #tableZoomFab{
     position: fixed;
@@ -4140,7 +4183,7 @@ HTML = r"""
 }
 
 @media (max-width: 640px){
-  :root{ --tableShiftX: 0px; --tableScale: 0.90; }
+  :root{ --tableShiftX: 0px; --tableScale: 0.68; }
   .table{
     /* allow JS to nudge horizontally to true center */
     transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
@@ -4148,7 +4191,7 @@ HTML = r"""
   }
 }
 @media (max-width: 900px) and (orientation: landscape){
-  :root{ --tableShiftX: 0px; --tableScale: 0.88; }
+  :root{ --tableShiftX: 0px; --tableScale: 0.68; }
   .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
 }
 
@@ -8102,7 +8145,7 @@ function autoFitTableV1(){
 
     // Clamp for usability
     if(s > 1.00) s = 1.00;
-    if(s < 0.35) s = 0.35;
+    if(s < 0.20) s = 0.20;
 
     root.style.setProperty('--tableScale', s.toFixed(2));
 
@@ -8114,7 +8157,7 @@ function autoFitTableV1(){
 
     const setScale = (s)=>{
       // clamp
-      if(s < 0.35) s = 0.35;
+      if(s < 0.20) s = 0.20;
       if(s > 1.00) s = 1.00;
       document.documentElement.style.setProperty('--tableScale', s.toFixed(2));
       // re-center after scaling
