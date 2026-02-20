@@ -3086,12 +3086,49 @@ AUTH_BASE_CSS = r"""
   }
 }
 
+
+/* ===== NEW: Mobile Round Table Viewport Lock v3 (no clipping, true center, pinch zoom enabled) ===== */
+@media (max-width: 700px){
+  /* Create a dedicated viewport for the round table that can pan if needed */
+  #tableViewport{
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    padding-left: max(8px, env(safe-area-inset-left)) !important;
+    padding-right: max(8px, env(safe-area-inset-right)) !important;
+    box-sizing: border-box !important;
+    scroll-snap-type: x mandatory;
+  }
+  #tableViewport::-webkit-scrollbar{ display:none; }
+
+  /* Force the table to behave like a normal centered block on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 auto !important;
+    transform: translateX(var(--tableShiftX, 0px)) !important; /* no centering math here */
+    transform-origin: center top !important;
+    zoom: var(--tableZoom, 0.72) !important; /* zoom affects layout, so centering + scrolling works */
+    scroll-snap-align: center;
+  }
+
+  /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
+  html, body{ overflow-x: auto !important; }
+}
+
 </style>
 """
 
 LOGIN_HTML = r"""
 <!doctype html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
@@ -3130,7 +3167,7 @@ LOGIN_HTML = r"""
 
 REGISTER_HTML = r"""
 <!doctype html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Create Account</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
@@ -3166,7 +3203,7 @@ REGISTER_HTML = r"""
 
 SETUP_HTML = r"""
 <!doctype html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Setup</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
@@ -3194,7 +3231,7 @@ SETUP_HTML = r"""
 
 RESET_HTML = r"""
 <!doctype html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Reset Password</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
@@ -3450,7 +3487,7 @@ HTML = r"""
 <html>
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <title>{{app_title}}</title>
   <style>
     :root{ --text:#e6edff; --muted:#b8c4ffcc; }
@@ -8090,88 +8127,48 @@ function _isMobileV1(){
   const w = Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
   return w <= 640;
 }
+
 function initTableZoomV1(){
   try{
     const fab = document.getElementById('tableZoomFab');
     const out = document.getElementById('zoomOutBtn');
     const inn = document.getElementById('zoomInBtn');
+    const fit = document.getElementById('zoomFitBtn');
     const ctr = document.getElementById('zoomCenterBtn');
     if(!fab || !out || !inn || !ctr) return;
 
     const applyFabVis = ()=>{
-      if(_isMobileV1()){
-        fab.style.display = 'flex';
-      }else{
-        fab.style.display = 'none';
-      }
+      fab.style.display = _isMobileV1() ? 'flex' : 'none';
     };
     applyFabVis();
-    try{ if(_isMobileV1()) autoFitTableV1(); }catch(e){}
     window.addEventListener('resize', ()=>{ setTimeout(applyFabVis, 60); }, {passive:true});
     window.addEventListener('orientationchange', ()=>{ setTimeout(applyFabVis, 220); }, {passive:true});
 
-    const getScale = ()=>{
-      const v = getComputedStyle(document.documentElement).getPropertyValue('--tableScale').trim();
+    const getZoom = ()=>{
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--tableZoom').trim();
       const f = parseFloat(v);
-      return isFinite(f) ? f : 0.82;
+      return isFinite(f) ? f : 0.72;
     };
-    
-function autoFitTableV1(){
-  try{
-    const table = document.querySelector('.table');
-    if(!table) return;
-    const root = document.documentElement;
-
-    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-    if(vw <= 0) return;
-
-    // conservative padding: container padding + safe-area + tiny buffer
-    const targetW = Math.max(240, vw - 28);
-
-    // Snapshot current vars
-    const prevScale = (getComputedStyle(root).getPropertyValue('--tableScale') || '').trim() || '0.74';
-    const prevShift = (getComputedStyle(root).getPropertyValue('--tableShiftX') || '').trim() || '0px';
-
-    // Measure base width at scale 1
-    root.style.setProperty('--tableShiftX','0px');
-    root.style.setProperty('--tableScale','1');
-    // Let layout settle
-    const r = table.getBoundingClientRect();
-    const baseW = Math.max(1, r.width);
-
-    // Scale needed to fit
-    let s = targetW / baseW;
-    if(!isFinite(s) || s <= 0) s = parseFloat(prevScale) || 0.74;
-
-    // Clamp for usability
-    if(s > 1.00) s = 1.00;
-    if(s < 0.20) s = 0.20;
-
-    root.style.setProperty('--tableScale', s.toFixed(2));
-
-    // Restore shift and then re-center precisely
-    root.style.setProperty('--tableShiftX', prevShift);
-    setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 60);
-  }catch(e){}
-}
-
-    const setScale = (s)=>{
-      // clamp
-      if(s < 0.20) s = 0.20;
-      if(s > 1.00) s = 1.00;
-      document.documentElement.style.setProperty('--tableScale', s.toFixed(2));
-      // re-center after scaling
-      setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 80);
+    const setZoom = (z)=>{
+      if(z < 0.20) z = 0.20;
+      if(z > 1.00) z = 1.00;
+      document.documentElement.style.setProperty('--tableZoom', z.toFixed(2));
+      setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
     };
 
-    out.addEventListener('click', ()=>{ setScale(getScale() - 0.05); });
-    inn.addEventListener('click', ()=>{ setScale(getScale() + 0.05); });
+    out.addEventListener('click', ()=>{ setZoom(getZoom() - 0.05); });
+    inn.addEventListener('click', ()=>{ setZoom(getZoom() + 0.05); });
+    if(fit){ fit.addEventListener('click', ()=>{ try{ autoFitZoomV3(); }catch(e){} }); }
     ctr.addEventListener('click', ()=>{
       document.documentElement.style.setProperty('--tableShiftX','0px');
-      setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 60);
+      setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
     });
+
+    // Fit once on mobile start
+    try{ if(_isMobileV1()) autoFitZoomV3(); }catch(e){}
   }catch(e){}
 }
+
 
 function bindAutoCenterTableV1(){
   try{
@@ -8341,6 +8338,93 @@ function initDiagnosticsPanelV1(){
 try{ initMobileUIv2(); }catch(e){}
 
 try{ initDiagnosticsPanelV1(); }catch(e){}
+
+
+// ===== NEW: Mobile Round Table Viewport + AutoFit v3 (additive, fixes right-side clipping) =====
+function ensureTableViewportV3(){
+  try{
+    const table = document.querySelector('.table');
+    if(!table) return;
+    if(table.parentElement && table.parentElement.id === 'tableViewport') return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'tableViewport';
+    // Insert wrap where the table currently is
+    const parent = table.parentElement;
+    parent.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  }catch(e){}
+}
+
+function autoFitZoomV3(){
+  try{
+    ensureTableViewportV3();
+    const table = document.querySelector('.table');
+    const vp = document.getElementById('tableViewport');
+    if(!table || !vp) return;
+
+    const root = document.documentElement;
+    // Measure at zoom=1
+    const prevZoom = (getComputedStyle(root).getPropertyValue('--tableZoom') || '').trim() || '0.72';
+    root.style.setProperty('--tableZoom','1');
+    root.style.setProperty('--tableShiftX','0px');
+
+    const r = table.getBoundingClientRect();
+    const baseW = Math.max(1, r.width);
+
+    // Target width is viewport width minus padding buffer
+    const vw = Math.max(vp.clientWidth || 0, window.innerWidth || 0);
+    const target = Math.max(220, vw - 24);
+
+    let z = target / baseW;
+    if(!isFinite(z) || z <= 0) z = parseFloat(prevZoom) || 0.72;
+
+    if(z > 1.00) z = 1.00;
+    if(z < 0.20) z = 0.20;
+
+    root.style.setProperty('--tableZoom', z.toFixed(2));
+
+    // Center correction (if any drift remains)
+    setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
+  }catch(e){}
+}
+
+function autoCenterTableV3(){
+  try{
+    ensureTableViewportV3();
+    const table = document.querySelector('.table');
+    const vp = document.getElementById('tableViewport');
+    if(!table || !vp) return;
+
+    const vw = Math.max(vp.clientWidth || 0, window.innerWidth || 0);
+    if(vw <= 0) return;
+
+    // reset shift
+    document.documentElement.style.setProperty('--tableShiftX','0px');
+    const r = table.getBoundingClientRect();
+    const center = r.left + (r.width/2);
+    const target = vw/2;
+
+    let delta = (target - center);
+    if(delta > 32) delta = 32;
+    if(delta < -32) delta = -32;
+
+    if(Math.abs(delta) >= 0.5){
+      document.documentElement.style.setProperty('--tableShiftX', `${delta.toFixed(2)}px`);
+    }else{
+      document.documentElement.style.setProperty('--tableShiftX','0px');
+    }
+  }catch(e){}
+}
+
+function bindMobileViewportV3(){
+  try{
+    ensureTableViewportV3();
+    setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120);
+    window.addEventListener('resize', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120); }, {passive:true});
+    window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
+  }catch(e){}
+}
 
 </script>
 
