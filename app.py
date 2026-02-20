@@ -3242,7 +3242,7 @@ def login_post():
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u or not check_password_hash(u.get("password_hash",""), password):
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user(, allow_signup=_signup_enabled())))
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     session["user"] = username
     session.permanent = bool(remember)
