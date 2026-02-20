@@ -4108,6 +4108,15 @@ HTML = r"""
 /* ===== NEW: Mobile Fit & Modal Fix v1 (no cutoffs, no drag, full-screen popups) ===== */
 
 /* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
+
+/* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
+@media (max-width: 640px) and (orientation: portrait){
+  .table{
+    transform: scale(0.90) !important;
+    transform-origin: center top !important;
+  }
+}
+
 :root{
   --mobile-pad: 12px;
 }
@@ -4372,6 +4381,20 @@ HTML = r"""
   backdrop-filter: blur(8px);
 }
 #diagFab button:active{ transform: translateY(1px); }
+
+
+/* ===== NEW: Mobile Diagnostics Button Placement v1 (avoid overlap with bottom bar) ===== */
+@media (max-width: 640px){
+  #diagFab{
+    right: 12px !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important; /* sits above mobile action bar */
+  }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  #diagFab{
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
 #diagOverlay{
   display:none;
   position:fixed;
