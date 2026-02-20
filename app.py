@@ -4112,6 +4112,33 @@ HTML = r"""
 /* ===== NEW: Mobile Centering & Symmetry Fix v1 (true centered, no right-lean) ===== */
 
 /* ===== NEW: Mobile Auto-Center v1 (measured centering to eliminate browser quirks) ===== */
+
+/* ===== NEW: Mobile Table Zoom Controls v1 ===== */
+@media (max-width: 640px){
+  :root{ --tableScale: 0.82; --tableShiftX: 0px; }
+  .table{ transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin:center top !important; }
+  #tableZoomFab{
+    position: fixed;
+    right: 12px;
+    bottom: calc(86px + env(safe-area-inset-bottom));
+    z-index: 255;
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  #tableZoomFab .zbtn{
+    border:1px solid rgba(255,255,255,.14);
+    background: rgba(9,14,28,.78);
+    color: var(--text);
+    padding:10px 12px;
+    border-radius: 999px;
+    font-weight:800;
+    cursor:pointer;
+    backdrop-filter: blur(8px);
+  }
+  #tableZoomFab .zbtn:active{ transform: translateY(1px); }
+}
+
 @media (max-width: 640px){
   :root{ --tableShiftX: 0px; --tableScale: 0.90; }
   .table{
@@ -4415,6 +4442,12 @@ HTML = r"""
 }
 
 /* NEW: Diagnostics Panel v1 (additive) */
+
+/* ===== NEW: Mobile Diag Placement v2 (no overlays) ===== */
+@media (max-width: 640px){
+  #diagFab{ display:none !important; }
+}
+
 #diagFab{
   position:fixed;
   right:14px;
@@ -5005,7 +5038,15 @@ HTML = r"""
   <div id="diagFab" title="Diagnostics">
     <button id="diagOpenBtn" type="button">Diag</button>
   </div>
-  <div id="diagOverlay"></div>
+  <div 
+  <!-- NEW: Mobile table zoom controls (additive) -->
+  <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
+    <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
+    <button class="zbtn" id="zoomCenterBtn" title="Center table">⦿</button>
+    <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
+  </div>
+
+id="diagOverlay"></div>
   <div id="diagPanel" role="dialog" aria-modal="true" aria-label="Diagnostics Panel">
     <div id="diagHeader">
       <div class="title">System Diagnostics</div>
@@ -7999,6 +8040,54 @@ function autoCenterTableV1(){
     }else{
       document.documentElement.style.setProperty('--tableShiftX', '0px');
     }
+  }catch(e){}
+}
+
+
+// ===== NEW: Mobile Table Zoom v1 (additive) =====
+function _isMobileV1(){
+  const w = Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
+  return w <= 640;
+}
+function initTableZoomV1(){
+  try{
+    const fab = document.getElementById('tableZoomFab');
+    const out = document.getElementById('zoomOutBtn');
+    const inn = document.getElementById('zoomInBtn');
+    const ctr = document.getElementById('zoomCenterBtn');
+    if(!fab || !out || !inn || !ctr) return;
+
+    const applyFabVis = ()=>{
+      if(_isMobileV1()){
+        fab.style.display = 'flex';
+      }else{
+        fab.style.display = 'none';
+      }
+    };
+    applyFabVis();
+    window.addEventListener('resize', ()=>{ setTimeout(applyFabVis, 60); }, {passive:true});
+    window.addEventListener('orientationchange', ()=>{ setTimeout(applyFabVis, 220); }, {passive:true});
+
+    const getScale = ()=>{
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--tableScale').trim();
+      const f = parseFloat(v);
+      return isFinite(f) ? f : 0.82;
+    };
+    const setScale = (s)=>{
+      // clamp
+      if(s < 0.70) s = 0.70;
+      if(s > 1.00) s = 1.00;
+      document.documentElement.style.setProperty('--tableScale', s.toFixed(2));
+      // re-center after scaling
+      setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 80);
+    };
+
+    out.addEventListener('click', ()=>{ setScale(getScale() - 0.05); });
+    inn.addEventListener('click', ()=>{ setScale(getScale() + 0.05); });
+    ctr.addEventListener('click', ()=>{
+      document.documentElement.style.setProperty('--tableShiftX','0px');
+      setTimeout(()=>{ try{ autoCenterTableV1(); }catch(e){} }, 60);
+    });
   }catch(e){}
 }
 
