@@ -9508,3 +9508,5 @@ ADD_TABLE_SPACER_V9 = r'''
   window.addEventListener('resize', ensureSpacer);
 })();
 </script>
+
+'''
