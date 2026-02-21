@@ -3126,6 +3126,35 @@ AUTH_BASE_CSS = r"""
 </style>
 """
 
+# ===== ADDITIVE: Auth theme boost (gold/blue/purple) =====
+AUTH_BASE_CSS = AUTH_BASE_CSS + r"""
+<style>
+  :root{ --gold:#f6d36b; --purple:#7c3aed; --blue:#3b82f6; }
+  body:before{
+    content:"";
+    position:fixed;
+    inset:-20%;
+    pointer-events:none;
+    background:
+      radial-gradient(900px 520px at 50% 18%, rgba(246,211,107,.18), transparent 62%),
+      radial-gradient(820px 540px at 20% 30%, rgba(124,58,237,.14), transparent 62%),
+      radial-gradient(820px 540px at 80% 34%, rgba(59,130,246,.12), transparent 62%);
+    z-index:0;
+  }
+  body > *{ position:relative; z-index:1; }
+  .dot{
+    background: radial-gradient(circle at 30% 30%, #fff, var(--gold), var(--purple));
+    box-shadow: 0 0 14px rgba(246,211,107,.38), 0 0 22px rgba(124,58,237,.22);
+  }
+  .btnPrimary{
+    border:1px solid rgba(246,211,107,.75);
+    background: linear-gradient(135deg, rgba(246,211,107,.26), rgba(124,58,237,.22), rgba(59,130,246,.16));
+    box-shadow: 0 0 18px rgba(246,211,107,.12), 0 0 22px rgba(124,58,237,.12);
+  }
+</style>
+"""
+
+
 LOGIN_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -4656,7 +4685,93 @@ HTML = r"""
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }
-</style>
+
+
+/* ===== ADDITIVE: Gold/Blue/Purple Theme Boost v1 ===== */
+:root{
+  --gold:#f6d36b;
+  --gold2:#ffd36a;
+  --blue:#3b82f6;
+  --purple:#7c3aed;
+  --goldGlow: rgba(246,211,107,.22);
+  --purpleGlow: rgba(124,58,237,.22);
+  --blueGlow: rgba(59,130,246,.16);
+}
+
+/* Add an aurora-like gold layer without changing existing backgrounds */
+body:before{
+  content:"";
+  position:fixed;
+  inset:-20%;
+  pointer-events:none;
+  background:
+    radial-gradient(900px 520px at 50% 18%, rgba(246,211,107,.16), transparent 60%),
+    radial-gradient(700px 520px at 18% 30%, rgba(124,58,237,.14), transparent 62%),
+    radial-gradient(800px 520px at 82% 34%, rgba(59,130,246,.12), transparent 62%);
+  filter: blur(0px);
+  z-index:0;
+}
+body > *{ position:relative; z-index:1; }
+
+.dot{
+  background: radial-gradient(circle at 30% 30%, #ffffff, var(--gold), var(--purple));
+  box-shadow: 0 0 14px rgba(246,211,107,.40), 0 0 22px rgba(124,58,237,.25);
+}
+
+.btnPrimary{
+  border:1px solid rgba(246,211,107,.75);
+  background: linear-gradient(135deg, rgba(246,211,107,.26), rgba(124,58,237,.22), rgba(59,130,246,.16));
+  box-shadow: 0 0 18px rgba(246,211,107,.12), 0 0 22px rgba(124,58,237,.12);
+}
+
+/* Table gets a subtle gold rim glow (additive) */
+.table{
+  box-shadow:
+    0 0 0 1px rgba(17,24,39,.35) inset,
+    0 0 70px rgba(124,58,237,.18),
+    0 0 120px rgba(59,130,246,.10),
+    0 0 110px rgba(246,211,107,.10);
+}
+
+/* ===== ADDITIVE: Mobile Table Mode (keep cards around table) v1 ===== */
+@media (max-width: 720px){
+
+  /* Default to table mode if body has the flag */
+  body.mobileTableMode .tableWrap{
+    width: min(860px, 96vw) !important;
+    height: min(860px, 96vw) !important;
+    min-height: 0 !important;
+    display:block !important;
+    padding-bottom: 0 !important;
+  }
+
+  body.mobileTableMode .table{
+    position:absolute !important;
+    inset: 50% 50% !important;
+    transform: translate(calc(-50% + var(--tableShiftX, 0px)),-50%) scale(var(--tableZoom, 0.88)) !important;
+    width: 62% !important;
+    height: 62% !important;
+    margin: 0 !important;
+  }
+
+  body.mobileTableMode .seat{
+    position:absolute !important;
+    width: 178px !important;
+    max-width: 178px !important;
+    min-height: 118px !important;
+    cursor: pointer !important;
+  }
+
+  /* If the mobile list rules forced flex column, re-enable the zoom viewport */
+  body.mobileTableMode #tableViewport{
+    width: 100% !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
+  }
+}
+
+  </style>
 </head>
 <body>
   <div class="topbar">
@@ -4681,6 +4796,7 @@ HTML = r"""
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
+    <button class="btn" id="mobileViewToggleBtn" title="Toggle mobile view">View: Table</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -8425,6 +8541,65 @@ function bindMobileViewportV3(){
     window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
   }catch(e){}
 }
+
+
+/* ===== ADDITIVE: Mobile View Mode Toggle + Auto Fit v1 ===== */
+function _isMobileNarrow(){
+  try{ return window.matchMedia && window.matchMedia("(max-width: 720px)").matches; }catch(e){ return (window.innerWidth||0) <= 720; }
+}
+
+function setMobileViewMode(mode){
+  try{
+    const m = (mode || "table").toLowerCase();
+    if(m === "list"){
+      document.body.classList.remove("mobileTableMode");
+      try{ localStorage.setItem("mobileViewMode","list"); }catch(e){}
+      const b = document.getElementById("mobileViewToggleBtn");
+      if(b) b.textContent = "View: List";
+      return;
+    }
+    document.body.classList.add("mobileTableMode");
+    try{ localStorage.setItem("mobileViewMode","table"); }catch(e){}
+    const b = document.getElementById("mobileViewToggleBtn");
+    if(b) b.textContent = "View: Table";
+  }catch(e){}
+}
+
+function initMobileViewToggle(){
+  try{
+    if(!_isMobileNarrow()) return;
+
+    let mode = "table";
+    try{ mode = (localStorage.getItem("mobileViewMode") || "table"); }catch(e){}
+    // Default to TABLE mode (your request: cards around the table, but fit cleanly)
+    setMobileViewMode(mode);
+
+    const btn = document.getElementById("mobileViewToggleBtn");
+    if(btn){
+      btn.addEventListener("click", ()=>{
+        const isTable = document.body.classList.contains("mobileTableMode");
+        setMobileViewMode(isTable ? "list" : "table");
+        // When switching to table mode, re-fit and center
+        if(!isTable){
+          setTimeout(()=>{ try{ bindMobileViewportV3(); }catch(e){} }, 60);
+        }
+      });
+    }
+
+    // Ensure the zoom/viewport helpers actually run when in table mode
+    if(document.body.classList.contains("mobileTableMode")){
+      setTimeout(()=>{ try{ bindMobileViewportV3(); }catch(e){} }, 80);
+    }
+  }catch(e){}
+}
+
+try{
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", initMobileViewToggle, {once:true});
+  }else{
+    initMobileViewToggle();
+  }
+}catch(e){}
 
 </script>
 
