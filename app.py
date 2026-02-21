@@ -3177,6 +3177,13 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
+
+  /* v11: Perfect separation between round table and teammate cards (prevents rim touching first card) */
+  #tableWrap, #rtStage, #tableViewport { padding-bottom: 28px; }
+  @media (max-width: 768px){
+    #tableWrap, #rtStage, #tableViewport { padding-bottom: 36px; }
+  }
+
 </style>
 """
 
@@ -9499,48 +9506,5 @@ ADD_TABLE_SPACER_V9 = r'''
   }
   document.addEventListener('DOMContentLoaded', ensureSpacer);
   window.addEventListener('resize', ensureSpacer);
-})();
-</script>
-
-
-
-# === Additive Patch v10: Stronger table-to-cards separation on mobile ===
-ADD_TABLE_SPACER_V10 = r'''
-<style>
-  @media (max-width: 768px){
-    #tableWrap, #rtStage { margin-bottom: 34px !important; }
-    #v10TableSpacer { height: 26px !important; }
-  }
-  @media (min-width: 769px){
-    #v10TableSpacer { height: 14px !important; }
-  }
-</style>
-<script>
-(function(){
-  function ensureV10Spacer(){
-    const table = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage');
-    if(!table) return;
-
-    let spacer = document.getElementById('v10TableSpacer');
-    const isMobile = window.innerWidth <= 768;
-    const h = isMobile ? 26 : 14;
-
-    if(!spacer){
-      spacer = document.createElement('div');
-      spacer.id = 'v10TableSpacer';
-      spacer.style.pointerEvents = 'none';
-      spacer.style.width = '100%';
-      spacer.style.height = h + 'px';
-
-      // Choose a stable anchor: if tableWrap exists, space after it; else after tableViewport; else after rtStage.
-      const anchor = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage') || table;
-      anchor.insertAdjacentElement('afterend', spacer);
-    }else{
-      spacer.style.height = h + 'px';
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', ensureV10Spacer);
-  window.addEventListener('resize', ensureV10Spacer);
 })();
 </script>
