@@ -4717,6 +4717,45 @@ HTML = r"""
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }
+
+
+/* === V5: RIGHT-EDGE + BUTTON TRIM FIX (ADDITIVE) === */
+/* Stop any tiny horizontal overflow that causes right-side clipping in mobile webviews (Messenger, etc.) */
+*, *::before, *::after{ box-sizing:border-box; }
+html, body{ max-width:100%; overflow-x:hidden !important; }
+
+/* Ensure primary layout wrappers never exceed viewport width */
+.container, .card, .sideCard, .grid, .row{ max-width:100% !important; }
+
+/* Headers with right-side action buttons: prevent "leaning" and text clipping */
+.sideHead, .cardHead, .panelHead{ max-width:100%; }
+.sideHead{ flex-wrap:wrap; }
+.sideHead .btn{ flex: 0 0 auto; white-space:nowrap; max-width:100%; }
+
+/* Common culprit: elements using vw inside padded containers. Prefer 100% on mobile. */
+@media (max-width: 640px){
+  .card{ width:100% !important; max-width:100% !important; }
+  .side{ width:100% !important; max-width:100% !important; }
+  #modalWin{ max-width: calc(100% - 16px) !important; }
+}
+
+/* Restore + enhance gold trim on console buttons (login gate already has it) */
+.btn{
+  box-shadow:
+    inset 0 0 0 1px rgba(247,211,106,.22),
+    0 0 18px rgba(247,211,106,.07);
+}
+.btnPrimary{
+  border-color: rgba(247,211,106,.55) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(247,211,106,.36),
+    0 0 26px rgba(124,58,237,.16),
+    0 0 18px rgba(247,211,106,.10);
+}
+/* Slightly stronger trim on the bottom mobile bar buttons */
+.mobileBar .btn{
+  border-color: rgba(247,211,106,.35) !important;
+}
 </style>
 </head>
 <body>
@@ -6830,13 +6869,43 @@ function makeSeat(defn, idx){
     $("screenGroupBtn").onclick = () => captureAndAttach("group");
     $("screenDmBtn").onclick = () => captureAndAttach("dm");
 
+
+    // --- Voice / Mic reliability patch (ADD v6) ---
+    // Some mobile in-app browsers (Messenger/FB/IG webviews) partially support SpeechRecognition but fail to start.
+    // We preflight microphone permissions via getUserMedia, and provide clearer error feedback.
+    function isInAppBrowser(){
+      const ua = (navigator.userAgent || "").toLowerCase();
+      return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
+    }
+
+    async function ensureMicPermission(){
+      // No-op if media devices are not available.
+      try{
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        // Immediately stop tracks; we just want to prompt permission.
+        try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
+        return true;
+      }catch(e){
+        return false;
+      }
+    }
+
+    function micHelpText(){
+      if(isInAppBrowser()){
+        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
+      }
+      return "If the mic won't start, check site permissions for microphone access and try again.";
+    }
+    // --- end voice patch ---
+
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
-    function startDictation(targetId, statusId){
+    async function startDictation(targetId, statusId){
       if(!speechSupported()){
-        showModal("Mic not supported", "Speech to text is not supported here. Try Chrome on desktop or Android.");
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -6851,6 +6920,15 @@ function makeSeat(defn, idx){
 
       const baseText = (target.value || "").trim();
       let finalText = "";
+
+      status.innerText = "Mic: requesting permission";
+
+      const okPerm = await ensureMicPermission();
+      if(!okPerm){
+        status.innerText = "Mic: blocked";
+        showModal("Microphone blocked", micHelpText());
+        return;
+      }
 
       status.innerText = "Mic: listening";
 
@@ -6892,8 +6970,8 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("talkGroupBtn").onclick = () => startDictation("opPrompt", "micStatusGroup");
-    $("talkDmBtn").onclick = () => startDictation("followMsg", "micStatusDm");
+    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
+    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
 
     function updateAlwaysButtons(){
       const g = $("alwaysListenGroupBtn");
@@ -7018,9 +7096,9 @@ function makeSeat(defn, idx){
     }
 
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
-    function startAlwaysListening(mode){
+    async function startAlwaysListening(mode){
       if(!speechSupported()){
-        showModal("Mic not supported", "Speech to text is not supported here. Try Chrome on desktop or Android.");
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -7028,6 +7106,14 @@ function makeSeat(defn, idx){
       alwaysOn = true;
       updateAlwaysButtons();
       resetAlwaysBuffers();
+
+      const okPerm = await ensureMicPermission();
+      if(!okPerm){
+        alwaysOn = false;
+        updateAlwaysButtons();
+        showModal("Microphone blocked", micHelpText());
+        return;
+      }
 
       const status = currentAlwaysStatusEl();
       if(status) status.innerText = "Mic: always listening";
@@ -7092,9 +7178,12 @@ function makeSeat(defn, idx){
         }
       };
 
-      rec.onerror = () => {
+      rec.onerror = (e) => {
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
+        // In many webviews, errors persist; stop to avoid a dead loop.
+        try{ stopAlwaysListening(); }catch(_){ }
+        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
