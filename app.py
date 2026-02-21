@@ -3123,37 +3123,47 @@ AUTH_BASE_CSS = r"""
   html, body{ overflow-x: auto !important; }
 }
 
+
+/* ===== ADDITIVE UPGRADE: Mobile Round Table Stage v4 (true center, no cut-off, seats visible, pinch zoom) ===== */
+@media (max-width: 700px){
+  /* Keep the tableWrap square on mobile (prevents half-table cut-off from height:auto overrides) */
+  .tableWrap#tableWrap{
+    width: min(96vw, 620px) !important;
+    height: min(96vw, 620px) !important;
+    min-height: min(96vw, 620px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: hidden !important;
+    position: relative !important;
+    touch-action: none !important; /* required for custom pinch/pan */
+  }
+
+  /* Stage that pans/zooms the table + seats */
+  #rtStage{
+    position:absolute !important;
+    inset:0 !important;
+    transform-origin: 0 0 !important;
+    will-change: transform;
+  }
+
+  /* Preserve original desktop-style table centering on mobile */
+  #rtStage .table{
+    position:absolute !important;
+    inset: 50% 50% !important;
+    transform: translate(-50%,-50%) !important;
+  }
+
+  /* Prevent text clipping inside seat cards */
+  .seatMeta{ min-width: 0 !important; }
+  .seatName, .seatRole{
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+}
 </style>
 """
-
-# ===== ADDITIVE: Auth theme boost (gold/blue/purple) =====
-AUTH_BASE_CSS = AUTH_BASE_CSS + r"""
-<style>
-  :root{ --gold:#f6d36b; --purple:#7c3aed; --blue:#3b82f6; }
-  body:before{
-    content:"";
-    position:fixed;
-    inset:-20%;
-    pointer-events:none;
-    background:
-      radial-gradient(900px 520px at 50% 18%, rgba(246,211,107,.18), transparent 62%),
-      radial-gradient(820px 540px at 20% 30%, rgba(124,58,237,.14), transparent 62%),
-      radial-gradient(820px 540px at 80% 34%, rgba(59,130,246,.12), transparent 62%);
-    z-index:0;
-  }
-  body > *{ position:relative; z-index:1; }
-  .dot{
-    background: radial-gradient(circle at 30% 30%, #fff, var(--gold), var(--purple));
-    box-shadow: 0 0 14px rgba(246,211,107,.38), 0 0 22px rgba(124,58,237,.22);
-  }
-  .btnPrimary{
-    border:1px solid rgba(246,211,107,.75);
-    background: linear-gradient(135deg, rgba(246,211,107,.26), rgba(124,58,237,.22), rgba(59,130,246,.16));
-    box-shadow: 0 0 18px rgba(246,211,107,.12), 0 0 22px rgba(124,58,237,.12);
-  }
-</style>
-"""
-
 
 LOGIN_HTML = r"""
 <!doctype html>
@@ -4685,93 +4695,7 @@ HTML = r"""
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }
-
-
-/* ===== ADDITIVE: Gold/Blue/Purple Theme Boost v1 ===== */
-:root{
-  --gold:#f6d36b;
-  --gold2:#ffd36a;
-  --blue:#3b82f6;
-  --purple:#7c3aed;
-  --goldGlow: rgba(246,211,107,.22);
-  --purpleGlow: rgba(124,58,237,.22);
-  --blueGlow: rgba(59,130,246,.16);
-}
-
-/* Add an aurora-like gold layer without changing existing backgrounds */
-body:before{
-  content:"";
-  position:fixed;
-  inset:-20%;
-  pointer-events:none;
-  background:
-    radial-gradient(900px 520px at 50% 18%, rgba(246,211,107,.16), transparent 60%),
-    radial-gradient(700px 520px at 18% 30%, rgba(124,58,237,.14), transparent 62%),
-    radial-gradient(800px 520px at 82% 34%, rgba(59,130,246,.12), transparent 62%);
-  filter: blur(0px);
-  z-index:0;
-}
-body > *{ position:relative; z-index:1; }
-
-.dot{
-  background: radial-gradient(circle at 30% 30%, #ffffff, var(--gold), var(--purple));
-  box-shadow: 0 0 14px rgba(246,211,107,.40), 0 0 22px rgba(124,58,237,.25);
-}
-
-.btnPrimary{
-  border:1px solid rgba(246,211,107,.75);
-  background: linear-gradient(135deg, rgba(246,211,107,.26), rgba(124,58,237,.22), rgba(59,130,246,.16));
-  box-shadow: 0 0 18px rgba(246,211,107,.12), 0 0 22px rgba(124,58,237,.12);
-}
-
-/* Table gets a subtle gold rim glow (additive) */
-.table{
-  box-shadow:
-    0 0 0 1px rgba(17,24,39,.35) inset,
-    0 0 70px rgba(124,58,237,.18),
-    0 0 120px rgba(59,130,246,.10),
-    0 0 110px rgba(246,211,107,.10);
-}
-
-/* ===== ADDITIVE: Mobile Table Mode (keep cards around table) v1 ===== */
-@media (max-width: 720px){
-
-  /* Default to table mode if body has the flag */
-  body.mobileTableMode .tableWrap{
-    width: min(860px, 96vw) !important;
-    height: min(860px, 96vw) !important;
-    min-height: 0 !important;
-    display:block !important;
-    padding-bottom: 0 !important;
-  }
-
-  body.mobileTableMode .table{
-    position:absolute !important;
-    inset: 50% 50% !important;
-    transform: translate(calc(-50% + var(--tableShiftX, 0px)),-50%) scale(var(--tableZoom, 0.88)) !important;
-    width: 62% !important;
-    height: 62% !important;
-    margin: 0 !important;
-  }
-
-  body.mobileTableMode .seat{
-    position:absolute !important;
-    width: 178px !important;
-    max-width: 178px !important;
-    min-height: 118px !important;
-    cursor: pointer !important;
-  }
-
-  /* If the mobile list rules forced flex column, re-enable the zoom viewport */
-  body.mobileTableMode #tableViewport{
-    width: 100% !important;
-    overflow: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x pan-y !important;
-  }
-}
-
-  </style>
+</style>
 </head>
 <body>
   <div class="topbar">
@@ -4796,7 +4720,6 @@ body > *{ position:relative; z-index:1; }
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
-    <button class="btn" id="mobileViewToggleBtn" title="Toggle mobile view">View: Table</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -6189,8 +6112,9 @@ function makeSeat(defn, idx){
         startY = e.clientY;
 
         const r = seat.getBoundingClientRect();
-        offsetX = e.clientX - r.left;
-        offsetY = e.clientY - r.top;
+        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
+        offsetX = (e.clientX - r.left) / sc;
+        offsetY = (e.clientY - r.top) / sc;
 
         seat.classList.add("dragging");
         seat.setPointerCapture(e.pointerId);
@@ -6203,15 +6127,16 @@ function makeSeat(defn, idx){
         const dy = Math.abs(e.clientY - startY);
         if(dx > 6 || dy > 6) moved = true;
 
-        const wrap = $("tableWrap");
-        const wrapRect = wrap.getBoundingClientRect();
+        const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : $("tableWrap"));
+        const boundsRect = boundsEl.getBoundingClientRect();
+        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
 
-        let newLeft = (e.clientX - wrapRect.left) - offsetX;
-        let newTop  = (e.clientY - wrapRect.top) - offsetY;
+        let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
+        let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
         const pad = 6;
-        const maxLeft = wrapRect.width - seat.offsetWidth - pad;
-        const maxTop  = wrapRect.height - seat.offsetHeight - pad;
+        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
+        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -6391,8 +6316,9 @@ function makeSeat(defn, idx){
         startY = e.clientY;
 
         const r = seat.getBoundingClientRect();
-        offsetX = e.clientX - r.left;
-        offsetY = e.clientY - r.top;
+        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
+        offsetX = (e.clientX - r.left) / sc;
+        offsetY = (e.clientY - r.top) / sc;
 
         seat.classList.add("dragging");
         seat.setPointerCapture(e.pointerId);
@@ -6404,12 +6330,15 @@ function makeSeat(defn, idx){
         const dy = e.clientY - startY;
         if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
 
-        const wrapRect = wrap.getBoundingClientRect();
-        const left = e.clientX - wrapRect.left - offsetX;
-        const top = e.clientY - wrapRect.top - offsetY;
+        const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : wrap);
+        const boundsRect = boundsEl.getBoundingClientRect();
+        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
 
-        const maxLeft = wrapRect.width - 110;
-        const maxTop = wrapRect.height - 110;
+        const left = ((e.clientX - boundsRect.left) / sc) - offsetX;
+        const top = ((e.clientY - boundsRect.top) / sc) - offsetY;
+
+        const maxLeft = (boundsEl.clientWidth || 0) - 110;
+        const maxTop = (boundsEl.clientHeight || 0) - 110;
 
         seat.style.left = clamp(left, 10, Math.max(10, maxLeft)) + "px";
         seat.style.top = clamp(top, 10, Math.max(10, maxTop)) + "px";
@@ -8543,63 +8472,224 @@ function bindMobileViewportV3(){
 }
 
 
-/* ===== ADDITIVE: Mobile View Mode Toggle + Auto Fit v1 ===== */
-function _isMobileNarrow(){
-  try{ return window.matchMedia && window.matchMedia("(max-width: 720px)").matches; }catch(e){ return (window.innerWidth||0) <= 720; }
-}
+// ===== ADDITIVE UPGRADE: Mobile Pan + Pinch Zoom for Round Table v4 =====
+(function(){
+  const VIEW = { scale: 1, panX: 0, panY: 0, minScale: 0.55, maxScale: 1.45 };
+  let stageMO = null;
 
-function setMobileViewMode(mode){
-  try{
-    const m = (mode || "table").toLowerCase();
-    if(m === "list"){
-      document.body.classList.remove("mobileTableMode");
-      try{ localStorage.setItem("mobileViewMode","list"); }catch(e){}
-      const b = document.getElementById("mobileViewToggleBtn");
-      if(b) b.textContent = "View: List";
-      return;
-    }
-    document.body.classList.add("mobileTableMode");
-    try{ localStorage.setItem("mobileViewMode","table"); }catch(e){}
-    const b = document.getElementById("mobileViewToggleBtn");
-    if(b) b.textContent = "View: Table";
-  }catch(e){}
-}
+  function isMobileV4(){
+    try{ return window.matchMedia && window.matchMedia("(max-width: 700px)").matches; }catch(e){ return (window.innerWidth||0) <= 700; }
+  }
 
-function initMobileViewToggle(){
-  try{
-    if(!_isMobileNarrow()) return;
+  function clampV4(v, a, b){ return Math.max(a, Math.min(b, v)); }
 
-    let mode = "table";
-    try{ mode = (localStorage.getItem("mobileViewMode") || "table"); }catch(e){}
-    // Default to TABLE mode (your request: cards around the table, but fit cleanly)
-    setMobileViewMode(mode);
+  function ensureRTStageV4(){
+    const wrap = document.getElementById("tableWrap");
+    if(!wrap) return null;
 
-    const btn = document.getElementById("mobileViewToggleBtn");
-    if(btn){
-      btn.addEventListener("click", ()=>{
-        const isTable = document.body.classList.contains("mobileTableMode");
-        setMobileViewMode(isTable ? "list" : "table");
-        // When switching to table mode, re-fit and center
-        if(!isTable){
-          setTimeout(()=>{ try{ bindMobileViewportV3(); }catch(e){} }, 60);
+    let stage = document.getElementById("rtStage");
+    if(stage) return stage;
+
+    stage = document.createElement("div");
+    stage.id = "rtStage";
+
+    // Move the table core into the stage first
+    const tableCore = document.getElementById("tableCore") || wrap.querySelector(".table");
+    if(tableCore) stage.appendChild(tableCore);
+
+    // Move any existing seats into the stage (renderTable will recreate them later anyway)
+    Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
+      try{ stage.appendChild(s); }catch(_){}
+    });
+
+    // Insert stage as the first child so operator overlay stays on top
+    wrap.insertBefore(stage, wrap.firstChild);
+
+    // Watch for newly rendered seats and move them into the stage automatically
+    try{
+      stageMO = new MutationObserver((muts)=>{
+        for(const m of muts){
+          for(const node of (m.addedNodes || [])){
+            try{
+              if(!node) continue;
+              if(node.classList && node.classList.contains("seat")){
+                stage.appendChild(node);
+              }
+            }catch(_){}
+          }
         }
       });
+      stageMO.observe(wrap, { childList:true });
+    }catch(e){}
+
+    return stage;
+  }
+
+  function applyRTTransformV4(){
+    const stage = ensureRTStageV4();
+    if(!stage) return;
+    stage.style.transform = `translate(${VIEW.panX}px, ${VIEW.panY}px) scale(${VIEW.scale})`;
+  }
+
+  // Expose helpers for existing seat drag math patches
+  window.getRTScaleV4 = function(){ return VIEW.scale || 1; };
+  window.getRTBoundsElV4 = function(){
+    return document.getElementById("rtStage") || document.getElementById("tableWrap") || document.body;
+  };
+
+  function fitToScreenV4(){
+    const wrap = document.getElementById("tableWrap");
+    const stage = ensureRTStageV4();
+    if(!wrap || !stage) return;
+
+    // Since stage fills wrap, fit is simply a gentle zoom-out on smaller screens
+    const w = wrap.clientWidth || window.innerWidth || 360;
+    const target = Math.max(280, w - 18);
+
+    // Base size is wrap size; we want a bit of breathing room so seats don't clip
+    let z = target / Math.max(1, w);
+    z = clampV4(z, VIEW.minScale, 1);
+
+    VIEW.scale = z;
+    VIEW.panX = 0;
+    VIEW.panY = 0;
+    applyRTTransformV4();
+  }
+
+  function initPanZoomV4(){
+    if(!isMobileV4()) return;
+
+    const wrap = document.getElementById("tableWrap");
+    if(!wrap) return;
+
+    ensureRTStageV4();
+
+    // Ensure operator stays clickable and above stage
+    const op = document.getElementById("operator");
+    if(op){
+      op.style.position = "absolute";
+      op.style.left = "50%";
+      op.style.top = "50%";
+      op.style.transform = "translate(-50%,-50%)";
+      op.style.zIndex = "60";
+      op.style.pointerEvents = "auto";
     }
 
-    // Ensure the zoom/viewport helpers actually run when in table mode
-    if(document.body.classList.contains("mobileTableMode")){
-      setTimeout(()=>{ try{ bindMobileViewportV3(); }catch(e){} }, 80);
+    // Prevent browser scrolling/zooming during gestures inside the table area
+    try{ wrap.style.touchAction = "none"; }catch(_){}
+
+    const pointers = new Map();
+    let pinchStartDist = 0;
+    let pinchStartScale = 1;
+    let lastMid = null;
+    let panning = false;
+    let lastPanPoint = null;
+
+    function isSeatTarget(t){
+      try{ return !!(t && (t.closest && t.closest(".seat"))); }catch(e){ return false; }
+    }
+
+    function onDown(e){
+      // If finger starts on a seat, let seat drag handle it (do not hijack)
+      if(isSeatTarget(e.target)) return;
+
+      pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      wrap.setPointerCapture(e.pointerId);
+
+      if(pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        pinchStartDist = Math.hypot(dx, dy);
+        pinchStartScale = VIEW.scale;
+        lastMid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+        panning = true;
+        lastPanPoint = lastMid;
+      }else if(pointers.size === 1){
+        // one-finger pan on empty space (so user can move around)
+        panning = true;
+        lastPanPoint = {x:e.clientX, y:e.clientY};
+      }
+    }
+
+    function onMove(e){
+      if(!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+      if(pointers.size === 2){
+        const pts = Array.from(pointers.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        const dist = Math.hypot(dx, dy);
+
+        const mid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+
+        if(pinchStartDist > 0){
+          let nextScale = pinchStartScale * (dist / pinchStartDist);
+          nextScale = clampV4(nextScale, VIEW.minScale, VIEW.maxScale);
+
+          // Zoom around the midpoint: adjust pan so content feels anchored
+          const scaleRatio = nextScale / (VIEW.scale || 1);
+          VIEW.panX = mid.x - scaleRatio * (mid.x - VIEW.panX);
+          VIEW.panY = mid.y - scaleRatio * (mid.y - VIEW.panY);
+
+          VIEW.scale = nextScale;
+        }
+
+        if(lastPanPoint){
+          VIEW.panX += (mid.x - lastPanPoint.x);
+          VIEW.panY += (mid.y - lastPanPoint.y);
+        }
+        lastPanPoint = mid;
+        applyRTTransformV4();
+        e.preventDefault();
+      }else if(pointers.size === 1 && panning && lastPanPoint){
+        const cur = {x:e.clientX, y:e.clientY};
+        VIEW.panX += (cur.x - lastPanPoint.x);
+        VIEW.panY += (cur.y - lastPanPoint.y);
+        lastPanPoint = cur;
+        applyRTTransformV4();
+        e.preventDefault();
+      }
+    }
+
+    function onUp(e){
+      if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
+      try{ wrap.releasePointerCapture(e.pointerId); }catch(_){}
+
+      if(pointers.size === 0){
+        panning = false;
+        lastPanPoint = null;
+        lastMid = null;
+        pinchStartDist = 0;
+      }else if(pointers.size === 1){
+        const pt = Array.from(pointers.values())[0];
+        lastPanPoint = {x:pt.x, y:pt.y};
+        pinchStartDist = 0;
+      }
+    }
+
+    // Bind pointer events for pan/zoom
+    wrap.addEventListener("pointerdown", onDown, {passive:false});
+    wrap.addEventListener("pointermove", onMove, {passive:false});
+    wrap.addEventListener("pointerup", onUp, {passive:true});
+    wrap.addEventListener("pointercancel", onUp, {passive:true});
+
+    // Initial fit and on resize/orientation changes
+    setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 120);
+    window.addEventListener("resize", ()=>{ setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 180); }, {passive:true});
+    window.addEventListener("orientationchange", ()=>{ setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 240); }, {passive:true});
+  }
+
+  // Run after first paint
+  try{
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", ()=>{ try{ initPanZoomV4(); }catch(e){} }, {once:true});
+    }else{
+      initPanZoomV4();
     }
   }catch(e){}
-}
-
-try{
-  if(document.readyState === "loading"){
-    document.addEventListener("DOMContentLoaded", initMobileViewToggle, {once:true});
-  }else{
-    initMobileViewToggle();
-  }
-}catch(e){}
+})();
 
 </script>
 
