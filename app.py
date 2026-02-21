@@ -9034,3 +9034,432 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 </script>
 '''
+
+
+
+# === Additive Patch v8: UX polish (voice ring, idle breath, spotlight, autoscroll, remember seat) + Diagnostics moved into Settings ===
+ADD_UI_POLISH_V8 = r'''
+<style>
+  /* --- v8 Gold trim reinforcement on primary console buttons --- */
+  .btn, .btnMini {
+    box-shadow:
+      0 0 0 1px rgba(214, 176, 92, 0.35) inset,
+      0 0 18px rgba(214, 176, 92, 0.10),
+      0 10px 30px rgba(0,0,0,0.35);
+  }
+  .btnPrimary {
+    box-shadow:
+      0 0 0 1px rgba(214, 176, 92, 0.50) inset,
+      0 0 26px rgba(214, 176, 92, 0.16),
+      0 12px 36px rgba(0,0,0,0.40);
+  }
+
+  /* --- v8 Spotlight dimming for non-active seats --- */
+  .seat.is-dimmed {
+    opacity: 0.38;
+    transform: scale(0.985);
+    filter: saturate(0.85) contrast(0.95);
+    transition: opacity .18s ease, transform .18s ease, filter .18s ease;
+  }
+  .seat.is-active {
+    opacity: 1;
+    transform: scale(1);
+    filter: none;
+  }
+
+  /* --- v8 Voice indicator ring on active seat --- */
+  .seat.is-speaking::before {
+    content: "";
+    position: absolute;
+    inset: -10px;
+    border-radius: 22px;
+    pointer-events: none;
+    background: radial-gradient(circle at 30% 30%, rgba(214,176,92,0.35), rgba(128,90,255,0.18), rgba(0,0,0,0));
+    box-shadow:
+      0 0 0 1px rgba(214,176,92,0.55) inset,
+      0 0 28px rgba(214,176,92,0.22),
+      0 0 34px rgba(128,90,255,0.18);
+    animation: v8PulseRing 1.25s ease-in-out infinite;
+  }
+  @keyframes v8PulseRing {
+    0% { transform: scale(0.98); opacity: 0.55; }
+    50% { transform: scale(1.02); opacity: 1; }
+    100% { transform: scale(0.98); opacity: 0.55; }
+  }
+
+  /* --- v8 Idle breathing on the table stage --- */
+  #rtStage.v8-idle-breath {
+    animation: v8Breath 4.8s ease-in-out infinite;
+    transform-origin: 50% 50%;
+  }
+  @keyframes v8Breath {
+    0% { transform: translate(var(--rt-shift-x, 0px), var(--rt-shift-y, 0px)) scale(var(--rt-scale, 1)); filter: saturate(1) brightness(1); }
+    50% { transform: translate(var(--rt-shift-x, 0px), var(--rt-shift-y, 0px)) scale(calc(var(--rt-scale, 1) * 1.008)); filter: saturate(1.03) brightness(1.02); }
+    100% { transform: translate(var(--rt-shift-x, 0px), var(--rt-shift-y, 0px)) scale(var(--rt-scale, 1)); filter: saturate(1) brightness(1); }
+  }
+
+  /* --- v8 Ensure no horizontal clipping in mobile webviews --- */
+  html, body { overflow-x: hidden; max-width: 100%; }
+  .panel, .card, .modal, .wrap, #app, #root, #main, #content { max-width: 100%; }
+
+  /* --- v8 Lock-friendly scrolling: when locked, allow vertical scroll gestures --- */
+  body.v8-table-locked #tableViewport,
+  body.v8-table-locked #tableWrap,
+  body.v8-table-locked #rtStage {
+    touch-action: pan-y !important;
+  }
+</style>
+
+<script>
+(function(){
+  // -----------------------------
+  // v8: Utilities
+  // -----------------------------
+  const V8_LAST_SEAT_KEY = "round_table_last_selected_seat_v1";
+  const V8_IDLE_AFTER_MS = 9000;
+
+  function $(id){ return document.getElementById(id); }
+  function q(sel, root){ return (root||document).querySelector(sel); }
+  function qa(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
+
+  function safeSetLS(k,v){ try{ localStorage.setItem(k,v); }catch(_){ } }
+  function safeGetLS(k){ try{ return localStorage.getItem(k) || ""; }catch(_){ return ""; } }
+
+  function isElementVisible(el){
+    if(!el) return false;
+    const style = window.getComputedStyle(el);
+    if(style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  // -----------------------------
+  // v8: Move Diagnostics into Settings (no bottom overlay)
+  // -----------------------------
+  function moveDiagnosticsIntoSettings(){
+    const diag = $("diagOverlay");
+    if(!diag) return;
+    // remove "bottom overlay" feel if any CSS remains
+    diag.style.position = "static";
+    diag.style.bottom = "auto";
+    diag.style.left = "auto";
+    diag.style.right = "auto";
+    diag.style.width = "100%";
+    diag.style.marginTop = "14px";
+
+    // prefer settingsForm which exists in this app
+    const settingsForm = $("settingsForm");
+    if(!settingsForm) return;
+
+    // Create a small section header if it doesn't exist
+    let hdr = $("v8DiagHdr");
+    if(!hdr){
+      hdr = document.createElement("div");
+      hdr.id = "v8DiagHdr";
+      hdr.style.marginTop = "16px";
+      hdr.style.paddingTop = "12px";
+      hdr.style.borderTop = "1px solid rgba(214,176,92,0.22)";
+      hdr.innerHTML = '<div class="tiny" style="letter-spacing:.08em; text-transform:uppercase; opacity:.85;">System Diagnostics</div>';
+      settingsForm.appendChild(hdr);
+    }
+    settingsForm.appendChild(diag);
+  }
+
+  // -----------------------------
+  // v8: Remember last selected teammate
+  // -----------------------------
+  function installRememberSeatHooks(){
+    // We wrap selectSeat if it exists
+    const fn = window.selectSeat;
+    if(typeof fn !== "function") return;
+    if(fn.__v8wrapped) return;
+
+    const wrapped = async function(name){
+      safeSetLS(V8_LAST_SEAT_KEY, String(name||""));
+      return await fn.apply(this, arguments);
+    };
+    wrapped.__v8wrapped = true;
+    window.selectSeat = wrapped;
+  }
+
+  async function restoreLastSeatAfterRender(){
+    const last = safeGetLS(V8_LAST_SEAT_KEY);
+    if(!last) return;
+    // only restore if seat exists
+    const seatEl = document.querySelector('.seat[data-name="' + CSS.escape(last) + '"]');
+    if(!seatEl) return;
+    try{
+      if(typeof window.selectSeat === "function"){
+        await window.selectSeat(last);
+      }else if(typeof window.forceSeatSelectUI === "function"){
+        window.forceSeatSelectUI(last);
+      }
+    }catch(_){}
+  }
+
+  // -----------------------------
+  // v8: Spotlight dim non-active seats
+  // -----------------------------
+  function installSpotlightDimming(){
+    const fn = window.markActiveSeat;
+    if(typeof fn !== "function") return;
+    if(fn.__v8wrapped) return;
+
+    const wrapped = function(){
+      const res = fn.apply(this, arguments);
+
+      // Determine active seat name by reading selectedSeat if present
+      let activeName = "";
+      try{ activeName = window.selectedSeat || ""; }catch(_){ activeName = ""; }
+
+      const seats = qa(".seat[data-name]");
+      seats.forEach(el => {
+        const nm = el.getAttribute("data-name") || "";
+        const isActive = activeName && nm === activeName;
+        el.classList.toggle("is-active", !!isActive);
+        el.classList.toggle("is-dimmed", !!(activeName && !isActive));
+      });
+
+      return res;
+    };
+    wrapped.__v8wrapped = true;
+    window.markActiveSeat = wrapped;
+  }
+
+  // -----------------------------
+  // v8: Voice indicator ring + Dictation fill + Name switching helper
+  // -----------------------------
+  let v8SpeechActive = false;
+  let v8IdleTimer = null;
+  let v8LastInteractionTs = Date.now();
+
+  function setSpeaking(on){
+    v8SpeechActive = !!on;
+    let activeName = "";
+    try{ activeName = window.selectedSeat || ""; }catch(_){ activeName = ""; }
+    if(!activeName) return;
+    const el = document.querySelector('.seat[data-name="' + CSS.escape(activeName) + '"]');
+    if(!el) return;
+    el.classList.toggle("is-speaking", v8SpeechActive);
+  }
+
+  function getDictationTarget(){
+    // If group console prompt is visible, prefer it; else followMsg.
+    const op = $("opPrompt");
+    const dm = $("followMsg");
+
+    if(op && isElementVisible(op)) return op;
+    if(dm && isElementVisible(dm)) return dm;
+    return dm || op || null;
+  }
+
+  function appendDictation(text){
+    const t = getDictationTarget();
+    if(!t) return;
+    const existing = (t.value || "");
+    const space = existing && !existing.endsWith(" ") ? " " : "";
+    t.value = existing + space + text;
+    try{ t.focus(); }catch(_){}
+  }
+
+  function trySelectByNameSpoken(transcript){
+    // If user says a teammate name, switch seats
+    const s = (transcript || "").toLowerCase().trim();
+    if(!s) return false;
+
+    // Collect known seat names
+    const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
+    if(!seats.length) return false;
+
+    // Basic match: if transcript contains the seat name as a whole word-ish
+    for(const name of seats){
+      const n = (name || "").toLowerCase();
+      if(!n) continue;
+      // Allow "hey alex" or "alex"
+      if(s === n || s.includes(" " + n + " ") || s.startsWith(n + " ") || s.endsWith(" " + n) || s.includes(n)){
+        // Switch seat + force glow pulse if available
+        try{
+          if(typeof window.selectSeat === "function"){
+            window.selectSeat(name);
+          }else if(typeof window.forceSeatSelectUI === "function"){
+            window.forceSeatSelectUI(name);
+          }
+          if(typeof window.forceSeatSelectUI === "function"){
+            window.forceSeatSelectUI(name);
+          }
+        }catch(_){}
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function installVoiceHooks(){
+    // Wrap startRecognition if present (your code uses a wrapper around SpeechRecognition)
+    const startFn = window.startRecognition;
+    const stopFn = window.stopRecognition;
+
+    if(typeof startFn === "function" && !startFn.__v8wrapped){
+      const wrappedStart = async function(){
+        setSpeaking(true);
+        try{ return await startFn.apply(this, arguments); }
+        finally{
+          // speaking state is cleared by stop / end too, but this ensures we never "stick" on errors
+          // do not clear immediately here
+        }
+      };
+      wrappedStart.__v8wrapped = true;
+      window.startRecognition = wrappedStart;
+    }
+
+    if(typeof stopFn === "function" && !stopFn.__v8wrapped){
+      const wrappedStop = async function(){
+        setSpeaking(false);
+        return await stopFn.apply(this, arguments);
+      };
+      wrappedStop.__v8wrapped = true;
+      window.stopRecognition = wrappedStop;
+    }
+
+    // If your recognition instance is globally exposed, hook its events safely
+    try{
+      const rec = window.recognition || window._recognition || null;
+      if(rec && !rec.__v8events){
+        rec.addEventListener("start", () => setSpeaking(true));
+        rec.addEventListener("end", () => setSpeaking(false));
+        rec.addEventListener("error", () => setSpeaking(false));
+        rec.__v8events = true;
+      }
+    }catch(_){}
+
+    // Wrap your transcript handler if present
+    const handler = window.onVoiceTranscript;
+    if(typeof handler === "function" && !handler.__v8wrapped){
+      const wrapped = function(text, meta){
+        try{
+          const t = String(text||"").trim();
+          if(t){
+            // 1) try name switching
+            const switched = trySelectByNameSpoken(t);
+            // 2) always fill prompt box if not just a name switch OR meta requests it
+            if(!switched || (meta && meta.forceFill)){
+              appendDictation(t);
+            }
+          }
+        }catch(_){}
+        return handler.apply(this, arguments);
+      };
+      wrapped.__v8wrapped = true;
+      window.onVoiceTranscript = wrapped;
+    }
+  }
+
+  // -----------------------------
+  // v8: Auto-scroll thread areas when new content arrives
+  // -----------------------------
+  function installAutoScroll(){
+    const thread = $("thread");
+    if(thread && !thread.__v8obs){
+      const obs = new MutationObserver(() => {
+        // Only autoscroll if user is already near bottom
+        const nearBottom = (thread.scrollHeight - (thread.scrollTop + thread.clientHeight)) < 140;
+        if(nearBottom){
+          thread.scrollTop = thread.scrollHeight;
+        }
+      });
+      obs.observe(thread, { childList:true, subtree:true });
+      thread.__v8obs = true;
+    }
+
+    const group = $("groupRepliesList") || $("groupReplies") || null;
+    if(group && !group.__v8obs){
+      const obs2 = new MutationObserver(() => {
+        const nearBottom = (group.scrollHeight - (group.scrollTop + group.clientHeight)) < 140;
+        if(nearBottom){
+          group.scrollTop = group.scrollHeight;
+        }
+      });
+      obs2.observe(group, { childList:true, subtree:true });
+      group.__v8obs = true;
+    }
+  }
+
+  // -----------------------------
+  // v8: Idle breathing controller
+  // -----------------------------
+  function markInteraction(){
+    v8LastInteractionTs = Date.now();
+    const stage = $("rtStage");
+    if(stage) stage.classList.remove("v8-idle-breath");
+    if(v8IdleTimer) clearTimeout(v8IdleTimer);
+    v8IdleTimer = setTimeout(() => {
+      const stage2 = $("rtStage");
+      if(!stage2) return;
+      // Only breathe if not speaking and no recent interaction
+      if(!v8SpeechActive && (Date.now() - v8LastInteractionTs) >= V8_IDLE_AFTER_MS){
+        stage2.classList.add("v8-idle-breath");
+      }
+    }, V8_IDLE_AFTER_MS + 250);
+  }
+
+  function installIdleBreath(){
+    ["pointerdown","touchstart","wheel","keydown","scroll"].forEach(ev => {
+      window.addEventListener(ev, markInteraction, {passive:true});
+    });
+    markInteraction();
+  }
+
+  // -----------------------------
+  // v8: Table lock should really lock panning/zoom gestures, but keep scroll
+  // -----------------------------
+  function installLockBehavior(){
+    const lockBtn = $("tableLockBtn");
+    if(!lockBtn) return;
+
+    function applyLockedUI(isLocked){
+      document.body.classList.toggle("v8-table-locked", !!isLocked);
+      lockBtn.textContent = isLocked ? "🔒" : "🔓";
+      lockBtn.title = isLocked ? "Table locked (scroll page)" : "Table unlocked (pan/zoom table)";
+    }
+
+    // Preserve any existing lock behavior, but ensure we also toggle the body class
+    let locked = true;
+    try{
+      locked = (document.body.classList.contains("v8-table-locked"));
+    }catch(_){ locked = true; }
+
+    applyLockedUI(locked);
+
+    lockBtn.addEventListener("click", function(){
+      locked = !document.body.classList.contains("v8-table-locked");
+      applyLockedUI(locked);
+    });
+  }
+
+  // -----------------------------
+  // v8: Bootstrap
+  // -----------------------------
+  document.addEventListener("DOMContentLoaded", function(){
+    try{ moveDiagnosticsIntoSettings(); }catch(_){}
+
+    try{ installRememberSeatHooks(); }catch(_){}
+    try{ installSpotlightDimming(); }catch(_){}
+    try{ installVoiceHooks(); }catch(_){}
+    try{ installAutoScroll(); }catch(_){}
+    try{ installIdleBreath(); }catch(_){}
+    try{ installLockBehavior(); }catch(_){}
+
+    // Restore seat after table render; retry a few times in case render is async.
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries++;
+      try{ await restoreLastSeatAfterRender(); }catch(_){}
+      // stop once seat exists or tries exhausted
+      const last = safeGetLS(V8_LAST_SEAT_KEY);
+      const exists = last && document.querySelector('.seat[data-name="' + CSS.escape(last) + '"]');
+      if(exists || tries >= 14) clearInterval(timer);
+    }, 250);
+  });
+})();
+</script>
+'''
