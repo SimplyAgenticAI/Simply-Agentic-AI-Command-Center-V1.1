@@ -9003,3 +9003,34 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
+
+# === Additive Patch: Move Diagnostics Panel Into Settings ===
+ADD_DIAG_PATCH = r'''
+<script>
+document.addEventListener("DOMContentLoaded", function(){
+
+  const diag = document.getElementById("diagOverlay");
+  if(!diag) return;
+
+  diag.style.position = "static";
+  diag.style.bottom = "auto";
+  diag.style.left = "auto";
+  diag.style.right = "auto";
+  diag.style.width = "100%";
+  diag.style.marginTop = "12px";
+
+  const targets = [
+    document.getElementById("settingsPanel"),
+    document.getElementById("settingsTab"),
+    document.querySelector('[data-panel="settings"]'),
+    document.querySelector('.settings-panel')
+  ].filter(Boolean);
+
+  if(targets.length){
+    targets[0].appendChild(diag);
+  }
+
+});
+</script>
+'''
