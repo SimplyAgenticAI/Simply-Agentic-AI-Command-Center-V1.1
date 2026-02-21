@@ -9467,20 +9467,30 @@ ADD_UI_POLISH_V8 = r'''
 
 
 # === Additive Patch v9: Table/Card visual separation (prevent gold rim touching cards) ===
-ADD_TABLE_SPACER_V9 = r"""
+ADD_TABLE_SPACER_V9 = r'''
 <style>
-  #tableWrap, #rtStage { margin-bottom: 14px; }
+  /* Provide breathing room under the round table */
+  #tableWrap, #rtStage {
+    margin-bottom: 14px; /* desktop default */
+  }
   @media (max-width: 768px){
-    #tableWrap, #rtStage { margin-bottom: 22px; }
-    .teamList, .cardsList, .panelStack, .list { padding-top: 6px; }
+    #tableWrap, #rtStage {
+      margin-bottom: 22px; /* mobile extra space */
+    }
+    /* If cards are in a stack container, ensure top spacing too */
+    .teamList, .cardsList, .panelStack, .list {
+      padding-top: 6px;
+    }
   }
 </style>
 <script>
 (function(){
+  // Insert a spacer element after the table if layout still compresses
   function ensureSpacer(){
     const wrap = document.getElementById('tableWrap') || document.getElementById('rtStage');
     if(!wrap) return;
     if(document.getElementById('v9TableSpacer')) return;
+
     const spacer=document.createElement('div');
     spacer.id='v9TableSpacer';
     spacer.style.height = (window.innerWidth<=768? '18px':'12px');
@@ -9491,4 +9501,46 @@ ADD_TABLE_SPACER_V9 = r"""
   window.addEventListener('resize', ensureSpacer);
 })();
 </script>
-"""
+
+
+
+# === Additive Patch v10: Stronger table-to-cards separation on mobile ===
+ADD_TABLE_SPACER_V10 = r'''
+<style>
+  @media (max-width: 768px){
+    #tableWrap, #rtStage { margin-bottom: 34px !important; }
+    #v10TableSpacer { height: 26px !important; }
+  }
+  @media (min-width: 769px){
+    #v10TableSpacer { height: 14px !important; }
+  }
+</style>
+<script>
+(function(){
+  function ensureV10Spacer(){
+    const table = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage');
+    if(!table) return;
+
+    let spacer = document.getElementById('v10TableSpacer');
+    const isMobile = window.innerWidth <= 768;
+    const h = isMobile ? 26 : 14;
+
+    if(!spacer){
+      spacer = document.createElement('div');
+      spacer.id = 'v10TableSpacer';
+      spacer.style.pointerEvents = 'none';
+      spacer.style.width = '100%';
+      spacer.style.height = h + 'px';
+
+      // Choose a stable anchor: if tableWrap exists, space after it; else after tableViewport; else after rtStage.
+      const anchor = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage') || table;
+      anchor.insertAdjacentElement('afterend', spacer);
+    }else{
+      spacer.style.height = h + 'px';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', ensureV10Spacer);
+  window.addEventListener('resize', ensureV10Spacer);
+})();
+</script>
