@@ -2927,12 +2927,13 @@ def api_calendar_create_event():
 
 AUTH_BASE_CSS = r"""
 <style>
-  :root{ --text:#e6edff; --muted:#b8c4ffcc; }
+  :root{ --text:#e6edff; --muted:#b8c4ffcc; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
   *{box-sizing:border-box}
   body{
     margin:0;
     font-family: Arial, sans-serif;
     background:
+      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
       radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
       radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
       radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
@@ -2952,6 +2953,20 @@ AUTH_BASE_CSS = r"""
     padding: 16px;
     box-shadow: 0 0 60px rgba(0,0,0,.45);
     backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    padding:1px;
+    border-radius:18px;
+    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events:none;
   }
   .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
   .dot{
@@ -2984,9 +2999,9 @@ AUTH_BASE_CSS = r"""
   }
   .btn:hover{ background: rgba(20,28,60,.92); }
   .btnPrimary{
-    border:1px solid rgba(124,58,237,.75);
+    border:1px solid rgba(247,211,106,.55);
     background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
-    box-shadow: 0 0 24px rgba(124,58,237,.18);
+    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
   a{ color: #c7d2fe; text-decoration:none; }
   a:hover{ text-decoration: underline; }
@@ -4247,6 +4262,7 @@ HTML = r"""
   }
   #tableZoomFab .zbtn{
     border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 0 14px rgba(247,211,106,.10), inset 0 0 0 1px rgba(247,211,106,.14);
     background: rgba(9,14,28,.78);
     color: var(--text);
     padding:10px 12px;
@@ -4255,6 +4271,12 @@ HTML = r"""
     cursor:pointer;
     backdrop-filter: blur(8px);
   }
+
+  /* ===== ADDITIVE: Gold Trim for Controls v1 ===== */
+  #tableZoomFab .zbtn{ border-color: rgba(247,211,106,.22); }
+  #tableZoomFab .zbtn:hover{ border-color: rgba(247,211,106,.40); }
+  #tableZoomFab .zbtn.isLocked{ border-color: rgba(247,211,106,.55); box-shadow: 0 0 18px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22); }
+
   #tableZoomFab .zbtn:active{ transform: translateY(1px); }
 }
 
@@ -5160,6 +5182,7 @@ HTML = r"""
     <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
     <button class="zbtn" id="zoomFitBtn" title="Fit to screen">Fit</button>
     <button class="zbtn" id="zoomCenterBtn" title="Center table">⦿</button>
+    <button class="zbtn" id="tableLockBtn" title="Lock table so you can scroll">🔒</button>
     <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
   </div>
 
@@ -8475,6 +8498,7 @@ function bindMobileViewportV3(){
 // ===== ADDITIVE UPGRADE: Mobile Pan + Pinch Zoom for Round Table v4 =====
 (function(){
   const VIEW = { scale: 1, panX: 0, panY: 0, minScale: 0.55, maxScale: 1.45 };
+  let LOCKED_V4 = true;
   let stageMO = null;
 
   function isMobileV4(){
@@ -8525,8 +8549,35 @@ function bindMobileViewportV3(){
     return stage;
   }
 
-  function applyRTTransformV4(){
+  
+  function setLockedV4(v){
+    LOCKED_V4 = !!v;
+    const wrap = document.getElementById("tableWrap");
+    if(wrap){
+      // When locked, allow normal vertical scroll gestures over the table area.
+      // When unlocked, capture gestures for pan/zoom.
+      try{
+        wrap.style.setProperty("touch-action", LOCKED_V4 ? "pan-y" : "none", "important");
+      }catch(_){}
+    }
+    const btn = document.getElementById("tableLockBtn");
+    if(btn){
+      btn.classList.toggle("isLocked", LOCKED_V4);
+      btn.textContent = LOCKED_V4 ? "🔒" : "🔓";
+      btn.title = LOCKED_V4 ? "Unlock table to pan/zoom" : "Lock table so you can scroll";
+    }
+  }
+function applyRTTransformV4(){
     const stage = ensureRTStageV4();
+    // Bind lock toggle (mobile)
+    try{
+      const lockBtn = document.getElementById('tableLockBtn');
+      if(lockBtn && !lockBtn.__boundV4){
+        lockBtn.__boundV4 = true;
+        lockBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); setLockedV4(!LOCKED_V4); }, {passive:false});
+      }
+    }catch(_){ }
+
     if(!stage) return;
     stage.style.transform = `translate(${VIEW.panX}px, ${VIEW.panY}px) scale(${VIEW.scale})`;
   }
@@ -8540,6 +8591,15 @@ function bindMobileViewportV3(){
   function fitToScreenV4(){
     const wrap = document.getElementById("tableWrap");
     const stage = ensureRTStageV4();
+    // Bind lock toggle (mobile)
+    try{
+      const lockBtn = document.getElementById('tableLockBtn');
+      if(lockBtn && !lockBtn.__boundV4){
+        lockBtn.__boundV4 = true;
+        lockBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); setLockedV4(!LOCKED_V4); }, {passive:false});
+      }
+    }catch(_){ }
+
     if(!wrap || !stage) return;
 
     // Since stage fills wrap, fit is simply a gentle zoom-out on smaller screens
@@ -8668,6 +8728,8 @@ function bindMobileViewportV3(){
         pinchStartDist = 0;
       }
     }
+
+    setLockedV4(true);
 
     // Bind pointer events for pan/zoom
     wrap.addEventListener("pointerdown", onDown, {passive:false});
