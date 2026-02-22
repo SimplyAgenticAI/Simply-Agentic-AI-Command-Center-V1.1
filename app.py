@@ -10402,3 +10402,158 @@ ADD_MOBILE_EDGE_CLAMP_V16 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v17: Move Operator card under main command prompt + hard runtime overflow fixer ===
+ADD_OPERATOR_DOCK_V17 = r'''
+<style>
+  /* v17: ensure mobile root/dock never allow horizontal overflow */
+  body.v15-mobile #v15MobileRoot,
+  body.v15-mobile #v15Dock,
+  body.v15-mobile #v15Stage{
+    overflow-x: hidden !important;
+  }
+
+  /* v17: operator dock styling */
+  #v17OperatorDock{
+    width: 100%;
+    max-width: 100%;
+    margin: 10px auto 8px auto;
+  }
+</style>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function findOperatorSeat(){
+    return document.querySelector('.seat[data-name="Operator"]') || null;
+  }
+
+  function ensureOperatorDock(){
+    // Main command prompt: prefer opPrompt
+    const prompt = $("opPrompt");
+    if(!prompt) return null;
+
+    // Prefer a stable container to insert after: the closest panel/card wrapping the prompt
+    let anchor = prompt.parentElement;
+    for(let i=0;i<5;i++){
+      if(!anchor) break;
+      if(anchor.classList && (anchor.classList.contains("panel") || anchor.classList.contains("card") || anchor.id === "groupConsole" || anchor.id === "groupConsoleCard")){
+        break;
+      }
+      anchor = anchor.parentElement;
+    }
+    if(!anchor) anchor = prompt.parentElement;
+
+    let dock = $("v17OperatorDock");
+    if(!dock){
+      dock = document.createElement("div");
+      dock.id = "v17OperatorDock";
+      dock.setAttribute("aria-label","Operator card dock");
+      anchor.insertAdjacentElement("afterend", dock);
+    }else{
+      // ensure it's under the prompt panel
+      if(dock.previousElementSibling !== anchor){
+        anchor.insertAdjacentElement("afterend", dock);
+      }
+    }
+    return dock;
+  }
+
+  function detachOperatorFromTable(){
+    const op = findOperatorSeat();
+    if(!op) return false;
+
+    // Ensure it behaves as a normal card (not floating, not part of pan/zoom stage)
+    try{
+      op.style.position = "relative";
+      op.style.left = "";
+      op.style.top = "";
+      op.style.transform = "none";
+      op.style.marginLeft = "auto";
+      op.style.marginRight = "auto";
+      op.style.width = "100%";
+      op.style.maxWidth = "100%";
+    }catch(_){}
+
+    const dock = ensureOperatorDock();
+    if(!dock) return false;
+
+    if(op.parentElement !== dock){
+      dock.appendChild(op);
+    }
+    return true;
+  }
+
+  // v17: runtime overflow killer (find elements wider than viewport and clamp them)
+  function clampOverflow(){
+    if(!isMobile()) return;
+    const vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+
+    // Candidate selectors most likely to overflow
+    const candidates = Array.from(document.querySelectorAll([
+      "#v15Dock",
+      "#v15Dock .panel",
+      "#v15Dock .card",
+      "#v15Dock .wrap",
+      "#v15Dock .toolbar",
+      "#v15Dock .headerRow",
+      "#v15Dock button",
+      "#v15Dock .btn",
+      "#v15Dock .btnMini"
+    ].join(",")));
+
+    for(const el of candidates){
+      if(!el || !el.getBoundingClientRect) continue;
+      const r = el.getBoundingClientRect();
+      if(r.right > vw + 1 || r.width > vw + 1){
+        try{
+          el.style.maxWidth = "100%";
+          el.style.width = "100%";
+          el.style.boxSizing = "border-box";
+          el.style.marginLeft = "auto";
+          el.style.marginRight = "auto";
+          el.style.left = "0";
+          el.style.right = "0";
+          // Only nuke transforms for layout containers, not icons
+          if(el.classList && (el.classList.contains("panel") || el.classList.contains("card") || el.classList.contains("wrap"))){
+            el.style.transform = "none";
+          }
+        }catch(_){}
+      }
+    }
+
+    // Allow header/toolbars to wrap so they don't push right
+    const rows = Array.from(document.querySelectorAll("#v15Dock .headerRow, #v15Dock .toolbar, #v15Dock .topRow, #v15Dock .bar"));
+    for(const row of rows){
+      try{
+        row.style.flexWrap = "wrap";
+        row.style.maxWidth = "100%";
+        row.style.boxSizing = "border-box";
+      }catch(_){}
+    }
+  }
+
+  function applyV17(){
+    if(!isMobile()) return;
+    detachOperatorFromTable();
+    clampOverflow();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV17);
+  window.addEventListener("resize", applyV17, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV17, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV17, {passive:true});
+  }
+
+  // Retries because seats/panels render async
+  setTimeout(applyV17, 200);
+  setTimeout(applyV17, 600);
+  setTimeout(applyV17, 1200);
+})();
+</script>
+'''
