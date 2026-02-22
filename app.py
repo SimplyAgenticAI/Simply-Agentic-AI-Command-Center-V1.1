@@ -9844,3 +9844,98 @@ ADD_STAGE_SEPARATION_V12 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v13: Perfect centering + consistent gutters (fix right-lean) + stronger table-to-operator gap ===
+ADD_CENTERING_GUTTERS_V13 = r'''
+<style>
+  /* v13: eliminate subpixel overflow + right-lean in mobile webviews */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* Force cards/panels to center with equal gutters */
+  .card,
+  .panel,
+  .panelInner,
+  .modal,
+  .wrap,
+  .console,
+  .consoleCard,
+  .groupCard,
+  .seat,
+  #groupReplies,
+  #groupRepliesCard,
+  #groupRepliesWrap,
+  #threadWrap,
+  #emailConsole,
+  #groupConsole,
+  #settingsForm{
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  /* Replace vw-based max-width rounding with percentage-based gutters on mobile */
+  @media (max-width: 768px){
+    .card, .panel{
+      width: 100% !important;
+      max-width: calc(100% - 22px) !important; /* equal left/right gutters */
+    }
+  }
+
+  /* v13: strengthen the gap between table rim and the first docked card (Operator) */
+  @media (max-width: 768px){
+    #v12TableGap{ height: 30px !important; }   /* bigger guaranteed gap */
+    #v12SeatListDock{ padding-top: 2px !important; }
+    #v12SeatListDock .seat:first-child{ margin-top: 6px !important; }
+  }
+
+  /* v13: prevent any single row from forcing horizontal overflow */
+  .row, .topRow, .headerRow, .toolbar, .bar{
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  button, .btn, .btnMini{
+    max-width: 100%;
+  }
+</style>
+
+<script>
+(function(){
+  // v13: ensure v12 gap exists and is placed correctly (some layouts insert dock before gap)
+  function fixGapPlacement(){
+    const gap = document.getElementById('v12TableGap');
+    const dock = document.getElementById('v12SeatListDock');
+    const tableWrap = document.getElementById('tableWrap') || document.getElementById('tableViewport');
+    if(!tableWrap || !dock) return;
+
+    // If gap missing, create it
+    let g = gap;
+    if(!g){
+      g = document.createElement('div');
+      g.id = 'v12TableGap';
+      g.style.pointerEvents = 'none';
+      g.style.width = '100%';
+      g.style.height = (window.innerWidth <= 768) ? '30px' : '12px';
+      tableWrap.insertAdjacentElement('afterend', g);
+      g.insertAdjacentElement('afterend', dock);
+      return;
+    }
+
+    // Ensure order: tableWrap -> gap -> dock
+    const afterTable = tableWrap.nextElementSibling;
+    if(afterTable !== g){
+      tableWrap.insertAdjacentElement('afterend', g);
+    }
+    if(g.nextElementSibling !== dock){
+      g.insertAdjacentElement('afterend', dock);
+    }
+
+    // Keep height responsive
+    g.style.height = (window.innerWidth <= 768) ? '30px' : '12px';
+  }
+
+  document.addEventListener('DOMContentLoaded', fixGapPlacement);
+  window.addEventListener('resize', fixGapPlacement, {passive:true});
+})();
+</script>
+'''
