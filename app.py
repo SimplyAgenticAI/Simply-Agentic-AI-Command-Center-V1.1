@@ -9725,3 +9725,122 @@ ADD_TASK_MODES_V11 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v12: Separate list-style teammate cards from pan/zoom stage + add clean gap under table ===
+ADD_STAGE_SEPARATION_V12 = r'''
+<style>
+  /* v12: Ensure clear separation between table rim and the first card under it */
+  @media (max-width: 768px){
+    #tableWrap{ margin-bottom: 0 !important; }
+    #v12TableGap{ height: 18px !important; }
+    #v12SeatListDock{ margin-top: 0 !important; }
+  }
+
+  /* Dock where non-floating (list-style) teammate cards live */
+  #v12SeatListDock{
+    width: 100%;
+    max-width: 100%;
+    display: block;
+  }
+</style>
+
+<script>
+(function(){
+  function ensureDock(){
+    let dock = document.getElementById('v12SeatListDock');
+    if(dock) return dock;
+
+    dock = document.createElement('div');
+    dock.id = 'v12SeatListDock';
+
+    // Insert dock right after the tableWrap so cards sit under the table area
+    const tableWrap = document.getElementById('tableWrap') || document.getElementById('tableViewport');
+    if(tableWrap){
+      tableWrap.insertAdjacentElement('afterend', dock);
+
+      // Insert a fixed gap spacer between tableWrap and the dock for visual breathing room
+      if(!document.getElementById('v12TableGap')){
+        const gap = document.createElement('div');
+        gap.id = 'v12TableGap';
+        gap.style.height = (window.innerWidth <= 768) ? '18px' : '12px';
+        gap.style.pointerEvents = 'none';
+        tableWrap.insertAdjacentElement('afterend', gap);
+        gap.insertAdjacentElement('afterend', dock);
+      }
+    }else{
+      // Fallback: append to body
+      document.body.appendChild(dock);
+    }
+    return dock;
+  }
+
+  function isFloatingSeat(el){
+    if(!el || !el.classList || !el.classList.contains('seat')) return false;
+
+    // Treat as floating if explicitly absolute OR has left/top set OR has data position markers
+    try{
+      const cs = window.getComputedStyle(el);
+      if(cs && cs.position === 'absolute') return true;
+    }catch(_){}
+
+    const hasInlinePos = !!(el.style && (el.style.left || el.style.top));
+    const hasDataPos = !!(el.getAttribute('data-x') || el.getAttribute('data-y') || el.getAttribute('data-seat-x') || el.getAttribute('data-seat-y'));
+    return hasInlinePos || hasDataPos;
+  }
+
+  function separateListSeats(){
+    const stage = document.getElementById('rtStage');
+    if(!stage) return;
+
+    const dock = ensureDock();
+
+    // Move any non-floating seats OUT of the stage so pan/zoom doesn't move them
+    const seats = Array.from(stage.querySelectorAll('.seat'));
+    for(const s of seats){
+      if(!isFloatingSeat(s)){
+        try{
+          s.style.position = 'relative';
+          s.style.left = '';
+          s.style.top = '';
+        }catch(_){}
+        dock.appendChild(s);
+      }
+    }
+
+    // Keep the dock tidy: if it gets empty, do nothing (it's just a container)
+  }
+
+  function bindObservers(){
+    // Run once after load, then watch stage for newly added seats
+    separateListSeats();
+
+    const stage = document.getElementById('rtStage');
+    if(!stage) return;
+
+    if(stage.__v12obs) return;
+    try{
+      const mo = new MutationObserver(() => separateListSeats());
+      mo.observe(stage, { childList: true, subtree: true });
+      stage.__v12obs = mo;
+    }catch(_){}
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    bindObservers();
+    window.addEventListener('resize', () => {
+      const gap = document.getElementById('v12TableGap');
+      if(gap){
+        gap.style.height = (window.innerWidth <= 768) ? '18px' : '12px';
+      }
+      bindObservers();
+    }, {passive:true});
+  });
+
+  // Also attempt after a short delay in case renderTable runs late
+  setTimeout(bindObservers, 250);
+  setTimeout(bindObservers, 900);
+})();
+</script>
+'''
