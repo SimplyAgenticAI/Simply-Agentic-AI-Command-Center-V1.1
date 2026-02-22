@@ -2587,6 +2587,391 @@ def api_convene():
     })
 
 
+
+# =========================
+# STRATEGIC ORCHESTRATOR LAYER (additive, non-breaking)
+# =========================
+#
+# Goal: make the Round Table proactive and structured without changing existing flows.
+# - Keeps all existing functions and endpoints intact.
+# - Adds a new endpoint /api/orchestrate for orchestrated multi-teammate routing + synthesis.
+# - Uses existing teammate prompts, threads, attachments, logging, and task log.
+
+def _orchestrator_classify(prompt: str) -> Dict[str, Any]:
+    """Lightweight intent classifier for orchestration routing.
+
+    Returns:
+      {"category": str, "confidence": float, "notes": str}
+    """
+    p = (prompt or "").strip()
+    if not p:
+        return {"category": "general", "confidence": 0.0, "notes": "empty"}
+
+    # Fast heuristic first (no model call)
+    low = p.lower()
+    if any(k in low for k in ["logo", "graphic", "design", "colors", "layout", "ui", "image", "branding"]):
+        return {"category": "design", "confidence": 0.7, "notes": "heuristic"}
+    if any(k in low for k in ["automation", "workflow", "pipeline", "zapier", "make.com", "integrat", "crm", "api", "webhook"]):
+        return {"category": "automation", "confidence": 0.7, "notes": "heuristic"}
+    if any(k in low for k in ["pricing", "sell", "close", "objection", "client", "dm", "book a call", "lead", "prospect"]):
+        return {"category": "sales", "confidence": 0.7, "notes": "heuristic"}
+    if any(k in low for k in ["research", "sources", "study", "evidence", "prove", "verify", "latest", "fact check"]):
+        return {"category": "research", "confidence": 0.7, "notes": "heuristic"}
+    if any(k in low for k in ["offer", "position", "campaign", "marketing", "content", "funnel", "messaging"]):
+        return {"category": "marketing", "confidence": 0.65, "notes": "heuristic"}
+
+    # If heuristic did not trigger, do a small model classification (best-effort).
+    # This is intentionally safe: if it fails, default to "general".
+    try:
+        sys = "You are a strict classifier. Output valid JSON only. No em dashes."
+        out = call_llm(
+            sys,
+            [{"role": "user", "content": json.dumps({
+                "task": "Classify the user's prompt into one category for orchestration routing.",
+                "categories": ["marketing", "sales", "design", "automation", "research", "general"],
+                "prompt": p
+            })}],
+            temperature=0.0
+        )
+        # Extract JSON object
+        jm = re.search(r"\{[\s\S]*\}", out or "")
+        if jm:
+            obj = json.loads(jm.group(0))
+            cat = str(obj.get("category") or "general").strip().lower()
+            if cat not in ["marketing", "sales", "design", "automation", "research", "general"]:
+                cat = "general"
+            conf = float(obj.get("confidence") or 0.4)
+            notes = str(obj.get("notes") or "model").strip()
+            return {"category": cat, "confidence": max(0.0, min(1.0, conf)), "notes": notes}
+    except Exception:
+        pass
+
+    return {"category": "general", "confidence": 0.4, "notes": "default"}
+
+
+def _orchestrator_focus_for(teammate: str, category: str) -> str:
+    """Return a short, teammate-specific focus directive for the current category."""
+    t = (teammate or "").strip()
+    c = (category or "general").strip().lower()
+
+    # Default focuses per teammate (works even if user adds custom teammates).
+    base = {
+        "Alex": "Strategy and positioning. Define the plan and why it will work.",
+        "Willow": "Clarity and language integrity. Improve framing without changing meaning.",
+        "Ava": "Evidence and validation. Identify assumptions and what must be verified.",
+        "Orion": "Systems and scale. Map a reliable workflow and failure points.",
+        "Sunshine": "Sales readiness and objections. Identify buying signals and best next ask.",
+        "Luna": "Visual system and hierarchy. Recommend design decisions and consistency.",
+        "Atlis": "Integrity check. Find contradictions, missing constraints, and risk of rule drift.",
+    }
+
+    # Category tuning
+    if c == "marketing":
+        tuned = {
+            "Alex": "Positioning, offer framing, and campaign structure.",
+            "Willow": "Voice, clarity, and believable language. No hype.",
+            "Ava": "Audience truth checks, validation, and research gaps.",
+            "Orion": "Repeatable content system and automation opportunities.",
+            "Sunshine": "Conversion path, CTA tone, objections, and timing.",
+            "Luna": "Creative direction, visual consistency, and layout guidance.",
+            "Atlis": "Conflicts, compliance, and integrity risks.",
+        }
+    elif c == "sales":
+        tuned = {
+            "Alex": "Sales strategy architecture, pricing posture, and positioning leverage.",
+            "Willow": "Natural human tone, clarity, and meaning preservation.",
+            "Ava": "Evidence for claims. What can and cannot be asserted.",
+            "Orion": "CRM pipeline, follow-up sequencing, and reliability.",
+            "Sunshine": "Discovery-first conversation path and readiness signals.",
+            "Luna": "Any supporting asset suggestions (one pager, visual proof).",
+            "Atlis": "Ethics and integrity check, red flags and misrepresentation risks.",
+        }
+    elif c == "automation":
+        tuned = {
+            "Alex": "Outcome definition and what to measure.",
+            "Willow": "User-facing copy and prompts that reduce confusion.",
+            "Ava": "Tool constraints and verification of requirements.",
+            "Orion": "System design, failure modes, and safe rollout.",
+            "Sunshine": "Where automation should not replace human trust steps.",
+            "Luna": "UI cues, naming, and visual clarity for flows.",
+            "Atlis": "Safety, permissions, and drift prevention.",
+        }
+    elif c == "design":
+        tuned = {
+            "Alex": "Message hierarchy, what the design must communicate.",
+            "Willow": "Copy polish, readability, and meaning integrity.",
+            "Ava": "Reference validation, constraints, and checklists.",
+            "Orion": "Production pipeline, templates, reuse, and consistency rules.",
+            "Sunshine": "Conversion clarity, CTA placement, and trust signals.",
+            "Luna": "Design execution guidance: hierarchy, spacing, contrast, consistency.",
+            "Atlis": "Brand rule compliance and integrity checks.",
+        }
+    elif c == "research":
+        tuned = {
+            "Alex": "How research changes strategy and decisions.",
+            "Willow": "Neutral language and uncertainty labeling.",
+            "Ava": "Primary sourcing plan and what constitutes evidence.",
+            "Orion": "Repeatable research workflow and storage.",
+            "Sunshine": "How findings translate to offers and conversations.",
+            "Luna": "How to present findings visually, if needed.",
+            "Atlis": "Claim hygiene and uncertainty discipline.",
+        }
+    else:
+        tuned = base
+
+    return tuned.get(t, base.get(t, "Provide your best contribution for this problem."))
+
+
+def _orchestrator_subprompt(teammate: str, focus: str, user_prompt: str) -> str:
+    return (
+        "STRATEGIC ORCHESTRATION REQUEST\n"
+        f"Teammate: {teammate}\n"
+        f"Focus: {focus}\n\n"
+        "Output format (use headings exactly, concise but specific):\n"
+        "1) Assumptions\n"
+        "2) Best Moves\n"
+        "3) Risks\n"
+        "4) One Question (if needed)\n\n"
+        "User prompt:\n"
+        f"{user_prompt.strip()}\n"
+    )
+
+
+def _orchestrator_synthesis_prompt(category: str, user_prompt: str, teammate_outputs: Dict[str, str], atlis_report: str) -> str:
+    return json.dumps({
+        "task": "Synthesize a single operator-ready brief from multi-teammate outputs.",
+        "rules": [
+            "No em dashes.",
+            "Be concrete and actionable.",
+            "If information is missing, ask exactly one clarifying question at the end."
+        ],
+        "category": category,
+        "user_prompt": user_prompt,
+        "atlis_integrity_report": atlis_report,
+        "teammate_outputs": teammate_outputs,
+        "required_sections": [
+            "Situation",
+            "Objective",
+            "Plan (phased)",
+            "Key assumptions to verify",
+            "Risks and mitigations",
+            "Next actions (checklist)",
+            "One clarifying question (only if needed)"
+        ]
+    }, indent=2)
+
+
+@app.post("/api/orchestrate")
+def api_orchestrate():
+    """Orchestrated Round Table execution.
+
+    This endpoint complements /api/convene. It does not replace anything.
+    """
+    data = request.get_json(force=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    file_ids = data.get("file_ids") or []
+
+    if not prompt:
+        return jsonify({"ok": False, "error": "Missing prompt"}), 400
+
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    order = reg.get("active_order") or reg.get("installed_order") or []
+
+    if not installed:
+        return jsonify({"ok": False, "error": "No teammates installed"}), 400
+    if not order:
+        return jsonify({"ok": False, "error": "No active teammates in the round table"}), 400
+
+    # Assembly stays the same behavior
+    if is_assembly(prompt):
+        roll = []
+        for name in order:
+            d = installed.get(name)
+            if not d:
+                continue
+            roll.append({"name": d.get("name", name), "job_title": d.get("job_title", ""), "version": d.get("version", "")})
+        append_log("assembly", {"prompt": prompt, "roll": roll, "via": "orchestrate"})
+        return jsonify({"ok": True, "mode": "assembly", "roll": roll})
+
+    # Attachments
+    prompt2, attach_meta, vision_images = build_prompt_with_attachments(prompt, file_ids)
+    user_content = _build_user_content(prompt2, vision_images)
+
+    # Category
+    cls = _orchestrator_classify(prompt2)
+    category = (cls.get("category") or "general")
+
+    # Step 1: Atlis preflight (same idea as convene, but geared for orchestration)
+    atlis_def = installed.get("Atlis") or PREBUILT_LOCKED.get("Atlis", {})
+    atlis_sys = teammate_system_prompt(atlis_def) if atlis_def else "No em dashes."
+    try:
+        atlis_pre = call_llm(
+            atlis_sys,
+            [{"role": "user", "content": json.dumps({
+                "task": "Integrity preflight check for orchestrated routing",
+                "rules": [
+                    "No execution. Report only.",
+                    "Call out contradictions, missing constraints, and unsafe assumptions.",
+                    "If unclear, recommend exactly one clarifying question.",
+                    "No em dashes."
+                ],
+                "category": category,
+                "user_prompt": prompt2
+            }, indent=2)}],
+            temperature=0.2
+        )
+    except Exception as e:
+        status, msg = _classify_openai_error(e)
+        append_log("orchestrate_error", {"where": "atlis_preflight", "error": str(e)})
+        return jsonify({"ok": False, "error": msg}), status
+
+    append_task_log(
+        "atlis_preflight_orchestrate",
+        {
+            "prompt": prompt,
+            "prompt_with_attachments": prompt2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "category": category,
+            "report_preview": (atlis_pre[:800] + ("..." if len(atlis_pre) > 800 else "")),
+        },
+        teammate="Atlis",
+        status="success"
+    )
+
+    # Step 2: Routed teammate calls (structured)
+    teammate_outputs: Dict[str, str] = {}
+    email_drafts: Dict[str, Dict[str, str]] = {}
+
+    for name in order:
+        defn = installed.get(name)
+        if not defn:
+            continue
+
+        focus = _orchestrator_focus_for(name, category)
+        sub = _orchestrator_subprompt(name, focus, prompt2)
+
+        sys = teammate_system_prompt(defn)
+
+        thread = load_thread(name)
+        thread = thread[-10:] if len(thread) > 10 else thread
+
+        msgs: List[Dict[str, Any]] = []
+        msgs.extend(thread)
+        # Provide the original user content (attachments) then the orchestration subprompt.
+        msgs.append({"role": "user", "content": user_content})
+        msgs.append({"role": "user", "content": sub})
+
+        try:
+            text = call_llm(sys, msgs, temperature=0.55)
+        except Exception as e:
+            status, msg = _classify_openai_error(e)
+            append_log("orchestrate_error", {"where": name, "error": str(e)})
+            return jsonify({"ok": False, "error": msg}), status
+
+        # Persist thread with the user's original prompt (prompt2) and the assistant output.
+        new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
+        save_thread(name, new_thread)
+
+        teammate_outputs[name] = text
+
+        append_task_log(
+            "teammate_orchestrate",
+            {
+                "prompt": prompt,
+                "prompt_with_attachments": prompt2,
+                "attachment_meta": attach_meta,
+                "vision_images_count": len(vision_images),
+                "category": category,
+                "focus": focus,
+                "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
+            },
+            teammate=name,
+            status="success"
+        )
+
+        d = extract_email_draft(text)
+        if d:
+            email_drafts[name] = d
+
+    # Step 3: Atlis contradiction scan across outputs
+    try:
+        atlis_cross = call_llm(
+            atlis_sys,
+            [{"role": "user", "content": json.dumps({
+                "task": "Cross-check teammate outputs for contradictions and missing constraints.",
+                "rules": [
+                    "No execution. Report only.",
+                    "List contradictions, then propose the smallest fix.",
+                    "Recommend at most one clarifying question.",
+                    "No em dashes."
+                ],
+                "category": category,
+                "user_prompt": prompt2,
+                "teammate_outputs": teammate_outputs
+            }, indent=2)}],
+            temperature=0.15
+        )
+    except Exception:
+        atlis_cross = ""
+
+    # Step 4: Synthesis (operator brief)
+    try:
+        synth_sys = "You are the Strategic Orchestrator. Produce an operator-ready brief. No em dashes."
+        synth = call_llm(
+            synth_sys,
+            [{"role": "user", "content": _orchestrator_synthesis_prompt(category, prompt2, teammate_outputs, (atlis_pre + "\n\n" + atlis_cross).strip())}],
+            temperature=0.35
+        )
+    except Exception as e:
+        status, msg = _classify_openai_error(e)
+        append_log("orchestrate_error", {"where": "synthesis", "error": str(e)})
+        return jsonify({"ok": False, "error": msg}), status
+
+    append_log("orchestrate", {
+        "prompt": prompt,
+        "prompt_with_attachments": prompt2,
+        "attachment_meta": attach_meta,
+        "vision_images_count": len(vision_images),
+        "category": category,
+        "classifier": cls,
+        "order": order,
+        "atlis_preflight": atlis_pre,
+        "atlis_crosscheck": atlis_cross,
+        "outputs": teammate_outputs,
+        "synthesis": synth,
+        "email_drafts": email_drafts,
+    })
+
+    append_task_log(
+        "orchestrate_complete",
+        {
+            "prompt": prompt,
+            "prompt_with_attachments": prompt2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "category": category,
+            "synthesis_preview": (synth[:1200] + ("..." if len(synth) > 1200 else "")),
+        },
+        teammate="Orchestrator",
+        status="success"
+    )
+
+    return jsonify({
+        "ok": True,
+        "mode": "orchestrate",
+        "category": category,
+        "classifier": cls,
+        "atlis_preflight": atlis_pre,
+        "atlis_crosscheck": atlis_cross,
+        "outputs": teammate_outputs,
+        "synthesis": synth,
+        "email_drafts": email_drafts,
+        "attachment_meta": attach_meta
+    })
+
+
 @app.post("/api/followup")
 def api_followup():
     data = request.get_json(force=True)
