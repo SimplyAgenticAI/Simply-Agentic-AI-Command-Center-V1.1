@@ -11093,3 +11093,157 @@ ADD_GUARANTEED_MOBILE_FIT_V20 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v21: Mobile Hard Clamp + Table/Operator Separation (no DOM moves required) ===
+ADD_MOBILE_HARD_CLAMP_V21 = r'''
+<style>
+  @media (max-width: 768px){
+    html, body{
+      width:100% !important;
+      max-width:100% !important;
+      overflow-x:hidden !important;
+    }
+    /* universal box sizing */
+    *, *::before, *::after{ box-sizing:border-box !important; }
+
+    /* Hard clamp any potential 100vw offenders inside the main app */
+    #appRoot, #v15MobileRoot, #v20FitWrap, #v15Dock, #v15Stage, #v15StageInner{
+      width:100% !important;
+      max-width:100% !important;
+      margin-left:auto !important;
+      margin-right:auto !important;
+      overflow-x:hidden !important;
+    }
+
+    /* Symmetric safe padding on the whole dock */
+    body.v15-mobile #v15Dock,
+    body.v15-mobile #v15Stage{
+      padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+      padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+    }
+
+    /* Force cards/panels to never exceed container width */
+    body.v15-mobile .card,
+    body.v15-mobile .panel,
+    body.v15-mobile .wrap,
+    body.v15-mobile #groupReplies,
+    body.v15-mobile #threadWrap,
+    body.v15-mobile #emailConsole,
+    body.v15-mobile #groupConsole{
+      width:100% !important;
+      max-width:100% !important;
+      margin-left:auto !important;
+      margin-right:auto !important;
+      overflow:hidden !important;
+    }
+
+    /* Header rows: prevent right-side buttons from clipping */
+    body.v15-mobile .header,
+    body.v15-mobile .headerRow,
+    body.v15-mobile .topRow,
+    body.v15-mobile .toolbar,
+    body.v15-mobile .bar{
+      max-width:100% !important;
+      width:100% !important;
+      display:flex !important;
+      flex-wrap:wrap !important;
+      gap: 8px !important;
+    }
+    body.v15-mobile .header button,
+    body.v15-mobile .headerRow button,
+    body.v15-mobile .topRow button,
+    body.v15-mobile .toolbar button,
+    body.v15-mobile .bar button{
+      max-width:100% !important;
+    }
+
+    /* Specifically target Refresh/Clear buttons by text is handled via JS too, but CSS helps */
+    body.v15-mobile button{
+      min-width:0 !important;
+    }
+
+    /* Make sure the round table can't visually "attach" to the first card below it */
+    body.v15-mobile #v15Stage{
+      padding-bottom: 18px !important;
+    }
+    body.v15-mobile #v15Gap{
+      height: 26px !important;
+    }
+    /* Slightly shrink the table on mobile so it leaves breathing room */
+    body.v15-mobile #v15Stage .fitTable{
+      transform-origin: 50% 0% !important;
+      transform: scale(0.92) !important;
+    }
+
+    /* Extra breathing room above the Operator seat card if it stays in the list */
+    body.v15-mobile .seat[data-name="Operator"]{
+      margin-top: 14px !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function wrapButtonRowsByLabel(){
+    const btns = Array.from(document.querySelectorAll("button"));
+    for(const b of btns){
+      const t = (b.textContent||"").trim().toLowerCase();
+      if(t === "refresh" || t === "clear"){
+        const row = b.parentElement;
+        if(row){
+          row.style.maxWidth = "100%";
+          row.style.display = "flex";
+          row.style.flexWrap = "wrap";
+          row.style.gap = "8px";
+          row.style.boxSizing = "border-box";
+          // Keep button from forcing overflow
+          b.style.maxWidth = "100%";
+        }
+      }
+    }
+  }
+
+  function hardClampOverflows(){
+    // If ANY element is wider than viewport, clamp it.
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const offenders = [];
+    const all = Array.from(document.querySelectorAll("body *"));
+    for(const el of all){
+      if(!el || !el.getBoundingClientRect) continue;
+      const r = el.getBoundingClientRect();
+      if(r.width > vw + 1){
+        offenders.push(el);
+      }
+    }
+    // Apply clamps to offenders
+    offenders.slice(0,80).forEach(el=>{
+      try{
+        el.style.maxWidth = "100%";
+        el.style.overflowX = "hidden";
+        el.style.boxSizing = "border-box";
+      }catch(_){}
+    });
+  }
+
+  function applyV21(){
+    if(!isMobile()) return;
+    document.body.classList.add("v21-mobile");
+    wrapButtonRowsByLabel();
+    hardClampOverflows();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV21);
+  window.addEventListener("resize", applyV21, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV21, {passive:true});
+  }
+  setTimeout(applyV21, 200);
+  setTimeout(applyV21, 600);
+  setTimeout(applyV21, 1200);
+})();
+</script>
+'''
