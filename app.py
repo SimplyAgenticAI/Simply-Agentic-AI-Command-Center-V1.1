@@ -11247,3 +11247,175 @@ ADD_MOBILE_HARD_CLAMP_V21 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v22: MutationObserver docking + 100vw killer + auto recentre ===
+ADD_MOBILE_OBSERVER_DOCK_V22 = r'''
+<style>
+  @media (max-width: 768px){
+    /* Kill 100vw overflow bugs: override any element that uses vw */
+    [style*="100vw"], [style*="vw"]{
+      max-width: 100% !important;
+    }
+
+    /* Strongest clamp for the main content root if present */
+    #v15MobileRoot, #v15Stage, #v15Dock{
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow-x: hidden !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+
+    /* Round table: always leave bottom breathing room so it can't "touch" cards */
+    #v15Stage{
+      padding-bottom: 34px !important;
+    }
+    #v15Stage .fitTable{
+      transform-origin: 50% 0% !important;
+      transform: scale(0.90) !important;
+    }
+
+    /* Force every dock card to be centered and not translated */
+    #v15Dock .card, #v15Dock .panel, #v15Dock .wrap{
+      transform: none !important;
+      left: 0 !important;
+      right: 0 !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+
+    /* Wrap the "Refresh/Clear" rows no matter what */
+    #v15Dock .header, #v15Dock .headerRow, #v15Dock .topRow, #v15Dock .toolbar, #v15Dock .bar{
+      flex-wrap: wrap !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+  function $(id){ return document.getElementById(id); }
+
+  function ensureTopDock(){
+    const root = $("v15MobileRoot") || document.body;
+    let top = $("v22TopDock");
+    if(!top){
+      top = document.createElement("div");
+      top.id = "v22TopDock";
+      top.style.width = "100%";
+      top.style.maxWidth = "100%";
+      top.style.boxSizing = "border-box";
+      top.style.margin = "0 auto";
+      top.style.paddingLeft = "calc(16px + env(safe-area-inset-left, 0px))";
+      top.style.paddingRight = "calc(16px + env(safe-area-inset-right, 0px))";
+      top.style.paddingTop = "10px";
+      top.style.paddingBottom = "10px";
+      // Insert above the stage if possible
+      const stage = $("v15Stage");
+      if(stage && stage.parentElement){
+        stage.parentElement.insertBefore(top, stage);
+      }else{
+        root.insertBefore(top, root.firstChild);
+      }
+    }
+    return top;
+  }
+
+  function findOperatorSeat(){
+    return document.querySelector('.seat[data-name="Operator"]') || null;
+  }
+
+  function findGroupConsole(){
+    return $("groupConsole") || document.querySelector("#groupConsole, #groupConsoleCard, .groupConsole") || null;
+  }
+
+  function dockOperatorAndConsole(){
+    const top = ensureTopDock();
+    const gc = findGroupConsole();
+    if(gc && gc.parentElement !== top) top.appendChild(gc);
+
+    const op = findOperatorSeat();
+    if(op && op.parentElement !== top){
+      top.appendChild(op);
+      // Ensure it doesn't stretch past right edge
+      op.style.width = "100%";
+      op.style.maxWidth = "100%";
+      op.style.boxSizing = "border-box";
+      op.style.margin = "10px auto 0 auto";
+      op.style.transform = "none";
+    }
+  }
+
+  function wrapButtonsByLabel(){
+    const btns = Array.from(document.querySelectorAll("button"));
+    for(const b of btns){
+      const t = (b.textContent||"").trim().toLowerCase();
+      if(t === "refresh" || t === "clear"){
+        const row = b.parentElement;
+        if(row){
+          row.style.display = "flex";
+          row.style.flexWrap = "wrap";
+          row.style.gap = "8px";
+          row.style.maxWidth = "100%";
+          row.style.boxSizing = "border-box";
+        }
+        b.style.maxWidth = "100%";
+      }
+    }
+  }
+
+  function recenterIfLeaning(){
+    // If dock is shifted, recentre by measuring its bounding rect.
+    const dock = $("v15Dock");
+    if(!dock) return;
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    const r = dock.getBoundingClientRect();
+    const overflowR = Math.max(0, r.right - vw);
+    const overflowL = Math.max(0, -r.left);
+    const shift = (overflowR - overflowL) / 2;
+    if(Math.abs(shift) >= 1){
+      dock.style.transform = "translateX(" + (-shift) + "px)";
+      dock.style.transformOrigin = "top center";
+    }else{
+      dock.style.transform = "none";
+    }
+  }
+
+  function applyV22(){
+    if(!isMobile()) return;
+    dockOperatorAndConsole();
+    wrapButtonsByLabel();
+    recenterIfLeaning();
+  }
+
+  // Keep it docked even if the UI re-renders
+  function observe(){
+    const obs = new MutationObserver(function(muts){
+      if(!isMobile()) return;
+      // If operator seat reappears under stage, move it back up
+      applyV22();
+    });
+    obs.observe(document.body, {childList:true, subtree:true});
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    applyV22();
+    observe();
+  });
+  window.addEventListener("resize", applyV22, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV22, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV22, {passive:true});
+  }
+  setTimeout(applyV22, 200);
+  setTimeout(applyV22, 700);
+  setTimeout(applyV22, 1400);
+})();
+</script>
+'''
