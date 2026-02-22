@@ -9939,3 +9939,199 @@ ADD_CENTERING_GUTTERS_V13 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v14: Mobile Remaster Option A (Stage First) ===
+ADD_MOBILE_REMIX_V14 = r'''
+<style>
+  /* v14: Stage First mobile layout */
+  @media (max-width: 768px){
+    /* Prevent any vw rounding issues in mobile webviews */
+    html, body { width: 100%; max-width: 100%; overflow-x: hidden !important; }
+    body { margin: 0; padding: 0; }
+
+    /* Mobile stage viewport: fixed-height canvas zone */
+    #mobileStageViewport{
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 12px 0 0 0;
+      display: block;
+      position: relative;
+      overflow: hidden; /* stage pans internally */
+      /* Choose a stable height that shows the full table without crowding consoles */
+      height: min(52vh, 520px);
+      min-height: 360px;
+    }
+
+    /* Keep the table centered inside the stage viewport */
+    #mobileStageViewport #tableViewport,
+    #mobileStageViewport #tableWrap{
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 auto !important;
+    }
+
+    /* Console dock: normal page flow, scrollable */
+    #mobileConsoleDock{
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 14px 12px 96px 12px; /* bottom padding for nav bar */
+      box-sizing: border-box;
+    }
+
+    /* Uniform gutters for all cards/panels inside console dock */
+    #mobileConsoleDock .card,
+    #mobileConsoleDock .panel{
+      width: 100% !important;
+      max-width: calc(100% - 0px) !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+
+    /* A guaranteed visual gap between the stage and first console card */
+    #mobileStageGap{
+      height: 18px;
+      width: 100%;
+      pointer-events: none;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function ensureStageFirstLayout(){
+    if(!isMobile()) return;
+
+    // If already applied, keep it stable
+    if(document.body && document.body.classList.contains("v14-stage-first")){
+      return;
+    }
+
+    const tableViewport = $("tableViewport");
+    const tableWrap = $("tableWrap");
+
+    // We anchor around the most stable outer element
+    const tableAnchor = tableViewport || tableWrap;
+    if(!tableAnchor) return;
+
+    // Find a reasonable root container (often body has a main wrapper)
+    const root = tableAnchor.parentElement || document.body;
+
+    // Create stage viewport
+    let stage = $("mobileStageViewport");
+    if(!stage){
+      stage = document.createElement("div");
+      stage.id = "mobileStageViewport";
+      stage.className = "mobileStageViewport";
+    }
+
+    // Create console dock
+    let dock = $("mobileConsoleDock");
+    if(!dock){
+      dock = document.createElement("div");
+      dock.id = "mobileConsoleDock";
+      dock.className = "mobileConsoleDock";
+    }
+
+    // Create stage gap
+    let gap = $("mobileStageGap");
+    if(!gap){
+      gap = document.createElement("div");
+      gap.id = "mobileStageGap";
+    }
+
+    // Insert stage before the table anchor (so we can move the table into it)
+    // Only if not already placed
+    if(stage.parentElement !== root){
+      root.insertBefore(stage, tableAnchor);
+    }
+
+    // Move the table container into stage
+    // Prefer moving tableWrap if exists; else tableViewport
+    const moveEl = tableWrap || tableViewport;
+    if(moveEl && moveEl.parentElement !== stage){
+      stage.appendChild(moveEl);
+    }
+
+    // Ensure the gap and dock appear after stage
+    if(gap.parentElement !== root){
+      stage.insertAdjacentElement("afterend", gap);
+    }
+    if(dock.parentElement !== root){
+      gap.insertAdjacentElement("afterend", dock);
+    }
+
+    // Keep bottom navigation where it is (do not move)
+    const bottomNav = $("bottomNav") || $("bottomBar") || $("navBar") || document.querySelector(".bottomNav, .bottomBar, .navBar");
+
+    // Move all console panels/cards that are currently below the table into the dock
+    // Strategy: starting from the element that follows the stage/gap/dock insertion point,
+    // gather siblings until we reach bottom nav (or end).
+    const stopNode = bottomNav || null;
+
+    // Collect candidates from root children: anything that is not stage/gap/dock/table, and not bottom nav
+    const protectedIds = new Set([
+      "mobileStageViewport", "mobileStageGap", "mobileConsoleDock",
+      "tableViewport", "tableWrap"
+    ]);
+
+    const children = Array.from(root.children);
+
+    for(const child of children){
+      if(!child || child === stage || child === gap || child === dock) continue;
+      if(stopNode && child === stopNode) continue;
+
+      // Don't move scripts/styles or very small utility nodes
+      const tag = (child.tagName || "").toLowerCase();
+      if(tag === "script" || tag === "style" || tag === "link") continue;
+
+      if(child.id && protectedIds.has(child.id)) continue;
+
+      // If this child contains the table, skip (already moved)
+      if(child.querySelector && (child.querySelector("#tableViewport") || child.querySelector("#tableWrap"))) continue;
+
+      // Heuristic: move panels/cards/sections that look like UI blocks
+      const looksLikeUI =
+        child.classList.contains("panel") ||
+        child.classList.contains("card") ||
+        child.classList.contains("wrap") ||
+        child.id === "groupReplies" ||
+        child.id === "groupConsole" ||
+        child.id === "emailConsole" ||
+        child.id === "threadWrap" ||
+        child.id === "settingsPanel" ||
+        child.id === "settingsForm" ||
+        !!child.querySelector(".panel, .card");
+
+      if(looksLikeUI){
+        dock.appendChild(child);
+      }
+    }
+
+    // Mark applied
+    if(document.body){
+      document.body.classList.add("v14-stage-first");
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", ensureStageFirstLayout);
+  window.addEventListener("resize", function(){
+    // Re-apply when rotating or resizing into mobile
+    if(isMobile()){
+      ensureStageFirstLayout();
+    }
+  }, {passive:true});
+
+  // Try again shortly after load in case renderTable runs late
+  setTimeout(ensureStageFirstLayout, 250);
+  setTimeout(ensureStageFirstLayout, 900);
+})();
+</script>
+'''
