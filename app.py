@@ -9102,6 +9102,81 @@ function applyRTTransformV4(){
   })();
   </script>
 
+
+<script>
+(function(){
+  const mq = window.matchMedia('(max-width: 640px)');
+
+  function qa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
+  function q(sel, root=document){ return root.querySelector(sel); }
+
+  function findOperatorCard(){
+    // prefer explicit data attributes if present
+    const byData = q('.seat[data-name="Operator"]') || q('[data-name="Operator"]');
+    if(byData) return byData;
+    const cards = qa('.seat, .card, .teammateCard, .panel');
+    for(const c of cards){
+      const t = (c.innerText || '').toLowerCase();
+      if(t.includes('operator') && t.includes('profile')) return c;
+    }
+    return null;
+  }
+
+  function ensureOperatorDock(){
+    let d = q('#operatorDock');
+    if(!d){
+      d = document.createElement('div');
+      d.id = 'operatorDock';
+      d.className = 'operatorDock';
+    }
+    return d;
+  }
+
+  function moveOperatorUnderGroupConsole(){
+    const dock = q('.dock');
+    if(!dock) return;
+
+    const op = findOperatorCard();
+    if(!op) return;
+
+    const opDock = ensureOperatorDock();
+    if(op.parentElement !== opDock) opDock.appendChild(op);
+
+    // Locate Group Console panel
+    const panels = qa('.panel, .card, .console, .section', dock);
+    const gc = panels.find(el => (el.innerText || '').toLowerCase().includes('group console'));
+
+    if(gc){
+      if(gc.nextSibling !== opDock) gc.parentElement.insertBefore(opDock, gc.nextSibling);
+    } else {
+      if(dock.firstChild !== opDock) dock.insertBefore(opDock, dock.firstChild);
+    }
+  }
+
+  function enforce(){
+    if(!mq.matches) return;
+    moveOperatorUnderGroupConsole();
+  }
+
+  function run(){
+    let i = 0;
+    const step = ()=>{
+      enforce();
+      i += 1;
+      if(i < 24) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  document.addEventListener('DOMContentLoaded', run);
+  window.addEventListener('load', run);
+  mq.addEventListener?.('change', run);
+
+  const mo = new MutationObserver(()=>{ if(mq.matches) enforce(); });
+  mo.observe(document.documentElement, {subtree:true, childList:true});
+})();
+</script>
+
 </body>
 </html>
 """
@@ -11931,6 +12006,76 @@ ADD_MOBILE_EDGE_GUARD_V25 = r'''
       min-width: 0 !important;
     }
   }
+
+
+/* =========================
+   MOBILE HARD RESET v28
+   Guaranteed no right-side clipping + clean single column
+   ========================= */
+@media (max-width: 640px){
+  :root{ --m28-pad: 14px; --m28-gap: 14px; }
+  html, body{ width:100%; overflow-x:hidden !important; }
+  *, *::before, *::after{ box-sizing:border-box; }
+
+  /* Collapse stage into one centered column */
+  .stage{ 
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:stretch !important;
+    gap: var(--m28-gap) !important;
+    padding: var(--m28-pad) !important;
+    max-width: 720px !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    overflow-x:hidden !important;
+  }
+  .arena, .dock{ width:100% !important; max-width:100% !important; margin:0 auto !important; }
+  .dock{ order:1 !important; }
+  .arena{ order:2 !important; }
+
+  /* Center and scale round table safely */
+  #tableWrap, .roundTableWrap, .arenaInner{ 
+    width:100% !important;
+    max-width: 520px !important;
+    margin: 0 auto !important;
+  }
+  .roundTable, svg.roundTable, canvas.roundTable, .tableSvg{
+    width: min(92vw, 520px) !important;
+    height:auto !important;
+    max-width:100% !important;
+    margin:0 auto !important;
+    transform:none !important;
+  }
+
+  /* Make every panel fit the viewport */
+  .panel, .card, .console, .section, .seatPanel, .groupRepliesPanel, .emailPanel,
+  .seat, .teammateCard{
+    width:100% !important;
+    max-width:100% !important;
+    margin-left:auto !important;
+    margin-right:auto !important;
+  }
+
+  /* Header action buttons (Refresh/Clear) should wrap */
+  .panelHeader, .sectionHeader, .seatHeader, .rowHeader, .headerRow{
+    display:flex !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:10px !important;
+    flex-wrap:wrap !important;
+  }
+  .panelHeader button, .sectionHeader button, .seatHeader button, .rowHeader button, .headerRow button,
+  .panelHeader .pill, .sectionHeader .pill{
+    max-width:100% !important;
+  }
+
+  /* Kill legacy translate hacks that cause "leaning right" */
+  .stage *, .dock *, .arena *{ transform:none !important; }
+
+  /* Ensure Operator dock is separated from the table */
+  #operatorDock, .operatorDock{ width:100% !important; max-width:520px !important; margin: 12px auto 6px auto !important; }
+}
+
 </style>
 
 <script>
