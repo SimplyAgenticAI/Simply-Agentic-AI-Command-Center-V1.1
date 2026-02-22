@@ -10742,3 +10742,153 @@ ADD_MOBILE_OPERATOR_FIX_V18 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v19: True mobile layout order (Prompt + Operator ABOVE table) + Seat refresh wrap fix ===
+ADD_MOBILE_LAYOUT_V19 = r'''
+<style>
+  @media (max-width: 768px){
+    /* v19: make the "Select a seat" header row wrap so Refresh never clips */
+    .sideHead{ flex-wrap: wrap !important; gap: 10px !important; }
+    .sideHead .btn{ max-width: 100% !important; }
+
+    /* v19: slightly zoom out overall UI to prevent right-edge cuts in tight webviews */
+    body.v15-mobile #v15MobileRoot{
+      transform-origin: 50% 0%;
+      transform: scale(0.965);
+    }
+    /* compensate scale so it stays centered */
+    body.v15-mobile{
+      overflow-x: hidden !important;
+    }
+  }
+
+  /* v19: top dock container */
+  #v19TopDock{ width: 100%; max-width: 100%; }
+  #v19TopDock .panel, #v19TopDock .card, #v19TopDock .wrap{ width: 100%; max-width: 100%; margin: 0 auto; }
+  #v19OpDock{ width: 100%; max-width: 100%; margin: 10px auto 14px auto; }
+</style>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function ensureTopDock(){
+    const root = $("v15MobileRoot");
+    if(!root) return null;
+
+    let top = $("v19TopDock");
+    if(!top){
+      top = document.createElement("div");
+      top.id = "v19TopDock";
+      // Insert at very top of root
+      root.insertBefore(top, root.firstChild);
+    }else{
+      if(top.parentElement !== root){
+        root.insertBefore(top, root.firstChild);
+      }
+    }
+    return top;
+  }
+
+  function findOperatorSeat(){
+    return document.querySelector('.seat[data-name="Operator"]') || null;
+  }
+
+  function moveGroupConsoleToTop(top){
+    // Primary: groupConsole id
+    const gc = $("groupConsole") || $("groupConsoleCard") || $("groupConsolePanel");
+    if(gc && gc.parentElement !== top){
+      top.appendChild(gc);
+      return gc;
+    }
+    // Fallback: a panel that contains opPrompt
+    const op = $("opPrompt");
+    if(op){
+      let p = op.parentElement;
+      for(let i=0;i<8;i++){
+        if(!p) break;
+        if(p.classList && (p.classList.contains("panel") || p.classList.contains("card") || p.classList.contains("wrap"))){
+          if(p.parentElement !== top) top.appendChild(p);
+          return p;
+        }
+        p = p.parentElement;
+      }
+    }
+    return null;
+  }
+
+  function moveOperatorUnderConsole(top){
+    const opSeat = findOperatorSeat();
+    if(!opSeat) return false;
+
+    let opDock = $("v19OpDock");
+    if(!opDock){
+      opDock = document.createElement("div");
+      opDock.id = "v19OpDock";
+      top.appendChild(opDock);
+    }else{
+      if(opDock.parentElement !== top) top.appendChild(opDock);
+    }
+
+    // normalize layout so it behaves like a normal card
+    try{
+      opSeat.style.position = "relative";
+      opSeat.style.left = "";
+      opSeat.style.top = "";
+      opSeat.style.transform = "none";
+      opSeat.style.marginLeft = "auto";
+      opSeat.style.marginRight = "auto";
+      opSeat.style.width = "100%";
+      opSeat.style.maxWidth = "100%";
+    }catch(_){}
+
+    if(opSeat.parentElement !== opDock){
+      opDock.appendChild(opSeat);
+    }
+    return true;
+  }
+
+  function ensureStageBelowTop(root, top){
+    const stage = $("v15Stage");
+    if(!stage || !top) return;
+    // Put stage immediately after top dock
+    if(stage.previousElementSibling !== top){
+      root.insertBefore(stage, top.nextSibling);
+    }
+  }
+
+  function applyV19(){
+    if(!isMobile()) return;
+
+    const root = $("v15MobileRoot");
+    if(!root) return;
+
+    const top = ensureTopDock();
+    if(!top) return;
+
+    // Move main console up (prompt area)
+    moveGroupConsoleToTop(top);
+
+    // Move operator card directly under it
+    moveOperatorUnderConsole(top);
+
+    // Ensure the table stage sits under the top dock
+    ensureStageBelowTop(root, top);
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV19);
+  window.addEventListener("resize", applyV19, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV19, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV19, {passive:true});
+  }
+  setTimeout(applyV19, 120);
+  setTimeout(applyV19, 350);
+  setTimeout(applyV19, 800);
+  setTimeout(applyV19, 1400);
+})();
+</script>
+'''
