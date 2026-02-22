@@ -6340,12 +6340,19 @@ function makeSeat(defn, idx){
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
 
       // Operator seat (always available)
-      try{
-        wrap.appendChild(makeOperatorSeat(0));
-      }catch(err){
-        console.error("Operator seat failed to render:", err);
+    try{
+      const opSeat = makeOperatorSeat(0);
+      const mobile = (window.matchMedia && window.matchMedia("(max-width: 560px)").matches);
+      if(mobile){
+        // v27: keep Operator card OUT of the table stage so it never touches the table rim
+        const dock = ensureOperatorDock();
+        dock.appendChild(opSeat);
+      }else{
+        wrap.appendChild(opSeat);
       }
-
+    }catch(err){
+      console.error("Operator seat failed to render:", err);
+    }
 
       const order = activeOrder();
       const installed = state.installed || {};
@@ -6534,7 +6541,37 @@ function makeSeat(defn, idx){
 
 
 
-    async function loadState(){
+    async 
+    // v27: dedicated Operator dock (keeps Operator card separate from the table on mobile)
+    function ensureOperatorDock(){
+      let dock = document.getElementById("operatorDock");
+      if(!dock){
+        dock = document.createElement("div");
+        dock.id = "operatorDock";
+        dock.style.width = "100%";
+        dock.style.maxWidth = "100%";
+        dock.style.margin = "0 auto";
+        dock.style.padding = "0";
+        dock.style.display = "flex";
+        dock.style.flexDirection = "column";
+        dock.style.gap = "12px";
+        // Insert directly under the top command area (v15Dock) when available, otherwise under panelsWrap.
+        const v15Dock = document.getElementById("v15Dock");
+        const panelsWrap = document.getElementById("panelsWrap");
+        if(v15Dock){
+          // place dock at the bottom of the command area so it sits under the main prompt block
+          v15Dock.appendChild(dock);
+        }else if(panelsWrap){
+          panelsWrap.prepend(dock);
+        }else{
+          document.body.prepend(dock);
+        }
+      }
+      return dock;
+    }
+    window.ensureOperatorDock = ensureOperatorDock;
+
+function loadState(){
       const res = await fetch("/api/state");
       state = await res.json();
       if(!state.ok){
@@ -8972,6 +9009,98 @@ function applyRTTransformV4(){
 
 
 
+
+
+  <!-- v27 MOBILE GUARANTEED FIX: clamp widths, kill horizontal overflow, and keep Operator separate -->
+  <style id="v27MobileGuaranteedFix">
+    @media (max-width: 560px){
+      html, body{ width:100%; max-width:100%; overflow-x:hidden; }
+      *, *::before, *::after{ box-sizing:border-box; }
+      #app, #root, #v15MobileRoot{ width:100% !important; max-width:100% !important; overflow-x:hidden !important; }
+      /* Never use 100vw on mobile; it causes right-side clipping with scrollbars/UA chrome */
+      .panel, .card, .dockCard, .seatCard, .seatPanel, .groupRepliesPanel{
+        width:100% !important;
+        max-width:100% !important;
+      }
+      #panelsWrap, #v15Dock{
+        width:100% !important;
+        max-width:100% !important;
+        padding-left:12px !important;
+        padding-right:12px !important;
+        margin-left:auto !important;
+        margin-right:auto !important;
+      }
+      /* Table stage stays centered and isolated */
+      #v15Stage{
+        width:100% !important;
+        max-width:100% !important;
+        padding-left:12px !important;
+        padding-right:12px !important;
+        overflow:hidden !important;
+      }
+      #tableWrap{
+        width:100% !important;
+        max-width:560px !important;
+        margin-left:auto !important;
+        margin-right:auto !important;
+      }
+      /* Add a real gap between table and operator */
+      #operatorDock{ width:100% !important; max-width:560px !important; margin:14px auto 0 auto !important; }
+      /* Prevent header buttons getting clipped */
+      .panelHeader{
+        display:flex !important;
+        align-items:center !important;
+        justify-content:space-between !important;
+        gap:10px !important;
+        flex-wrap:wrap !important;
+        padding-right:12px !important;
+      }
+      .panelHeader .panelTitle{ min-width: 0 !important; }
+      .panelHeader button, .panelHeader .pill{
+        max-width:100% !important;
+      }
+    }
+  </style>
+
+  <script>
+  (function(){
+    function isMobile(){ return window.matchMedia && window.matchMedia("(max-width: 560px)").matches; }
+
+    function clampOverflow(){
+      if(!isMobile()) return;
+      document.documentElement.style.overflowX = "hidden";
+      if(document.body) document.body.style.overflowX = "hidden";
+    }
+
+    function pinOperator(){
+      if(!isMobile()) return;
+      const dock = (window.ensureOperatorDock ? window.ensureOperatorDock() : document.getElementById("operatorDock"));
+      if(!dock) return;
+
+      const op = document.querySelector('.seat[data-name="Operator"]') || document.querySelector('[data-name="Operator"][data-role="Operator"]');
+      if(op && op.parentElement !== dock){
+        dock.appendChild(op);
+      }
+    }
+
+    function runV27(){
+      clampOverflow();
+      pinOperator();
+    }
+
+    document.addEventListener("DOMContentLoaded", runV27);
+    window.addEventListener("resize", runV27, {passive:true});
+    window.addEventListener("orientationchange", function(){ setTimeout(runV27, 120); }, {passive:true});
+    setTimeout(runV27, 50);
+    setTimeout(runV27, 300);
+
+    const mo = new MutationObserver(function(){
+      if(runV27._raf) cancelAnimationFrame(runV27._raf);
+      runV27._raf = requestAnimationFrame(runV27);
+    });
+    mo.observe(document.documentElement, {subtree:true, childList:true, attributes:true});
+  })();
+  </script>
 
 </body>
 </html>
