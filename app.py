@@ -9501,6 +9501,7 @@ ADD_TABLE_SPACER_V9 = r'''
   window.addEventListener('resize', ensureSpacer);
 })();
 </script>
+'''
 
 
 
@@ -9544,6 +9545,7 @@ ADD_TABLE_SPACER_V10 = r'''
   window.addEventListener('resize', ensureV10Spacer);
 })();
 </script>
+'''
 
 
 
