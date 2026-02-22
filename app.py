@@ -10892,3 +10892,204 @@ ADD_MOBILE_LAYOUT_V19 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v20: Guaranteed Mobile Fit Mode (scale + top docking + auto-wrap buttons) ===
+ADD_GUARANTEED_MOBILE_FIT_V20 = r'''
+<style>
+  /* v20: "Guaranteed Fit" mode on mobile webviews */
+  @media (max-width: 768px){
+    body.v20-fit{
+      overflow-x: hidden !important;
+    }
+
+    /* Scale the entire app slightly to eliminate 1–6px right-edge clipping in Messenger webviews */
+    body.v20-fit #v20FitWrap{
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      transform-origin: top center;
+      transform: scale(0.955);
+    }
+    /* Counter-scale the layout so it doesn't look too small */
+    body.v20-fit #v20FitWrap{
+      /* keep text crisp */
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* Ensure inner containers never exceed the scaled viewport */
+    body.v20-fit #v20FitWrap *{
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    /* Strong symmetric gutters (safe-area aware) */
+    body.v20-fit #v15Stage,
+    body.v20-fit #v15Dock,
+    body.v20-fit #v20TopDock{
+      padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+      padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+    }
+
+    /* Top dock sits above stage */
+    body.v20-fit #v20TopDock{
+      width: 100%;
+      max-width: 100%;
+      padding-top: 10px;
+      padding-bottom: 8px;
+    }
+
+    /* Make any header/toolbar rows wrap so right-side buttons never clip */
+    body.v20-fit .headerRow,
+    body.v20-fit .toolbar,
+    body.v20-fit .topRow,
+    body.v20-fit .bar{
+      flex-wrap: wrap !important;
+      max-width: 100% !important;
+    }
+
+    /* Force any button cluster to shrink instead of overflow */
+    body.v20-fit button,
+    body.v20-fit .btn,
+    body.v20-fit .btnMini{
+      min-width: 0 !important;
+      max-width: 100% !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+  function $(id){ return document.getElementById(id); }
+
+  function ensureFitWrap(){
+    const body = document.body;
+    if(!body) return null;
+
+    let wrap = $("v20FitWrap");
+    if(!wrap){
+      wrap = document.createElement("div");
+      wrap.id = "v20FitWrap";
+
+      // Move ALL body children except scripts/styles into wrap (additive, reversible)
+      const kids = Array.from(body.childNodes);
+      for(const n of kids){
+        if(!n || !n.nodeType) continue;
+        if(n.nodeType === 1){
+          const tag = (n.tagName || "").toLowerCase();
+          if(tag === "script" || tag === "style" || tag === "link") continue;
+        }
+        wrap.appendChild(n);
+      }
+      body.appendChild(wrap);
+    }
+    return wrap;
+  }
+
+  function findOperatorCard(){
+    // Try the canonical selector first
+    let op = document.querySelector('.seat[data-name="Operator"]');
+    if(op) return op;
+
+    // Fallback: find a seat/card that contains "Operator" and "Profile"
+    const candidates = Array.from(document.querySelectorAll(".seat, .card, .panel, .wrap"));
+    for(const el of candidates){
+      if(!el || !el.textContent) continue;
+      const t = el.textContent.replace(/\s+/g," ").trim();
+      if(t.includes("Operator") && t.includes("Profile")){
+        // Heuristic: it should also have a button labeled Profile
+        const btns = Array.from(el.querySelectorAll("button"));
+        if(btns.some(b => (b.textContent||"").trim() === "Profile")) return el;
+      }
+    }
+    return null;
+  }
+
+  function ensureTopDock(){
+    const wrap = $("v20FitWrap") || document.body;
+    let topDock = $("v20TopDock");
+    if(!topDock){
+      topDock = document.createElement("div");
+      topDock.id = "v20TopDock";
+      // Put at very top of fit wrap
+      wrap.insertBefore(topDock, wrap.firstChild);
+    }
+    return topDock;
+  }
+
+  function movePromptAndOperatorToTop(){
+    const topDock = ensureTopDock();
+
+    // Move the main group console/prompt panel into top dock if it exists
+    const groupConsole = $("groupConsole") || document.querySelector("#groupConsole, #groupConsoleCard, .groupConsole");
+    if(groupConsole && groupConsole.parentElement !== topDock){
+      topDock.appendChild(groupConsole);
+    }
+
+    // Move operator card under that console in the top dock
+    const op = findOperatorCard();
+    if(op && op.parentElement !== topDock){
+      topDock.appendChild(op);
+    }
+  }
+
+  function wrapOffendingButtonRows(){
+    // Force parents of "Refresh" / "Clear" buttons to wrap and stay within width
+    const btns = Array.from(document.querySelectorAll("button"));
+    for(const b of btns){
+      const label = (b.textContent || "").trim().toLowerCase();
+      if(label === "refresh" || label === "clear"){
+        const p = b.parentElement;
+        if(p){
+          try{
+            p.style.display = "flex";
+            p.style.flexWrap = "wrap";
+            p.style.maxWidth = "100%";
+            p.style.boxSizing = "border-box";
+            b.style.maxWidth = "100%";
+          }catch(_){}
+        }
+      }
+    }
+  }
+
+  function applyV20(){
+    if(!isMobile()) return;
+    document.body.classList.add("v20-fit");
+
+    // Ensure fit wrapper exists (guarantees scale applies to everything)
+    ensureFitWrap();
+
+    // Ensure v15 scaffold exists (from earlier patches)
+    // If not present, do nothing else
+    if(!$("v15Stage") || !$("v15Dock")){
+      // Still apply button wrapping for safety
+      wrapOffendingButtonRows();
+      return;
+    }
+
+    // Move prompt + operator above stage (guaranteed separation)
+    movePromptAndOperatorToTop();
+
+    // Extra safety: wrap button rows
+    wrapOffendingButtonRows();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV20);
+  window.addEventListener("resize", applyV20, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV20, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV20, {passive:true});
+  }
+
+  // Retries for async renders
+  setTimeout(applyV20, 150);
+  setTimeout(applyV20, 400);
+  setTimeout(applyV20, 900);
+  setTimeout(applyV20, 1600);
+})();
+</script>
+'''
