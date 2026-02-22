@@ -3177,13 +3177,6 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
-
-  /* v11: Perfect separation between round table and teammate cards (prevents rim touching first card) */
-  #tableWrap, #rtStage, #tableViewport { padding-bottom: 28px; }
-  @media (max-width: 768px){
-    #tableWrap, #rtStage, #tableViewport { padding-bottom: 36px; }
-  }
-
 </style>
 """
 
@@ -9509,4 +9502,224 @@ ADD_TABLE_SPACER_V9 = r'''
 })();
 </script>
 
+
+
+# === Additive Patch v10: Stronger table-to-cards separation on mobile ===
+ADD_TABLE_SPACER_V10 = r'''
+<style>
+  @media (max-width: 768px){
+    #tableWrap, #rtStage { margin-bottom: 34px !important; }
+    #v10TableSpacer { height: 26px !important; }
+  }
+  @media (min-width: 769px){
+    #v10TableSpacer { height: 14px !important; }
+  }
+</style>
+<script>
+(function(){
+  function ensureV10Spacer(){
+    const table = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage');
+    if(!table) return;
+
+    let spacer = document.getElementById('v10TableSpacer');
+    const isMobile = window.innerWidth <= 768;
+    const h = isMobile ? 26 : 14;
+
+    if(!spacer){
+      spacer = document.createElement('div');
+      spacer.id = 'v10TableSpacer';
+      spacer.style.pointerEvents = 'none';
+      spacer.style.width = '100%';
+      spacer.style.height = h + 'px';
+
+      // Choose a stable anchor: if tableWrap exists, space after it; else after tableViewport; else after rtStage.
+      const anchor = document.getElementById('tableWrap') || document.getElementById('tableViewport') || document.getElementById('rtStage') || table;
+      anchor.insertAdjacentElement('afterend', spacer);
+    }else{
+      spacer.style.height = h + 'px';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', ensureV10Spacer);
+  window.addEventListener('resize', ensureV10Spacer);
+})();
+</script>
+
+
+
+# === Additive Patch v11: Task Modes on teammate cards (Pressure test, Scalability, Risk, Optimize, Failure sim) ===
+ADD_TASK_MODES_V11 = r'''
+<style>
+  .seatTaskRow{
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .seatTaskBtn{
+    border:1px solid rgba(214,176,92,0.35);
+    background: linear-gradient(180deg, rgba(18,24,48,0.72), rgba(10,14,26,0.72));
+    color:#e6edff;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:12px;
+    line-height:1;
+    cursor:pointer;
+    box-shadow: 0 0 0 1px rgba(214,176,92,0.18) inset, 0 10px 24px rgba(0,0,0,0.35);
+    user-select:none;
+  }
+  .seatTaskBtn:hover{
+    border-color: rgba(214,176,92,0.55);
+    box-shadow: 0 0 0 1px rgba(214,176,92,0.28) inset, 0 0 18px rgba(214,176,92,0.10), 0 10px 24px rgba(0,0,0,0.38);
+  }
+  .seatTaskBtn:active{ transform: translateY(1px); }
+  .seatTaskBtn.small{ padding:5px 9px; font-size:11.5px; }
+
+  /* Keep row from pushing seat size on small screens: allow scroll within seat */
+  .seat .seatTaskRow { max-width: 100%; }
+</style>
+
+<script>
+(function(){
+  const TASKS = [
+    {key:"pressure", label:"Pressure test", title:"Stress-test the idea. Find weak points, assumptions, counterarguments."},
+    {key:"scale", label:"Scalability rank", title:"Rate scalability and explain what limits scale and how to remove constraints."},
+    {key:"risk", label:"Risk assessment", title:"Identify risks: execution, financial, reputational, dependencies, failure points."},
+    {key:"optimize", label:"Optimization", title:"Improve the idea: simplify, strengthen positioning, increase ROI, reduce friction."},
+    {key:"failure", label:"Failure simulator", title:"Simulate how this fails in the real world. Pre-mortem and mitigation plan."},
+  ];
+
+  function $(id){ return document.getElementById(id); }
+  function qa(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
+
+  function getIdeaText(){
+    // Prefer current input fields
+    const follow = $("followMsg");
+    const op = $("opPrompt");
+    const active = (follow && follow.value && follow.value.trim()) ? follow : ((op && op.value && op.value.trim()) ? op : null);
+    const text = active ? active.value.trim() : "";
+    return text;
+  }
+
+  function buildPrompt(taskKey, idea){
+    const baseIdea = (idea && idea.trim()) ? idea.trim() : "[Paste the idea here]";
+    switch(taskKey){
+      case "pressure":
+        return `Pressure test this idea hard.\n\nIdea:\n${baseIdea}\n\nOutput format:\n1) Core assumptions\n2) Strongest objections\n3) Where it breaks in real life\n4) What to change to survive the pressure\n5) 2 alternative approaches that solve the same problem better`;
+      case "scale":
+        return `Rank the scalability of this idea from 1-10 and explain why.\n\nIdea:\n${baseIdea}\n\nOutput format:\n1) Scalability score (1-10)\n2) The bottleneck (what stops scale)\n3) The constraint map (time, people, capital, systems)\n4) How to redesign it to scale\n5) Next 3 actions to increase scalability`;
+      case "risk":
+        return `Do a risk assessment on this idea.\n\nIdea:\n${baseIdea}\n\nOutput format:\n1) Top 5 risks (ranked)\n2) Likelihood + impact for each\n3) Early warning signals\n4) Mitigation plan\n5) A safer version of the same idea`;
+      case "optimize":
+        return `Optimize this idea for simplicity, speed to results, and profitability.\n\nIdea:\n${baseIdea}\n\nOutput format:\n1) What to remove\n2) What to add\n3) What to change\n4) Stronger positioning in one sentence\n5) Fastest path to first measurable win`;
+      case "failure":
+        return `Run a failure simulation (pre-mortem) on this idea.\n\nIdea:\n${baseIdea}\n\nOutput format:\n1) 10 ways this fails\n2) The 3 most likely failure paths\n3) The earliest point where it goes wrong\n4) The prevention checklist\n5) The recovery plan if it starts failing`;
+      default:
+        return `Analyze this idea.\n\nIdea:\n${baseIdea}`;
+    }
+  }
+
+  function sendToTeammate(name, taskKey){
+    const idea = getIdeaText();
+    const prompt = buildPrompt(taskKey, idea);
+
+    // Ensure correct seat selected
+    try{
+      if(typeof window.selectSeat === "function") window.selectSeat(name);
+      else window.selectedSeat = name;
+    }catch(_){}
+
+    const box = $("followMsg");
+    if(box){
+      box.value = prompt;
+      try{ box.focus(); }catch(_){}
+    }
+
+    // Fire send if possible
+    const sendBtn = $("sendFollow");
+    if(sendBtn){
+      try{ sendBtn.click(); }catch(_){}
+    }
+  }
+
+  function sendToAll(taskKey){
+    const idea = getIdeaText();
+    const prompt = buildPrompt(taskKey, idea);
+
+    const box = $("opPrompt");
+    if(box){
+      box.value = prompt;
+      try{ box.focus(); }catch(_){}
+    }
+
+    // Use existing assemble handler
+    const btn = $("assembleBtn") || $("assembleBtn2");
+    if(btn){
+      try{ btn.click(); }catch(_){}
+    }else{
+      // Fallback: call conveneAll if globally reachable
+      try{ if(typeof window.conveneAll === "function") window.conveneAll(); }catch(_){}
+    }
+  }
+
+  function decorateSeat(seatEl){
+    if(!seatEl || seatEl.__taskDecorated) return;
+    const name = seatEl.dataset && seatEl.dataset.name ? seatEl.dataset.name : "";
+    if(!name) return;
+
+    // Put task row near meta so it behaves like "on the card"
+    const meta = seatEl.querySelector(".seatMeta") || seatEl.querySelector(".seatName") || null;
+    if(!meta) return;
+
+    const row = document.createElement("div");
+    row.className = "seatTaskRow";
+    row.setAttribute("aria-label", "Task modes");
+
+    TASKS.forEach(t => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "seatTaskBtn";
+      b.textContent = t.label;
+      b.title = t.title;
+
+      // prevent dragging the seat when tapping the task buttons
+      b.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
+      b.addEventListener("touchstart", (e) => { e.preventDefault(); e.stopPropagation(); }, {passive:false});
+      b.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation();
+
+        // Operator seat runs group task; teammate seat runs individual task
+        if(name === "Operator"){
+          sendToAll(t.key);
+        }else{
+          sendToTeammate(name, t.key);
+        }
+      });
+
+      row.appendChild(b);
+    });
+
+    meta.insertAdjacentElement("afterend", row);
+    seatEl.__taskDecorated = true;
+  }
+
+  function decorateAllSeats(){
+    const wrap = $("tableWrap");
+    if(!wrap) return;
+    qa(".seat", wrap).forEach(decorateSeat);
+  }
+
+  // Observe seat creation so it works after renderTable updates
+  document.addEventListener("DOMContentLoaded", function(){
+    decorateAllSeats();
+
+    const wrap = $("tableWrap");
+    if(!wrap) return;
+
+    const mo = new MutationObserver(() => decorateAllSeats());
+    mo.observe(wrap, {childList:true, subtree:true});
+  });
+})();
+</script>
 '''
