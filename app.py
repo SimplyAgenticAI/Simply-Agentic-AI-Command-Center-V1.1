@@ -4757,6 +4757,102 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   border-color: rgba(247,211,106,.35) !important;
 }
 </style>
+
+<style id="v26-fit-guard">
+  :root{ --edgePad: max(12px, env(safe-area-inset-left)); --edgePadR: max(12px, env(safe-area-inset-right)); }
+  html, body { width:100%; overflow-x:hidden; }
+  *, *::before, *::after { box-sizing: border-box; }
+  /* Clamp all primary panels/cards to viewport */
+  .operator, .groupReplies, .seatSelect, .emailConsole, .card, .panel, .glass, .dockCard, .seatCard, .teammateCard {
+    max-width: calc(100vw - (var(--edgePad) + var(--edgePadR)));
+    margin-left: auto;
+    margin-right: auto;
+  }
+  /* Ensure header action buttons never push outside */
+  .sectionHeader, .panelHeader, .cardHeader, .rowHeader {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .sectionHeader > *, .panelHeader > *, .cardHeader > *, .rowHeader > * { max-width:100%; }
+  button { max-width: 100%; }
+  /* Add guaranteed breathing room between table and panels below */
+  #rtStage { margin-bottom: 14px !important; }
+  #tableWrap { padding-bottom: 14px !important; }
+  /* Mobile tightening */
+  @media (max-width: 820px){
+    .topbar, .topBar, #topbar { max-width:100vw; flex-wrap: wrap; }
+    .topbarRight, .rightmeta, .rightMeta { flex-wrap: wrap; justify-content:flex-end; }
+    /* Panels wrap padding to prevent right cutoffs */
+    #panelsWrap { padding-left: var(--edgePad); padding-right: var(--edgePadR); }
+  }
+</style>
+<script id="v26-detach-panels">
+(function(){
+  function isMobile(){
+    return window.matchMedia && window.matchMedia("(max-width: 820px)").matches;
+  }
+  function detachPanelsFromTableWrap(){
+    const tableWrap = document.getElementById("tableWrap");
+    if(!tableWrap) return;
+    if(tableWrap.dataset.detached === "1") return;
+    const shell = tableWrap.parentElement;
+    if(!shell) return;
+
+    // Create panels wrap and move all existing children out of tableWrap.
+    const panelsWrap = document.createElement("div");
+    panelsWrap.id = "panelsWrap";
+    panelsWrap.className = "panelsWrap";
+
+    while(tableWrap.firstChild){
+      panelsWrap.appendChild(tableWrap.firstChild);
+    }
+
+    // Insert panels right after the stage container.
+    if(tableWrap.nextSibling){
+      shell.insertBefore(panelsWrap, tableWrap.nextSibling);
+    }else{
+      shell.appendChild(panelsWrap);
+    }
+
+    tableWrap.dataset.detached = "1";
+  }
+
+  function hardClampOverflow(){
+    // If anything still exceeds viewport, clamp it.
+    const vw = document.documentElement.clientWidth || window.innerWidth;
+    if(!vw) return;
+    document.documentElement.style.overflowX = "hidden";
+    document.body.style.overflowX = "hidden";
+
+    const candidates = document.querySelectorAll(".operator, .groupReplies, .seatSelect, .emailConsole, .card, .panel, .glass");
+    candidates.forEach(el=>{
+      el.style.maxWidth = `calc(100vw - (var(--edgePad) + var(--edgePadR)))`;
+      el.style.marginLeft = "auto";
+      el.style.marginRight = "auto";
+    });
+
+    // Guard against accidental x-scroll from any absolute element.
+    if(document.documentElement.scrollWidth > vw){
+      document.body.classList.add("forceFitX");
+    }
+  }
+
+  window.addEventListener("DOMContentLoaded", ()=>{
+    // Detach always on mobile to stop stage dragging from moving panels/cards.
+    if(isMobile()){
+      detachPanelsFromTableWrap();
+      // run twice in case other scripts inject content synchronously after load
+      setTimeout(detachPanelsFromTableWrap, 0);
+      setTimeout(hardClampOverflow, 50);
+      window.addEventListener("resize", hardClampOverflow);
+    }
+  });
+})();
+</script>
+
 </head>
 <body>
   <div class="topbar">
@@ -8711,6 +8807,36 @@ function applyRTTransformV4(){
     const wrap = document.getElementById("tableWrap");
     if(!wrap) return;
 
+    // v26: Detach panels/cards from #tableWrap on mobile BEFORE inserting the RT stage,
+    // so dragging the stage never moves the cards and spacing stays clean.
+    (function(){
+      try{
+        const isMobile = window.matchMedia && window.matchMedia("(max-width: 820px)").matches;
+        if(!isMobile) return;
+        const tableWrap = document.getElementById("tableWrap");
+        if(!tableWrap || tableWrap.dataset.detached === "1") return;
+        const shell = tableWrap.parentElement;
+        if(!shell) return;
+
+        const panelsWrap = document.createElement("div");
+        panelsWrap.id = "panelsWrap";
+        panelsWrap.className = "panelsWrap";
+
+        // Move existing children (panels/cards) out of tableWrap.
+        while(tableWrap.firstChild){
+          panelsWrap.appendChild(tableWrap.firstChild);
+        }
+
+        if(tableWrap.nextSibling){
+          shell.insertBefore(panelsWrap, tableWrap.nextSibling);
+        }else{
+          shell.appendChild(panelsWrap);
+        }
+
+        tableWrap.dataset.detached = "1";
+      }catch(e){}
+    })();
+
     ensureRTStageV4();
 
     // Ensure operator stays clickable and above stage
@@ -11640,6 +11766,141 @@ ADD_MOBILE_TRUE_SPLIT_V24 = r'''
   setTimeout(applyV24, 150);
   setTimeout(applyV24, 600);
   setTimeout(applyV24, 1200);
+})();
+</script>
+'''
+
+
+
+# === Additive Patch v25: Mobile Edge-Guard (guarantees no right-side clipping) + extra stage-to-dock gap ===
+ADD_MOBILE_EDGE_GUARD_V25 = r'''
+<style>
+  @media (max-width: 768px){
+    html, body{
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow-x: hidden !important;
+    }
+    *, *::before, *::after{ box-sizing: border-box !important; }
+
+    /* Ensure there's always a visible gap between the table stage and the dock/cards */
+    #v24StageHost{ margin-bottom: 18px !important; }
+
+    /* Edge-guard host: only dock moves if needed, never the table stage */
+    #v24DockHost{
+      will-change: transform !important;
+      transform: translateX(var(--dockEdgeNudge, 0px)) !important;
+    }
+
+    /* Make action buttons never demand extra width */
+    #refreshThread, .btn, button{
+      max-width: 100% !important;
+    }
+    .sideHead, .grpHead{
+      flex-wrap: wrap !important;
+      gap: 8px !important;
+      min-width: 0 !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+  function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+  function q(id){ return document.getElementById(id); }
+
+  // Measure the rightmost/leftmost bounds of key dock UI and nudge dock back into view.
+  function applyDockEdgeGuard(){
+    if(!isMobile()) return;
+
+    const dockHost = q("v24DockHost") || q("v15Dock");
+    if(!dockHost) return;
+
+    const vw = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 360);
+    const padding = 8; // desired safe gutter inside viewport
+
+    // Candidates that commonly get clipped
+    const candidates = [
+      q("refreshThread"),
+      ...Array.from(document.querySelectorAll(".grpHead, .sideHead, .card, .panel, .dockCard")).slice(0, 80)
+    ].filter(Boolean);
+
+    // If no candidates, still ensure dock isn't shifted
+    if(!candidates.length){
+      dockHost.style.setProperty("--dockEdgeNudge", "0px");
+      return;
+    }
+
+    let minLeft = Infinity;
+    let maxRight = -Infinity;
+
+    for(const el of candidates){
+      const r = el.getBoundingClientRect();
+      if(!isFinite(r.left) || !isFinite(r.right)) continue;
+      minLeft = Math.min(minLeft, r.left);
+      maxRight = Math.max(maxRight, r.right);
+    }
+
+    if(!isFinite(minLeft) || !isFinite(maxRight)){
+      dockHost.style.setProperty("--dockEdgeNudge", "0px");
+      return;
+    }
+
+    // If anything is outside viewport, compute a nudge to bring it back inside.
+    let nudge = 0;
+
+    if(maxRight > (vw - padding)){
+      nudge -= (maxRight - (vw - padding));
+    }
+    if(minLeft < padding){
+      nudge += (padding - minLeft);
+    }
+
+    // Clamp to avoid wild jumps; 0..±64px is plenty for these issues.
+    nudge = clamp(Math.round(nudge), -64, 64);
+
+    dockHost.style.setProperty("--dockEdgeNudge", nudge + "px");
+  }
+
+  function applyGlobalOverflowGuard(){
+    if(!isMobile()) return;
+    // If something forces scrollWidth wider than viewport, hard-hide overflow
+    const sw = Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0);
+    const vw = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 360);
+    if(sw > vw + 1){
+      document.documentElement.style.overflowX = "hidden";
+      if(document.body) document.body.style.overflowX = "hidden";
+    }
+  }
+
+  function applyV25(){
+    applyGlobalOverflowGuard();
+    applyDockEdgeGuard();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV25);
+  window.addEventListener("resize", applyV25, {passive:true});
+  window.addEventListener("orientationchange", function(){ setTimeout(applyV25, 120); }, {passive:true});
+
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV25, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV25, {passive:true});
+  }
+
+  // Run a few times after load and after UI updates
+  setTimeout(applyV25, 120);
+  setTimeout(applyV25, 350);
+  setTimeout(applyV25, 800);
+  setTimeout(applyV25, 1400);
+
+  // Mutation observer: any time the dock changes, re-apply edge guard.
+  const mo = new MutationObserver(function(){
+    // small debounce
+    if(applyV25._t) cancelAnimationFrame(applyV25._t);
+    applyV25._t = requestAnimationFrame(applyV25);
+  });
+  mo.observe(document.documentElement, {subtree:true, childList:true, attributes:true});
 })();
 </script>
 '''
