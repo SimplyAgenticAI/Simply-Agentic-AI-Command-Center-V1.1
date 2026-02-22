@@ -10135,3 +10135,174 @@ ADD_MOBILE_REMIX_V14 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v15: Mobile Remaster Hard-Apply + Fit-to-Viewport (works across webviews) ===
+ADD_MOBILE_HARD_APPLY_V15 = r'''
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { width: 100%; max-width: 100%; overflow-x: hidden !important; }
+  body { margin: 0; padding: 0; }
+
+  body.v15-mobile #v15MobileRoot{ width: 100%; max-width: 100%; margin: 0 auto; }
+  body.v15-mobile #v15Stage{ width: 100%; max-width: 100%; padding: 12px 12px 0 12px; overflow: hidden; }
+  body.v15-mobile #v15StageInner{ width: 100%; max-width: 100%; margin: 0 auto; position: relative; }
+  body.v15-mobile #v15Dock{ width: 100%; max-width: 100%; padding: 14px 12px 96px 12px; box-sizing: border-box; }
+  body.v15-mobile #v15Gap{ height: 18px; width: 100%; pointer-events: none; }
+
+  body.v15-mobile #v15Dock .card,
+  body.v15-mobile #v15Dock .panel,
+  body.v15-mobile #v15Dock .wrap,
+  body.v15-mobile #v15Dock #groupReplies,
+  body.v15-mobile #v15Dock #threadWrap,
+  body.v15-mobile #v15Dock #emailConsole,
+  body.v15-mobile #v15Dock #groupConsole{
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  body.v15-mobile #v15Stage .fitTable{
+    transform-origin: 50% 0%;
+    will-change: transform;
+  }
+
+  body.v15-mobile::after{
+    content: "v15";
+    position: fixed;
+    left: -9999px;
+    top: -9999px;
+  }
+</style>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function ensureScaffold(){
+    let root = $("v15MobileRoot");
+    if(!root){ root = document.createElement("div"); root.id = "v15MobileRoot"; }
+
+    let stage = $("v15Stage");
+    if(!stage){ stage = document.createElement("div"); stage.id = "v15Stage"; }
+
+    let stageInner = $("v15StageInner");
+    if(!stageInner){ stageInner = document.createElement("div"); stageInner.id = "v15StageInner"; }
+
+    let gap = $("v15Gap");
+    if(!gap){ gap = document.createElement("div"); gap.id = "v15Gap"; }
+
+    let dock = $("v15Dock");
+    if(!dock){ dock = document.createElement("div"); dock.id = "v15Dock"; }
+
+    if(stageInner.parentElement !== stage) stage.appendChild(stageInner);
+    if(root.firstChild !== stage) root.appendChild(stage);
+    if(gap.parentElement !== root) root.appendChild(gap);
+    if(dock.parentElement !== root) root.appendChild(dock);
+
+    const body = document.body;
+    if(!body) return null;
+
+    const bottomNav = $("bottomNav") || $("bottomBar") || $("navBar") || document.querySelector(".bottomNav, .bottomBar, .navBar");
+    if(root.parentElement !== body){
+      if(bottomNav && bottomNav.parentElement === body) body.insertBefore(root, bottomNav);
+      else body.insertBefore(root, body.firstChild);
+    }
+    return {root, stage, stageInner, gap, dock, bottomNav};
+  }
+
+  function moveKnownPanels(dock, bottomNav){
+    const ids = ["groupReplies","threadWrap","groupConsole","emailConsole","settingsPanel","settingsForm"];
+    ids.forEach(id => {
+      const el = $(id);
+      if(el && el.parentElement !== dock) dock.appendChild(el);
+    });
+
+    const seatDock = $("v12SeatListDock");
+    if(seatDock && seatDock.parentElement !== dock){
+      dock.insertBefore(seatDock, dock.firstChild);
+    }
+
+    const body = document.body;
+    if(!body) return;
+    const children = Array.from(body.children);
+    for(const ch of children){
+      if(!ch || ch === bottomNav) continue;
+      if(ch.id === "v15MobileRoot") continue;
+      const tag = (ch.tagName||"").toLowerCase();
+      if(tag === "script" || tag === "style" || tag === "link") continue;
+
+      const looks = ch.classList && (ch.classList.contains("panel") || ch.classList.contains("card") || ch.classList.contains("wrap"));
+      const hasKnown = ch.querySelector && ch.querySelector("#groupReplies,#threadWrap,#groupConsole,#emailConsole,#settingsPanel,#settingsForm");
+      if((looks || hasKnown) && ch.parentElement === body){
+        dock.appendChild(ch);
+      }
+    }
+  }
+
+  function moveTableIntoStage(stageInner){
+    const tableWrap = $("tableWrap");
+    const tableViewport = $("tableViewport");
+    const rtStage = $("rtStage");
+    const moveEl = tableWrap || tableViewport;
+    if(moveEl && moveEl.parentElement !== stageInner) stageInner.appendChild(moveEl);
+
+    if(rtStage) rtStage.classList.add("fitTable");
+    else if(moveEl) moveEl.classList.add("fitTable");
+  }
+
+  function setStageHeight(stage){
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    const target = Math.max(360, Math.min(560, Math.floor(h * 0.48)));
+    stage.style.height = target + "px";
+  }
+
+  function fitTableToStage(stageInner){
+    const rt = $("rtStage") || stageInner.querySelector("#rtStage") || null;
+    const el = rt || stageInner.querySelector("#tableWrap, #tableViewport") || null;
+    if(!el) return;
+
+    el.style.transform = "";
+    const stageW = stageInner.clientWidth || window.innerWidth;
+    const rect = el.getBoundingClientRect();
+    const contentW = rect.width || stageW;
+    const scale = Math.min(1, stageW / contentW);
+    el.style.transformOrigin = "50% 0%";
+    el.style.transform = "translateZ(0) scale(" + scale.toFixed(4) + ")";
+  }
+
+  function applyV15(){
+    if(!isMobile()) return;
+    const body = document.body;
+    if(!body) return;
+
+    const sc = ensureScaffold();
+    if(!sc) return;
+
+    body.classList.add("v15-mobile");
+    moveTableIntoStage(sc.stageInner);
+    setStageHeight(sc.stage);
+    moveKnownPanels(sc.dock, sc.bottomNav);
+
+    requestAnimationFrame(() => fitTableToStage(sc.stageInner));
+    setTimeout(() => fitTableToStage(sc.stageInner), 250);
+    setTimeout(() => fitTableToStage(sc.stageInner), 900);
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV15);
+  window.addEventListener("resize", applyV15, {passive:true});
+
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV15, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV15, {passive:true});
+  }
+
+  setTimeout(applyV15, 200);
+  setTimeout(applyV15, 800);
+})();
+</script>
+'''
