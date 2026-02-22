@@ -11419,3 +11419,227 @@ ADD_MOBILE_OBSERVER_DOCK_V22 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v23: Seat header wrap fix for Refresh + remove any accidental dock translate on mobile ===
+ADD_MOBILE_SEAT_REFRESH_WRAP_V23 = r'''
+<style>
+  @media (max-width: 768px){
+    /* Ensure the "Select a seat" header row can wrap so Refresh never clips */
+    .sideHead{
+      flex-wrap: wrap !important;
+      align-items: flex-start !important;
+    }
+    .sideTitle{
+      flex: 1 1 240px !important;
+      min-width: 0 !important;
+    }
+    #refreshThread{
+      flex: 0 0 auto !important;
+      margin-left: auto !important;
+      max-width: 100% !important;
+      white-space: nowrap !important;
+    }
+
+    /* If our v22 recenter translate ever pushes things, hard-disable transforms on the dock */
+    #v15Dock{
+      transform: none !important;
+    }
+
+    /* Add symmetric inner gutter so right edge has breathing room */
+    #v15Dock{
+      padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+      padding-left:  calc(16px + env(safe-area-inset-left, 0px)) !important;
+      box-sizing: border-box !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+
+  function forceSeatHeaderWrap(){
+    if(!isMobile()) return;
+    const head = document.querySelector(".sideHead");
+    const btn  = document.getElementById("refreshThread");
+    if(head){
+      head.style.flexWrap = "wrap";
+      head.style.alignItems = "flex-start";
+      head.style.maxWidth = "100%";
+      head.style.boxSizing = "border-box";
+    }
+    if(btn){
+      btn.style.maxWidth = "100%";
+      btn.style.whiteSpace = "nowrap";
+      btn.style.marginLeft = "auto";
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", forceSeatHeaderWrap);
+  window.addEventListener("resize", forceSeatHeaderWrap, {passive:true});
+  setTimeout(forceSeatHeaderWrap, 200);
+  setTimeout(forceSeatHeaderWrap, 700);
+})();
+</script>
+'''
+
+
+
+# === Additive Patch v24: True Stage/Dock Split on Mobile + Viewport Meta Guard ===
+ADD_MOBILE_TRUE_SPLIT_V24 = r'''
+<style>
+  @media (max-width: 768px){
+    /* Ensure padding never causes overflow */
+    #v24DockHost, #v24StageHost, #v15Dock, #v15Stage{
+      box-sizing: border-box !important;
+      max-width: 100% !important;
+      width: 100% !important;
+      overflow-x: hidden !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+
+    /* The dock MUST never inherit transforms from any pan/zoom layer */
+    #v24DockHost, #v15Dock{
+      transform: none !important;
+      position: relative !important;
+      left: auto !important;
+      right: auto !important;
+    }
+
+    /* Stage host provides breathing room so table never touches dock */
+    #v24StageHost{
+      padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+      padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+      padding-bottom: 26px !important;
+    }
+
+    /* Scale the table down slightly so it fits all devices cleanly */
+    #v24StageHost #v15Stage .fitTable{
+      transform-origin: 50% 0% !important;
+      transform: scale(0.88) !important;
+    }
+
+    /* Dock host: symmetric gutter */
+    #v24DockHost{
+      padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+      padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+      padding-bottom: 14px !important;
+    }
+
+    /* Prevent any header row from forcing overflow */
+    #v24DockHost .sideHead{
+      flex-wrap: wrap !important;
+      gap: 8px !important;
+    }
+    #v24DockHost #refreshThread{
+      margin-left: auto !important;
+      max-width: 100% !important;
+    }
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+  function $(id){ return document.getElementById(id); }
+
+  function ensureViewportMeta(){
+    // Some Android webviews misbehave if viewport meta is missing or altered.
+    let m = document.querySelector('meta[name="viewport"]');
+    const content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+    if(!m){
+      m = document.createElement('meta');
+      m.name = 'viewport';
+      m.content = content;
+      document.head.appendChild(m);
+    }else{
+      // Do not over-aggressively set max-scale; keep it sane.
+      if(!m.content || m.content.indexOf('width=device-width') === -1){
+        m.content = content;
+      }
+      if(m.content.indexOf('viewport-fit=cover') === -1){
+        m.content = m.content + ', viewport-fit=cover';
+      }
+    }
+  }
+
+  function trueSplit(){
+    if(!isMobile()) return;
+
+    const stage = $("v15Stage");
+    const dock  = $("v15Dock");
+
+    if(!stage || !dock) return;
+
+    // Create hosts once
+    let stageHost = $("v24StageHost");
+    let dockHost  = $("v24DockHost");
+
+    if(!stageHost){
+      stageHost = document.createElement("div");
+      stageHost.id = "v24StageHost";
+      stageHost.style.width = "100%";
+      stageHost.style.maxWidth = "100%";
+      stageHost.style.boxSizing = "border-box";
+    }
+    if(!dockHost){
+      dockHost = document.createElement("div");
+      dockHost.id = "v24DockHost";
+      dockHost.style.width = "100%";
+      dockHost.style.maxWidth = "100%";
+      dockHost.style.boxSizing = "border-box";
+    }
+
+    // Identify the "mobile root" container that currently holds stage + dock
+    const root = $("v15MobileRoot") || stage.parentElement;
+
+    // Insert hosts in correct order (stage first, dock second)
+    if(root && stageHost.parentElement !== root){
+      root.insertBefore(stageHost, stage);
+    }
+    if(root && dockHost.parentElement !== root){
+      // Dock host should live after stage host (and after stage)
+      if(stage.nextSibling){
+        root.insertBefore(dockHost, stage.nextSibling);
+      }else{
+        root.appendChild(dockHost);
+      }
+    }
+
+    // Move elements into their hosts (this is the key: prevents shared transforms)
+    if(stage.parentElement !== stageHost) stageHost.appendChild(stage);
+    if(dock.parentElement !== dockHost) dockHost.appendChild(dock);
+
+    // Hard reset any transform that might be applied to dock or ancestors
+    dock.style.transform = "none";
+    dock.style.left = "auto";
+    dock.style.right = "auto";
+    dock.style.marginLeft = "auto";
+    dock.style.marginRight = "auto";
+    dock.style.maxWidth = "100%";
+    dock.style.width = "100%";
+    dock.style.boxSizing = "border-box";
+  }
+
+  function applyV24(){
+    ensureViewportMeta();
+    trueSplit();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV24);
+  window.addEventListener("resize", applyV24, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV24, {passive:true});
+  }
+
+  setTimeout(applyV24, 150);
+  setTimeout(applyV24, 600);
+  setTimeout(applyV24, 1200);
+})();
+</script>
+'''
