@@ -10306,3 +10306,99 @@ ADD_MOBILE_HARD_APPLY_V15 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v16: Mobile right-edge cut-off hard fix (safe-area + gutter clamp + overflow audit) ===
+ADD_MOBILE_EDGE_CLAMP_V16 = r'''
+<style>
+  /* v16: hard clamp any horizontal overflow and force symmetric gutters */
+  html, body { overflow-x: hidden !important; }
+  body.v15-mobile{
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Use safe-area insets for iOS and in-app browsers */
+  body.v15-mobile #v15MobileRoot,
+  body.v15-mobile #v15Stage,
+  body.v15-mobile #v15Dock{
+    padding-left: calc(12px + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(12px + env(safe-area-inset-right, 0px)) !important;
+    box-sizing: border-box !important;
+  }
+
+  /* v16: clamp any panel/card width to the inner safe width and center it */
+  body.v15-mobile #v15Dock .card,
+  body.v15-mobile #v15Dock .panel,
+  body.v15-mobile #v15Dock .wrap,
+  body.v15-mobile #v15Dock .console,
+  body.v15-mobile #v15Dock #groupReplies,
+  body.v15-mobile #v15Dock #threadWrap,
+  body.v15-mobile #v15Dock #emailConsole,
+  body.v15-mobile #v15Dock #groupConsole,
+  body.v15-mobile #v15Dock #settingsForm{
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+    overflow: hidden !important; /* prevent internal right-edge bleed */
+  }
+
+  /* v16: any buttons inside headers get allowed to shrink instead of pushing layout */
+  body.v15-mobile #v15Dock .panel *,
+  body.v15-mobile #v15Dock .card *{
+    max-width: 100%;
+  }
+  body.v15-mobile #v15Dock button,
+  body.v15-mobile #v15Dock .btn,
+  body.v15-mobile #v15Dock .btnMini{
+    min-width: 0 !important;
+  }
+
+  /* v16: if a header row uses flex, allow wrapping and shrink */
+  body.v15-mobile #v15Dock .headerRow,
+  body.v15-mobile #v15Dock .topRow,
+  body.v15-mobile #v15Dock .toolbar,
+  body.v15-mobile #v15Dock .bar{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* v16: stage inner also gets safe-area padding so the table can't push right */
+  body.v15-mobile #v15StageInner{
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    overflow: hidden !important;
+  }
+</style>
+
+<script>
+(function(){
+  // v16: optional overflow audit - adds a tiny red outline to elements wider than viewport (disabled by default)
+  // Enable by setting localStorage.v16OverflowAudit="1" in the console
+  function runAudit(){
+    try{
+      if(localStorage.getItem("v16OverflowAudit") !== "1") return;
+      const vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+      const all = Array.from(document.querySelectorAll("body *"));
+      for(const el of all){
+        const r = el.getBoundingClientRect();
+        if(r.width > vw + 2){
+          el.style.outline = "1px solid rgba(255,0,0,0.65)";
+        }
+      }
+    }catch(_){}
+  }
+  document.addEventListener("DOMContentLoaded", runAudit);
+  window.addEventListener("resize", runAudit, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", runAudit, {passive:true});
+  }
+})();
+</script>
+'''
