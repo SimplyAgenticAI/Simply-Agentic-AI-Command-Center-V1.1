@@ -10557,3 +10557,188 @@ ADD_OPERATOR_DOCK_V17 = r'''
 })();
 </script>
 '''
+
+
+
+# === Additive Patch v18: Robust Operator relocation under MAIN prompt + stronger gap + final right-edge clamp ===
+ADD_MOBILE_OPERATOR_FIX_V18 = r'''
+<style>
+  /* v18: stronger stage-to-dock separation on mobile */
+  @media (max-width: 768px){
+    body.v15-mobile #v15Gap{ height: 28px !important; }
+  }
+
+  /* v18: hard symmetric gutters (extra 4px) */
+  body.v15-mobile #v15Stage,
+  body.v15-mobile #v15Dock{
+    padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+  }
+
+  /* v18: operator dock sits under prompt and is never clipped */
+  #v18OperatorDock{
+    width: 100%;
+    max-width: 100%;
+    margin: 10px auto 14px auto;
+    overflow: visible;
+  }
+
+  /* v18: prevent any panel/card from nudging right via translate or left offsets */
+  body.v15-mobile #v15Dock .panel,
+  body.v15-mobile #v15Dock .card,
+  body.v15-mobile #v15Dock .wrap{
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+  }
+</style>
+
+<script>
+(function(){
+  function isMobile(){ return window.innerWidth <= 768; }
+  function $(id){ return document.getElementById(id); }
+
+  function findMainPrompt(){
+    // Try known ids first
+    const ids = ["opPrompt","mainPrompt","prompt","groupPrompt","cmdPrompt","commandPrompt"];
+    for(const id of ids){
+      const el = $(id);
+      if(el) return el;
+    }
+    // Fallback: find the largest visible textarea near top that looks like the main command box
+    const t = Array.from(document.querySelectorAll("textarea, input[type='text']"))
+      .filter(el => el && el.offsetParent !== null);
+    if(!t.length) return null;
+
+    // Prefer textarea with placeholder containing keywords
+    const kw = ["command","round","table","ask","message","prompt"];
+    let best = null, bestScore = -1;
+    for(const el of t){
+      const ph = (el.getAttribute("placeholder")||"").toLowerCase();
+      let s = 0;
+      for(const k of kw) if(ph.includes(k)) s += 2;
+      const area = (el.clientWidth||0) * (el.clientHeight||0);
+      s += Math.min(6, Math.floor(area/20000)); // favors bigger boxes
+      if(s > bestScore){ bestScore = s; best = el; }
+    }
+    return best;
+  }
+
+  function findPromptPanel(promptEl){
+    if(!promptEl) return null;
+    let p = promptEl.parentElement;
+    for(let i=0;i<8;i++){
+      if(!p) break;
+      if(p.classList && (p.classList.contains("panel") || p.classList.contains("card") || p.classList.contains("wrap"))) return p;
+      // stop at v15Dock boundary if we hit it
+      if(p.id === "v15Dock") return p;
+      p = p.parentElement;
+    }
+    return promptEl.parentElement;
+  }
+
+  function findOperatorSeat(){
+    // Most reliable: seat element with data-name Operator
+    return document.querySelector('.seat[data-name="Operator"]') || null;
+  }
+
+  function ensureOperatorDockUnderPrompt(){
+    const prompt = findMainPrompt();
+    if(!prompt) return null;
+    const panel = findPromptPanel(prompt);
+    if(!panel) return null;
+
+    let dock = $("v18OperatorDock");
+    if(!dock){
+      dock = document.createElement("div");
+      dock.id = "v18OperatorDock";
+      panel.insertAdjacentElement("afterend", dock);
+    }else{
+      // keep it right under the prompt panel
+      if(dock.previousElementSibling !== panel){
+        panel.insertAdjacentElement("afterend", dock);
+      }
+    }
+    return dock;
+  }
+
+  function moveOperator(){
+    const op = findOperatorSeat();
+    if(!op) return false;
+
+    // Ensure operator is NOT treated like a floating seat
+    try{
+      op.style.position = "relative";
+      op.style.left = "";
+      op.style.top = "";
+      op.style.transform = "none";
+      op.style.marginLeft = "auto";
+      op.style.marginRight = "auto";
+      op.style.width = "100%";
+      op.style.maxWidth = "100%";
+    }catch(_){}
+
+    const dock = ensureOperatorDockUnderPrompt();
+    if(!dock) return false;
+
+    if(op.parentElement !== dock){
+      dock.appendChild(op);
+    }
+    return true;
+  }
+
+  function finalRightEdgeClamp(){
+    if(!isMobile()) return;
+    const vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+
+    // Scan only major layout containers for safety
+    const scan = Array.from(document.querySelectorAll("#v15MobileRoot, #v15Stage, #v15StageInner, #v15Dock, #v15Dock .panel, #v15Dock .card, #v15Dock .wrap"));
+    for(const el of scan){
+      if(!el || !el.getBoundingClientRect) continue;
+      const r = el.getBoundingClientRect();
+      if(r.right > vw + 1){
+        try{
+          el.style.maxWidth = "100%";
+          el.style.width = "100%";
+          el.style.boxSizing = "border-box";
+          el.style.overflowX = "hidden";
+          el.style.marginLeft = "auto";
+          el.style.marginRight = "auto";
+          el.style.left = "0";
+          el.style.right = "0";
+          el.style.transform = "none";
+        }catch(_){}
+      }
+    }
+
+    // Make header/button rows wrap so "Clear/Refresh" never clips
+    const rows = Array.from(document.querySelectorAll("#v15Dock .headerRow, #v15Dock .toolbar, #v15Dock .topRow, #v15Dock .bar"));
+    for(const row of rows){
+      try{
+        row.style.flexWrap = "wrap";
+        row.style.maxWidth = "100%";
+      }catch(_){}
+    }
+  }
+
+  function applyV18(){
+    if(!isMobile()) return;
+    moveOperator();
+    finalRightEdgeClamp();
+  }
+
+  document.addEventListener("DOMContentLoaded", applyV18);
+  window.addEventListener("resize", applyV18, {passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", applyV18, {passive:true});
+    window.visualViewport.addEventListener("scroll", applyV18, {passive:true});
+  }
+
+  // retriers for async render
+  setTimeout(applyV18, 120);
+  setTimeout(applyV18, 350);
+  setTimeout(applyV18, 800);
+  setTimeout(applyV18, 1400);
+})();
+</script>
+'''
