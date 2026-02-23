@@ -2312,215 +2312,6 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
-
-
-# =========================
-# WAR ROOM (additive module)
-# =========================
-
-_WAR_ROOM_DEFAULTS = {
-    "enabled": False,
-    "modules": {"scale": True, "risk": True, "failure_sim": False},
-    "intensity": "standard",
-}
-
-def _normalize_war_room_modes(modes: Any) -> Dict[str, Any]:
-    if not isinstance(modes, dict):
-        modes = {}
-    out = dict(_WAR_ROOM_DEFAULTS)
-    out_mods = dict(_WAR_ROOM_DEFAULTS["modules"])
-    mods = modes.get("modules")
-    if isinstance(mods, dict):
-        for k in ["scale", "risk", "failure_sim"]:
-            if k in mods:
-                out_mods[k] = bool(mods.get(k))
-    out["modules"] = out_mods
-    enabled = modes.get("enabled")
-    if enabled is not None:
-        out["enabled"] = bool(enabled)
-    intensity = (modes.get("intensity") or "").strip().lower()
-    if intensity in ("light", "standard", "deep"):
-        out["intensity"] = intensity
-    return out
-
-def _get_user_war_room_modes(u: Dict[str, Any]) -> Dict[str, Any]:
-    settings = (u.get("settings") or {})
-    modes = settings.get("war_room_modes")
-    return _normalize_war_room_modes(modes)
-
-def _save_user_war_room_modes(u: Dict[str, Any], modes: Dict[str, Any]) -> Dict[str, Any]:
-    modes = _normalize_war_room_modes(modes)
-    users = load_users()
-    uname = u.get("username")
-    rec = (users.get("users") or {}).get(uname) or u
-    rec.setdefault("settings", {})
-    rec["settings"]["war_room_modes"] = modes
-    rec["updated_at"] = now_iso()
-    users["users"][uname] = rec
-    save_users(users)
-    return modes
-
-@app.get("/api/modes")
-def api_get_modes():
-    u = current_user()
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    return jsonify({"ok": True, "modes": _get_user_war_room_modes(u)})
-
-@app.post("/api/modes")
-def api_set_modes():
-    u = current_user()
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    data = request.get_json(force=True) or {}
-    modes_in = data.get("modes")
-    modes = _save_user_war_room_modes(u, modes_in)
-    append_log("war_room_modes_updated", {"user": u.get("username"), "modes": modes, "updated_at": now_iso()})
-    return jsonify({"ok": True, "modes": modes})
-
-def _war_room_intensity_params(intensity: str) -> Tuple[int, float]:
-    intensity = (intensity or "standard").lower().strip()
-    # tokens is handled by model; we map intensity to temperature and bullet limits in prompts
-    if intensity == "light":
-        return 5, 0.45
-    if intensity == "deep":
-        return 12, 0.55
-    return 8, 0.5
-
-def _ask_teammate_raw(name: str, user_msg: str, *, temperature: float = 0.55) -> str:
-    reg = load_registry()
-    installed = reg.get("installed") or {}
-    if name not in installed:
-        return ""
-    defn = installed[name]
-    sys = teammate_system_prompt(defn)
-    thread = load_thread(name)
-    thread = thread[-14:] if len(thread) > 14 else thread
-    msgs: List[Dict[str, Any]] = []
-    msgs.extend(thread)
-    msgs.append({"role": "user", "content": user_msg})
-    text = call_llm(sys, msgs, temperature=temperature)
-    new_thread = thread + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": text}]
-    save_thread(name, new_thread)
-    return (text or "").strip()
-
-@app.post("/api/war_room/analyze")
-def api_war_room_analyze():
-    u = current_user()
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    data = request.get_json(force=True) or {}
-    text_in = (data.get("text") or "").strip()
-    if not text_in:
-        return jsonify({"ok": False, "error": "Missing text"}), 400
-
-    modes = _normalize_war_room_modes(data.get("modes") or _get_user_war_room_modes(u))
-    mods = modes.get("modules") or {}
-    selected = [k for k in ["scale", "risk", "failure_sim"] if mods.get(k)]
-    if not selected:
-        return jsonify({"ok": False, "error": "No modules selected"}), 400
-
-    bullet_limit, temp = _war_room_intensity_params(modes.get("intensity") or "standard")
-    intensity = modes.get("intensity") or "standard"
-
-    # Choose primary seats if installed; gracefully degrade if a seat is missing
-    reg = load_registry()
-    installed = set((reg.get("installed") or {}).keys())
-    seat_atlis = "Atlis" if "Atlis" in installed else None
-    seat_orion = "Orion" if "Orion" in installed else None
-    seat_alex = "Alex" if "Alex" in installed else None
-
-    raw: Dict[str, str] = {}
-
-    if "risk" in selected:
-        seat = seat_atlis or seat_orion or seat_alex
-        prompt = (
-            "WAR ROOM MODULE: Risk Assessment\n"
-            f"Intensity: {intensity}. Keep it to {bullet_limit} bullets per section.\n\n"
-            "Analyze the following output and return:\n"
-            "1) Risk tier: Low/Medium/High\n"
-            "2) Risk categories (technical, UX, data integrity, compliance, deliverability, tone drift)\n"
-            "3) Mitigation checklist\n"
-            "4) Stop conditions (when to pause and ask for operator input)\n\n"
-            "OUTPUT TO ANALYZE:\n"
-            + text_in
-        )
-        raw["risk"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
-
-    if "scale" in selected:
-        seat = seat_orion or seat_alex or seat_atlis
-        prompt = (
-            "WAR ROOM MODULE: Scalability Ranking\n"
-            f"Intensity: {intensity}. Keep it to {bullet_limit} bullets per section.\n\n"
-            "Analyze the following output and return:\n"
-            "1) Scale score (1-10)\n"
-            "2) Primary bottleneck type (people-time, tooling, approvals, data, consistency, compliance)\n"
-            "3) What breaks first when volume doubles\n"
-            "4) Top 3 scale levers (template, batching, automation, delegation, standardization)\n"
-            "5) Next constraint after applying those levers\n\n"
-            "OUTPUT TO ANALYZE:\n"
-            + text_in
-        )
-        raw["scale"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
-
-    if "failure_sim" in selected:
-        seat = seat_orion or seat_atlis or seat_alex
-        prompt = (
-            "WAR ROOM MODULE: Failure Simulator\n"
-            f"Intensity: {intensity}. Provide 5 scenarios max.\n\n"
-            "Simulate the most likely failures for the following output and return for each scenario:\n"
-            "- Failure mode\n"
-            "- Early warning signal\n"
-            "- Prevention\n"
-            "- Recovery playbook\n\n"
-            "OUTPUT TO ANALYZE:\n"
-            + text_in
-        )
-        raw["failure_sim"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
-
-    # Synthesis brief
-    synth_seat = seat_alex or seat_atlis or seat_orion
-    synth_prompt = (
-        "WAR ROOM SYNTHESIS\n"
-        f"Intensity: {intensity}. Write a single operator-ready brief.\n\n"
-        "Rules:\n"
-        "- Start with 3-line executive summary: primary bottleneck, highest risk, most likely failure\n"
-        "- Then short sections: Scale, Risk, Failure\n"
-        "- End with: 'Next 3 actions' (numbered)\n"
-        "- Keep it concrete and implementation-focused\n\n"
-        "INPUTS:\n"
-        + "\n\n".join([f"=== {k.upper()} ===\n{v}" for k, v in raw.items() if v])
-    )
-    brief = _ask_teammate_raw(synth_seat, synth_prompt, temperature=temp) if synth_seat else ""
-
-    append_log("war_room_analyze", {
-        "user": u.get("username"),
-        "selected": selected,
-        "intensity": intensity,
-        "created_at": now_iso()
-    })
-
-    return jsonify({
-        "ok": True,
-        "ran": ", ".join(selected),
-        "intensity": intensity,
-        "brief": brief,
-        "raw": raw
-    })
-
-
-
-
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -2860,6 +2651,124 @@ def api_followup():
     )
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+
+# =========================
+# Tactical Passes (additive)
+# =========================
+
+PASS_PROMPTS: Dict[str, str] = {
+    "risk": (
+        "You are Atlis, System Integrity Architect. Run a risk assessment on the source text.\n"
+        "Output format:\n"
+        "Risk Level: Low | Medium | High\n"
+        "Top Risks (3-7 bullets)\n"
+        "Mitigations (3-7 bullets)\n"
+        "Stop Conditions (1-5 bullets)\n"
+        "Keep it concrete. No hype. No em dashes."
+    ),
+    "scale": (
+        "You are Orion, Systems Automation & Scale Engineer. Rank scalability of the source text as a plan or task.\n"
+        "Output format:\n"
+        "Scalability Score: 1-10\n"
+        "Primary Bottleneck: <one line>\n"
+        "Why (3-6 bullets)\n"
+        "Scale Levers (3-7 bullets)\n"
+        "First Breaking Point (1-3 bullets)\n"
+        "Keep it operator-ready. No hype. No em dashes."
+    ),
+    "failure": (
+        "You are Orion, Systems Automation & Scale Engineer. Run a failure simulator on the source text.\n"
+        "Generate 5-8 failure scenarios.\n"
+        "For each scenario include:\n"
+        "- Failure Mode\n"
+        "- Early Signal\n"
+        "- Prevention\n"
+        "- Recovery\n"
+        "Keep it compact and actionable. No em dashes."
+    ),
+    "assumptions": (
+        "You are Atlis, System Integrity Architect. Detect assumptions and beliefs in the source text.\n"
+        "Output format:\n"
+        "Assumptions Detected (5-12 bullets)\n"
+        "Evidence Level: Known | Likely | Unknown (tag each)\n"
+        "Validation Steps (3-8 bullets)\n"
+        "Keep it calm and concrete. No em dashes."
+    ),
+    "constraints": (
+        "You are Orion, Systems Automation & Scale Engineer. Identify constraints in the source text.\n"
+        "Output format:\n"
+        "Primary Constraint: <one line>\n"
+        "Constraint Map (Time, People, Tooling, Data, Approvals) with 1-3 bullets each as applicable\n"
+        "Next Constraint After Fix (1-3 bullets)\n"
+        "Keep it operator-ready. No em dashes."
+    ),
+    "optimize": (
+        "You are Willow, Language Specialist and NLP Master. Optimize the source text without changing intent.\n"
+        "Goals: clearer, tighter, higher-leverage. Preserve meaning. Do not add new promises.\n"
+        "Output format:\n"
+        "Optimized Version:\n"
+        "<text>\n"
+        "Notes (optional, 1-5 bullets)\n"
+        "No em dashes."
+    ),
+}
+
+PASS_ROUTING: Dict[str, str] = {
+    "risk": "Atlis",
+    "assumptions": "Atlis",
+    "scale": "Orion",
+    "failure": "Orion",
+    "constraints": "Orion",
+    "optimize": "Willow",
+}
+
+def _installed_name_or_fallback(preferred: str) -> Optional[str]:
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    if preferred in installed:
+        return preferred
+    return None
+
+def _run_pass_with_teammate(pass_key: str, source_text: str) -> str:
+    prompt = PASS_PROMPTS.get(pass_key, "").strip()
+    if not prompt:
+        return "Unknown pass."
+    # Embed source text as user message for maximum faithfulness
+    user_msg = "SOURCE TEXT:\n" + (source_text or "").strip()
+    # Prefer routing to specific teammate definitions if installed; otherwise fall back to generic LLM call.
+    preferred = PASS_ROUTING.get(pass_key) or ""
+    teammate = _installed_name_or_fallback(preferred) if preferred else None
+    if teammate:
+        # Use the teammate's system prompt for consistency with your Round Table
+        reg = load_registry()
+        defn = (reg.get("installed") or {}).get(teammate) or {}
+        sys = teammate_system_prompt(defn)
+        # Combine pass instructions into system prompt to preserve teammate voice while enforcing structure
+        sys2 = sys + "\n\n" + prompt
+        out = call_llm(system=sys2, user=user_msg)
+        return (out or "").strip()
+    # Fallback: use pass instructions as system prompt
+    out = call_llm(system=prompt, user=user_msg)
+    return (out or "").strip()
+
+@app.post("/api/passes/run")
+def api_passes_run():
+    _require_session()
+    data = request.get_json(force=True) or {}
+    pass_key = (data.get("pass") or "").strip().lower()
+    source_text = (data.get("text") or "").strip()
+    if not pass_key or not source_text:
+        return jsonify({"ok": False, "error": "Missing pass or text"}), 400
+    if pass_key not in PASS_PROMPTS:
+        return jsonify({"ok": False, "error": "Unknown pass"}), 400
+
+    try:
+        out = _run_pass_with_teammate(pass_key, source_text)
+        return jsonify({"ok": True, "pass": pass_key, "output": out})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 
 
 @app.get("/api/thread/<name>")
@@ -4965,6 +4874,23 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
+
+
+    /* === Tactical Passes (additive) === */
+    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .passBtn{
+      border:1px solid rgba(184,196,255,.25);
+      background: rgba(17,24,39,.45);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .passBtn:hover{ border-color: rgba(184,196,255,.45); }
+    .passHint{ font-size:12px; color: var(--muted); margin-top:6px; line-height:1.35; }
 </style>
 </head>
 <body>
@@ -5039,6 +4965,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
+              <div id="modalPasses" class="passRow" style="display:none"></div>
+              <div id="modalPassHint" class="passHint" style="display:none"></div>
+
 
 
 <div id="stackForm" class="modalForm" style="display:none;">
@@ -5293,87 +5222,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
 
-
-              <div class="modalForm" id="warRoomForm" style="display:none;">
-                <div class="t1" style="font-weight:700; margin-bottom:6px;">War Room</div>
-                <div class="tiny" style="margin-bottom:12px;">
-                  Stress test plans before you execute. War Room adds optional analysis passes across the whole table.
-                  Use presets to stay fast. Turn modules on only when stakes are high.
-                </div>
-
-                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
-                  <button class="btn btnMini" id="warPresetFast">Preset: Fast</button>
-                  <button class="btn btnMini" id="warPresetStandard">Preset: Standard</button>
-                  <button class="btn btnMini" id="warPresetDeep">Preset: Deep</button>
-                </div>
-
-                <div class="row" style="gap:10px; align-items:flex-start;">
-                  <div style="flex:1;">
-                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-                      <input type="checkbox" id="warEnabled" />
-                      <span style="font-weight:600;">Enable War Room</span>
-                    </label>
-
-                    <div class="tiny" style="margin:6px 0 10px 0;">Modules</div>
-
-                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-                      <input type="checkbox" id="warScale" />
-                      <div>
-                        <div style="font-weight:600;">Scalability ranking</div>
-                        <div class="tiny">Can this scale without you becoming the bottleneck?</div>
-                      </div>
-                    </label>
-
-                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-                      <input type="checkbox" id="warRisk" />
-                      <div>
-                        <div style="font-weight:600;">Risk assessment</div>
-                        <div class="tiny">Where are you exposed and what mitigations matter most?</div>
-                      </div>
-                    </label>
-
-                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
-                      <input type="checkbox" id="warFail" />
-                      <div>
-                        <div style="font-weight:600;">Failure simulator</div>
-                        <div class="tiny">What breaks first, what are the early signals, how do you recover?</div>
-                      </div>
-                    </label>
-
-                    <div class="tiny" style="margin-top:12px;">Intensity</div>
-                    <select id="warIntensity" style="width:100%; margin-top:6px;">
-                      <option value="light">Light</option>
-                      <option value="standard">Standard</option>
-                      <option value="deep">Deep</option>
-                    </select>
-                  </div>
-
-                  <div style="flex:1;">
-                    <div class="tiny" style="margin-bottom:8px;">What happens when War Room runs</div>
-                    <div class="card" style="padding:12px;">
-                      <div class="tiny" style="margin-bottom:8px;">
-                        War Room runs the selected modules on the group output and returns a single brief:
-                      </div>
-                      <ul style="margin:0; padding-left:18px;">
-                        <li class="tiny">Primary bottleneck and scale lever</li>
-                        <li class="tiny">Top risks and mitigations</li>
-                        <li class="tiny">Most likely failure scenarios and recovery steps</li>
-                      </ul>
-                      <div class="tiny" style="margin-top:10px;">
-                        Tip: Use “Run on last output” once to learn what it adds.
-                      </div>
-                    </div>
-
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
-                      <button class="btn btnPrimary" id="warSave">Save</button>
-                      <button class="btn" id="warRunLast">Run on last output</button>
-                    </div>
-
-                    <div class="tiny" id="warRoomStatus" style="margin-top:10px;"></div>
-                  </div>
-                </div>
-              </div>
-
               <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
@@ -5396,7 +5244,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
-                <button class="btn btnMini" id="warRoomBtn">War Room</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
@@ -5559,8 +5406,6 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
-    let lastGroupCombined = "";
-    let warRoomModes = null;
     let lastEmailDraftBy = "";
 
     let groupFileIds = [];
@@ -5669,11 +5514,42 @@ id="diagOverlay"></div>
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
-    function showModal(title, body, imgUrl){
+    function showModal(title, body, imgUrl, opts){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
       $("modalBody").style.display = "block";
+
+      // Tactical passes in modal are optional. Defaults OFF to avoid changing other modal uses.
+      try{
+        const row = $("modalPasses");
+        const hint = $("modalPassHint");
+        if(row) row.innerHTML = "";
+        if(opts && opts.passes && (opts.sourceText || body)){
+          const src = (opts.sourceText || body || "");
+          if(row){
+            row.appendChild(buildPassRow(src, (passKey, res)=>{
+              const title2 = (title || "Analysis") + " • " + passKey.toUpperCase();
+              // Replace modal body with result for quick iteration
+              $("modalTitle").innerText = title2;
+              $("modalBody").innerText = (res && res.output) ? res.output : "";
+              if(hint){
+                const d = PASS_DEFS.find(x => x.key === passKey);
+                hint.innerText = d ? d.hint : "";
+              }
+            }));
+          }
+          if(hint){
+            hint.innerText = "Click a pass to stress test this output.";
+          }
+          _setModalPassesVisible(true);
+        }else{
+          _setModalPassesVisible(false);
+        }
+      }catch(e){
+        _setModalPassesVisible(false);
+      }
+
 
       $("editStatus").innerText = "";
       editingTeammate = "";
@@ -6806,6 +6682,62 @@ function makeSeat(defn, idx){
       await refreshThread();
     }
 
+
+    // === Tactical Passes (additive) ===
+    const PASS_DEFS = [
+      {key:"risk", label:"🔍 Risk", hint:"Find exposure, mitigations, and stop conditions."},
+      {key:"scale", label:"📈 Scale", hint:"Score scalability, identify bottlenecks, propose leverage."},
+      {key:"failure", label:"💥 Failure", hint:"Simulate what breaks first, signals, and recovery steps."},
+      {key:"assumptions", label:"⚠ Assumptions", hint:"Detect beliefs, unknowns, and what needs validation."},
+      {key:"constraints", label:"🧩 Constraints", hint:"Find constraints (time, people, tooling) and the first limiting factor."},
+      {key:"optimize", label:"⚡ Optimize", hint:"Tighten into a clearer, higher-leverage version without changing intent."}
+    ];
+
+    function _setModalPassesVisible(on){
+      const row = $("modalPasses");
+      const hint = $("modalPassHint");
+      if(row) row.style.display = on ? "flex" : "none";
+      if(hint) hint.style.display = on ? "block" : "none";
+    }
+
+    function buildPassRow(sourceText, onDone){
+      const row = document.createElement("div");
+      row.className = "passRow";
+      PASS_DEFS.forEach(p => {
+        const b = document.createElement("button");
+        b.className = "passBtn";
+        b.type = "button";
+        b.innerText = p.label;
+        b.onclick = async () => {
+          try{
+            b.disabled = true;
+            b.innerText = p.label + " …";
+            const res = await runPass(p.key, sourceText || "");
+            if(onDone) onDone(p.key, res);
+          }catch(e){
+            alert(e && e.message ? e.message : String(e));
+          }finally{
+            b.disabled = false;
+            b.innerText = p.label;
+          }
+        };
+        row.appendChild(b);
+      });
+      return row;
+    }
+
+    async function runPass(passKey, sourceText){
+      const r = await fetch("/api/passes/run", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ pass: passKey, text: sourceText || "", seat: selectedSeat || "" })
+      });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok || !data || data.ok !== true){
+        throw new Error((data && data.error) ? data.error : ("Pass failed: " + r.status));
+      }
+      return data;
+    }
     function renderThread(msgs){
       const box = $("thread");
       box.innerHTML = "";
@@ -6826,6 +6758,17 @@ function makeSeat(defn, idx){
         content.innerText = m.content;
         div.appendChild(who);
         div.appendChild(content);
+
+        // Add tactical passes on assistant replies (no state, click to run)
+        if(m.role !== "user"){
+          const row = buildPassRow(m.content || "", (passKey, res) => {
+            // Show results as a modal for clarity
+            const title = (selectedSeat || "Analysis") + " • " + passKey.toUpperCase();
+            showModal(title, (res && res.output) ? res.output : "");
+          });
+          div.appendChild(row);
+        }
+
         box.appendChild(div);
       });
       box.scrollTop = box.scrollHeight;
@@ -6965,7 +6908,7 @@ function makeSeat(defn, idx){
         const openBtn = document.createElement("button");
         openBtn.className = "btn";
         openBtn.innerText = "Open";
-        openBtn.onclick = () => showModal(name, outputs[name]);
+        openBtn.onclick = () => showModal(name, outputs[name], null, {passes:true, sourceText: outputs[name]});
 
         const selectBtn = document.createElement("button");
         selectBtn.className = "btn";
@@ -7622,9 +7565,6 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
-      try{
-        lastGroupCombined = Object.keys(outputs||{}).map(k=>`### ${k}\n${String(outputs[k]||"").trim()}`).join("\n\n");
-      }catch(e){ lastGroupCombined = ""; }
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
@@ -7641,63 +7581,6 @@ function makeSeat(defn, idx){
     }
 
     $("conveneAll").onclick = conveneAll;
-    if($("warRoomBtn")) $("warRoomBtn").onclick = showWarRoomModal;
-
-    // War Room UI bindings (safe if elements not present)
-    function _warApplyPreset(preset){
-      const base = warRoomModes || _defaultWarModes();
-      base.enabled = true;
-      if(preset === "fast"){
-        base.modules = {scale:false, risk:true, failure_sim:false};
-        base.intensity = "light";
-      }else if(preset === "standard"){
-        base.modules = {scale:true, risk:true, failure_sim:false};
-        base.intensity = "standard";
-      }else if(preset === "deep"){
-        base.modules = {scale:true, risk:true, failure_sim:true};
-        base.intensity = "deep";
-      }
-      warRoomModes = base;
-      try{
-        if($("warEnabled")) $("warEnabled").checked = !!base.enabled;
-        if($("warScale")) $("warScale").checked = !!(base.modules||{}).scale;
-        if($("warRisk")) $("warRisk").checked = !!(base.modules||{}).risk;
-        if($("warFail")) $("warFail").checked = !!(base.modules||{}).failure_sim;
-        if($("warIntensity")) $("warIntensity").value = base.intensity || "standard";
-      }catch(e){}
-    }
-
-    if($("warPresetFast")) $("warPresetFast").onclick = ()=>_warApplyPreset("fast");
-    if($("warPresetStandard")) $("warPresetStandard").onclick = ()=>_warApplyPreset("standard");
-    if($("warPresetDeep")) $("warPresetDeep").onclick = ()=>_warApplyPreset("deep");
-
-    if($("warSave")) $("warSave").onclick = async ()=>{
-      const m = warRoomModes || _defaultWarModes();
-      m.enabled = !!$("warEnabled").checked;
-      m.modules = {
-        scale: !!$("warScale").checked,
-        risk: !!$("warRisk").checked,
-        failure_sim: !!$("warFail").checked
-      };
-      m.intensity = ($("warIntensity").value || "standard");
-      const ok = await saveWarRoomModes(m);
-      $("warRoomStatus").innerText = ok ? "Saved" : "Save failed";
-    };
-
-    if($("warRunLast")) $("warRunLast").onclick = async ()=>{
-      const m = warRoomModes || _defaultWarModes();
-      // live read from UI for run
-      m.enabled = !!$("warEnabled").checked;
-      m.modules = {
-        scale: !!$("warScale").checked,
-        risk: !!$("warRisk").checked,
-        failure_sim: !!$("warFail").checked
-      };
-      m.intensity = ($("warIntensity").value || "standard");
-      warRoomModes = m;
-      await runWarRoomOnText(lastGroupCombined || "");
-    };
-
 
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
@@ -8072,107 +7955,7 @@ function makeSeat(defn, idx){
       }
     }
 
-    
-    // =========================
-    // WAR ROOM MODES (additive)
-    // =========================
-    async function loadWarRoomModes(){
-      try{
-        const res = await fetch("/api/modes");
-        const data = await res.json();
-        if(data && data.ok){
-          warRoomModes = data.modes || null;
-          return warRoomModes;
-        }
-      }catch(e){}
-      return warRoomModes;
-    }
-
-    async function saveWarRoomModes(modes){
-      try{
-        const res = await fetch("/api/modes", {
-          method:"POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({modes})
-        });
-        const data = await res.json();
-        if(data && data.ok){
-          warRoomModes = data.modes || modes;
-          return true;
-        }
-      }catch(e){}
-      return false;
-    }
-
-    function _defaultWarModes(){
-      return {
-        enabled: false,
-        modules: {scale: true, risk: true, failure_sim: false},
-        intensity: "standard"
-      };
-    }
-
-    function showWarRoomModal(){
-      showModal();
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
-      if($("modalForm")) $("modalForm").style.display = "none";
-      if($("manageForm")) $("manageForm").style.display = "none";
-      if($("createForm")) $("createForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("warRoomForm")) $("warRoomForm").style.display = "block";
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("modalImg")) $("modalImg").style.display = "none";
-      $("modalTitle").innerText = "War Room";
-
-      (async ()=>{
-        $("warRoomStatus").innerText = "Loading...";
-        const m = await loadWarRoomModes() || _defaultWarModes();
-        const mods = m.modules || {};
-        $("warEnabled").checked = !!m.enabled;
-        $("warScale").checked = !!mods.scale;
-        $("warRisk").checked = !!mods.risk;
-        $("warFail").checked = !!mods.failure_sim;
-        $("warIntensity").value = (m.intensity || "standard");
-        $("warRoomStatus").innerText = "Ready";
-      })();
-    }
-
-    async function runWarRoomOnText(txt){
-      const m = warRoomModes || _defaultWarModes();
-      const mods = (m.modules || {});
-      const selected = Object.keys(mods).filter(k => !!mods[k]);
-      if(!selected.length){
-        showModal("War Room", "Turn on at least one module first.");
-        return;
-      }
-      if(!txt || !txt.trim()){
-        showModal("War Room", "No output to analyze yet. Run a group prompt first.");
-        return;
-      }
-      $("warRoomStatus").innerText = "Running...";
-      try{
-        const res = await fetch("/api/war_room/analyze", {
-          method:"POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({text: txt, modes: m})
-        });
-        const data = await res.json();
-        if(!data.ok){
-          $("warRoomStatus").innerText = "Error";
-          showModal("War Room error", data.error || "Failed");
-          return;
-        }
-        $("warRoomStatus").innerText = "Complete";
-        const head = `War Room ran: ${data.ran || ""} | Intensity: ${data.intensity || ""}`;
-        const body = (head + "\n\n" + (data.brief || "")).trim();
-        showModal("WAR ROOM BRIEF", body || "No output.");
-      }catch(e){
-        $("warRoomStatus").innerText = "Error";
-        showModal("War Room error", String(e || "Failed"));
-      }
-    }
-
-$("settingsBtn").onclick = () => showSettingsModal();
+    $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
     $("saveSettings").onclick = async () => {
