@@ -5373,17 +5373,38 @@ id="diagOverlay"></div>
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
+
       if(savedSize){
         win.style.width = Math.max(360, savedSize.width) + "px";
         win.style.height = Math.max(260, savedSize.height) + "px";
       }
+
+      // If we have a saved position, clamp it so the modal never renders off-screen.
       if(saved){
         win.style.transform = "none";
-        win.style.left = saved.left + "px";
-        win.style.top = saved.top + "px";
+
+        // Use current rendered size (after applying savedSize above) to clamp.
+        const mw = Math.max(360, win.offsetWidth || 520);
+        const mh = Math.max(260, win.offsetHeight || 420);
+
+        const margin = 12;
+        const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
+        const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
+
+        const left = Math.min(Math.max(saved.left, margin), maxLeft);
+        const top  = Math.min(Math.max(saved.top, margin), maxTop);
+
+        win.style.left = left + "px";
+        win.style.top  = top + "px";
+
+        // If the saved position was out-of-bounds, persist the corrected one.
+        if(left !== saved.left || top !== saved.top){
+          saveModalPos(left, top);
+        }
         return;
       }
 
+      // Default centered position
       win.style.left = "50%";
       win.style.top = "80px";
       win.style.transform = "translateX(-50%)";
