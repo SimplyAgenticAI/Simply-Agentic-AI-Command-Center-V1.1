@@ -9645,10 +9645,9 @@ ADD_UI_POLISH_V8 = r'''
           return { key:"step1_key", target:"settingsBtn", msg:"Next: add your OpenAI key in Settings" };
         }
         if(!o.step2_operator){
-          const pb = findOperatorProfileButton();
-          if(pb) return { key:"step2_operator", el: pb, msg:"Next: fill out your Operator Profile" };
-          const seat = findOperatorSeat();
-          if(seat) return { key:"step2_operator", el: seat, msg:"Next: open Operator seat and fill your profile" };
+          // Prefer pointing directly at the Operator seat Profile button (most intuitive)
+          const opBtn = findOperatorProfileButton();
+          if(opBtn && isVisible(opBtn)) return { key:"step2_operator", el: opBtn, msg:"Next: fill out your Operator Profile" };
           return { key:"step2_operator", target:"settingsBtn", msg:"Next: fill out your Operator Profile" };
         }
         if(!o.step3_team){
@@ -9720,3 +9719,23 @@ ADD_UI_POLISH_V8 = r'''
 
 </script>
 '''
+    // Reset guided onboarding (per-user) so the next-action nudges reappear
+    try{
+      const rb = $("resetOnboardingBtn");
+      if(rb && !rb.__bound){
+        rb.__bound = true;
+        rb.addEventListener("click", ()=>{
+          try{
+            // Uses onboarding v2 key naming: round_table_onboarding_v2_<username>
+            const uname = (state && state.user && state.user.username) ? state.user.username : "anon";
+            localStorage.removeItem("round_table_onboarding_v2_" + uname);
+            try{ if(window.__onboarding && window.__onboarding.render) window.__onboarding.render(); }catch(e){}
+            showToast("Onboarding reset");
+          }catch(e){
+            showToast("Reset failed");
+          }
+        });
+      }
+    }catch(e){}
+
+
