@@ -268,82 +268,6 @@ def load_users() -> Dict[str, Any]:
 def save_users(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(USERS_PATH, data)
-# =========================
-# ANALYSIS MODES (War Room) - additive
-# =========================
-
-def _default_analysis_modes() -> Dict[str, Any]:
-    return {
-        "war_room": False,
-        "scalability": True,
-        "failure_sim": True,
-        "risk": True,
-        "intensity": "standard",  # standard | deep
-    }
-
-def _get_analysis_modes_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    d = _default_analysis_modes()
-    try:
-        if u and isinstance(u, dict):
-            s = (u.get("settings") or {})
-            am = (s.get("analysis_modes") or {})
-            if isinstance(am, dict):
-                d.update({k: am.get(k, d.get(k)) for k in d.keys()})
-    except Exception:
-        pass
-    # sanitize intensity
-    if str(d.get("intensity") or "").strip().lower() not in ("standard", "deep"):
-        d["intensity"] = "standard"
-    # normalize bools
-    for k in ("war_room", "scalability", "failure_sim", "risk"):
-        d[k] = bool(d.get(k))
-    return d
-
-def _save_analysis_modes_for_user(username: str, modes: Dict[str, Any]) -> None:
-    username = _clean_username(username or "")
-    if not username:
-        return
-    data = load_users()
-    users = data.get("users") or {}
-    if username not in users or not isinstance(users.get(username), dict):
-        return
-    u = users[username]
-    u.setdefault("settings", {})
-    u["settings"].setdefault("analysis_modes", {})
-    cur = u["settings"].get("analysis_modes") or {}
-    if not isinstance(cur, dict):
-        cur = {}
-    # allow only known keys
-    d = _default_analysis_modes()
-    for k in d.keys():
-        if k in modes:
-            cur[k] = modes.get(k)
-    # sanitize
-    if str(cur.get("intensity") or "").strip().lower() not in ("standard", "deep"):
-        cur["intensity"] = "standard"
-    for k in ("war_room", "scalability", "failure_sim", "risk"):
-        cur[k] = bool(cur.get(k))
-    u["settings"]["analysis_modes"] = cur
-    users[username] = u
-    data["users"] = users
-    save_users(data)
-
-def _truncate_outputs_for_analysis(outputs: Dict[str, str], per_item: int = 1500, total: int = 12000) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    used = 0
-    for k, v in (outputs or {}).items():
-        if used >= total:
-            break
-        txt = (v or "")
-        if len(txt) > per_item:
-            txt = txt[:per_item] + "..."
-        take = max(0, min(len(txt), total - used))
-        txt2 = txt[:take]
-        if txt2:
-            out[str(k)] = txt2
-            used += len(txt2)
-    return out
-
 
 def has_any_user() -> bool:
     data = load_users()
@@ -363,13 +287,6 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "updated_at": now_iso(),
         "settings": {
             "openai_key": "",
-            "analysis_modes": {
-                "war_room": False,
-                "scalability": True,
-                "failure_sim": True,
-                "risk": True,
-                "intensity": "standard"
-            },
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -2395,147 +2312,214 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
-# -------------------------
-# War Room Mode API (additive)
-# -------------------------
+
+
+# =========================
+# WAR ROOM (additive module)
+# =========================
+
+_WAR_ROOM_DEFAULTS = {
+    "enabled": False,
+    "modules": {"scale": True, "risk": True, "failure_sim": False},
+    "intensity": "standard",
+}
+
+def _normalize_war_room_modes(modes: Any) -> Dict[str, Any]:
+    if not isinstance(modes, dict):
+        modes = {}
+    out = dict(_WAR_ROOM_DEFAULTS)
+    out_mods = dict(_WAR_ROOM_DEFAULTS["modules"])
+    mods = modes.get("modules")
+    if isinstance(mods, dict):
+        for k in ["scale", "risk", "failure_sim"]:
+            if k in mods:
+                out_mods[k] = bool(mods.get(k))
+    out["modules"] = out_mods
+    enabled = modes.get("enabled")
+    if enabled is not None:
+        out["enabled"] = bool(enabled)
+    intensity = (modes.get("intensity") or "").strip().lower()
+    if intensity in ("light", "standard", "deep"):
+        out["intensity"] = intensity
+    return out
+
+def _get_user_war_room_modes(u: Dict[str, Any]) -> Dict[str, Any]:
+    settings = (u.get("settings") or {})
+    modes = settings.get("war_room_modes")
+    return _normalize_war_room_modes(modes)
+
+def _save_user_war_room_modes(u: Dict[str, Any], modes: Dict[str, Any]) -> Dict[str, Any]:
+    modes = _normalize_war_room_modes(modes)
+    users = load_users()
+    uname = u.get("username")
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    rec["settings"]["war_room_modes"] = modes
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+    return modes
 
 @app.get("/api/modes")
 def api_get_modes():
     u = current_user()
     if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
+    if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    modes = _get_analysis_modes_for_user(u)
-    return jsonify({"ok": True, "analysis_modes": modes})
-
+    return jsonify({"ok": True, "modes": _get_user_war_room_modes(u)})
 
 @app.post("/api/modes")
 def api_set_modes():
     u = current_user()
     if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
+    if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     data = request.get_json(force=True) or {}
-    incoming = data.get("analysis_modes")
-    if incoming is None:
-        # also accept flat payload
-        incoming = data
-    if not isinstance(incoming, dict):
-        return jsonify({"ok": False, "error": "Invalid payload"}), 400
+    modes_in = data.get("modes")
+    modes = _save_user_war_room_modes(u, modes_in)
+    append_log("war_room_modes_updated", {"user": u.get("username"), "modes": modes, "updated_at": now_iso()})
+    return jsonify({"ok": True, "modes": modes})
 
-    uname = u.get("username") if isinstance(u, dict) else ""
-    _save_analysis_modes_for_user(uname or "", incoming)
-    # return updated
-    u2 = current_user()
-    modes = _get_analysis_modes_for_user(u2)
-    append_log("analysis_modes_updated", {"user": uname, "updated_at": now_iso(), "analysis_modes": modes})
-    return jsonify({"ok": True, "analysis_modes": modes})
+def _war_room_intensity_params(intensity: str) -> Tuple[int, float]:
+    intensity = (intensity or "standard").lower().strip()
+    # tokens is handled by model; we map intensity to temperature and bullet limits in prompts
+    if intensity == "light":
+        return 5, 0.45
+    if intensity == "deep":
+        return 12, 0.55
+    return 8, 0.5
 
+def _ask_teammate_raw(name: str, user_msg: str, *, temperature: float = 0.55) -> str:
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    if name not in installed:
+        return ""
+    defn = installed[name]
+    sys = teammate_system_prompt(defn)
+    thread = load_thread(name)
+    thread = thread[-14:] if len(thread) > 14 else thread
+    msgs: List[Dict[str, Any]] = []
+    msgs.extend(thread)
+    msgs.append({"role": "user", "content": user_msg})
+    text = call_llm(sys, msgs, temperature=temperature)
+    new_thread = thread + [{"role": "user", "content": user_msg}, {"role": "assistant", "content": text}]
+    save_thread(name, new_thread)
+    return (text or "").strip()
 
-@app.post("/api/war_room_analyze")
+@app.post("/api/war_room/analyze")
 def api_war_room_analyze():
-    """Run post-hoc analysis passes on group outputs.
-
-    Additive: does not change any existing group send behavior.
-    """
     u = current_user()
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     data = request.get_json(force=True) or {}
-    prompt = (data.get("prompt") or "").strip()
-    outputs = data.get("outputs") or {}
-    file_ids = data.get("file_ids") or []
+    text_in = (data.get("text") or "").strip()
+    if not text_in:
+        return jsonify({"ok": False, "error": "Missing text"}), 400
 
-    if not prompt or not isinstance(outputs, dict) or not outputs:
-        return jsonify({"ok": False, "error": "Missing prompt or outputs"}), 400
+    modes = _normalize_war_room_modes(data.get("modes") or _get_user_war_room_modes(u))
+    mods = modes.get("modules") or {}
+    selected = [k for k in ["scale", "risk", "failure_sim"] if mods.get(k)]
+    if not selected:
+        return jsonify({"ok": False, "error": "No modules selected"}), 400
 
-    modes = _get_analysis_modes_for_user(u)
-    # Only run if at least one analyzer is enabled
-    if not (modes.get("scalability") or modes.get("failure_sim") or modes.get("risk")):
-        return jsonify({"ok": True, "analysis_modes": modes, "war_room": {}})
+    bullet_limit, temp = _war_room_intensity_params(modes.get("intensity") or "standard")
+    intensity = modes.get("intensity") or "standard"
 
+    # Choose primary seats if installed; gracefully degrade if a seat is missing
     reg = load_registry()
-    installed = reg.get("installed") or {}
+    installed = set((reg.get("installed") or {}).keys())
+    seat_atlis = "Atlis" if "Atlis" in installed else None
+    seat_orion = "Orion" if "Orion" in installed else None
+    seat_alex = "Alex" if "Alex" in installed else None
 
-    # truncate outputs to keep token use safe
-    trunc = _truncate_outputs_for_analysis({str(k): str(v) for k, v in outputs.items()})
+    raw: Dict[str, str] = {}
 
-    base_payload = {
-        "user_prompt": prompt,
-        "outputs": trunc,
-        "notes": {
-            "rules": [
-                "No em dashes.",
-                "Be concrete and operational.",
-                "Prefer short sections, crisp bullets, and simple scoring scales."
-            ]
-        }
-    }
+    if "risk" in selected:
+        seat = seat_atlis or seat_orion or seat_alex
+        prompt = (
+            "WAR ROOM MODULE: Risk Assessment\n"
+            f"Intensity: {intensity}. Keep it to {bullet_limit} bullets per section.\n\n"
+            "Analyze the following output and return:\n"
+            "1) Risk tier: Low/Medium/High\n"
+            "2) Risk categories (technical, UX, data integrity, compliance, deliverability, tone drift)\n"
+            "3) Mitigation checklist\n"
+            "4) Stop conditions (when to pause and ask for operator input)\n\n"
+            "OUTPUT TO ANALYZE:\n"
+            + text_in
+        )
+        raw["risk"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
 
-    def _call_named(teammate_name: str, user_task: str, temperature: float = 0.35) -> str:
-        defn = installed.get(teammate_name) or PREBUILT_LOCKED.get(teammate_name)
-        if not defn:
-            return ""
-        sys = teammate_system_prompt(defn)
-        # Allow attachments context if provided (best-effort)
-        try:
-            prompt2, _, vision_images = build_prompt_with_attachments(user_task, file_ids)
-            user_content = _build_user_content(prompt2, vision_images)
-        except Exception:
-            user_content = user_task
-        return call_llm(sys, [{"role": "user", "content": user_content}], temperature=temperature)
+    if "scale" in selected:
+        seat = seat_orion or seat_alex or seat_atlis
+        prompt = (
+            "WAR ROOM MODULE: Scalability Ranking\n"
+            f"Intensity: {intensity}. Keep it to {bullet_limit} bullets per section.\n\n"
+            "Analyze the following output and return:\n"
+            "1) Scale score (1-10)\n"
+            "2) Primary bottleneck type (people-time, tooling, approvals, data, consistency, compliance)\n"
+            "3) What breaks first when volume doubles\n"
+            "4) Top 3 scale levers (template, batching, automation, delegation, standardization)\n"
+            "5) Next constraint after applying those levers\n\n"
+            "OUTPUT TO ANALYZE:\n"
+            + text_in
+        )
+        raw["scale"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
 
-    intensity = str(modes.get("intensity") or "standard").strip().lower()
-    deep = (intensity == "deep")
+    if "failure_sim" in selected:
+        seat = seat_orion or seat_atlis or seat_alex
+        prompt = (
+            "WAR ROOM MODULE: Failure Simulator\n"
+            f"Intensity: {intensity}. Provide 5 scenarios max.\n\n"
+            "Simulate the most likely failures for the following output and return for each scenario:\n"
+            "- Failure mode\n"
+            "- Early warning signal\n"
+            "- Prevention\n"
+            "- Recovery playbook\n\n"
+            "OUTPUT TO ANALYZE:\n"
+            + text_in
+        )
+        raw["failure_sim"] = _ask_teammate_raw(seat, prompt, temperature=temp) if seat else ""
 
-    war_room: Dict[str, str] = {}
-
-    if modes.get("scalability"):
-        task = json.dumps({
-            **base_payload,
-            "task": "Scalability ranking",
-            "output_format": [
-                "Create a 5-level scalability rank: S1 (manual, fragile) to S5 (fully systemized).",
-                "Return: Rank, Why, Bottlenecks, Automation opportunities, Next 3 upgrades.",
-                "Also include a tiny table of major components and their S-rank."
-            ],
-            "depth": "deep" if deep else "standard"
-        }, indent=2)
-        war_room["scalability"] = _call_named("Orion", task, temperature=0.35)
-
-    if modes.get("failure_sim"):
-        task = json.dumps({
-            **base_payload,
-            "task": "Failure simulator",
-            "output_format": [
-                "List the top 7 failure modes.",
-                "For each: what triggers it, early warning signs, likely impact, and a mitigation play.",
-                "End with a short 'Pre-mortem checklist' (10 items max)."
-            ],
-            "depth": "deep" if deep else "standard"
-        }, indent=2)
-        war_room["failure_sim"] = _call_named("Orion", task, temperature=0.40)
-
-    if modes.get("risk"):
-        task = json.dumps({
-            **base_payload,
-            "task": "Risk assessment",
-            "output_format": [
-                "Give a risk matrix with Likelihood (1-5) and Impact (1-5).",
-                "Include: top risks, safeguards, what to avoid saying/doing, and one clarifying question if needed.",
-                "If user is about to make a risky assumption, call it out explicitly."
-            ],
-            "depth": "deep" if deep else "standard"
-        }, indent=2)
-        war_room["risk"] = _call_named("Atlis", task, temperature=0.25)
+    # Synthesis brief
+    synth_seat = seat_alex or seat_atlis or seat_orion
+    synth_prompt = (
+        "WAR ROOM SYNTHESIS\n"
+        f"Intensity: {intensity}. Write a single operator-ready brief.\n\n"
+        "Rules:\n"
+        "- Start with 3-line executive summary: primary bottleneck, highest risk, most likely failure\n"
+        "- Then short sections: Scale, Risk, Failure\n"
+        "- End with: 'Next 3 actions' (numbered)\n"
+        "- Keep it concrete and implementation-focused\n\n"
+        "INPUTS:\n"
+        + "\n\n".join([f"=== {k.upper()} ===\n{v}" for k, v in raw.items() if v])
+    )
+    brief = _ask_teammate_raw(synth_seat, synth_prompt, temperature=temp) if synth_seat else ""
 
     append_log("war_room_analyze", {
-        "prompt": prompt,
-        "analysis_modes": modes,
-        "outputs_keys": list(trunc.keys()),
-        "war_room_preview": {k: (v[:700] + ("..." if len(v) > 700 else "")) for k, v in war_room.items()},
+        "user": u.get("username"),
+        "selected": selected,
+        "intensity": intensity,
+        "created_at": now_iso()
     })
 
-    return jsonify({"ok": True, "analysis_modes": modes, "war_room": war_room})
+    return jsonify({
+        "ok": True,
+        "ran": ", ".join(selected),
+        "intensity": intensity,
+        "brief": brief,
+        "raw": raw
+    })
+
+
+
 
 @app.get("/api/framework")
 def api_get_framework():
@@ -5309,6 +5293,87 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
 
+
+              <div class="modalForm" id="warRoomForm" style="display:none;">
+                <div class="t1" style="font-weight:700; margin-bottom:6px;">War Room</div>
+                <div class="tiny" style="margin-bottom:12px;">
+                  Stress test plans before you execute. War Room adds optional analysis passes across the whole table.
+                  Use presets to stay fast. Turn modules on only when stakes are high.
+                </div>
+
+                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+                  <button class="btn btnMini" id="warPresetFast">Preset: Fast</button>
+                  <button class="btn btnMini" id="warPresetStandard">Preset: Standard</button>
+                  <button class="btn btnMini" id="warPresetDeep">Preset: Deep</button>
+                </div>
+
+                <div class="row" style="gap:10px; align-items:flex-start;">
+                  <div style="flex:1;">
+                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
+                      <input type="checkbox" id="warEnabled" />
+                      <span style="font-weight:600;">Enable War Room</span>
+                    </label>
+
+                    <div class="tiny" style="margin:6px 0 10px 0;">Modules</div>
+
+                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
+                      <input type="checkbox" id="warScale" />
+                      <div>
+                        <div style="font-weight:600;">Scalability ranking</div>
+                        <div class="tiny">Can this scale without you becoming the bottleneck?</div>
+                      </div>
+                    </label>
+
+                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
+                      <input type="checkbox" id="warRisk" />
+                      <div>
+                        <div style="font-weight:600;">Risk assessment</div>
+                        <div class="tiny">Where are you exposed and what mitigations matter most?</div>
+                      </div>
+                    </label>
+
+                    <label style="display:flex; gap:10px; align-items:center; margin:8px 0;">
+                      <input type="checkbox" id="warFail" />
+                      <div>
+                        <div style="font-weight:600;">Failure simulator</div>
+                        <div class="tiny">What breaks first, what are the early signals, how do you recover?</div>
+                      </div>
+                    </label>
+
+                    <div class="tiny" style="margin-top:12px;">Intensity</div>
+                    <select id="warIntensity" style="width:100%; margin-top:6px;">
+                      <option value="light">Light</option>
+                      <option value="standard">Standard</option>
+                      <option value="deep">Deep</option>
+                    </select>
+                  </div>
+
+                  <div style="flex:1;">
+                    <div class="tiny" style="margin-bottom:8px;">What happens when War Room runs</div>
+                    <div class="card" style="padding:12px;">
+                      <div class="tiny" style="margin-bottom:8px;">
+                        War Room runs the selected modules on the group output and returns a single brief:
+                      </div>
+                      <ul style="margin:0; padding-left:18px;">
+                        <li class="tiny">Primary bottleneck and scale lever</li>
+                        <li class="tiny">Top risks and mitigations</li>
+                        <li class="tiny">Most likely failure scenarios and recovery steps</li>
+                      </ul>
+                      <div class="tiny" style="margin-top:10px;">
+                        Tip: Use “Run on last output” once to learn what it adds.
+                      </div>
+                    </div>
+
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                      <button class="btn btnPrimary" id="warSave">Save</button>
+                      <button class="btn" id="warRunLast">Run on last output</button>
+                    </div>
+
+                    <div class="tiny" id="warRoomStatus" style="margin-top:10px;"></div>
+                  </div>
+                </div>
+              </div>
+
               <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
@@ -5330,8 +5395,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
-                <button class="btn btnMini" id="warRoomBtn" title="Toggle War Room analysis">War room: OFF</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
+                <button class="btn btnMini" id="warRoomBtn">War Room</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
@@ -5494,78 +5559,9 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
+    let lastGroupCombined = "";
+    let warRoomModes = null;
     let lastEmailDraftBy = "";
-// =========================
-// War Room analysis mode (additive)
-// =========================
-let analysisModes = {war_room:false, scalability:true, failure_sim:true, risk:true, intensity:"standard"};
-let warRoomEnabled = false;
-
-function setWarRoomButton(){
-  const b = $("warRoomBtn");
-  if(!b) return;
-  b.innerText = "War room: " + (warRoomEnabled ? "ON" : "OFF");
-  b.classList.toggle("btnPrimary", !!warRoomEnabled);
-}
-
-async function loadAnalysisModes(){
-  try{
-    const res = await fetch("/api/modes");
-    const data = await res.json();
-    if(data && data.ok && data.analysis_modes){
-      analysisModes = data.analysis_modes;
-      warRoomEnabled = !!analysisModes.war_room;
-      setWarRoomButton();
-    }
-  }catch(_){}
-}
-
-async function toggleWarRoom(){
-  warRoomEnabled = !warRoomEnabled;
-  setWarRoomButton();
-  try{
-    const res = await fetch("/api/modes", {
-      method:"POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({analysis_modes: {...analysisModes, war_room: warRoomEnabled}})
-    });
-    const data = await res.json();
-    if(data && data.ok && data.analysis_modes){
-      analysisModes = data.analysis_modes;
-      warRoomEnabled = !!analysisModes.war_room;
-      setWarRoomButton();
-    }
-  }catch(_){}
-}
-
-async function runWarRoomAnalysis(prompt, outputs){
-  try{
-    setOpStatus("War Room analyzing");
-    const res = await fetch("/api/war_room_analyze", {
-      method:"POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({prompt, outputs, file_ids: groupFileIds})
-    });
-    const data = await res.json();
-    if(!data || !data.ok){
-      setOpStatus("Complete");
-      showModal("War Room", (data && data.error) ? data.error : "Analysis failed");
-      return;
-    }
-    const wr = data.war_room || {};
-    let txt = "";
-    if(wr.scalability) txt += "SCALABILITY RANKING\n\n" + wr.scalability + "\n\n";
-    if(wr.failure_sim) txt += "FAILURE SIMULATOR\n\n" + wr.failure_sim + "\n\n";
-    if(wr.risk) txt += "RISK ASSESSMENT\n\n" + wr.risk + "\n\n";
-    txt = (txt || "").trim() || "No War Room output.";
-    setOpStatus("Complete");
-    showModal("WAR ROOM BRIEF", txt);
-  }catch(e){
-    setOpStatus("Complete");
-    showModal("War Room", String(e || "Analysis failed"));
-  }
-}
-
 
     let groupFileIds = [];
     let dmFileIds = [];
@@ -7626,17 +7622,15 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
+      try{
+        lastGroupCombined = Object.keys(outputs||{}).map(k=>`### ${k}\n${String(outputs[k]||"").trim()}`).join("\n\n");
+      }catch(e){ lastGroupCombined = ""; }
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
-
-      // War Room (optional): post-hoc scalability + failure + risk analysis
-      if(warRoomEnabled){
-        await runWarRoomAnalysis(prompt, outputs);
-      }
 
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
@@ -7647,10 +7641,63 @@ function makeSeat(defn, idx){
     }
 
     $("conveneAll").onclick = conveneAll;
+    if($("warRoomBtn")) $("warRoomBtn").onclick = showWarRoomModal;
 
-    if($("warRoomBtn")) $("warRoomBtn").onclick = toggleWarRoom;
-    // load saved mode state
-    loadAnalysisModes();
+    // War Room UI bindings (safe if elements not present)
+    function _warApplyPreset(preset){
+      const base = warRoomModes || _defaultWarModes();
+      base.enabled = true;
+      if(preset === "fast"){
+        base.modules = {scale:false, risk:true, failure_sim:false};
+        base.intensity = "light";
+      }else if(preset === "standard"){
+        base.modules = {scale:true, risk:true, failure_sim:false};
+        base.intensity = "standard";
+      }else if(preset === "deep"){
+        base.modules = {scale:true, risk:true, failure_sim:true};
+        base.intensity = "deep";
+      }
+      warRoomModes = base;
+      try{
+        if($("warEnabled")) $("warEnabled").checked = !!base.enabled;
+        if($("warScale")) $("warScale").checked = !!(base.modules||{}).scale;
+        if($("warRisk")) $("warRisk").checked = !!(base.modules||{}).risk;
+        if($("warFail")) $("warFail").checked = !!(base.modules||{}).failure_sim;
+        if($("warIntensity")) $("warIntensity").value = base.intensity || "standard";
+      }catch(e){}
+    }
+
+    if($("warPresetFast")) $("warPresetFast").onclick = ()=>_warApplyPreset("fast");
+    if($("warPresetStandard")) $("warPresetStandard").onclick = ()=>_warApplyPreset("standard");
+    if($("warPresetDeep")) $("warPresetDeep").onclick = ()=>_warApplyPreset("deep");
+
+    if($("warSave")) $("warSave").onclick = async ()=>{
+      const m = warRoomModes || _defaultWarModes();
+      m.enabled = !!$("warEnabled").checked;
+      m.modules = {
+        scale: !!$("warScale").checked,
+        risk: !!$("warRisk").checked,
+        failure_sim: !!$("warFail").checked
+      };
+      m.intensity = ($("warIntensity").value || "standard");
+      const ok = await saveWarRoomModes(m);
+      $("warRoomStatus").innerText = ok ? "Saved" : "Save failed";
+    };
+
+    if($("warRunLast")) $("warRunLast").onclick = async ()=>{
+      const m = warRoomModes || _defaultWarModes();
+      // live read from UI for run
+      m.enabled = !!$("warEnabled").checked;
+      m.modules = {
+        scale: !!$("warScale").checked,
+        risk: !!$("warRisk").checked,
+        failure_sim: !!$("warFail").checked
+      };
+      m.intensity = ($("warIntensity").value || "standard");
+      warRoomModes = m;
+      await runWarRoomOnText(lastGroupCombined || "");
+    };
+
 
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
@@ -8025,7 +8072,107 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("settingsBtn").onclick = () => showSettingsModal();
+    
+    // =========================
+    // WAR ROOM MODES (additive)
+    // =========================
+    async function loadWarRoomModes(){
+      try{
+        const res = await fetch("/api/modes");
+        const data = await res.json();
+        if(data && data.ok){
+          warRoomModes = data.modes || null;
+          return warRoomModes;
+        }
+      }catch(e){}
+      return warRoomModes;
+    }
+
+    async function saveWarRoomModes(modes){
+      try{
+        const res = await fetch("/api/modes", {
+          method:"POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({modes})
+        });
+        const data = await res.json();
+        if(data && data.ok){
+          warRoomModes = data.modes || modes;
+          return true;
+        }
+      }catch(e){}
+      return false;
+    }
+
+    function _defaultWarModes(){
+      return {
+        enabled: false,
+        modules: {scale: true, risk: true, failure_sim: false},
+        intensity: "standard"
+      };
+    }
+
+    function showWarRoomModal(){
+      showModal();
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("warRoomForm")) $("warRoomForm").style.display = "block";
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
+      $("modalTitle").innerText = "War Room";
+
+      (async ()=>{
+        $("warRoomStatus").innerText = "Loading...";
+        const m = await loadWarRoomModes() || _defaultWarModes();
+        const mods = m.modules || {};
+        $("warEnabled").checked = !!m.enabled;
+        $("warScale").checked = !!mods.scale;
+        $("warRisk").checked = !!mods.risk;
+        $("warFail").checked = !!mods.failure_sim;
+        $("warIntensity").value = (m.intensity || "standard");
+        $("warRoomStatus").innerText = "Ready";
+      })();
+    }
+
+    async function runWarRoomOnText(txt){
+      const m = warRoomModes || _defaultWarModes();
+      const mods = (m.modules || {});
+      const selected = Object.keys(mods).filter(k => !!mods[k]);
+      if(!selected.length){
+        showModal("War Room", "Turn on at least one module first.");
+        return;
+      }
+      if(!txt || !txt.trim()){
+        showModal("War Room", "No output to analyze yet. Run a group prompt first.");
+        return;
+      }
+      $("warRoomStatus").innerText = "Running...";
+      try{
+        const res = await fetch("/api/war_room/analyze", {
+          method:"POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({text: txt, modes: m})
+        });
+        const data = await res.json();
+        if(!data.ok){
+          $("warRoomStatus").innerText = "Error";
+          showModal("War Room error", data.error || "Failed");
+          return;
+        }
+        $("warRoomStatus").innerText = "Complete";
+        const head = `War Room ran: ${data.ran || ""} | Intensity: ${data.intensity || ""}`;
+        const body = (head + "\n\n" + (data.brief || "")).trim();
+        showModal("WAR ROOM BRIEF", body || "No output.");
+      }catch(e){
+        $("warRoomStatus").innerText = "Error";
+        showModal("War Room error", String(e || "Failed"));
+      }
+    }
+
+$("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
     $("saveSettings").onclick = async () => {
