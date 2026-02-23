@@ -7466,12 +7466,7 @@ function makeSeat(defn, idx){
     function _combineGroupOutputs(){
       const keys = Object.keys(lastGroupOutputs || {});
       if(keys.length === 0) return "";
-      return keys.map(k => k + ":
-" + (lastGroupOutputs[k] || "")).join("
-
----
-
-");
+      return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
     }
 
     async function runTacticalPass(pass, ctx){
