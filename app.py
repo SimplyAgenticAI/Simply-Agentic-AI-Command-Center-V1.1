@@ -512,6 +512,78 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 
 
 # =========================
+# GUIDED ONBOARDING (Additive Layer)
+# =========================
+#
+# Self-guided onboarding that computes "Next Best Action" for new users.
+# Additive only: does not alter existing flows, only provides guidance.
+
+ONBOARDING_DIR = DATA / "onboarding"
+ONBOARDING_DIR.mkdir(exist_ok=True)
+
+def _onboarding_path(username: str) -> Path:
+    d = ONBOARDING_DIR / _safe_name(username or "anon")
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "state.json"
+
+def _load_onboarding(username: str) -> Dict[str, Any]:
+    return load_json(_onboarding_path(username), {
+        "first_prompt_sent": False,
+        "completed": False,
+        "updated_at": None
+    }) or {
+        "first_prompt_sent": False,
+        "completed": False,
+        "updated_at": None
+    }
+
+def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_onboarding_path(username), data)
+
+def _calculate_onboarding_status(username: str) -> Dict[str, Any]:
+    u = current_user()
+    reg = load_registry()
+    onboarding = _load_onboarding(username)
+
+    # Step checks
+    has_key = bool((((u or {}).get("settings") or {}).get("openai_key")))
+
+    # Operator card completeness: treat "business" as the minimum signal
+    try:
+        op = _load_operator_profile(username)
+    except Exception:
+        op = {}
+    has_operator = bool((op.get("business") or "").strip())
+
+    installed = reg.get("installed") or {}
+    has_team = len(installed) >= len(DEFAULT_ORDER)
+
+    first_prompt = bool(onboarding.get("first_prompt_sent") or False)
+
+    steps = [
+        {"id": "add_openai_key", "done": has_key},
+        {"id": "fill_operator_profile", "done": has_operator},
+        {"id": "install_full_team", "done": has_team},
+        {"id": "send_first_prompt", "done": first_prompt},
+    ]
+
+    next_step = None
+    for s in steps:
+        if not s.get("done"):
+            next_step = s.get("id")
+            break
+
+    completed = next_step is None
+
+    if completed and not onboarding.get("completed"):
+        onboarding["completed"] = True
+        _save_onboarding(username, onboarding)
+
+    return {"completed": completed, "next_step": next_step, "steps": steps}
+
+
+# =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
 # =========================
 #
@@ -2587,6 +2659,14 @@ def api_convene():
     })
 
 
+@app.get("/api/onboarding/status")
+def api_onboarding_status():
+    if not session.get("user"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = _get_session_username()
+    status = _calculate_onboarding_status(username)
+    return jsonify({"ok": True, "onboarding": status})
+
 @app.post("/api/followup")
 def api_followup():
     data = request.get_json(force=True)
@@ -2649,6 +2729,17 @@ def api_followup():
         teammate=name,
         status="success"
     )
+
+
+    # Guided onboarding: mark first prompt sent (additive)
+    try:
+        username = _get_session_username()
+        ob = _load_onboarding(username)
+        if not ob.get("first_prompt_sent"):
+            ob["first_prompt_sent"] = True
+            _save_onboarding(username, ob)
+    except Exception:
+        pass
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
@@ -4137,10 +4228,6 @@ HTML = r"""
     .modal.minimized .modalBodyWrap{ display:none; }
 
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-
-    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
-    .passRow .tiny{ margin-left: 2px; }
-    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
     .pill{
       display:inline-flex;
       gap:8px;
@@ -4760,7 +4847,104 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-</style>
+    /* ===== Guided Onboarding (additive) ===== */
+    .onboardCard{
+      display:none;
+      width:min(860px, 92vw);
+      margin: 14px auto 10px auto;
+      padding: 14px 14px 12px 14px;
+      border-radius: 14px;
+      background: rgba(17,24,39,0.72);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 12px 38px rgba(0,0,0,0.35);
+      backdrop-filter: blur(10px);
+    }
+    .onboardTitle{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      margin-bottom: 8px;
+    }
+    .onboardTitle .badge{
+      font-size:12px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,0.12);
+      color: var(--muted);
+    }
+    .onboardSteps{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top: 10px;
+    }
+    .onboardStep{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.03);
+    }
+    .onboardLeft{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .onIcon{
+      width:20px; height:20px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius: 8px;
+      border:1px solid rgba(255,255,255,0.12);
+      color: var(--text);
+      flex: 0 0 auto;
+    }
+    .onLabel{
+      font-size: 14px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow:hidden;
+      text-overflow: ellipsis;
+    }
+    .onHint{
+      font-size: 12px;
+      color: var(--muted);
+      flex: 0 0 auto;
+    }
+
+    /* Next recommended step: stronger glow */
+    .onboardStepNext{
+      border:1px solid rgba(255,255,255,0.24);
+      background: rgba(124,58,237,0.10);
+      box-shadow: 0 0 0 1px rgba(124,58,237,0.25), 0 0 18px rgba(124,58,237,0.28);
+      animation: onboardPulse 1.35s ease-in-out infinite;
+    }
+    @keyframes onboardPulse{
+      0% { box-shadow: 0 0 0 1px rgba(124,58,237,0.18), 0 0 16px rgba(124,58,237,0.18); transform: translateY(0); }
+      50% { box-shadow: 0 0 0 1px rgba(124,58,237,0.34), 0 0 30px rgba(124,58,237,0.38); transform: translateY(-1px); }
+      100% { box-shadow: 0 0 0 1px rgba(124,58,237,0.18), 0 0 16px rgba(124,58,237,0.18); transform: translateY(0); }
+    }
+
+    /* Glow applied to the actual target button/area */
+    .onboardTargetGlow{
+      outline: 2px solid rgba(124,58,237,0.55);
+      box-shadow: 0 0 0 3px rgba(124,58,237,0.25), 0 0 24px rgba(124,58,237,0.35);
+      animation: targetPulse 1.35s ease-in-out infinite;
+      border-radius: 12px;
+    }
+    @keyframes targetPulse{
+      0% { box-shadow: 0 0 0 3px rgba(124,58,237,0.22), 0 0 18px rgba(124,58,237,0.20); }
+      50% { box-shadow: 0 0 0 4px rgba(124,58,237,0.34), 0 0 30px rgba(124,58,237,0.40); }
+      100% { box-shadow: 0 0 0 3px rgba(124,58,237,0.22), 0 0 18px rgba(124,58,237,0.20); }
+    }
+  </style>
 </head>
 <body>
   <div class="topbar">
@@ -5093,6 +5277,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           </div>
         </div>
 
+                <!-- ===== Guided Onboarding (additive) ===== -->
+        <div class="onboardCard" id="guidedOnboarding">
+          <div class="onboardTitle">
+            <div>Getting Started</div>
+            <div class="badge">Next Best Action</div>
+          </div>
+          <div class="tiny" style="margin-top:2px;">Follow the glowing step to keep moving.</div>
+          <div class="onboardSteps" id="onboardingSteps"></div>
+        </div>
+
         <div class="tableWrap" id="tableWrap">
           <div class="table" id="tableCore">
             <div class="runes"></div>
@@ -5115,16 +5309,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             </div>
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
-
-            <div class="passRow" id="groupPassRow">
-              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
-              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
-              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
-              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
-              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
-            </div>
 
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
@@ -5167,16 +5351,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
-        </div>
-
-        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
-          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
-          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
-          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
-          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
         <div class="thread" id="thread"></div>
@@ -5292,7 +5466,6 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
-    let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
 
     let groupFileIds = [];
@@ -5373,38 +5546,17 @@ id="diagOverlay"></div>
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
-
       if(savedSize){
         win.style.width = Math.max(360, savedSize.width) + "px";
         win.style.height = Math.max(260, savedSize.height) + "px";
       }
-
-      // If we have a saved position, clamp it so the modal never renders off-screen.
       if(saved){
         win.style.transform = "none";
-
-        // Use current rendered size (after applying savedSize above) to clamp.
-        const mw = Math.max(360, win.offsetWidth || 520);
-        const mh = Math.max(260, win.offsetHeight || 420);
-
-        const margin = 12;
-        const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
-        const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
-
-        const left = Math.min(Math.max(saved.left, margin), maxLeft);
-        const top  = Math.min(Math.max(saved.top, margin), maxTop);
-
-        win.style.left = left + "px";
-        win.style.top  = top + "px";
-
-        // If the saved position was out-of-bounds, persist the corrected one.
-        if(left !== saved.left || top !== saved.top){
-          saveModalPos(left, top);
-        }
+        win.style.left = saved.left + "px";
+        win.style.top = saved.top + "px";
         return;
       }
 
-      // Default centered position
       win.style.left = "50%";
       win.style.top = "80px";
       win.style.transform = "translateX(-50%)";
@@ -6344,6 +6496,7 @@ function makeSeat(defn, idx){
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
+      profBtn.id = "operatorProfileBtn";
       profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
@@ -6560,7 +6713,6 @@ function makeSeat(defn, idx){
     }
 
     function renderThread(msgs){
-      lastSeatAssistantText = "";
       const box = $("thread");
       box.innerHTML = "";
       if(!msgs || msgs.length === 0){
@@ -6578,7 +6730,6 @@ function makeSeat(defn, idx){
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
         content.innerText = m.content;
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -7459,66 +7610,6 @@ function makeSeat(defn, idx){
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
-
-    // -----------------------------
-    // v9: Tactical Passes (stateless one-click analyses)
-    // -----------------------------
-    function _combineGroupOutputs(){
-      const keys = Object.keys(lastGroupOutputs || {});
-      if(keys.length === 0) return "";
-      return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
-    }
-
-    async function runTacticalPass(pass, ctx){
-      const context = (ctx || "seat");
-      const seat = (context === "group") ? "Group" : (selectedSeat || "");
-      const text = (context === "group") ? _combineGroupOutputs() : (lastSeatAssistantText || "");
-      if(!text.trim()){
-        showModal("Nothing to analyze", (context === "group")
-          ? "Run a Group prompt first so there are replies to analyze."
-          : "Send a message to a teammate first so there is an assistant reply to analyze."
-        );
-        return;
-      }
-
-      showModal("Running " + pass + "...", "Thinking...");
-      try{
-        const res = await fetch("/api/passes/run", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({pass, text, seat})
-        });
-        const data = await res.json();
-        if(!data.ok){
-          showModal("Error", data.error || "Pass failed");
-          return;
-        }
-        const title = pass.toUpperCase() + " PASS" + (seat ? (" | " + seat) : "");
-        showModal(title, data.result || "");
-      }catch(e){
-        showModal("Error", String(e || "Pass failed"));
-      }
-    }
-
-    // Wire seat buttons
-    try{
-      $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
-      $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
-      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
-      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
-      $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
-    }catch(_){}
-
-    // Wire group buttons
-    try{
-      $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
-      $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
-      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
-      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
-      $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
-    }catch(_){}
 
     $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
@@ -8950,6 +9041,115 @@ function applyRTTransformV4(){
   }catch(e){}
 })();
 
+// ===== Guided Onboarding (additive) =====
+(function(){
+  function _qs(id){ return document.getElementById(id); }
+
+  function clearTargetGlow(){
+    try{
+      document.querySelectorAll(".onboardTargetGlow").forEach(el=>{
+        el.classList.remove("onboardTargetGlow");
+      });
+    }catch(e){}
+  }
+
+  function applyTargetGlow(stepId){
+    clearTargetGlow();
+
+    const map = {
+      add_openai_key: ["settingsBtn","openApiKeyHelpBtn"],
+      fill_operator_profile: ["operatorProfileBtn","operator"],
+      install_full_team: ["installFullBtn"],
+      send_first_prompt: ["followMsg","sendFollow"]
+    };
+
+    const ids = map[stepId] || [];
+    ids.forEach(id=>{
+      const el = _qs(id);
+      if(el) el.classList.add("onboardTargetGlow");
+    });
+  }
+
+  function stepLabel(id){
+    const labels = {
+      add_openai_key: "Add OpenAI API Key",
+      fill_operator_profile: "Fill Operator Profile",
+      install_full_team: "Install Full Team",
+      send_first_prompt: "Send First Prompt"
+    };
+    return labels[id] || id;
+  }
+
+  function stepHint(id){
+    const hints = {
+      add_openai_key: "Click Settings or Get your OpenAI key",
+      fill_operator_profile: "Click Profile on Operator card",
+      install_full_team: "Click Install full team",
+      send_first_prompt: "Type a message then Send"
+    };
+    return hints[id] || "";
+  }
+
+  async function loadOnboarding(){
+    try{
+      const res = await fetch("/api/onboarding/status", {credentials:"same-origin"});
+      const data = await res.json();
+      if(!data || !data.ok) return;
+
+      const ob = data.onboarding || {};
+      const card = _qs("guidedOnboarding");
+      const stepsDiv = _qs("onboardingSteps");
+      if(!card || !stepsDiv) return;
+
+      if(ob.completed){
+        card.style.display = "none";
+        clearTargetGlow();
+        return;
+      }
+
+      const next = ob.next_step;
+      const steps = ob.steps || [];
+      card.style.display = "block";
+
+      stepsDiv.innerHTML = steps.map(s=>{
+        const done = !!s.done;
+        const isNext = (!done && s.id === next);
+        const cls = "onboardStep" + (isNext ? " onboardStepNext" : "");
+        const icon = done ? "✓" : (isNext ? "→" : "•");
+        return `
+          <div class="${cls}">
+            <div class="onboardLeft">
+              <div class="onIcon">${icon}</div>
+              <div class="onLabel">${stepLabel(s.id)}</div>
+            </div>
+            <div class="onHint">${done ? "Done" : (isNext ? ("Go now: " + stepHint(s.id)) : "")}</div>
+          </div>
+        `;
+      }).join("");
+
+      if(next) applyTargetGlow(next);
+    }catch(e){}
+  }
+
+  // Run after paint, and keep it fresh after key actions
+  try{
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", ()=>{ setTimeout(loadOnboarding, 220); }, {once:true});
+    }else{
+      setTimeout(loadOnboarding, 220);
+    }
+  }catch(e){}
+
+  function safeBind(id){
+    const el = _qs(id);
+    if(!el) return;
+    el.addEventListener("click", ()=>{ setTimeout(loadOnboarding, 450); }, {passive:true});
+  }
+  safeBind("saveSettings");
+  safeBind("installFullBtn");
+  safeBind("sendFollow");
+})();
+
 </script>
 
 
@@ -9061,90 +9261,6 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
-
-
-
-
-@app.route("/api/passes/run", methods=["POST"])
-def api_passes_run():
-    username = _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    pass_name = (payload.get("pass") or "").strip().lower()
-    seat = (payload.get("seat") or "").strip()
-    text_in = payload.get("text") or ""
-    if not isinstance(text_in, str):
-        text_in = str(text_in)
-
-    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
-    if pass_name not in allowed:
-        return jsonify({"ok": False, "error": "Unknown pass"}), 400
-
-    # Guardrails: keep request size reasonable
-    if len(text_in.encode("utf-8", errors="ignore")) > 200_000:
-        # Trim from the front so we keep the most recent parts
-        text_in = text_in[-180_000:]
-
-    profile = _load_operator_profile(username)
-    operator_ctx = (
-        f"Operator display name: {(profile.get('display_name') or 'Operator').strip()}\n"
-        f"Business: {(profile.get('business') or '').strip()}\n"
-        f"Offers: {(profile.get('offers') or '').strip()}\n"
-        f"Audience: {(profile.get('audience') or '').strip()}\n"
-        f"Goals: {(profile.get('goals') or '').strip()}\n"
-        f"Constraints: {(profile.get('constraints') or '').strip()}\n"
-        f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
-    ).strip()
-
-    base_system = (
-        "You are a tactical analysis engine inside an agentic command center. "
-        "You run fast, practical analysis passes on the provided text. "
-        "Be concrete and operator-ready. No fluff. "
-        "Do not invent facts. If something is unknown, say so plainly. "
-        "Use short headings and bullets. Avoid long preambles. "
-        "Do not use em dashes."
-    )
-
-    pass_instructions = {
-        "risk": (
-            "RISK ASSESSMENT. Identify the top risks in executing the plan or advice in the text. "
-            "Include: Risk level (Low, Medium, High), risk categories, and mitigations. "
-            "End with Stop conditions: 2 to 4 conditions where the operator should pause before proceeding."
-        ),
-        "scale": (
-            "SCALABILITY RANKING. Score scalability from 1 to 10. "
-            "Name the primary bottleneck and the first thing that breaks when volume doubles. "
-            "Give 3 scale levers that reduce operator time or increase throughput."
-        ),
-        "failure": (
-            "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
-            "For each: Failure mode, early warning signal, prevention, recovery step. "
-            "Prioritize the most likely failures first."
-        ),
-        "assumptions": (
-            "ASSUMPTION SCAN. List key assumptions implied by the text. "
-            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
-        ),
-        "constraints": (
-            "CONSTRAINT SCAN. Identify constraints and dependencies. "
-            "Classify each as People, Time, Tools, Data, Policy, or Market. "
-            "For each: why it is a constraint and one practical workaround."
-        ),
-        "optimize": (
-            "OPTIMIZATION PASS. Rewrite the plan or output into a clearer, higher leverage version. "
-            "Preserve intent. Reduce steps. Remove redundancy. "
-            "End with: Next 3 actions the operator should take."
-        ),
-    }
-
-    system = base_system + "\n\n" + "Operator context:\n" + operator_ctx + "\n\n" + pass_instructions[pass_name]
-    user_msg = f"Seat: {seat or 'N/A'}\n\nTEXT TO ANALYZE:\n{text_in}"
-
-    try:
-        result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
-        return jsonify({"ok": True, "result": result})
-    except Exception as e:
-        code, msg = _map_openai_error(e)
-        return jsonify({"ok": False, "error": msg}), code
 
 
 def _load_operator_profile(username: str) -> Dict[str, Any]:
