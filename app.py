@@ -268,6 +268,82 @@ def load_users() -> Dict[str, Any]:
 def save_users(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(USERS_PATH, data)
+# =========================
+# ANALYSIS MODES (War Room) - additive
+# =========================
+
+def _default_analysis_modes() -> Dict[str, Any]:
+    return {
+        "war_room": False,
+        "scalability": True,
+        "failure_sim": True,
+        "risk": True,
+        "intensity": "standard",  # standard | deep
+    }
+
+def _get_analysis_modes_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    d = _default_analysis_modes()
+    try:
+        if u and isinstance(u, dict):
+            s = (u.get("settings") or {})
+            am = (s.get("analysis_modes") or {})
+            if isinstance(am, dict):
+                d.update({k: am.get(k, d.get(k)) for k in d.keys()})
+    except Exception:
+        pass
+    # sanitize intensity
+    if str(d.get("intensity") or "").strip().lower() not in ("standard", "deep"):
+        d["intensity"] = "standard"
+    # normalize bools
+    for k in ("war_room", "scalability", "failure_sim", "risk"):
+        d[k] = bool(d.get(k))
+    return d
+
+def _save_analysis_modes_for_user(username: str, modes: Dict[str, Any]) -> None:
+    username = _clean_username(username or "")
+    if not username:
+        return
+    data = load_users()
+    users = data.get("users") or {}
+    if username not in users or not isinstance(users.get(username), dict):
+        return
+    u = users[username]
+    u.setdefault("settings", {})
+    u["settings"].setdefault("analysis_modes", {})
+    cur = u["settings"].get("analysis_modes") or {}
+    if not isinstance(cur, dict):
+        cur = {}
+    # allow only known keys
+    d = _default_analysis_modes()
+    for k in d.keys():
+        if k in modes:
+            cur[k] = modes.get(k)
+    # sanitize
+    if str(cur.get("intensity") or "").strip().lower() not in ("standard", "deep"):
+        cur["intensity"] = "standard"
+    for k in ("war_room", "scalability", "failure_sim", "risk"):
+        cur[k] = bool(cur.get(k))
+    u["settings"]["analysis_modes"] = cur
+    users[username] = u
+    data["users"] = users
+    save_users(data)
+
+def _truncate_outputs_for_analysis(outputs: Dict[str, str], per_item: int = 1500, total: int = 12000) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    used = 0
+    for k, v in (outputs or {}).items():
+        if used >= total:
+            break
+        txt = (v or "")
+        if len(txt) > per_item:
+            txt = txt[:per_item] + "..."
+        take = max(0, min(len(txt), total - used))
+        txt2 = txt[:take]
+        if txt2:
+            out[str(k)] = txt2
+            used += len(txt2)
+    return out
+
 
 def has_any_user() -> bool:
     data = load_users()
@@ -287,6 +363,13 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "updated_at": now_iso(),
         "settings": {
             "openai_key": "",
+            "analysis_modes": {
+                "war_room": False,
+                "scalability": True,
+                "failure_sim": True,
+                "risk": True,
+                "intensity": "standard"
+            },
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -2312,6 +2395,148 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
+# -------------------------
+# War Room Mode API (additive)
+# -------------------------
+
+@app.get("/api/modes")
+def api_get_modes():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    modes = _get_analysis_modes_for_user(u)
+    return jsonify({"ok": True, "analysis_modes": modes})
+
+
+@app.post("/api/modes")
+def api_set_modes():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(force=True) or {}
+    incoming = data.get("analysis_modes")
+    if incoming is None:
+        # also accept flat payload
+        incoming = data
+    if not isinstance(incoming, dict):
+        return jsonify({"ok": False, "error": "Invalid payload"}), 400
+
+    uname = u.get("username") if isinstance(u, dict) else ""
+    _save_analysis_modes_for_user(uname or "", incoming)
+    # return updated
+    u2 = current_user()
+    modes = _get_analysis_modes_for_user(u2)
+    append_log("analysis_modes_updated", {"user": uname, "updated_at": now_iso(), "analysis_modes": modes})
+    return jsonify({"ok": True, "analysis_modes": modes})
+
+
+@app.post("/api/war_room_analyze")
+def api_war_room_analyze():
+    """Run post-hoc analysis passes on group outputs.
+
+    Additive: does not change any existing group send behavior.
+    """
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(force=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    outputs = data.get("outputs") or {}
+    file_ids = data.get("file_ids") or []
+
+    if not prompt or not isinstance(outputs, dict) or not outputs:
+        return jsonify({"ok": False, "error": "Missing prompt or outputs"}), 400
+
+    modes = _get_analysis_modes_for_user(u)
+    # Only run if at least one analyzer is enabled
+    if not (modes.get("scalability") or modes.get("failure_sim") or modes.get("risk")):
+        return jsonify({"ok": True, "analysis_modes": modes, "war_room": {}})
+
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+
+    # truncate outputs to keep token use safe
+    trunc = _truncate_outputs_for_analysis({str(k): str(v) for k, v in outputs.items()})
+
+    base_payload = {
+        "user_prompt": prompt,
+        "outputs": trunc,
+        "notes": {
+            "rules": [
+                "No em dashes.",
+                "Be concrete and operational.",
+                "Prefer short sections, crisp bullets, and simple scoring scales."
+            ]
+        }
+    }
+
+    def _call_named(teammate_name: str, user_task: str, temperature: float = 0.35) -> str:
+        defn = installed.get(teammate_name) or PREBUILT_LOCKED.get(teammate_name)
+        if not defn:
+            return ""
+        sys = teammate_system_prompt(defn)
+        # Allow attachments context if provided (best-effort)
+        try:
+            prompt2, _, vision_images = build_prompt_with_attachments(user_task, file_ids)
+            user_content = _build_user_content(prompt2, vision_images)
+        except Exception:
+            user_content = user_task
+        return call_llm(sys, [{"role": "user", "content": user_content}], temperature=temperature)
+
+    intensity = str(modes.get("intensity") or "standard").strip().lower()
+    deep = (intensity == "deep")
+
+    war_room: Dict[str, str] = {}
+
+    if modes.get("scalability"):
+        task = json.dumps({
+            **base_payload,
+            "task": "Scalability ranking",
+            "output_format": [
+                "Create a 5-level scalability rank: S1 (manual, fragile) to S5 (fully systemized).",
+                "Return: Rank, Why, Bottlenecks, Automation opportunities, Next 3 upgrades.",
+                "Also include a tiny table of major components and their S-rank."
+            ],
+            "depth": "deep" if deep else "standard"
+        }, indent=2)
+        war_room["scalability"] = _call_named("Orion", task, temperature=0.35)
+
+    if modes.get("failure_sim"):
+        task = json.dumps({
+            **base_payload,
+            "task": "Failure simulator",
+            "output_format": [
+                "List the top 7 failure modes.",
+                "For each: what triggers it, early warning signs, likely impact, and a mitigation play.",
+                "End with a short 'Pre-mortem checklist' (10 items max)."
+            ],
+            "depth": "deep" if deep else "standard"
+        }, indent=2)
+        war_room["failure_sim"] = _call_named("Orion", task, temperature=0.40)
+
+    if modes.get("risk"):
+        task = json.dumps({
+            **base_payload,
+            "task": "Risk assessment",
+            "output_format": [
+                "Give a risk matrix with Likelihood (1-5) and Impact (1-5).",
+                "Include: top risks, safeguards, what to avoid saying/doing, and one clarifying question if needed.",
+                "If user is about to make a risky assumption, call it out explicitly."
+            ],
+            "depth": "deep" if deep else "standard"
+        }, indent=2)
+        war_room["risk"] = _call_named("Atlis", task, temperature=0.25)
+
+    append_log("war_room_analyze", {
+        "prompt": prompt,
+        "analysis_modes": modes,
+        "outputs_keys": list(trunc.keys()),
+        "war_room_preview": {k: (v[:700] + ("..." if len(v) > 700 else "")) for k, v in war_room.items()},
+    })
+
+    return jsonify({"ok": True, "analysis_modes": modes, "war_room": war_room})
+
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -2582,391 +2807,6 @@ def api_convene():
         "mode": "execute",
         "atlis_report": atlis_report,
         "outputs": outputs,
-        "email_drafts": email_drafts,
-        "attachment_meta": attach_meta
-    })
-
-
-
-# =========================
-# STRATEGIC ORCHESTRATOR LAYER (additive, non-breaking)
-# =========================
-#
-# Goal: make the Round Table proactive and structured without changing existing flows.
-# - Keeps all existing functions and endpoints intact.
-# - Adds a new endpoint /api/orchestrate for orchestrated multi-teammate routing + synthesis.
-# - Uses existing teammate prompts, threads, attachments, logging, and task log.
-
-def _orchestrator_classify(prompt: str) -> Dict[str, Any]:
-    """Lightweight intent classifier for orchestration routing.
-
-    Returns:
-      {"category": str, "confidence": float, "notes": str}
-    """
-    p = (prompt or "").strip()
-    if not p:
-        return {"category": "general", "confidence": 0.0, "notes": "empty"}
-
-    # Fast heuristic first (no model call)
-    low = p.lower()
-    if any(k in low for k in ["logo", "graphic", "design", "colors", "layout", "ui", "image", "branding"]):
-        return {"category": "design", "confidence": 0.7, "notes": "heuristic"}
-    if any(k in low for k in ["automation", "workflow", "pipeline", "zapier", "make.com", "integrat", "crm", "api", "webhook"]):
-        return {"category": "automation", "confidence": 0.7, "notes": "heuristic"}
-    if any(k in low for k in ["pricing", "sell", "close", "objection", "client", "dm", "book a call", "lead", "prospect"]):
-        return {"category": "sales", "confidence": 0.7, "notes": "heuristic"}
-    if any(k in low for k in ["research", "sources", "study", "evidence", "prove", "verify", "latest", "fact check"]):
-        return {"category": "research", "confidence": 0.7, "notes": "heuristic"}
-    if any(k in low for k in ["offer", "position", "campaign", "marketing", "content", "funnel", "messaging"]):
-        return {"category": "marketing", "confidence": 0.65, "notes": "heuristic"}
-
-    # If heuristic did not trigger, do a small model classification (best-effort).
-    # This is intentionally safe: if it fails, default to "general".
-    try:
-        sys = "You are a strict classifier. Output valid JSON only. No em dashes."
-        out = call_llm(
-            sys,
-            [{"role": "user", "content": json.dumps({
-                "task": "Classify the user's prompt into one category for orchestration routing.",
-                "categories": ["marketing", "sales", "design", "automation", "research", "general"],
-                "prompt": p
-            })}],
-            temperature=0.0
-        )
-        # Extract JSON object
-        jm = re.search(r"\{[\s\S]*\}", out or "")
-        if jm:
-            obj = json.loads(jm.group(0))
-            cat = str(obj.get("category") or "general").strip().lower()
-            if cat not in ["marketing", "sales", "design", "automation", "research", "general"]:
-                cat = "general"
-            conf = float(obj.get("confidence") or 0.4)
-            notes = str(obj.get("notes") or "model").strip()
-            return {"category": cat, "confidence": max(0.0, min(1.0, conf)), "notes": notes}
-    except Exception:
-        pass
-
-    return {"category": "general", "confidence": 0.4, "notes": "default"}
-
-
-def _orchestrator_focus_for(teammate: str, category: str) -> str:
-    """Return a short, teammate-specific focus directive for the current category."""
-    t = (teammate or "").strip()
-    c = (category or "general").strip().lower()
-
-    # Default focuses per teammate (works even if user adds custom teammates).
-    base = {
-        "Alex": "Strategy and positioning. Define the plan and why it will work.",
-        "Willow": "Clarity and language integrity. Improve framing without changing meaning.",
-        "Ava": "Evidence and validation. Identify assumptions and what must be verified.",
-        "Orion": "Systems and scale. Map a reliable workflow and failure points.",
-        "Sunshine": "Sales readiness and objections. Identify buying signals and best next ask.",
-        "Luna": "Visual system and hierarchy. Recommend design decisions and consistency.",
-        "Atlis": "Integrity check. Find contradictions, missing constraints, and risk of rule drift.",
-    }
-
-    # Category tuning
-    if c == "marketing":
-        tuned = {
-            "Alex": "Positioning, offer framing, and campaign structure.",
-            "Willow": "Voice, clarity, and believable language. No hype.",
-            "Ava": "Audience truth checks, validation, and research gaps.",
-            "Orion": "Repeatable content system and automation opportunities.",
-            "Sunshine": "Conversion path, CTA tone, objections, and timing.",
-            "Luna": "Creative direction, visual consistency, and layout guidance.",
-            "Atlis": "Conflicts, compliance, and integrity risks.",
-        }
-    elif c == "sales":
-        tuned = {
-            "Alex": "Sales strategy architecture, pricing posture, and positioning leverage.",
-            "Willow": "Natural human tone, clarity, and meaning preservation.",
-            "Ava": "Evidence for claims. What can and cannot be asserted.",
-            "Orion": "CRM pipeline, follow-up sequencing, and reliability.",
-            "Sunshine": "Discovery-first conversation path and readiness signals.",
-            "Luna": "Any supporting asset suggestions (one pager, visual proof).",
-            "Atlis": "Ethics and integrity check, red flags and misrepresentation risks.",
-        }
-    elif c == "automation":
-        tuned = {
-            "Alex": "Outcome definition and what to measure.",
-            "Willow": "User-facing copy and prompts that reduce confusion.",
-            "Ava": "Tool constraints and verification of requirements.",
-            "Orion": "System design, failure modes, and safe rollout.",
-            "Sunshine": "Where automation should not replace human trust steps.",
-            "Luna": "UI cues, naming, and visual clarity for flows.",
-            "Atlis": "Safety, permissions, and drift prevention.",
-        }
-    elif c == "design":
-        tuned = {
-            "Alex": "Message hierarchy, what the design must communicate.",
-            "Willow": "Copy polish, readability, and meaning integrity.",
-            "Ava": "Reference validation, constraints, and checklists.",
-            "Orion": "Production pipeline, templates, reuse, and consistency rules.",
-            "Sunshine": "Conversion clarity, CTA placement, and trust signals.",
-            "Luna": "Design execution guidance: hierarchy, spacing, contrast, consistency.",
-            "Atlis": "Brand rule compliance and integrity checks.",
-        }
-    elif c == "research":
-        tuned = {
-            "Alex": "How research changes strategy and decisions.",
-            "Willow": "Neutral language and uncertainty labeling.",
-            "Ava": "Primary sourcing plan and what constitutes evidence.",
-            "Orion": "Repeatable research workflow and storage.",
-            "Sunshine": "How findings translate to offers and conversations.",
-            "Luna": "How to present findings visually, if needed.",
-            "Atlis": "Claim hygiene and uncertainty discipline.",
-        }
-    else:
-        tuned = base
-
-    return tuned.get(t, base.get(t, "Provide your best contribution for this problem."))
-
-
-def _orchestrator_subprompt(teammate: str, focus: str, user_prompt: str) -> str:
-    return (
-        "STRATEGIC ORCHESTRATION REQUEST\n"
-        f"Teammate: {teammate}\n"
-        f"Focus: {focus}\n\n"
-        "Output format (use headings exactly, concise but specific):\n"
-        "1) Assumptions\n"
-        "2) Best Moves\n"
-        "3) Risks\n"
-        "4) One Question (if needed)\n\n"
-        "User prompt:\n"
-        f"{user_prompt.strip()}\n"
-    )
-
-
-def _orchestrator_synthesis_prompt(category: str, user_prompt: str, teammate_outputs: Dict[str, str], atlis_report: str) -> str:
-    return json.dumps({
-        "task": "Synthesize a single operator-ready brief from multi-teammate outputs.",
-        "rules": [
-            "No em dashes.",
-            "Be concrete and actionable.",
-            "If information is missing, ask exactly one clarifying question at the end."
-        ],
-        "category": category,
-        "user_prompt": user_prompt,
-        "atlis_integrity_report": atlis_report,
-        "teammate_outputs": teammate_outputs,
-        "required_sections": [
-            "Situation",
-            "Objective",
-            "Plan (phased)",
-            "Key assumptions to verify",
-            "Risks and mitigations",
-            "Next actions (checklist)",
-            "One clarifying question (only if needed)"
-        ]
-    }, indent=2)
-
-
-@app.post("/api/orchestrate")
-def api_orchestrate():
-    """Orchestrated Round Table execution.
-
-    This endpoint complements /api/convene. It does not replace anything.
-    """
-    data = request.get_json(force=True) or {}
-    prompt = (data.get("prompt") or "").strip()
-    file_ids = data.get("file_ids") or []
-
-    if not prompt:
-        return jsonify({"ok": False, "error": "Missing prompt"}), 400
-
-    reg = load_registry()
-    installed = reg.get("installed") or {}
-    order = reg.get("active_order") or reg.get("installed_order") or []
-
-    if not installed:
-        return jsonify({"ok": False, "error": "No teammates installed"}), 400
-    if not order:
-        return jsonify({"ok": False, "error": "No active teammates in the round table"}), 400
-
-    # Assembly stays the same behavior
-    if is_assembly(prompt):
-        roll = []
-        for name in order:
-            d = installed.get(name)
-            if not d:
-                continue
-            roll.append({"name": d.get("name", name), "job_title": d.get("job_title", ""), "version": d.get("version", "")})
-        append_log("assembly", {"prompt": prompt, "roll": roll, "via": "orchestrate"})
-        return jsonify({"ok": True, "mode": "assembly", "roll": roll})
-
-    # Attachments
-    prompt2, attach_meta, vision_images = build_prompt_with_attachments(prompt, file_ids)
-    user_content = _build_user_content(prompt2, vision_images)
-
-    # Category
-    cls = _orchestrator_classify(prompt2)
-    category = (cls.get("category") or "general")
-
-    # Step 1: Atlis preflight (same idea as convene, but geared for orchestration)
-    atlis_def = installed.get("Atlis") or PREBUILT_LOCKED.get("Atlis", {})
-    atlis_sys = teammate_system_prompt(atlis_def) if atlis_def else "No em dashes."
-    try:
-        atlis_pre = call_llm(
-            atlis_sys,
-            [{"role": "user", "content": json.dumps({
-                "task": "Integrity preflight check for orchestrated routing",
-                "rules": [
-                    "No execution. Report only.",
-                    "Call out contradictions, missing constraints, and unsafe assumptions.",
-                    "If unclear, recommend exactly one clarifying question.",
-                    "No em dashes."
-                ],
-                "category": category,
-                "user_prompt": prompt2
-            }, indent=2)}],
-            temperature=0.2
-        )
-    except Exception as e:
-        status, msg = _classify_openai_error(e)
-        append_log("orchestrate_error", {"where": "atlis_preflight", "error": str(e)})
-        return jsonify({"ok": False, "error": msg}), status
-
-    append_task_log(
-        "atlis_preflight_orchestrate",
-        {
-            "prompt": prompt,
-            "prompt_with_attachments": prompt2,
-            "attachment_meta": attach_meta,
-            "vision_images_count": len(vision_images),
-            "category": category,
-            "report_preview": (atlis_pre[:800] + ("..." if len(atlis_pre) > 800 else "")),
-        },
-        teammate="Atlis",
-        status="success"
-    )
-
-    # Step 2: Routed teammate calls (structured)
-    teammate_outputs: Dict[str, str] = {}
-    email_drafts: Dict[str, Dict[str, str]] = {}
-
-    for name in order:
-        defn = installed.get(name)
-        if not defn:
-            continue
-
-        focus = _orchestrator_focus_for(name, category)
-        sub = _orchestrator_subprompt(name, focus, prompt2)
-
-        sys = teammate_system_prompt(defn)
-
-        thread = load_thread(name)
-        thread = thread[-10:] if len(thread) > 10 else thread
-
-        msgs: List[Dict[str, Any]] = []
-        msgs.extend(thread)
-        # Provide the original user content (attachments) then the orchestration subprompt.
-        msgs.append({"role": "user", "content": user_content})
-        msgs.append({"role": "user", "content": sub})
-
-        try:
-            text = call_llm(sys, msgs, temperature=0.55)
-        except Exception as e:
-            status, msg = _classify_openai_error(e)
-            append_log("orchestrate_error", {"where": name, "error": str(e)})
-            return jsonify({"ok": False, "error": msg}), status
-
-        # Persist thread with the user's original prompt (prompt2) and the assistant output.
-        new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
-        save_thread(name, new_thread)
-
-        teammate_outputs[name] = text
-
-        append_task_log(
-            "teammate_orchestrate",
-            {
-                "prompt": prompt,
-                "prompt_with_attachments": prompt2,
-                "attachment_meta": attach_meta,
-                "vision_images_count": len(vision_images),
-                "category": category,
-                "focus": focus,
-                "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
-            },
-            teammate=name,
-            status="success"
-        )
-
-        d = extract_email_draft(text)
-        if d:
-            email_drafts[name] = d
-
-    # Step 3: Atlis contradiction scan across outputs
-    try:
-        atlis_cross = call_llm(
-            atlis_sys,
-            [{"role": "user", "content": json.dumps({
-                "task": "Cross-check teammate outputs for contradictions and missing constraints.",
-                "rules": [
-                    "No execution. Report only.",
-                    "List contradictions, then propose the smallest fix.",
-                    "Recommend at most one clarifying question.",
-                    "No em dashes."
-                ],
-                "category": category,
-                "user_prompt": prompt2,
-                "teammate_outputs": teammate_outputs
-            }, indent=2)}],
-            temperature=0.15
-        )
-    except Exception:
-        atlis_cross = ""
-
-    # Step 4: Synthesis (operator brief)
-    try:
-        synth_sys = "You are the Strategic Orchestrator. Produce an operator-ready brief. No em dashes."
-        synth = call_llm(
-            synth_sys,
-            [{"role": "user", "content": _orchestrator_synthesis_prompt(category, prompt2, teammate_outputs, (atlis_pre + "\n\n" + atlis_cross).strip())}],
-            temperature=0.35
-        )
-    except Exception as e:
-        status, msg = _classify_openai_error(e)
-        append_log("orchestrate_error", {"where": "synthesis", "error": str(e)})
-        return jsonify({"ok": False, "error": msg}), status
-
-    append_log("orchestrate", {
-        "prompt": prompt,
-        "prompt_with_attachments": prompt2,
-        "attachment_meta": attach_meta,
-        "vision_images_count": len(vision_images),
-        "category": category,
-        "classifier": cls,
-        "order": order,
-        "atlis_preflight": atlis_pre,
-        "atlis_crosscheck": atlis_cross,
-        "outputs": teammate_outputs,
-        "synthesis": synth,
-        "email_drafts": email_drafts,
-    })
-
-    append_task_log(
-        "orchestrate_complete",
-        {
-            "prompt": prompt,
-            "prompt_with_attachments": prompt2,
-            "attachment_meta": attach_meta,
-            "vision_images_count": len(vision_images),
-            "category": category,
-            "synthesis_preview": (synth[:1200] + ("..." if len(synth) > 1200 else "")),
-        },
-        teammate="Orchestrator",
-        status="success"
-    )
-
-    return jsonify({
-        "ok": True,
-        "mode": "orchestrate",
-        "category": category,
-        "classifier": cls,
-        "atlis_preflight": atlis_pre,
-        "atlis_crosscheck": atlis_cross,
-        "outputs": teammate_outputs,
-        "synthesis": synth,
         "email_drafts": email_drafts,
         "attachment_meta": attach_meta
     })
@@ -5490,6 +5330,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
+                <button class="btn btnMini" id="warRoomBtn" title="Toggle War Room analysis">War room: OFF</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
@@ -5654,6 +5495,77 @@ id="diagOverlay"></div>
     let seatStatus = {};
     let lastGroupOutputs = {};
     let lastEmailDraftBy = "";
+// =========================
+// War Room analysis mode (additive)
+// =========================
+let analysisModes = {war_room:false, scalability:true, failure_sim:true, risk:true, intensity:"standard"};
+let warRoomEnabled = false;
+
+function setWarRoomButton(){
+  const b = $("warRoomBtn");
+  if(!b) return;
+  b.innerText = "War room: " + (warRoomEnabled ? "ON" : "OFF");
+  b.classList.toggle("btnPrimary", !!warRoomEnabled);
+}
+
+async function loadAnalysisModes(){
+  try{
+    const res = await fetch("/api/modes");
+    const data = await res.json();
+    if(data && data.ok && data.analysis_modes){
+      analysisModes = data.analysis_modes;
+      warRoomEnabled = !!analysisModes.war_room;
+      setWarRoomButton();
+    }
+  }catch(_){}
+}
+
+async function toggleWarRoom(){
+  warRoomEnabled = !warRoomEnabled;
+  setWarRoomButton();
+  try{
+    const res = await fetch("/api/modes", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({analysis_modes: {...analysisModes, war_room: warRoomEnabled}})
+    });
+    const data = await res.json();
+    if(data && data.ok && data.analysis_modes){
+      analysisModes = data.analysis_modes;
+      warRoomEnabled = !!analysisModes.war_room;
+      setWarRoomButton();
+    }
+  }catch(_){}
+}
+
+async function runWarRoomAnalysis(prompt, outputs){
+  try{
+    setOpStatus("War Room analyzing");
+    const res = await fetch("/api/war_room_analyze", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({prompt, outputs, file_ids: groupFileIds})
+    });
+    const data = await res.json();
+    if(!data || !data.ok){
+      setOpStatus("Complete");
+      showModal("War Room", (data && data.error) ? data.error : "Analysis failed");
+      return;
+    }
+    const wr = data.war_room || {};
+    let txt = "";
+    if(wr.scalability) txt += "SCALABILITY RANKING\n\n" + wr.scalability + "\n\n";
+    if(wr.failure_sim) txt += "FAILURE SIMULATOR\n\n" + wr.failure_sim + "\n\n";
+    if(wr.risk) txt += "RISK ASSESSMENT\n\n" + wr.risk + "\n\n";
+    txt = (txt || "").trim() || "No War Room output.";
+    setOpStatus("Complete");
+    showModal("WAR ROOM BRIEF", txt);
+  }catch(e){
+    setOpStatus("Complete");
+    showModal("War Room", String(e || "Analysis failed"));
+  }
+}
+
 
     let groupFileIds = [];
     let dmFileIds = [];
@@ -7721,6 +7633,11 @@ function makeSeat(defn, idx){
 
       setOpStatus("Complete");
 
+      // War Room (optional): post-hoc scalability + failure + risk analysis
+      if(warRoomEnabled){
+        await runWarRoomAnalysis(prompt, outputs);
+      }
+
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
 
@@ -7730,6 +7647,10 @@ function makeSeat(defn, idx){
     }
 
     $("conveneAll").onclick = conveneAll;
+
+    if($("warRoomBtn")) $("warRoomBtn").onclick = toggleWarRoom;
+    // load saved mode state
+    loadAnalysisModes();
 
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
