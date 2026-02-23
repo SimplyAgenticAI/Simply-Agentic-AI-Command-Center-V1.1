@@ -2652,124 +2652,6 @@ def api_followup():
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
-# =========================
-# Tactical Passes (additive)
-# =========================
-
-PASS_PROMPTS: Dict[str, str] = {
-    "risk": (
-        "You are Atlis, System Integrity Architect. Run a risk assessment on the source text.\n"
-        "Output format:\n"
-        "Risk Level: Low | Medium | High\n"
-        "Top Risks (3-7 bullets)\n"
-        "Mitigations (3-7 bullets)\n"
-        "Stop Conditions (1-5 bullets)\n"
-        "Keep it concrete. No hype. No em dashes."
-    ),
-    "scale": (
-        "You are Orion, Systems Automation & Scale Engineer. Rank scalability of the source text as a plan or task.\n"
-        "Output format:\n"
-        "Scalability Score: 1-10\n"
-        "Primary Bottleneck: <one line>\n"
-        "Why (3-6 bullets)\n"
-        "Scale Levers (3-7 bullets)\n"
-        "First Breaking Point (1-3 bullets)\n"
-        "Keep it operator-ready. No hype. No em dashes."
-    ),
-    "failure": (
-        "You are Orion, Systems Automation & Scale Engineer. Run a failure simulator on the source text.\n"
-        "Generate 5-8 failure scenarios.\n"
-        "For each scenario include:\n"
-        "- Failure Mode\n"
-        "- Early Signal\n"
-        "- Prevention\n"
-        "- Recovery\n"
-        "Keep it compact and actionable. No em dashes."
-    ),
-    "assumptions": (
-        "You are Atlis, System Integrity Architect. Detect assumptions and beliefs in the source text.\n"
-        "Output format:\n"
-        "Assumptions Detected (5-12 bullets)\n"
-        "Evidence Level: Known | Likely | Unknown (tag each)\n"
-        "Validation Steps (3-8 bullets)\n"
-        "Keep it calm and concrete. No em dashes."
-    ),
-    "constraints": (
-        "You are Orion, Systems Automation & Scale Engineer. Identify constraints in the source text.\n"
-        "Output format:\n"
-        "Primary Constraint: <one line>\n"
-        "Constraint Map (Time, People, Tooling, Data, Approvals) with 1-3 bullets each as applicable\n"
-        "Next Constraint After Fix (1-3 bullets)\n"
-        "Keep it operator-ready. No em dashes."
-    ),
-    "optimize": (
-        "You are Willow, Language Specialist and NLP Master. Optimize the source text without changing intent.\n"
-        "Goals: clearer, tighter, higher-leverage. Preserve meaning. Do not add new promises.\n"
-        "Output format:\n"
-        "Optimized Version:\n"
-        "<text>\n"
-        "Notes (optional, 1-5 bullets)\n"
-        "No em dashes."
-    ),
-}
-
-PASS_ROUTING: Dict[str, str] = {
-    "risk": "Atlis",
-    "assumptions": "Atlis",
-    "scale": "Orion",
-    "failure": "Orion",
-    "constraints": "Orion",
-    "optimize": "Willow",
-}
-
-def _installed_name_or_fallback(preferred: str) -> Optional[str]:
-    reg = load_registry()
-    installed = reg.get("installed") or {}
-    if preferred in installed:
-        return preferred
-    return None
-
-def _run_pass_with_teammate(pass_key: str, source_text: str) -> str:
-    prompt = PASS_PROMPTS.get(pass_key, "").strip()
-    if not prompt:
-        return "Unknown pass."
-    # Embed source text as user message for maximum faithfulness
-    user_msg = "SOURCE TEXT:\n" + (source_text or "").strip()
-    # Prefer routing to specific teammate definitions if installed; otherwise fall back to generic LLM call.
-    preferred = PASS_ROUTING.get(pass_key) or ""
-    teammate = _installed_name_or_fallback(preferred) if preferred else None
-    if teammate:
-        # Use the teammate's system prompt for consistency with your Round Table
-        reg = load_registry()
-        defn = (reg.get("installed") or {}).get(teammate) or {}
-        sys = teammate_system_prompt(defn)
-        # Combine pass instructions into system prompt to preserve teammate voice while enforcing structure
-        sys2 = sys + "\n\n" + prompt
-        out = call_llm(system=sys2, user=user_msg)
-        return (out or "").strip()
-    # Fallback: use pass instructions as system prompt
-    out = call_llm(system=prompt, user=user_msg)
-    return (out or "").strip()
-
-@app.post("/api/passes/run")
-def api_passes_run():
-    _require_session()
-    data = request.get_json(force=True) or {}
-    pass_key = (data.get("pass") or "").strip().lower()
-    source_text = (data.get("text") or "").strip()
-    if not pass_key or not source_text:
-        return jsonify({"ok": False, "error": "Missing pass or text"}), 400
-    if pass_key not in PASS_PROMPTS:
-        return jsonify({"ok": False, "error": "Unknown pass"}), 400
-
-    try:
-        out = _run_pass_with_teammate(pass_key, source_text)
-        return jsonify({"ok": True, "pass": pass_key, "output": out})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -4255,6 +4137,10 @@ HTML = r"""
     .modal.minimized .modalBodyWrap{ display:none; }
 
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
+    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+    .passRow .tiny{ margin-left: 2px; }
+    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
     .pill{
       display:inline-flex;
       gap:8px;
@@ -4874,23 +4760,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-
-
-    /* === Tactical Passes (additive) === */
-    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-    .passBtn{
-      border:1px solid rgba(184,196,255,.25);
-      background: rgba(17,24,39,.45);
-      color: var(--text);
-      border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 12px;
-      cursor: pointer;
-      user-select:none;
-      white-space:nowrap;
-    }
-    .passBtn:hover{ border-color: rgba(184,196,255,.45); }
-    .passHint{ font-size:12px; color: var(--muted); margin-top:6px; line-height:1.35; }
 </style>
 </head>
 <body>
@@ -4965,9 +4834,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
-              <div id="modalPasses" class="passRow" style="display:none"></div>
-              <div id="modalPassHint" class="passHint" style="display:none"></div>
-
 
 
 <div id="stackForm" class="modalForm" style="display:none;">
@@ -5250,6 +5116,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
 
+            <div class="passRow" id="groupPassRow">
+              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
+              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
+              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+            </div>
+
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
               <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
@@ -5291,6 +5167,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+        </div>
+
+        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
+          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
         <div class="thread" id="thread"></div>
@@ -5406,6 +5292,7 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
+    let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
 
     let groupFileIds = [];
@@ -5514,42 +5401,11 @@ id="diagOverlay"></div>
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
-    function showModal(title, body, imgUrl, opts){
+    function showModal(title, body, imgUrl){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
       $("modalBody").style.display = "block";
-
-      // Tactical passes in modal are optional. Defaults OFF to avoid changing other modal uses.
-      try{
-        const row = $("modalPasses");
-        const hint = $("modalPassHint");
-        if(row) row.innerHTML = "";
-        if(opts && opts.passes && (opts.sourceText || body)){
-          const src = (opts.sourceText || body || "");
-          if(row){
-            row.appendChild(buildPassRow(src, (passKey, res)=>{
-              const title2 = (title || "Analysis") + " • " + passKey.toUpperCase();
-              // Replace modal body with result for quick iteration
-              $("modalTitle").innerText = title2;
-              $("modalBody").innerText = (res && res.output) ? res.output : "";
-              if(hint){
-                const d = PASS_DEFS.find(x => x.key === passKey);
-                hint.innerText = d ? d.hint : "";
-              }
-            }));
-          }
-          if(hint){
-            hint.innerText = "Click a pass to stress test this output.";
-          }
-          _setModalPassesVisible(true);
-        }else{
-          _setModalPassesVisible(false);
-        }
-      }catch(e){
-        _setModalPassesVisible(false);
-      }
-
 
       $("editStatus").innerText = "";
       editingTeammate = "";
@@ -6682,63 +6538,8 @@ function makeSeat(defn, idx){
       await refreshThread();
     }
 
-
-    // === Tactical Passes (additive) ===
-    const PASS_DEFS = [
-      {key:"risk", label:"🔍 Risk", hint:"Find exposure, mitigations, and stop conditions."},
-      {key:"scale", label:"📈 Scale", hint:"Score scalability, identify bottlenecks, propose leverage."},
-      {key:"failure", label:"💥 Failure", hint:"Simulate what breaks first, signals, and recovery steps."},
-      {key:"assumptions", label:"⚠ Assumptions", hint:"Detect beliefs, unknowns, and what needs validation."},
-      {key:"constraints", label:"🧩 Constraints", hint:"Find constraints (time, people, tooling) and the first limiting factor."},
-      {key:"optimize", label:"⚡ Optimize", hint:"Tighten into a clearer, higher-leverage version without changing intent."}
-    ];
-
-    function _setModalPassesVisible(on){
-      const row = $("modalPasses");
-      const hint = $("modalPassHint");
-      if(row) row.style.display = on ? "flex" : "none";
-      if(hint) hint.style.display = on ? "block" : "none";
-    }
-
-    function buildPassRow(sourceText, onDone){
-      const row = document.createElement("div");
-      row.className = "passRow";
-      PASS_DEFS.forEach(p => {
-        const b = document.createElement("button");
-        b.className = "passBtn";
-        b.type = "button";
-        b.innerText = p.label;
-        b.onclick = async () => {
-          try{
-            b.disabled = true;
-            b.innerText = p.label + " …";
-            const res = await runPass(p.key, sourceText || "");
-            if(onDone) onDone(p.key, res);
-          }catch(e){
-            alert(e && e.message ? e.message : String(e));
-          }finally{
-            b.disabled = false;
-            b.innerText = p.label;
-          }
-        };
-        row.appendChild(b);
-      });
-      return row;
-    }
-
-    async function runPass(passKey, sourceText){
-      const r = await fetch("/api/passes/run", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ pass: passKey, text: sourceText || "", seat: selectedSeat || "" })
-      });
-      const data = await r.json().catch(()=>({}));
-      if(!r.ok || !data || data.ok !== true){
-        throw new Error((data && data.error) ? data.error : ("Pass failed: " + r.status));
-      }
-      return data;
-    }
     function renderThread(msgs){
+      lastSeatAssistantText = "";
       const box = $("thread");
       box.innerHTML = "";
       if(!msgs || msgs.length === 0){
@@ -6756,19 +6557,9 @@ function makeSeat(defn, idx){
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
         content.innerText = m.content;
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
-
-        // Add tactical passes on assistant replies (no state, click to run)
-        if(m.role !== "user"){
-          const row = buildPassRow(m.content || "", (passKey, res) => {
-            // Show results as a modal for clarity
-            const title = (selectedSeat || "Analysis") + " • " + passKey.toUpperCase();
-            showModal(title, (res && res.output) ? res.output : "");
-          });
-          div.appendChild(row);
-        }
-
         box.appendChild(div);
       });
       box.scrollTop = box.scrollHeight;
@@ -6908,7 +6699,7 @@ function makeSeat(defn, idx){
         const openBtn = document.createElement("button");
         openBtn.className = "btn";
         openBtn.innerText = "Open";
-        openBtn.onclick = () => showModal(name, outputs[name], null, {passes:true, sourceText: outputs[name]});
+        openBtn.onclick = () => showModal(name, outputs[name]);
 
         const selectBtn = document.createElement("button");
         selectBtn.className = "btn";
@@ -7647,6 +7438,71 @@ function makeSeat(defn, idx){
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
+
+    // -----------------------------
+    // v9: Tactical Passes (stateless one-click analyses)
+    // -----------------------------
+    function _combineGroupOutputs(){
+      const keys = Object.keys(lastGroupOutputs || {});
+      if(keys.length === 0) return "";
+      return keys.map(k => k + ":
+" + (lastGroupOutputs[k] || "")).join("
+
+---
+
+");
+    }
+
+    async function runTacticalPass(pass, ctx){
+      const context = (ctx || "seat");
+      const seat = (context === "group") ? "Group" : (selectedSeat || "");
+      const text = (context === "group") ? _combineGroupOutputs() : (lastSeatAssistantText || "");
+      if(!text.trim()){
+        showModal("Nothing to analyze", (context === "group")
+          ? "Run a Group prompt first so there are replies to analyze."
+          : "Send a message to a teammate first so there is an assistant reply to analyze."
+        );
+        return;
+      }
+
+      showModal("Running " + pass + "...", "Thinking...");
+      try{
+        const res = await fetch("/api/passes/run", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({pass, text, seat})
+        });
+        const data = await res.json();
+        if(!data.ok){
+          showModal("Error", data.error || "Pass failed");
+          return;
+        }
+        const title = pass.toUpperCase() + " PASS" + (seat ? (" | " + seat) : "");
+        showModal(title, data.result || "");
+      }catch(e){
+        showModal("Error", String(e || "Pass failed"));
+      }
+    }
+
+    // Wire seat buttons
+    try{
+      $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
+      $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
+      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
+    }catch(_){}
+
+    // Wire group buttons
+    try{
+      $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
+      $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
+      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
+    }catch(_){}
 
     $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
@@ -9189,6 +9045,90 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
+
+
+
+
+@app.route("/api/passes/run", methods=["POST"])
+def api_passes_run():
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    pass_name = (payload.get("pass") or "").strip().lower()
+    seat = (payload.get("seat") or "").strip()
+    text_in = payload.get("text") or ""
+    if not isinstance(text_in, str):
+        text_in = str(text_in)
+
+    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
+    if pass_name not in allowed:
+        return jsonify({"ok": False, "error": "Unknown pass"}), 400
+
+    # Guardrails: keep request size reasonable
+    if len(text_in.encode("utf-8", errors="ignore")) > 200_000:
+        # Trim from the front so we keep the most recent parts
+        text_in = text_in[-180_000:]
+
+    profile = _load_operator_profile(username)
+    operator_ctx = (
+        f"Operator display name: {(profile.get('display_name') or 'Operator').strip()}\n"
+        f"Business: {(profile.get('business') or '').strip()}\n"
+        f"Offers: {(profile.get('offers') or '').strip()}\n"
+        f"Audience: {(profile.get('audience') or '').strip()}\n"
+        f"Goals: {(profile.get('goals') or '').strip()}\n"
+        f"Constraints: {(profile.get('constraints') or '').strip()}\n"
+        f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
+    ).strip()
+
+    base_system = (
+        "You are a tactical analysis engine inside an agentic command center. "
+        "You run fast, practical analysis passes on the provided text. "
+        "Be concrete and operator-ready. No fluff. "
+        "Do not invent facts. If something is unknown, say so plainly. "
+        "Use short headings and bullets. Avoid long preambles. "
+        "Do not use em dashes."
+    )
+
+    pass_instructions = {
+        "risk": (
+            "RISK ASSESSMENT. Identify the top risks in executing the plan or advice in the text. "
+            "Include: Risk level (Low, Medium, High), risk categories, and mitigations. "
+            "End with Stop conditions: 2 to 4 conditions where the operator should pause before proceeding."
+        ),
+        "scale": (
+            "SCALABILITY RANKING. Score scalability from 1 to 10. "
+            "Name the primary bottleneck and the first thing that breaks when volume doubles. "
+            "Give 3 scale levers that reduce operator time or increase throughput."
+        ),
+        "failure": (
+            "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
+            "For each: Failure mode, early warning signal, prevention, recovery step. "
+            "Prioritize the most likely failures first."
+        ),
+        "assumptions": (
+            "ASSUMPTION SCAN. List key assumptions implied by the text. "
+            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
+        ),
+        "constraints": (
+            "CONSTRAINT SCAN. Identify constraints and dependencies. "
+            "Classify each as People, Time, Tools, Data, Policy, or Market. "
+            "For each: why it is a constraint and one practical workaround."
+        ),
+        "optimize": (
+            "OPTIMIZATION PASS. Rewrite the plan or output into a clearer, higher leverage version. "
+            "Preserve intent. Reduce steps. Remove redundancy. "
+            "End with: Next 3 actions the operator should take."
+        ),
+    }
+
+    system = base_system + "\n\n" + "Operator context:\n" + operator_ctx + "\n\n" + pass_instructions[pass_name]
+    user_msg = f"Seat: {seat or 'N/A'}\n\nTEXT TO ANALYZE:\n{text_in}"
+
+    try:
+        result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        code, msg = _map_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
 
 
 def _load_operator_profile(username: str) -> Dict[str, Any]:
