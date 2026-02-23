@@ -512,78 +512,6 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 
 
 # =========================
-# GUIDED ONBOARDING (Additive Layer)
-# =========================
-#
-# Self-guided onboarding that computes "Next Best Action" for new users.
-# Additive only: does not alter existing flows, only provides guidance.
-
-ONBOARDING_DIR = DATA / "onboarding"
-ONBOARDING_DIR.mkdir(exist_ok=True)
-
-def _onboarding_path(username: str) -> Path:
-    d = ONBOARDING_DIR / _safe_name(username or "anon")
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "state.json"
-
-def _load_onboarding(username: str) -> Dict[str, Any]:
-    return load_json(_onboarding_path(username), {
-        "first_prompt_sent": False,
-        "completed": False,
-        "updated_at": None
-    }) or {
-        "first_prompt_sent": False,
-        "completed": False,
-        "updated_at": None
-    }
-
-def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
-    data["updated_at"] = now_iso()
-    save_json(_onboarding_path(username), data)
-
-def _calculate_onboarding_status(username: str) -> Dict[str, Any]:
-    u = current_user()
-    reg = load_registry()
-    onboarding = _load_onboarding(username)
-
-    # Step checks
-    has_key = bool((((u or {}).get("settings") or {}).get("openai_key")))
-
-    # Operator card completeness: treat "business" as the minimum signal
-    try:
-        op = _load_operator_profile(username)
-    except Exception:
-        op = {}
-    has_operator = bool((op.get("business") or "").strip())
-
-    installed = reg.get("installed") or {}
-    has_team = len(installed) >= len(DEFAULT_ORDER)
-
-    first_prompt = bool(onboarding.get("first_prompt_sent") or False)
-
-    steps = [
-        {"id": "add_openai_key", "done": has_key},
-        {"id": "fill_operator_profile", "done": has_operator},
-        {"id": "install_full_team", "done": has_team},
-        {"id": "send_first_prompt", "done": first_prompt},
-    ]
-
-    next_step = None
-    for s in steps:
-        if not s.get("done"):
-            next_step = s.get("id")
-            break
-
-    completed = next_step is None
-
-    if completed and not onboarding.get("completed"):
-        onboarding["completed"] = True
-        _save_onboarding(username, onboarding)
-
-    return {"completed": completed, "next_step": next_step, "steps": steps}
-
-
-# =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
 # =========================
 #
@@ -2649,7 +2577,19 @@ def api_convene():
         "email_drafts": email_drafts,
     })
 
-    return jsonify({
+    
+# Guided onboarding: mark first prompt sent (best-effort, never blocks)
+try:
+    username = _get_session_username()
+    if username:
+        ob = _load_onboarding(username)
+        if not ob.get("first_prompt_sent"):
+            ob["first_prompt_sent"] = True
+            _save_onboarding(username, ob)
+except Exception:
+    pass
+
+return jsonify({
         "ok": True,
         "mode": "execute",
         "atlis_report": atlis_report,
@@ -2658,14 +2598,6 @@ def api_convene():
         "attachment_meta": attach_meta
     })
 
-
-@app.get("/api/onboarding/status")
-def api_onboarding_status():
-    if not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = _get_session_username()
-    status = _calculate_onboarding_status(username)
-    return jsonify({"ok": True, "onboarding": status})
 
 @app.post("/api/followup")
 def api_followup():
@@ -2729,17 +2661,6 @@ def api_followup():
         teammate=name,
         status="success"
     )
-
-
-    # Guided onboarding: mark first prompt sent (additive)
-    try:
-        username = _get_session_username()
-        ob = _load_onboarding(username)
-        if not ob.get("first_prompt_sent"):
-            ob["first_prompt_sent"] = True
-            _save_onboarding(username, ob)
-    except Exception:
-        pass
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
@@ -3276,6 +3197,452 @@ LOGIN_HTML = r"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
+
+<style>
+/* Guided Onboarding Widget v2 */
+#onboardFab{
+  display:none;
+  padding:8px 10px;
+  border-radius: 12px;
+  border:1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  font-weight:800;
+  font-size:12px;
+  cursor:pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+#onboardFab.on{ display:inline-flex; align-items:center; gap:8px; }
+#onboardFab .dot{
+  width:8px; height:8px; border-radius:999px;
+  background: rgba(247,211,106,0.95);
+  box-shadow: 0 0 16px rgba(247,211,106,0.40), 0 0 28px rgba(124,58,237,0.25);
+  animation: onboardPulse 1.25s ease-in-out infinite;
+}
+@keyframes onboardPulse{
+  0%{ transform: scale(1); opacity: 0.9; }
+  50%{ transform: scale(1.25); opacity: 1; }
+  100%{ transform: scale(1); opacity: 0.9; }
+}
+
+#onboardPanel{
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  z-index: 260;
+  border:1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  overflow:hidden;
+  background: rgba(7,10,22,0.62);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 55px rgba(0,0,0,0.55);
+  display:none;
+}
+#onboardPanel.show{ display:block; }
+#onboardPanel.min .body{ display:none; }
+#onboardPanel.min{ width: 220px; }
+
+#onboardHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 10px;
+  border-bottom:1px solid rgba(255,255,255,0.10);
+  cursor: grab;
+  user-select: none;
+}
+#onboardHead:active{ cursor: grabbing; }
+#onboardTitle{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+#onboardTitle .t1{ font-weight:900; font-size:13px; }
+#onboardTitle .t2{ font-size:11px; opacity:0.78; }
+#onboardHead .actions{ display:flex; gap:8px; align-items:center; }
+.onbBtn{
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding:6px 9px;
+  border-radius: 10px;
+  cursor:pointer;
+  font-weight:800;
+  font-size:11px;
+}
+.onbBtn:active{ transform: translateY(1px); }
+
+#onboardPanel .body{ padding: 10px 10px 12px 10px; }
+.onbStep{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px;
+  border-radius: 14px;
+  border:1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  margin-bottom:8px;
+  cursor:pointer;
+}
+.onbStep:last-child{ margin-bottom:0; }
+.onbStep .sicon{
+  width:22px; height:22px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.20);
+  font-weight:900;
+  font-size:12px;
+}
+.onbStep .stext{ flex:1; }
+.onbStep .st1{ font-weight:900; font-size:12px; }
+.onbStep .st2{ font-size:11px; opacity:0.78; margin-top:2px; line-height:1.25; }
+
+.onbStep.done{
+  opacity:0.75;
+}
+.onbStep.reco{
+  border-color: rgba(247,211,106,0.36);
+  box-shadow: 0 0 0 1px rgba(247,211,106,0.20) inset, 0 0 26px rgba(124,58,237,0.16);
+  background: rgba(247,211,106,0.05);
+  animation: onbGlow 1.35s ease-in-out infinite;
+}
+@keyframes onbGlow{
+  0%{ transform: translateY(0px); }
+  50%{ transform: translateY(-1px); }
+  100%{ transform: translateY(0px); }
+}
+.coachGlowStrong{
+  box-shadow: 0 0 0 2px rgba(247,211,106,0.30), 0 0 32px rgba(124,58,237,0.22) !important;
+  border-color: rgba(247,211,106,0.55) !important;
+}
+</style>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function q(sel, root){ return (root||document).querySelector(sel); }
+
+  const LS_PANEL = "rt_onboard_panel_v2";
+  const LS_POS = "rt_onboard_pos_v2";
+  const LS_MIN = "rt_onboard_min_v2";
+
+  function safeGet(k){ try{ return localStorage.getItem(k)||""; }catch(_){ return ""; } }
+  function safeSet(k,v){ try{ localStorage.setItem(k, String(v)); }catch(_){ } }
+
+  function clearTargets(){
+    document.querySelectorAll(".coachGlowStrong").forEach(el => el.classList.remove("coachGlowStrong"));
+  }
+
+  function injectFab(){
+    const settingsBtn = $("settingsBtn");
+    const right = q(".topbar .rightmeta");
+    if(!right || !settingsBtn) return null;
+
+    if($("onboardFab")) return $("onboardFab");
+
+    const b = document.createElement("button");
+    b.id = "onboardFab";
+    b.innerHTML = '<span class="dot"></span><span>Get started</span>';
+    b.className = "btn";
+    b.style.padding = "8px 10px";
+    b.style.borderRadius = "12px";
+    b.style.whiteSpace = "nowrap";
+
+    // insert right after Settings if possible
+    try{
+      settingsBtn.insertAdjacentElement("afterend", b);
+    }catch(e){
+      right.appendChild(b);
+    }
+    return b;
+  }
+
+  function ensurePanel(){
+    if($("onboardPanel")) return $("onboardPanel");
+    const panel = document.createElement("div");
+    panel.id = "onboardPanel";
+    panel.innerHTML = `
+      <div id="onboardHead">
+        <div id="onboardTitle">
+          <div class="t1">Get started</div>
+          <div class="t2">Next best action</div>
+        </div>
+        <div class="actions">
+          <button class="onbBtn" id="onbMinBtn" title="Minimize">Min</button>
+          <button class="onbBtn" id="onbCloseBtn" title="Close">Close</button>
+        </div>
+      </div>
+      <div class="body">
+        <div id="onbSteps"></div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function setPanelPos(panel, left, top){
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    panel.style.right = "auto";
+  }
+
+  function restorePanel(panel){
+    const pos = safeGet(LS_POS);
+    if(pos){
+      try{
+        const o = JSON.parse(pos);
+        if(o && isFinite(o.left) && isFinite(o.top)){
+          setPanelPos(panel, o.left, o.top);
+        }
+      }catch(e){}
+    }
+    const min = safeGet(LS_MIN) === "1";
+    panel.classList.toggle("min", min);
+  }
+
+  function savePanel(panel){
+    try{
+      const r = panel.getBoundingClientRect();
+      safeSet(LS_POS, JSON.stringify({left: r.left, top: r.top}));
+    }catch(e){}
+  }
+
+  function togglePanel(show){
+    const panel = ensurePanel();
+    if(show) panel.classList.add("show");
+    else panel.classList.remove("show");
+    safeSet(LS_PANEL, show ? "1" : "0");
+  }
+
+  function toggleMin(){
+    const panel = ensurePanel();
+    const nowMin = !panel.classList.contains("min");
+    panel.classList.toggle("min", nowMin);
+    safeSet(LS_MIN, nowMin ? "1" : "0");
+  }
+
+  function labelFor(id){
+    const labels = {
+      add_openai_key: ["Add OpenAI key", "Opens Settings so you can paste your API key."],
+      fill_operator_profile: ["Fill Operator card", "Click Operator and add your business context."],
+      install_full_team: ["Install full team", "Adds the full teammate set to your system."],
+      send_first_prompt: ["Send first prompt", "Use the Group Console to trigger the round table."]
+    };
+    return labels[id] || [id, ""];
+  }
+
+  function iconFor(done, reco){
+    if(done) return "✓";
+    if(reco) return "→";
+    return "•";
+  }
+
+  function highlightTarget(stepId){
+    clearTargets();
+    if(stepId === "add_openai_key"){
+      const b = $("settingsBtn");
+      if(b) b.classList.add("coachGlowStrong");
+    }
+    if(stepId === "fill_operator_profile"){
+      const seat = q('.seat[data-name="Operator"]');
+      if(seat) seat.classList.add("coachGlowStrong");
+    }
+    if(stepId === "install_full_team"){
+      const b = $("installFullBtn");
+      if(b) b.classList.add("coachGlowStrong");
+    }
+    if(stepId === "send_first_prompt"){
+      const box = $("opPrompt");
+      const send = $("conveneAll");
+      if(box) box.classList.add("coachGlowStrong");
+      if(send) send.classList.add("coachGlowStrong");
+    }
+  }
+
+  function goToStep(stepId){
+    if(stepId === "add_openai_key"){
+      if($("settingsBtn")) $("settingsBtn").click();
+      return;
+    }
+    if(stepId === "fill_operator_profile"){
+      try{
+        if(typeof window.selectSeat === "function"){
+          window.selectSeat("Operator");
+        }else{
+          // fallback: click the seat card if selectSeat isn't exposed
+          const seat = q('.seat[data-name="Operator"]');
+          if(seat) seat.click();
+        }
+      }catch(e){}
+      return;
+    }
+    if(stepId === "install_full_team"){
+      if($("installFullBtn")) $("installFullBtn").click();
+      return;
+    }
+    if(stepId === "send_first_prompt"){
+      try{
+        if($("opPrompt")) $("opPrompt").focus();
+        try{ window.scrollTo({top: 0, behavior:"smooth"}); }catch(_){}
+      }catch(e){}
+      return;
+    }
+  }
+
+  async function refreshOnboarding(){
+    let data = null;
+    try{
+      const res = await fetch("/api/onboarding/status");
+      data = await res.json();
+    }catch(e){ return; }
+
+    if(!data || !data.ok) return;
+
+    const ob = data.onboarding || {};
+    const steps = ob.steps || [];
+    const next = ob.next_step || "";
+    const completed = !!ob.completed;
+
+    const fab = injectFab();
+    if(!fab) return;
+
+    if(completed){
+      fab.classList.remove("on");
+      fab.style.display = "none";
+      togglePanel(false);
+      clearTargets();
+      return;
+    }
+
+    fab.classList.add("on");
+    fab.style.display = "inline-flex";
+
+    const panel = ensurePanel();
+    restorePanel(panel);
+
+    const open = safeGet(LS_PANEL) === "1";
+    if(open) panel.classList.add("show");
+
+    const stepsDiv = $("onbSteps");
+    if(!stepsDiv) return;
+
+    stepsDiv.innerHTML = "";
+    steps.forEach(s => {
+      const id = s.id;
+      const done = !!s.done;
+      const reco = !done && id === next;
+      const [t1, t2] = labelFor(id);
+
+      const row = document.createElement("div");
+      row.className = "onbStep" + (done ? " done" : "") + (reco ? " reco" : "");
+      row.innerHTML = `
+        <div class="sicon">${iconFor(done, reco)}</div>
+        <div class="stext">
+          <div class="st1">${t1}</div>
+          <div class="st2">${t2}</div>
+        </div>
+      `;
+      row.addEventListener("click", ()=>{ togglePanel(true); goToStep(id); highlightTarget(id); }, {passive:true});
+      stepsDiv.appendChild(row);
+    });
+
+    // Keep the recommended step highlighted even when panel is closed
+    if(next) highlightTarget(next);
+
+    // If the user clicks the FAB, open/close panel
+    fab.onclick = ()=>{
+      const isOpen = ensurePanel().classList.contains("show");
+      togglePanel(!isOpen);
+    };
+
+    // Close/min buttons
+    const close = $("onbCloseBtn");
+    if(close) close.onclick = ()=> togglePanel(false);
+    const min = $("onbMinBtn");
+    if(min) min.onclick = ()=> toggleMin();
+  }
+
+  function initDrag(){
+    const panel = ensurePanel();
+    const head = $("onboardHead");
+    if(!panel || !head) return;
+
+    let dragging = false;
+    let startX=0, startY=0, startLeft=0, startTop=0;
+
+    function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+    head.addEventListener("pointerdown", (e)=>{
+      const t = e.target;
+      if(t && (t.id === "onbMinBtn" || t.id === "onbCloseBtn")) return;
+      dragging = true;
+      head.setPointerCapture(e.pointerId);
+      const r = panel.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startLeft = r.left; startTop = r.top;
+      setPanelPos(panel, r.left, r.top);
+    });
+
+    head.addEventListener("pointermove", (e)=>{
+      if(!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      const r = panel.getBoundingClientRect();
+      const nextLeft = startLeft + dx;
+      const nextTop = startTop + dy;
+
+      const maxLeft = window.innerWidth - r.width - 8;
+      const maxTop = window.innerHeight - r.height - 8;
+
+      panel.style.left = clamp(nextLeft, 8, Math.max(8, maxLeft)) + "px";
+      panel.style.top = clamp(nextTop, 8, Math.max(8, maxTop)) + "px";
+    });
+
+    function endDrag(pid){
+      if(!dragging) return;
+      dragging = false;
+      try{ head.releasePointerCapture(pid); }catch(_){}
+      savePanel(panel);
+    }
+    head.addEventListener("pointerup", (e)=> endDrag(e.pointerId));
+    head.addEventListener("pointercancel", (e)=> endDrag(e.pointerId));
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    // Ensure the panel exists (but do not show)
+    ensurePanel();
+    initDrag();
+
+    // restore open state
+    const open = safeGet(LS_PANEL) === "1";
+    if(open) togglePanel(true);
+
+    // refresh now + after key UI events
+    refreshOnboarding();
+    setInterval(refreshOnboarding, 12000);
+
+    // after Settings save, refresh onboarding quickly (best-effort hook)
+    window.afterSettingsSaved = (function(prev){
+      return async function(){
+        try{ if(typeof prev === "function") await prev(); }catch(e){}
+        try{ await refreshOnboarding(); }catch(e){}
+      };
+    })(window.afterSettingsSaved);
+
+    // after "Install full team", refresh (hook by wrapping click handler if present)
+    const b = $("installFullBtn");
+    if(b){
+      b.addEventListener("click", ()=>{ setTimeout(refreshOnboarding, 1400); }, true);
+    }
+  });
+})();
+</script>
+
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -4847,104 +5214,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-    /* ===== Guided Onboarding (additive) ===== */
-    .onboardCard{
-      display:none;
-      width:min(860px, 92vw);
-      margin: 14px auto 10px auto;
-      padding: 14px 14px 12px 14px;
-      border-radius: 14px;
-      background: rgba(17,24,39,0.72);
-      border: 1px solid rgba(255,255,255,0.10);
-      box-shadow: 0 12px 38px rgba(0,0,0,0.35);
-      backdrop-filter: blur(10px);
-    }
-    .onboardTitle{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      font-weight: 700;
-      letter-spacing: 0.2px;
-      margin-bottom: 8px;
-    }
-    .onboardTitle .badge{
-      font-size:12px;
-      padding:4px 10px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,0.12);
-      color: var(--muted);
-    }
-    .onboardSteps{
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      margin-top: 10px;
-    }
-    .onboardStep{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:10px 12px;
-      border-radius: 12px;
-      border:1px solid rgba(255,255,255,0.10);
-      background: rgba(255,255,255,0.03);
-    }
-    .onboardLeft{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-    }
-    .onIcon{
-      width:20px; height:20px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      border-radius: 8px;
-      border:1px solid rgba(255,255,255,0.12);
-      color: var(--text);
-      flex: 0 0 auto;
-    }
-    .onLabel{
-      font-size: 14px;
-      color: var(--text);
-      white-space: nowrap;
-      overflow:hidden;
-      text-overflow: ellipsis;
-    }
-    .onHint{
-      font-size: 12px;
-      color: var(--muted);
-      flex: 0 0 auto;
-    }
-
-    /* Next recommended step: stronger glow */
-    .onboardStepNext{
-      border:1px solid rgba(255,255,255,0.24);
-      background: rgba(124,58,237,0.10);
-      box-shadow: 0 0 0 1px rgba(124,58,237,0.25), 0 0 18px rgba(124,58,237,0.28);
-      animation: onboardPulse 1.35s ease-in-out infinite;
-    }
-    @keyframes onboardPulse{
-      0% { box-shadow: 0 0 0 1px rgba(124,58,237,0.18), 0 0 16px rgba(124,58,237,0.18); transform: translateY(0); }
-      50% { box-shadow: 0 0 0 1px rgba(124,58,237,0.34), 0 0 30px rgba(124,58,237,0.38); transform: translateY(-1px); }
-      100% { box-shadow: 0 0 0 1px rgba(124,58,237,0.18), 0 0 16px rgba(124,58,237,0.18); transform: translateY(0); }
-    }
-
-    /* Glow applied to the actual target button/area */
-    .onboardTargetGlow{
-      outline: 2px solid rgba(124,58,237,0.55);
-      box-shadow: 0 0 0 3px rgba(124,58,237,0.25), 0 0 24px rgba(124,58,237,0.35);
-      animation: targetPulse 1.35s ease-in-out infinite;
-      border-radius: 12px;
-    }
-    @keyframes targetPulse{
-      0% { box-shadow: 0 0 0 3px rgba(124,58,237,0.22), 0 0 18px rgba(124,58,237,0.20); }
-      50% { box-shadow: 0 0 0 4px rgba(124,58,237,0.34), 0 0 30px rgba(124,58,237,0.40); }
-      100% { box-shadow: 0 0 0 3px rgba(124,58,237,0.22), 0 0 18px rgba(124,58,237,0.20); }
-    }
-  </style>
+</style>
 </head>
 <body>
   <div class="topbar">
@@ -5275,16 +5545,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
-        </div>
-
-                <!-- ===== Guided Onboarding (additive) ===== -->
-        <div class="onboardCard" id="guidedOnboarding">
-          <div class="onboardTitle">
-            <div>Getting Started</div>
-            <div class="badge">Next Best Action</div>
-          </div>
-          <div class="tiny" style="margin-top:2px;">Follow the glowing step to keep moving.</div>
-          <div class="onboardSteps" id="onboardingSteps"></div>
         </div>
 
         <div class="tableWrap" id="tableWrap">
@@ -6496,7 +6756,6 @@ function makeSeat(defn, idx){
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
-      profBtn.id = "operatorProfileBtn";
       profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
@@ -9041,115 +9300,6 @@ function applyRTTransformV4(){
   }catch(e){}
 })();
 
-// ===== Guided Onboarding (additive) =====
-(function(){
-  function _qs(id){ return document.getElementById(id); }
-
-  function clearTargetGlow(){
-    try{
-      document.querySelectorAll(".onboardTargetGlow").forEach(el=>{
-        el.classList.remove("onboardTargetGlow");
-      });
-    }catch(e){}
-  }
-
-  function applyTargetGlow(stepId){
-    clearTargetGlow();
-
-    const map = {
-      add_openai_key: ["settingsBtn","openApiKeyHelpBtn"],
-      fill_operator_profile: ["operatorProfileBtn","operator"],
-      install_full_team: ["installFullBtn"],
-      send_first_prompt: ["followMsg","sendFollow"]
-    };
-
-    const ids = map[stepId] || [];
-    ids.forEach(id=>{
-      const el = _qs(id);
-      if(el) el.classList.add("onboardTargetGlow");
-    });
-  }
-
-  function stepLabel(id){
-    const labels = {
-      add_openai_key: "Add OpenAI API Key",
-      fill_operator_profile: "Fill Operator Profile",
-      install_full_team: "Install Full Team",
-      send_first_prompt: "Send First Prompt"
-    };
-    return labels[id] || id;
-  }
-
-  function stepHint(id){
-    const hints = {
-      add_openai_key: "Click Settings or Get your OpenAI key",
-      fill_operator_profile: "Click Profile on Operator card",
-      install_full_team: "Click Install full team",
-      send_first_prompt: "Type a message then Send"
-    };
-    return hints[id] || "";
-  }
-
-  async function loadOnboarding(){
-    try{
-      const res = await fetch("/api/onboarding/status", {credentials:"same-origin"});
-      const data = await res.json();
-      if(!data || !data.ok) return;
-
-      const ob = data.onboarding || {};
-      const card = _qs("guidedOnboarding");
-      const stepsDiv = _qs("onboardingSteps");
-      if(!card || !stepsDiv) return;
-
-      if(ob.completed){
-        card.style.display = "none";
-        clearTargetGlow();
-        return;
-      }
-
-      const next = ob.next_step;
-      const steps = ob.steps || [];
-      card.style.display = "block";
-
-      stepsDiv.innerHTML = steps.map(s=>{
-        const done = !!s.done;
-        const isNext = (!done && s.id === next);
-        const cls = "onboardStep" + (isNext ? " onboardStepNext" : "");
-        const icon = done ? "✓" : (isNext ? "→" : "•");
-        return `
-          <div class="${cls}">
-            <div class="onboardLeft">
-              <div class="onIcon">${icon}</div>
-              <div class="onLabel">${stepLabel(s.id)}</div>
-            </div>
-            <div class="onHint">${done ? "Done" : (isNext ? ("Go now: " + stepHint(s.id)) : "")}</div>
-          </div>
-        `;
-      }).join("");
-
-      if(next) applyTargetGlow(next);
-    }catch(e){}
-  }
-
-  // Run after paint, and keep it fresh after key actions
-  try{
-    if(document.readyState === "loading"){
-      document.addEventListener("DOMContentLoaded", ()=>{ setTimeout(loadOnboarding, 220); }, {once:true});
-    }else{
-      setTimeout(loadOnboarding, 220);
-    }
-  }catch(e){}
-
-  function safeBind(id){
-    const el = _qs(id);
-    if(!el) return;
-    el.addEventListener("click", ()=>{ setTimeout(loadOnboarding, 450); }, {passive:true});
-  }
-  safeBind("saveSettings");
-  safeBind("installFullBtn");
-  safeBind("sendFollow");
-})();
-
 </script>
 
 
@@ -9261,6 +9411,87 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
+
+# =========================
+# GUIDED ONBOARDING (additive)
+# =========================
+
+ONBOARDING_DIR = DATA / "onboarding"
+try:
+    ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+def _onboarding_path(username: str) -> Path:
+    d = ONBOARDING_DIR / _safe_name(username or "anon")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d / "state.json"
+
+def _load_onboarding(username: str) -> Dict[str, Any]:
+    data = load_json(_onboarding_path(username), {
+        "first_prompt_sent": False,
+        "completed": False,
+        "updated_at": None
+    })
+    if not isinstance(data, dict):
+        data = {"first_prompt_sent": False, "completed": False, "updated_at": None}
+    data.setdefault("first_prompt_sent", False)
+    data.setdefault("completed", False)
+    data.setdefault("updated_at", None)
+    return data
+
+def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
+    data = dict(data or {})
+    data["updated_at"] = now_iso()
+    save_json(_onboarding_path(username), data)
+
+def _calculate_onboarding_status(username: str) -> Dict[str, Any]:
+    u = current_user() or {}
+    settings = (u.get("settings") or {})
+    has_key = bool((settings.get("openai_key") or "").strip())
+
+    op = _load_operator_profile(username)
+    has_operator = bool((op.get("business") or "").strip())
+
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    has_team = len(installed) >= len(DEFAULT_ORDER)
+
+    ob = _load_onboarding(username)
+    first_prompt = bool(ob.get("first_prompt_sent"))
+
+    steps = [
+        {"id": "add_openai_key", "done": has_key},
+        {"id": "fill_operator_profile", "done": has_operator},
+        {"id": "install_full_team", "done": has_team},
+        {"id": "send_first_prompt", "done": first_prompt},
+    ]
+
+    next_step = None
+    for s in steps:
+        if not s.get("done"):
+            next_step = s.get("id")
+            break
+
+    completed = next_step is None
+
+    if completed and not ob.get("completed"):
+        ob["completed"] = True
+        _save_onboarding(username, ob)
+
+    return {"completed": completed, "next_step": next_step, "steps": steps}
+
+
+@app.get("/api/onboarding/status")
+def api_onboarding_status():
+    username = _get_session_username()
+    if not username:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    status = _calculate_onboarding_status(username)
+    return jsonify({"ok": True, "onboarding": status})
 
 
 def _load_operator_profile(username: str) -> Dict[str, Any]:
