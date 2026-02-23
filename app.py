@@ -4137,6 +4137,10 @@ HTML = r"""
     .modal.minimized .modalBodyWrap{ display:none; }
 
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
+    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+    .passRow .tiny{ margin-left: 2px; }
+    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
     .pill{
       display:inline-flex;
       gap:8px;
@@ -4756,43 +4760,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-
-    /* ===== Operator Guidance Nudges (v1) ===== */
-    .nudgeGlow{
-      box-shadow: 0 0 0 2px rgba(255, 214, 102, .55), 0 0 18px rgba(255, 214, 102, .25) !important;
-      border-color: rgba(255, 214, 102, .65) !important;
-      animation: nudgePulse 1.6s ease-in-out infinite;
-    }
-    @keyframes nudgePulse{
-      0%{ filter: brightness(1); transform: translateZ(0); }
-      50%{ filter: brightness(1.08); }
-      100%{ filter: brightness(1); }
-    }
-    .nudgeInline{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      margin-left:10px;
-      padding:6px 10px;
-      border:1px solid rgba(255,214,102,.35);
-      border-radius:999px;
-      background: rgba(20, 26, 48, .55);
-      color: rgba(255,214,102,.92);
-      font-size:12px;
-      line-height:1;
-      white-space:nowrap;
-    }
-    .nudgeInline .dot{
-      width:7px;height:7px;border-radius:50%;
-      background: rgba(255,214,102,.95);
-      box-shadow: 0 0 10px rgba(255,214,102,.35);
-    }
-    .nudgeInline.smallBelow{
-      display:flex;
-      margin:8px 0 0 0;
-      width:fit-content;
-    }
-
 </style>
 </head>
 <body>
@@ -5149,6 +5116,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
 
+            <div class="passRow" id="groupPassRow">
+              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
+              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
+              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+            </div>
+
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
               <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
@@ -5190,6 +5167,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+        </div>
+
+        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
+          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
         <div class="thread" id="thread"></div>
@@ -5305,6 +5292,7 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
+    let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
 
     let groupFileIds = [];
@@ -5385,17 +5373,38 @@ id="diagOverlay"></div>
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
+
       if(savedSize){
         win.style.width = Math.max(360, savedSize.width) + "px";
         win.style.height = Math.max(260, savedSize.height) + "px";
       }
+
+      // If we have a saved position, clamp it so the modal never renders off-screen.
       if(saved){
         win.style.transform = "none";
-        win.style.left = saved.left + "px";
-        win.style.top = saved.top + "px";
+
+        // Use current rendered size (after applying savedSize above) to clamp.
+        const mw = Math.max(360, win.offsetWidth || 520);
+        const mh = Math.max(260, win.offsetHeight || 420);
+
+        const margin = 12;
+        const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
+        const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
+
+        const left = Math.min(Math.max(saved.left, margin), maxLeft);
+        const top  = Math.min(Math.max(saved.top, margin), maxTop);
+
+        win.style.left = left + "px";
+        win.style.top  = top + "px";
+
+        // If the saved position was out-of-bounds, persist the corrected one.
+        if(left !== saved.left || top !== saved.top){
+          saveModalPos(left, top);
+        }
         return;
       }
 
+      // Default centered position
       win.style.left = "50%";
       win.style.top = "80px";
       win.style.transform = "translateX(-50%)";
@@ -6041,7 +6050,6 @@ async function saveCurrentStack(){
   });
   const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
-  try{ if(data.ok && window.__onboarding && window.__onboarding.onStackSaved){ window.__onboarding.onStackSaved(); } }catch(e){}
   loadStacksForTeammate(teammate);
 }
 
@@ -6552,6 +6560,7 @@ function makeSeat(defn, idx){
     }
 
     function renderThread(msgs){
+      lastSeatAssistantText = "";
       const box = $("thread");
       box.innerHTML = "";
       if(!msgs || msgs.length === 0){
@@ -6569,6 +6578,7 @@ function makeSeat(defn, idx){
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
         content.innerText = m.content;
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -6650,7 +6660,6 @@ function makeSeat(defn, idx){
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
-          try{ if(window.__onboarding && window.__onboarding.onOperatorSaved) window.__onboarding.onOperatorSaved(); }catch(e){}
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -7368,7 +7377,6 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
-      try{ if(window.__onboarding && window.__onboarding.onGroupPromptSent){ window.__onboarding.onGroupPromptSent(); } }catch(e){}
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
@@ -7444,7 +7452,6 @@ function makeSeat(defn, idx){
         return;
       }
       await loadState();
-      try{ if(window.__onboarding && window.__onboarding.onTeamInstalled){ window.__onboarding.onTeamInstalled(); } }catch(e){}
       showModal("Installed", "Full team installed.");
     };
 
@@ -7452,6 +7459,66 @@ function makeSeat(defn, idx){
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
+
+    // -----------------------------
+    // v9: Tactical Passes (stateless one-click analyses)
+    // -----------------------------
+    function _combineGroupOutputs(){
+      const keys = Object.keys(lastGroupOutputs || {});
+      if(keys.length === 0) return "";
+      return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
+    }
+
+    async function runTacticalPass(pass, ctx){
+      const context = (ctx || "seat");
+      const seat = (context === "group") ? "Group" : (selectedSeat || "");
+      const text = (context === "group") ? _combineGroupOutputs() : (lastSeatAssistantText || "");
+      if(!text.trim()){
+        showModal("Nothing to analyze", (context === "group")
+          ? "Run a Group prompt first so there are replies to analyze."
+          : "Send a message to a teammate first so there is an assistant reply to analyze."
+        );
+        return;
+      }
+
+      showModal("Running " + pass + "...", "Thinking...");
+      try{
+        const res = await fetch("/api/passes/run", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({pass, text, seat})
+        });
+        const data = await res.json();
+        if(!data.ok){
+          showModal("Error", data.error || "Pass failed");
+          return;
+        }
+        const title = pass.toUpperCase() + " PASS" + (seat ? (" | " + seat) : "");
+        showModal(title, data.result || "");
+      }catch(e){
+        showModal("Error", String(e || "Pass failed"));
+      }
+    }
+
+    // Wire seat buttons
+    try{
+      $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
+      $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
+      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
+    }catch(_){}
+
+    // Wire group buttons
+    try{
+      $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
+      $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
+      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
+    }catch(_){}
 
     $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
@@ -7788,7 +7855,6 @@ function makeSeat(defn, idx){
           return;
         }
         $("settingsStatus").innerText = "Saved";
-          try{ if(window.__onboarding && window.__onboarding.onSettingsSaved){ window.__onboarding.onSettingsSaved({keyVal}); } }catch(e){}
           try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
@@ -8997,6 +9063,90 @@ def api_clients_delete(client_id):
     return jsonify({"ok": True})
 
 
+
+
+@app.route("/api/passes/run", methods=["POST"])
+def api_passes_run():
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    pass_name = (payload.get("pass") or "").strip().lower()
+    seat = (payload.get("seat") or "").strip()
+    text_in = payload.get("text") or ""
+    if not isinstance(text_in, str):
+        text_in = str(text_in)
+
+    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
+    if pass_name not in allowed:
+        return jsonify({"ok": False, "error": "Unknown pass"}), 400
+
+    # Guardrails: keep request size reasonable
+    if len(text_in.encode("utf-8", errors="ignore")) > 200_000:
+        # Trim from the front so we keep the most recent parts
+        text_in = text_in[-180_000:]
+
+    profile = _load_operator_profile(username)
+    operator_ctx = (
+        f"Operator display name: {(profile.get('display_name') or 'Operator').strip()}\n"
+        f"Business: {(profile.get('business') or '').strip()}\n"
+        f"Offers: {(profile.get('offers') or '').strip()}\n"
+        f"Audience: {(profile.get('audience') or '').strip()}\n"
+        f"Goals: {(profile.get('goals') or '').strip()}\n"
+        f"Constraints: {(profile.get('constraints') or '').strip()}\n"
+        f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
+    ).strip()
+
+    base_system = (
+        "You are a tactical analysis engine inside an agentic command center. "
+        "You run fast, practical analysis passes on the provided text. "
+        "Be concrete and operator-ready. No fluff. "
+        "Do not invent facts. If something is unknown, say so plainly. "
+        "Use short headings and bullets. Avoid long preambles. "
+        "Do not use em dashes."
+    )
+
+    pass_instructions = {
+        "risk": (
+            "RISK ASSESSMENT. Identify the top risks in executing the plan or advice in the text. "
+            "Include: Risk level (Low, Medium, High), risk categories, and mitigations. "
+            "End with Stop conditions: 2 to 4 conditions where the operator should pause before proceeding."
+        ),
+        "scale": (
+            "SCALABILITY RANKING. Score scalability from 1 to 10. "
+            "Name the primary bottleneck and the first thing that breaks when volume doubles. "
+            "Give 3 scale levers that reduce operator time or increase throughput."
+        ),
+        "failure": (
+            "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
+            "For each: Failure mode, early warning signal, prevention, recovery step. "
+            "Prioritize the most likely failures first."
+        ),
+        "assumptions": (
+            "ASSUMPTION SCAN. List key assumptions implied by the text. "
+            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
+        ),
+        "constraints": (
+            "CONSTRAINT SCAN. Identify constraints and dependencies. "
+            "Classify each as People, Time, Tools, Data, Policy, or Market. "
+            "For each: why it is a constraint and one practical workaround."
+        ),
+        "optimize": (
+            "OPTIMIZATION PASS. Rewrite the plan or output into a clearer, higher leverage version. "
+            "Preserve intent. Reduce steps. Remove redundancy. "
+            "End with: Next 3 actions the operator should take."
+        ),
+    }
+
+    system = base_system + "\n\n" + "Operator context:\n" + operator_ctx + "\n\n" + pass_instructions[pass_name]
+    user_msg = f"Seat: {seat or 'N/A'}\n\nTEXT TO ANALYZE:\n{text_in}"
+
+    try:
+        result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        code, msg = _map_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
+
+
 def _load_operator_profile(username: str) -> Dict[str, Any]:
     """Per-user operator profile teammates can reference."""
     try:
@@ -9503,247 +9653,5 @@ ADD_UI_POLISH_V8 = r'''
     }, 250);
   });
 })();
-
-
-// ===== Operator Guidance Nudges (v1): "Next best action" glow + inline hint (B) =====
-(function(){
-  const KEY = "saa_onboard_v1";
-  const DEFAULT = { step1_key:false, step3_team:false, step4_first_prompt:false, step4_first_stress:false, step5_saved:false };
-  function load(){ try{ return Object.assign({}, DEFAULT, JSON.parse(localStorage.getItem(KEY) || "{}")); }catch(e){ return Object.assign({}, DEFAULT); } }
-  function save(obj){ try{ localStorage.setItem(KEY, JSON.stringify(obj)); }catch(e){} }
-  function doneCount(o){ return ["step1_key","step3_team","step4_first_prompt","step4_first_stress","step5_saved"].filter(k=>!!o[k]).length; }
-
-  function expectedTeamInstalled(){
-    try{
-      const reg = (window.state && window.state.registry) ? window.state.registry : {};
-      const active = (window.state && (window.state.active_order || window.state.active || window.state.active_teammates)) || [];
-      const names = new Set();
-      // registry keys
-      Object.keys(reg || {}).forEach(k=>names.add(k));
-      // active list
-      (active || []).forEach(x=>{
-        if(typeof x === "string") names.add(x);
-        else if(x && x.name) names.add(x.name);
-      });
-      const must = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
-      let ok = 0;
-      must.forEach(n=>{ if(names.has(n)) ok++; });
-      return ok >= 5; // allow partial depending on editions
-    }catch(e){ return false; }
-  }
-
-  function keyLooksSet(){
-    try{
-      // If placeholder contains "Saved (" we treat as set.
-      const el = document.getElementById("openaiKey");
-      if(el && (el.placeholder || "").toLowerCase().indexOf("saved (") !== -1) return true;
-    }catch(e){}
-    return false;
-  }
-
-  
-  function isVisible(el){
-    try{
-      if(!el) return false;
-      if(el.offsetParent === null) return false;
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }catch(e){ return false; }
-  }
-
-  function findOperatorSeat(){
-    try{
-      // Operator seat uses data-name="Operator"
-      return document.querySelector('.seat[data-name="Operator"], .seat.seatOperator');
-    }catch(e){ return null; }
-  }
-
-  function findOperatorProfileButton(){
-    try{
-      const seat = findOperatorSeat();
-      if(!seat) return null;
-      // The seat tool button text is "Profile"
-      const btns = seat.querySelectorAll("button");
-      for(const b of btns){
-        if((b.innerText||"").trim().toLowerCase() === "profile") return b;
-      }
-      return null;
-    }catch(e){ return null; }
-  }
-
-  function operatorLooksFilled(){
-    try{
-      // If the operator profile form is visible, check a couple key fields
-      const dn = document.getElementById("op_display_name");
-      const biz = document.getElementById("op_business");
-      const offers = document.getElementById("op_offers");
-      if(dn && isVisible(dn)){
-        const a = (dn.value||"").trim().length > 1;
-        const b = (biz && (biz.value||"").trim().length > 2);
-        const c = (offers && (offers.value||"").trim().length > 2);
-        return a && (b || c);
-      }
-    }catch(e){}
-    return false;
-  }
-
-  function gmailLooksConnected(){
-    try{
-      const s = document.getElementById("gmailOAuthStatus");
-      if(s && /connected/i.test(s.innerText||"")) return true;
-      // If disconnect button is visible, treat as connected
-      const d = document.getElementById("gmailDisconnectBtn");
-      if(d && isVisible(d)) return true;
-    }catch(e){}
-    return false;
-  }
-function clearNudges(){
-    try{
-      document.querySelectorAll(".nudgeGlow").forEach(el=>el.classList.remove("nudgeGlow"));
-      const old = document.getElementById("nudgeInline");
-      if(old) old.remove();
-      const old2 = document.getElementById("nudgeInlineBelow");
-      if(old2) old2.remove();
-    }catch(e){}
-  }
-
-  function attachInline(el, msg, below){
-    if(!el) return;
-    clearNudges();
-    el.classList.add("nudgeGlow");
-    const hint = document.createElement("div");
-    hint.id = below ? "nudgeInlineBelow" : "nudgeInline";
-    hint.className = "nudgeInline" + (below ? " smallBelow" : "");
-    hint.innerHTML = '<span class="dot"></span><span>'+escapeHtml(msg)+'</span>';
-    if(below){
-      el.insertAdjacentElement("afterend", hint);
-    }else{
-      el.insertAdjacentElement("afterend", hint);
-    }
-  }
-
-  function escapeHtml(s){
-    return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
-  }
-
-  function nextStep(o){
-    // Live signals where possible (auto-complete quietly)
-    if(o.step1_key || keyLooksSet()) o.step1_key = true;
-
-    // Step 5: Gmail can become connected outside the app flow (OAuth), so check status text when available
-    if(o.step3_team || expectedTeamInstalled()) o.step3_team = true;
-
-    if(!o.step5_gmail && gmailLooksConnected()) o.step5_gmail = true;
-
-    // Step 2: operator profile can be "complete" either via saved flag or obvious filled values in the form (when visible)
-    if(!o.step2_operator && operatorLooksFilled()) o.step2_operator = true;
-
-    if(!o.step1_key){
-      return { key:"step1_key", target:"settingsBtn", msg:"Next: add your OpenAI key in Settings" };
-    }
-
-    if(!o.step2_operator){
-      const opBtn = findOperatorProfileButton();
-      if(opBtn) return { key:"step2_operator", target: opBtn, msg:"Next: fill out your Operator Profile" };
-      // fallback: select Operator seat by clicking its tile
-      const opSeat = findOperatorSeat();
-      if(opSeat) return { key:"step2_operator", target: opSeat, msg:"Next: open the Operator seat and fill your profile" };
-      return { key:"step2_operator", target:"settingsBtn", msg:"Next: fill out your Operator Profile" };
-    }
-
-    if(!o.step3_team){
-      return { key:"step3_team", target:"installFullBtn", msg:"Next: install the full team" };
-    }
-
-    if(!o.step4_first_prompt){
-      return { key:"step4_first_prompt", target:"conveneAll", msg:"Next: send your first prompt to the table" };
-    }
-
-    if(!o.step5_gmail){
-      // If settings is open and button is visible, point directly at it
-      const b = document.getElementById("gmailConnectBtn");
-      if(b && isVisible(b)) return { key:"step5_gmail", target:"gmailConnectBtn", msg:"Next: connect Gmail (optional but recommended)" };
-      return { key:"step5_gmail", target:"settingsBtn", msg:"Next: connect Gmail in Settings" };
-    }
-
-    return null;
-  }
-
-  function render(function render(){
-    const o = load();
-    const step = nextStep(o);
-    save(o);
-    // If complete, remove nudges
-    if(!step){
-      clearNudges();
-      return;
-    }
-    const el = typeof step.target === "string" ? document.getElementById(step.target) : step.target;
-    if(!el) return;
-    // For textareas, place below
-    const below = (el.tagName || "").toLowerCase() === "textarea";
-    attachInline(el, step.msg + ` • ${doneCount(o)}/5`, below);
-  }
-
-  // Public hooks called by existing UI actions
-  window.__onboarding = {
-    onSettingsSaved: function(ctx){
-      try{
-        const o = load();
-        if(ctx && ctx.keyVal && String(ctx.keyVal).startsWith("sk-")) o.step1_key = true;
-        save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onOperatorSaved: function(){
-      try{
-        const o = load(); o.step2_operator = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onTeamInstalled: function(){
-      try{
-        const o = load(); o.step3_team = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onGroupPromptSent: function(){
-      try{
-        const o = load(); o.step4_first_prompt = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onGmailConnected: function(){
-      try{
-        const o = load(); o.step5_gmail = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    // Backward-compatible no-ops (in case older calls exist)
-    onStressTestRun: function(){ try{ setTimeout(render, 50); }catch(e){} },
-    onStackSaved: function(){ try{ setTimeout(render, 50); }catch(e){} }
-  };
-
-  // If pass buttons exist, mark stress-test completion when clicked
-  function bindStressButtons(){
-    const ids = ["passRiskBtn","quickPassRisk","riskPassBtn","passScaleBtn","passFailBtn","passAssumptionsBtn","passConstraintsBtn","passOptimizeBtn"];
-    ids.forEach(id=>{
-      const b = document.getElementById(id);
-      if(b && !b.__boundOnboard){
-        b.__boundOnboard = true;
-        b.addEventListener("click", ()=>{ try{ window.__onboarding.onStressTestRun(); }catch(e){} }, {capture:true});
-      }
-    });
-  }
-
-  // Re-render nudges on key UI moments
-  window.addEventListener("load", () => { setTimeout(()=>{ bindStressButtons(); render(); }, 150); });
-  window.addEventListener("resize", () => { setTimeout(render, 150); });
-
-  // Also re-bind if DOM changes
-  const mo = new MutationObserver(()=>{ bindStressButtons(); });
-  try{ mo.observe(document.body, {childList:true, subtree:true}); }catch(e){}
-})();
-
 </script>
 '''
