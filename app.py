@@ -3177,6 +3177,42 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
+
+    /* ===== Operator Activation Nudges (5-step) ===== */
+    .nudgeGlow{
+      box-shadow: 0 0 0 2px rgba(255, 214, 102, .55), 0 0 18px rgba(255, 214, 102, .25) !important;
+      border-color: rgba(255, 214, 102, .65) !important;
+      animation: nudgePulse 1.6s ease-in-out infinite;
+    }
+    @keyframes nudgePulse{
+      0%{ filter: brightness(1); transform: translateZ(0); }
+      50%{ filter: brightness(1.08); }
+      100%{ filter: brightness(1); }
+    }
+    .nudgeInline{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      margin-left:10px;
+      padding:6px 10px;
+      border:1px solid rgba(255,214,102,.35);
+      border-radius:999px;
+      background: rgba(10,14,30,.65);
+      color: rgba(255, 239, 196, .95);
+      font-size: 12px;
+      box-shadow: 0 8px 22px rgba(0,0,0,.25);
+      vertical-align: middle;
+      user-select:none;
+      pointer-events:none;
+      max-width: min(420px, calc(100vw - 24px));
+    }
+    .nudgeDot{
+      width:8px; height:8px; border-radius:999px;
+      background: rgba(255,214,102,.95);
+      box-shadow: 0 0 0 3px rgba(255,214,102,.18);
+      flex: 0 0 auto;
+    }
+
 </style>
 """
 
@@ -4756,43 +4792,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-
-    /* ===== Operator Guidance Nudges (v1) ===== */
-    .nudgeGlow{
-      box-shadow: 0 0 0 2px rgba(255, 214, 102, .55), 0 0 18px rgba(255, 214, 102, .25) !important;
-      border-color: rgba(255, 214, 102, .65) !important;
-      animation: nudgePulse 1.6s ease-in-out infinite;
-    }
-    @keyframes nudgePulse{
-      0%{ filter: brightness(1); transform: translateZ(0); }
-      50%{ filter: brightness(1.08); }
-      100%{ filter: brightness(1); }
-    }
-    .nudgeInline{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      margin-left:10px;
-      padding:6px 10px;
-      border:1px solid rgba(255,214,102,.35);
-      border-radius:999px;
-      background: rgba(20, 26, 48, .55);
-      color: rgba(255,214,102,.92);
-      font-size:12px;
-      line-height:1;
-      white-space:nowrap;
-    }
-    .nudgeInline .dot{
-      width:7px;height:7px;border-radius:50%;
-      background: rgba(255,214,102,.95);
-      box-shadow: 0 0 10px rgba(255,214,102,.35);
-    }
-    .nudgeInline.smallBelow{
-      display:flex;
-      margin:8px 0 0 0;
-      width:fit-content;
-    }
-
 </style>
 </head>
 <body>
@@ -6041,7 +6040,6 @@ async function saveCurrentStack(){
   });
   const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
-  try{ if(data.ok && window.__onboarding && window.__onboarding.onStackSaved){ window.__onboarding.onStackSaved(); } }catch(e){}
   loadStacksForTeammate(teammate);
 }
 
@@ -6650,7 +6648,7 @@ function makeSeat(defn, idx){
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
-          try{ if(window.__onboarding && window.__onboarding.onOperatorSaved) window.__onboarding.onOperatorSaved(); }catch(e){}
+          try{ if(window.__onboarding && window.__onboarding.markStep) window.__onboarding.markStep("step2_operator"); }catch(e){}
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -7368,13 +7366,13 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
-      try{ if(window.__onboarding && window.__onboarding.onGroupPromptSent){ window.__onboarding.onGroupPromptSent(); } }catch(e){}
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
+      try{ if(window.__onboarding && window.__onboarding.markStep) window.__onboarding.markStep("step4_first_prompt"); }catch(e){}
 
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
@@ -7423,6 +7421,7 @@ function makeSeat(defn, idx){
 
       setSeatLive(selectedSeat, "done");
       setOpStatus("Complete");
+      try{ if(window.__onboarding && window.__onboarding.markStep) window.__onboarding.markStep("step4_first_prompt"); }catch(e){}
       $("followMsg").value = "";
       await refreshThread();
 
@@ -7444,8 +7443,8 @@ function makeSeat(defn, idx){
         return;
       }
       await loadState();
-      try{ if(window.__onboarding && window.__onboarding.onTeamInstalled){ window.__onboarding.onTeamInstalled(); } }catch(e){}
       showModal("Installed", "Full team installed.");
+      try{ if(window.__onboarding && window.__onboarding.markStep) window.__onboarding.markStep("step3_team"); }catch(e){}
     };
 
     $("clearGroup").onclick = () => {
@@ -7696,6 +7695,7 @@ function makeSeat(defn, idx){
         const d1 = await r1.json();
         const ok1 = d1 && d1.ok;
         const c1 = ok1 && d1.connected;
+        try{ if(c1 && window.__onboarding && window.__onboarding.markStep) window.__onboarding.markStep("step5_gmail"); }catch(e){}
         if($('gmailOAuthStatus')) $('gmailOAuthStatus').innerText = ok1 ? ('Gmail: ' + (c1 ? 'connected' : 'not connected')) : 'Gmail: unavailable';
         if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').style.display = c1 ? 'inline-block' : 'none';
       }catch(e){
@@ -7788,7 +7788,7 @@ function makeSeat(defn, idx){
           return;
         }
         $("settingsStatus").innerText = "Saved";
-          try{ if(window.__onboarding && window.__onboarding.onSettingsSaved){ window.__onboarding.onSettingsSaved({keyVal}); } }catch(e){}
+        try{ if(window.__onboarding && window.__onboarding.markStep && keyVal && keyVal.startsWith("sk-")) window.__onboarding.markStep("step1_key"); }catch(e){}
           try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
@@ -9504,246 +9504,219 @@ ADD_UI_POLISH_V8 = r'''
   });
 })();
 
+    // =========================
+    // Operator Activation Nudges (5-step, always visible until complete)
+    // Steps: OpenAI key -> Operator Profile -> Install full team -> Send first prompt -> Connect Gmail
+    // =========================
+    (function(){
+      const STEP_KEYS = ["step1_key","step2_operator","step3_team","step4_first_prompt","step5_gmail"];
+      const DEFAULT = { step1_key:false, step2_operator:false, step3_team:false, step4_first_prompt:false, step5_gmail:false };
 
-// ===== Operator Guidance Nudges (v1): "Next best action" glow + inline hint (B) =====
-(function(){
-  const KEY = "saa_onboard_v1";
-  const DEFAULT = { step1_key:false, step3_team:false, step4_first_prompt:false, step4_first_stress:false, step5_saved:false };
-  function load(){ try{ return Object.assign({}, DEFAULT, JSON.parse(localStorage.getItem(KEY) || "{}")); }catch(e){ return Object.assign({}, DEFAULT); } }
-  function save(obj){ try{ localStorage.setItem(KEY, JSON.stringify(obj)); }catch(e){} }
-  function doneCount(o){ return ["step1_key","step3_team","step4_first_prompt","step4_first_stress","step5_saved"].filter(k=>!!o[k]).length; }
+      let USERNAME = null;
 
-  function expectedTeamInstalled(){
-    try{
-      const reg = (window.state && window.state.registry) ? window.state.registry : {};
-      const active = (window.state && (window.state.active_order || window.state.active || window.state.active_teammates)) || [];
-      const names = new Set();
-      // registry keys
-      Object.keys(reg || {}).forEach(k=>names.add(k));
-      // active list
-      (active || []).forEach(x=>{
-        if(typeof x === "string") names.add(x);
-        else if(x && x.name) names.add(x.name);
-      });
-      const must = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
-      let ok = 0;
-      must.forEach(n=>{ if(names.has(n)) ok++; });
-      return ok >= 5; // allow partial depending on editions
-    }catch(e){ return false; }
-  }
-
-  function keyLooksSet(){
-    try{
-      // If placeholder contains "Saved (" we treat as set.
-      const el = document.getElementById("openaiKey");
-      if(el && (el.placeholder || "").toLowerCase().indexOf("saved (") !== -1) return true;
-    }catch(e){}
-    return false;
-  }
-
-  
-  function isVisible(el){
-    try{
-      if(!el) return false;
-      if(el.offsetParent === null) return false;
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }catch(e){ return false; }
-  }
-
-  function findOperatorSeat(){
-    try{
-      // Operator seat uses data-name="Operator"
-      return document.querySelector('.seat[data-name="Operator"], .seat.seatOperator');
-    }catch(e){ return null; }
-  }
-
-  function findOperatorProfileButton(){
-    try{
-      const seat = findOperatorSeat();
-      if(!seat) return null;
-      // The seat tool button text is "Profile"
-      const btns = seat.querySelectorAll("button");
-      for(const b of btns){
-        if((b.innerText||"").trim().toLowerCase() === "profile") return b;
+      function storageKey(){
+        const u = USERNAME || "anon";
+        return "round_table_onboarding_v2_" + u;
       }
-      return null;
-    }catch(e){ return null; }
-  }
 
-  function operatorLooksFilled(){
-    try{
-      // If the operator profile form is visible, check a couple key fields
-      const dn = document.getElementById("op_display_name");
-      const biz = document.getElementById("op_business");
-      const offers = document.getElementById("op_offers");
-      if(dn && isVisible(dn)){
-        const a = (dn.value||"").trim().length > 1;
-        const b = (biz && (biz.value||"").trim().length > 2);
-        const c = (offers && (offers.value||"").trim().length > 2);
-        return a && (b || c);
+      function load(){
+        try{
+          return Object.assign({}, DEFAULT, JSON.parse(localStorage.getItem(storageKey()) || "{}"));
+        }catch(e){
+          return Object.assign({}, DEFAULT);
+        }
       }
-    }catch(e){}
-    return false;
-  }
 
-  function gmailLooksConnected(){
-    try{
-      const s = document.getElementById("gmailOAuthStatus");
-      if(s && /connected/i.test(s.innerText||"")) return true;
-      // If disconnect button is visible, treat as connected
-      const d = document.getElementById("gmailDisconnectBtn");
-      if(d && isVisible(d)) return true;
-    }catch(e){}
-    return false;
-  }
-function clearNudges(){
-    try{
-      document.querySelectorAll(".nudgeGlow").forEach(el=>el.classList.remove("nudgeGlow"));
-      const old = document.getElementById("nudgeInline");
-      if(old) old.remove();
-      const old2 = document.getElementById("nudgeInlineBelow");
-      if(old2) old2.remove();
-    }catch(e){}
-  }
-
-  function attachInline(el, msg, below){
-    if(!el) return;
-    clearNudges();
-    el.classList.add("nudgeGlow");
-    const hint = document.createElement("div");
-    hint.id = below ? "nudgeInlineBelow" : "nudgeInline";
-    hint.className = "nudgeInline" + (below ? " smallBelow" : "");
-    hint.innerHTML = '<span class="dot"></span><span>'+escapeHtml(msg)+'</span>';
-    if(below){
-      el.insertAdjacentElement("afterend", hint);
-    }else{
-      el.insertAdjacentElement("afterend", hint);
-    }
-  }
-
-  function escapeHtml(s){
-    return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
-  }
-
-  function nextStep(o){
-    // Live signals where possible (auto-complete quietly)
-    if(o.step1_key || keyLooksSet()) o.step1_key = true;
-
-    // Step 5: Gmail can become connected outside the app flow (OAuth), so check status text when available
-    if(o.step3_team || expectedTeamInstalled()) o.step3_team = true;
-
-    if(!o.step5_gmail && gmailLooksConnected()) o.step5_gmail = true;
-
-    // Step 2: operator profile can be "complete" either via saved flag or obvious filled values in the form (when visible)
-    if(!o.step2_operator && operatorLooksFilled()) o.step2_operator = true;
-
-    if(!o.step1_key){
-      return { key:"step1_key", target:"settingsBtn", msg:"Next: add your OpenAI key in Settings" };
-    }
-
-    if(!o.step2_operator){
-      const opBtn = findOperatorProfileButton();
-      if(opBtn) return { key:"step2_operator", target: opBtn, msg:"Next: fill out your Operator Profile" };
-      // fallback: select Operator seat by clicking its tile
-      const opSeat = findOperatorSeat();
-      if(opSeat) return { key:"step2_operator", target: opSeat, msg:"Next: open the Operator seat and fill your profile" };
-      return { key:"step2_operator", target:"settingsBtn", msg:"Next: fill out your Operator Profile" };
-    }
-
-    if(!o.step3_team){
-      return { key:"step3_team", target:"installFullBtn", msg:"Next: install the full team" };
-    }
-
-    if(!o.step4_first_prompt){
-      return { key:"step4_first_prompt", target:"conveneAll", msg:"Next: send your first prompt to the table" };
-    }
-
-    if(!o.step5_gmail){
-      // If settings is open and button is visible, point directly at it
-      const b = document.getElementById("gmailConnectBtn");
-      if(b && isVisible(b)) return { key:"step5_gmail", target:"gmailConnectBtn", msg:"Next: connect Gmail (optional but recommended)" };
-      return { key:"step5_gmail", target:"settingsBtn", msg:"Next: connect Gmail in Settings" };
-    }
-
-    return null;
-  }
-
-  function render(function render(){
-    const o = load();
-    const step = nextStep(o);
-    save(o);
-    // If complete, remove nudges
-    if(!step){
-      clearNudges();
-      return;
-    }
-    const el = typeof step.target === "string" ? document.getElementById(step.target) : step.target;
-    if(!el) return;
-    // For textareas, place below
-    const below = (el.tagName || "").toLowerCase() === "textarea";
-    attachInline(el, step.msg + ` • ${doneCount(o)}/5`, below);
-  }
-
-  // Public hooks called by existing UI actions
-  window.__onboarding = {
-    onSettingsSaved: function(ctx){
-      try{
-        const o = load();
-        if(ctx && ctx.keyVal && String(ctx.keyVal).startsWith("sk-")) o.step1_key = true;
-        save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onOperatorSaved: function(){
-      try{
-        const o = load(); o.step2_operator = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onTeamInstalled: function(){
-      try{
-        const o = load(); o.step3_team = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onGroupPromptSent: function(){
-      try{
-        const o = load(); o.step4_first_prompt = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    onGmailConnected: function(){
-      try{
-        const o = load(); o.step5_gmail = true; save(o);
-        setTimeout(render, 50);
-      }catch(e){}
-    },
-    // Backward-compatible no-ops (in case older calls exist)
-    onStressTestRun: function(){ try{ setTimeout(render, 50); }catch(e){} },
-    onStackSaved: function(){ try{ setTimeout(render, 50); }catch(e){} }
-  };
-
-  // If pass buttons exist, mark stress-test completion when clicked
-  function bindStressButtons(){
-    const ids = ["passRiskBtn","quickPassRisk","riskPassBtn","passScaleBtn","passFailBtn","passAssumptionsBtn","passConstraintsBtn","passOptimizeBtn"];
-    ids.forEach(id=>{
-      const b = document.getElementById(id);
-      if(b && !b.__boundOnboard){
-        b.__boundOnboard = true;
-        b.addEventListener("click", ()=>{ try{ window.__onboarding.onStressTestRun(); }catch(e){} }, {capture:true});
+      function save(o){
+        try{ localStorage.setItem(storageKey(), JSON.stringify(o)); }catch(e){}
       }
-    });
-  }
 
-  // Re-render nudges on key UI moments
-  window.addEventListener("load", () => { setTimeout(()=>{ bindStressButtons(); render(); }, 150); });
-  window.addEventListener("resize", () => { setTimeout(render, 150); });
+      function doneCount(o){
+        try{
+          return STEP_KEYS.filter(k => !!o[k]).length;
+        }catch(e){ return 0; }
+      }
 
-  // Also re-bind if DOM changes
-  const mo = new MutationObserver(()=>{ bindStressButtons(); });
-  try{ mo.observe(document.body, {childList:true, subtree:true}); }catch(e){}
-})();
+      function clearNudges(){
+        try{
+          document.querySelectorAll(".nudgeGlow").forEach(el => el.classList.remove("nudgeGlow"));
+          const h = document.getElementById("nudgeInline");
+          if(h) h.remove();
+        }catch(e){}
+      }
+
+      function attachInline(el, msg, progress){
+        if(!el) return;
+        clearNudges();
+        try{ el.classList.add("nudgeGlow"); }catch(e){}
+        const hint = document.createElement("div");
+        hint.id = "nudgeInline";
+        hint.className = "nudgeInline";
+        hint.innerHTML = '<span class="nudgeDot"></span><span>' + escapeHtml(msg) + ' • ' + progress + '/5</span>';
+        try{
+          el.insertAdjacentElement("afterend", hint);
+        }catch(e){}
+      }
+
+      function escapeHtml(s){
+        return String(s||"")
+          .replace(/&/g,"&amp;")
+          .replace(/</g,"&lt;")
+          .replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;")
+          .replace(/'/g,"&#039;");
+      }
+
+      function keyLooksSet(){
+        try{
+          const el = document.getElementById("openaiKey");
+          if(el && (el.placeholder || "").toLowerCase().indexOf("saved (") !== -1) return true;
+        }catch(e){}
+        return false;
+      }
+
+      function operatorLooksFilled(){
+        try{
+          const dn = document.getElementById("op_display_name");
+          const biz = document.getElementById("op_business");
+          const offers = document.getElementById("op_offers");
+          // If the Operator profile form is visible, treat as filled when at least display_name + (business or offers) are non-empty
+          if(dn && dn.offsetParent !== null){
+            const a = (dn.value||"").trim().length > 1;
+            const b = (biz && (biz.value||"").trim().length > 2);
+            const c = (offers && (offers.value||"").trim().length > 2);
+            return a && (b || c);
+          }
+        }catch(e){}
+        return false;
+      }
+
+      function gmailLooksConnected(){
+        try{
+          const s = document.getElementById("gmailOAuthStatus");
+          if(s && /connected/i.test(s.innerText||"")) return true;
+          const d = document.getElementById("gmailDisconnectBtn");
+          if(d && d.offsetParent !== null) return true;
+        }catch(e){}
+        return false;
+      }
+
+      function findOperatorSeat(){
+        try{ return document.querySelector('.seat[data-name="Operator"], .seat.seatOperator'); }catch(e){ return null; }
+      }
+
+      function findOperatorProfileButton(){
+        try{
+          const seat = findOperatorSeat();
+          if(!seat) return null;
+          const btns = seat.querySelectorAll("button");
+          for(const b of btns){
+            if((b.innerText||"").trim().toLowerCase() === "profile") return b;
+          }
+        }catch(e){}
+        return null;
+      }
+
+      function expectedTeamInstalled(){
+        try{
+          const reg = (window.state && window.state.registry) ? window.state.registry : {};
+          const active = (window.state && (window.state.active_order || window.state.active || window.state.active_teammates)) || [];
+          const names = new Set();
+          Object.keys(reg || {}).forEach(k=>names.add(k));
+          (active || []).forEach(x=>{
+            if(typeof x === "string") names.add(x);
+            else if(x && x.name) names.add(x.name);
+          });
+          const must = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
+          let ok = 0;
+          must.forEach(n=>{ if(names.has(n)) ok++; });
+          return ok >= 5;
+        }catch(e){ return false; }
+      }
+
+      function nextStep(o){
+        // auto-detect completions where possible
+        if(keyLooksSet()) o.step1_key = true;
+        if(operatorLooksFilled()) o.step2_operator = true;
+        if(expectedTeamInstalled()) o.step3_team = true;
+        if(gmailLooksConnected()) o.step5_gmail = true;
+
+        if(!o.step1_key){
+          return { key:"step1_key", target:"settingsBtn", msg:"Next: add your OpenAI key in Settings" };
+        }
+        if(!o.step2_operator){
+          const pb = findOperatorProfileButton();
+          if(pb) return { key:"step2_operator", el: pb, msg:"Next: fill out your Operator Profile" };
+          const seat = findOperatorSeat();
+          if(seat) return { key:"step2_operator", el: seat, msg:"Next: open Operator seat and fill your profile" };
+          return { key:"step2_operator", target:"settingsBtn", msg:"Next: fill out your Operator Profile" };
+        }
+        if(!o.step3_team){
+          return { key:"step3_team", target:"installFullBtn", msg:"Next: install the full team" };
+        }
+        if(!o.step4_first_prompt){
+          return { key:"step4_first_prompt", target:"conveneAll", msg:"Next: send your first prompt to the table" };
+        }
+        if(!o.step5_gmail){
+          const b = document.getElementById("gmailConnectBtn");
+          if(b && b.offsetParent !== null) return { key:"step5_gmail", target:"gmailConnectBtn", msg:"Next: connect Gmail" };
+          return { key:"step5_gmail", target:"settingsBtn", msg:"Next: connect Gmail in Settings" };
+        }
+        return null;
+      }
+
+      function render(){
+        try{
+          if(!USERNAME) return;
+          const o = load();
+          const step = nextStep(o);
+          save(o); // persist any auto-detections
+          clearNudges();
+          if(!step) return;
+
+          const progress = doneCount(o);
+
+          let el = null;
+          if(step.el) el = step.el;
+          else if(step.target) el = document.getElementById(step.target);
+
+          if(!el) return;
+          attachInline(el, step.msg, progress);
+        }catch(e){}
+      }
+
+      async function init(){
+        try{
+          const res = await fetch("/api/me");
+          const me = await res.json();
+          if(me && me.ok){
+            USERNAME = (me.user && me.user.username) ? me.user.username : "anon";
+          }else{
+            USERNAME = "anon";
+          }
+        }catch(e){
+          USERNAME = "anon";
+        }
+        render();
+      }
+
+      window.__onboarding = window.__onboarding || {};
+      window.__onboarding.markStep = function(stepKey){
+        try{
+          if(!stepKey) return;
+          if(!USERNAME) return;
+          const o = load();
+          if(Object.prototype.hasOwnProperty.call(o, stepKey)){
+            o[stepKey] = true;
+            save(o);
+            setTimeout(render, 50);
+          }
+        }catch(e){}
+      };
+      window.__onboarding.render = function(){ try{ render(); }catch(e){} };
+
+      window.addEventListener("load", init);
+    })();
 
 </script>
 '''
