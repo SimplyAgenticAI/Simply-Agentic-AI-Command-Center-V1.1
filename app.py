@@ -227,6 +227,95 @@ UPLOADS_DIR = DATA / "uploads"
 UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
 FRAMEWORK_PATH = DATA / "core_framework.txt"
 
+# =========================
+# OAUTH STATE STORE (server-side, additive)
+# =========================
+# Prevents "OAuth state mismatch" when sessions/cookies are lost across redirects
+# (common behind proxies, multi-tab connect attempts, or strict cookie policies).
+OAUTH_STATE_PATH = DATA / "oauth_states.json"
+
+def _load_oauth_states() -> Dict[str, Any]:
+    try:
+        data = load_json(OAUTH_STATE_PATH, {"states": {}})
+        if not isinstance(data, dict):
+            return {"states": {}}
+        states = data.get("states")
+        if not isinstance(states, dict):
+            data["states"] = {}
+        return data
+    except Exception:
+        return {"states": {}}
+
+def _save_oauth_states(data: Dict[str, Any]) -> None:
+    try:
+        data.setdefault("states", {})
+        save_json(OAUTH_STATE_PATH, data)
+    except Exception:
+        pass
+
+def _put_oauth_state(state: str, username: str, kind: str, ttl_seconds: int = 900) -> None:
+    try:
+        if not state:
+            return
+        data = _load_oauth_states()
+        data.setdefault("states", {})
+        now = _now_epoch()
+        data["states"][state] = {
+            "user": username or "anon",
+            "kind": kind or "",
+            "created_at": now,
+            "expires_at": now + max(60, min(86400, int(ttl_seconds))),
+        }
+        _save_oauth_states(data)
+    except Exception:
+        pass
+
+def _peek_oauth_state(state: str, kind: str) -> Optional[Dict[str, Any]]:
+    try:
+        data = _load_oauth_states()
+        rec = (data.get("states") or {}).get(state)
+        if not isinstance(rec, dict):
+            return None
+        if (rec.get("kind") or "") != (kind or ""):
+            return None
+        exp = int(rec.get("expires_at") or 0)
+        if exp and _now_epoch() > exp:
+            return None
+        return rec
+    except Exception:
+        return None
+
+def _consume_oauth_state(state: str, kind: str) -> Optional[Dict[str, Any]]:
+    try:
+        data = _load_oauth_states()
+        states = data.get("states") or {}
+        rec = states.get(state)
+        if not isinstance(rec, dict):
+            return None
+        if (rec.get("kind") or "") != (kind or ""):
+            return None
+        exp = int(rec.get("expires_at") or 0)
+        if exp and _now_epoch() > exp:
+            # expired, drop it
+            try:
+                states.pop(state, None)
+                data["states"] = states
+                _save_oauth_states(data)
+            except Exception:
+                pass
+            return None
+        # consume
+        try:
+            states.pop(state, None)
+            data["states"] = states
+            _save_oauth_states(data)
+        except Exception:
+            pass
+        return rec
+    except Exception:
+        return None
+
+
 DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
@@ -272,6 +361,24 @@ def save_users(data: Dict[str, Any]) -> None:
 def has_any_user() -> bool:
     data = load_users()
     return bool((data.get("users") or {}))
+
+def has_bootstrap_only_user() -> bool:
+    """True if the only user in the system is the bootstrap 'local' user.
+
+    This allows first-run setup to remain available even if the app created
+    a temporary local account to let Settings load before auth.
+    """
+    data = load_users()
+    users = data.get("users") or {}
+    if not users:
+        return False
+    if set(users.keys()) != {"local"}:
+        return False
+    # Prefer explicit marker when present, otherwise treat lone 'local' as bootstrap.
+    try:
+        return bool((users.get("local") or {}).get("is_bootstrap", True))
+    except Exception:
+        return True
 
 def _clean_username(u: str) -> str:
     u = (u or "").strip().lower()
@@ -321,6 +428,10 @@ def ensure_local_owner_user() -> str:
         # Password is irrelevant for this bootstrap flow; the UI can still
         # support full login/reset if you later enable it.
         users["local"] = _new_user("local", password=str(uuid.uuid4()), email="")
+        try:
+            users["local"]["is_bootstrap"] = True
+        except Exception:
+            pass
         data["users"] = users
         save_users(data)
     return "local"
@@ -339,7 +450,7 @@ def _auth_guard():
         return None
 
     # allow setup if no users exist
-    if request.path.startswith("/setup") and not has_any_user():
+    if request.path.startswith("/setup") and ((not has_any_user()) or has_bootstrap_only_user()):
         return None
 
     if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
@@ -348,14 +459,14 @@ def _auth_guard():
     if request.path.startswith("/api/") and not session.get("user"):
         # Local-first: if no users exist yet (fresh install), allow Settings so you can add your API key
         # without getting blocked by auth. We create a temporary local session user.
-        if (not has_any_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
+        if ((not has_any_user()) or has_bootstrap_only_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
             session["user"] = ensure_local_owner_user()
         else:
             return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # if no users exist, send to setup
-        if not has_any_user():
+        # if no real users exist yet (fresh install or bootstrap-only), send to setup
+        if (not has_any_user()) or has_bootstrap_only_user():
             return redirect(url_for("setup"))
         return redirect(url_for("login"))
 
@@ -524,146 +635,6 @@ ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
 OPERATOR_PROFILE_DIR = DATA / "operator_profile"
 
-
-
-# =========================
-# GUIDED ONBOARDING (additive)
-# =========================
-ONBOARDING_DIR = DATA / "onboarding"
-ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
-
-ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "openai_key", "title": "Add OpenAI key"},
-    {"key": "operator_profile", "title": "Fill out Operator Profile"},
-    {"key": "full_team", "title": "Install full team"},
-    {"key": "first_prompt", "title": "Send first prompt"},
-    {"key": "gmail_connected", "title": "Connect Gmail"},
-]
-
-def _onboarding_path_for_user(username: str) -> Path:
-    u = _safe_name(username or "anon")
-    d = ONBOARDING_DIR / u
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "state.json"
-
-def _load_onboarding(username: str) -> Dict[str, Any]:
-    path = _onboarding_path_for_user(username)
-    data = load_json(path, {})
-    if not isinstance(data, dict):
-        data = {}
-    data.setdefault("dismissed", False)
-    data.setdefault("steps", {})
-    if not isinstance(data.get("steps"), dict):
-        data["steps"] = {}
-    for s in ONBOARDING_STEPS:
-        data["steps"].setdefault(s["key"], {"done": False, "at": None})
-    return data
-
-def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
-    path = _onboarding_path_for_user(username)
-    data = data or {}
-    data["updated_at"] = now_iso()
-    save_json(path, data)
-
-def _mark_onboarding_step(username: str, key: str, done: bool = True) -> None:
-    try:
-        st = _load_onboarding(username)
-        st.setdefault("steps", {})
-        st["steps"].setdefault(key, {"done": False, "at": None})
-        st["steps"][key]["done"] = bool(done)
-        if done:
-            st["steps"][key]["at"] = now_iso()
-        _save_onboarding(username, st)
-    except Exception:
-        pass
-
-def _dismiss_onboarding(username: str, dismissed: bool = True) -> None:
-    try:
-        st = _load_onboarding(username)
-        st["dismissed"] = bool(dismissed)
-        _save_onboarding(username, st)
-    except Exception:
-        pass
-
-def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    _ = _load_onboarding(username)
-
-    # Step 1: OpenAI key
-    try:
-        key = (((u or {}).get("settings") or {}).get("openai_key") or "").strip()
-        if key:
-            _mark_onboarding_step(username, "openai_key", True)
-    except Exception:
-        pass
-
-    # Step 2: Operator profile
-    try:
-        op = _load_operator_profile(username) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
-        if any(((op.get(k) or "").strip() for k in meaningful)):
-            _mark_onboarding_step(username, "operator_profile", True)
-    except Exception:
-        pass
-
-    # Step 3: Full team installed
-    try:
-        reg = load_registry()
-        installed = reg.get("installed") or {}
-        if isinstance(installed, dict):
-            all_present = True
-            for n in DEFAULT_ORDER:
-                if n not in installed:
-                    all_present = False
-                    break
-            if all_present:
-                _mark_onboarding_step(username, "full_team", True)
-    except Exception:
-        pass
-
-    # Step 5: Gmail connected
-    try:
-        if _user_gmail_oauth(u):
-            _mark_onboarding_step(username, "gmail_connected", True)
-    except Exception:
-        pass
-
-    return _load_onboarding(username)
-
-def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    st = _reconcile_onboarding_from_truth(u)
-    steps = st.get("steps") or {}
-
-    out_steps: List[Dict[str, Any]] = []
-    done_count = 0
-    for s in ONBOARDING_STEPS:
-        k = s["key"]
-        done = bool((steps.get(k) or {}).get("done"))
-        if done:
-            done_count += 1
-        out_steps.append({"key": k, "title": s["title"], "done": done})
-
-    next_key = ""
-    for s in out_steps:
-        if not s["done"]:
-            next_key = s["key"]
-            break
-
-    all_done = done_count == len(ONBOARDING_STEPS)
-    pct = int(round((done_count / max(1, len(ONBOARDING_STEPS))) * 100))
-
-    return {
-        "ok": True,
-        "dismissed": bool(st.get("dismissed")),
-        "steps": out_steps,
-        "done_count": done_count,
-        "total": len(ONBOARDING_STEPS),
-        "progress_pct": pct,
-        "next_key": next_key,
-        "all_done": all_done,
-        "username": username,
-    }
 ACTION_STACK_SCHEDULES_DIR = DATA / "action_stack_schedules"
 
 ACTION_STACKS_DIR.mkdir(exist_ok=True)
@@ -2361,27 +2332,6 @@ def api_me():
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
 
-
-@app.get("/api/onboarding/status")
-def api_onboarding_status():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    return jsonify(_onboarding_status_payload(u))
-
-@app.post("/api/onboarding/dismiss")
-def api_onboarding_dismiss():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    data = request.get_json(silent=True) or {}
-    dismissed = bool(data.get("dismissed", True))
-    _dismiss_onboarding(username, dismissed)
-    return jsonify({"ok": True, "dismissed": dismissed})
-
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
@@ -2430,16 +2380,6 @@ def api_set_user_settings():
         u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
-    except Exception:
-        pass
-
 
     data = request.get_json(force=True) or {}
     openai_key_in = (data.get("openai_key") or "")
@@ -2497,17 +2437,9 @@ def api_set_framework():
     return jsonify({"ok": True, "length": len(load_core_framework())})
 
 
-@app.post("/api/install/full")
+@app.route("/api/install/full", methods=["POST","GET"])
 def api_install_full():
     reg = install_full_team()
-    # onboarding_full_team: mark Full Team step after successful install
-    try:
-        uname = _get_session_username()
-        _mark_onboarding_step(uname, "full_team", True)
-    except Exception:
-        pass
-
-
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
 
 
@@ -2828,14 +2760,6 @@ def api_followup():
         teammate=name,
         status="success"
     )
-    # onboarding_first_prompt: mark after the first successful prompt is sent
-    try:
-        uname = _get_session_username()
-        _mark_onboarding_step(uname, "first_prompt", True)
-    except Exception:
-        pass
-
-
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
@@ -2973,26 +2897,69 @@ def gmail_connect():
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
     state = secrets.token_urlsafe(24)
-    session["gmail_oauth_state"] = state
+
+    # Store in session for standard flow
+    try:
+        session["gmail_oauth_state"] = state
+    except Exception:
+        pass
+
+    # Also store server-side to survive session/cookie loss during OAuth redirects
+    try:
+        _put_oauth_state(state, u.get("username", ""), kind="gmail", ttl_seconds=900)
+    except Exception:
+        pass
+
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
 
 
 @app.get("/gmail/callback")
 def gmail_callback():
-    u = current_user()
-    if not u:
-        return redirect("/login")
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
-    state = request.args.get("state", "")
-    expected = session.get("gmail_oauth_state", "")
-    if not state or not expected or state != expected:
+    state = (request.args.get("state", "") or "").strip()
+    code = (request.args.get("code", "") or "").strip()
+
+    if not state:
+        return make_response("Missing OAuth state from Google.", 400)
+
+    # If the session was lost, recover the user from the server-side state store
+    if not session.get("user"):
+        rec = _peek_oauth_state(state, kind="gmail")
+        if rec and rec.get("user"):
+            session["user"] = rec.get("user")
+
+    u = current_user()
+    if not u:
+        # As a last resort, consume state and restore user again
+        rec2 = _consume_oauth_state(state, kind="gmail")
+        if rec2 and rec2.get("user"):
+            session["user"] = rec2.get("user")
+            u = current_user()
+        if not u:
+            return redirect("/login")
+
+    # Accept session state match OR server-side state match.
+    expected = (session.get("gmail_oauth_state", "") or "").strip()
+    session_match = bool(expected and expected == state)
+
+    rec = None
+    if not session_match:
+        rec = _consume_oauth_state(state, kind="gmail")
+
+    if (not session_match) and (not rec):
         return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
 
-    code = request.args.get("code", "")
+    # We now have a valid state. Consume it if we haven't already.
+    if session_match:
+        try:
+            _consume_oauth_state(state, kind="gmail")
+        except Exception:
+            pass
+
     if not code:
         return make_response("Missing authorization code from Google.", 400)
 
@@ -3008,14 +2975,6 @@ def gmail_callback():
 
     _save_user_gmail_oauth(u, token_info)
     append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
-    # onboarding_gmail_connected: mark Gmail step after successful connect
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        _mark_onboarding_step(uname, "gmail_connected", True)
-    except Exception:
-        pass
-
-
     return redirect("/#settings")
 
 
@@ -3052,26 +3011,58 @@ def calendar_connect():
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
     state = secrets.token_urlsafe(24)
-    session["calendar_oauth_state"] = state
+    try:
+        session["calendar_oauth_state"] = state
+    except Exception:
+        pass
+    try:
+        _put_oauth_state(state, u.get("username", ""), kind="calendar", ttl_seconds=900)
+    except Exception:
+        pass
+
     auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
     return redirect(auth_url)
 
 
 @app.get("/calendar/callback")
 def calendar_callback():
-    u = current_user()
-    if not u:
-        return redirect("/login")
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
-    state = request.args.get("state", "")
-    expected = session.get("calendar_oauth_state", "")
-    if not state or not expected or state != expected:
+    state = (request.args.get("state", "") or "").strip()
+    code = (request.args.get("code", "") or "").strip()
+    if not state:
+        return make_response("Missing OAuth state from Google.", 400)
+
+    if not session.get("user"):
+        rec = _peek_oauth_state(state, kind="calendar")
+        if rec and rec.get("user"):
+            session["user"] = rec.get("user")
+
+    u = current_user()
+    if not u:
+        rec2 = _consume_oauth_state(state, kind="calendar")
+        if rec2 and rec2.get("user"):
+            session["user"] = rec2.get("user")
+            u = current_user()
+        if not u:
+            return redirect("/login")
+
+    expected = (session.get("calendar_oauth_state", "") or "").strip()
+    session_match = bool(expected and expected == state)
+    rec = None
+    if not session_match:
+        rec = _consume_oauth_state(state, kind="calendar")
+    if (not session_match) and (not rec):
         return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
 
-    code = request.args.get("code", "")
+    if session_match:
+        try:
+            _consume_oauth_state(state, kind="calendar")
+        except Exception:
+            pass
+
     if not code:
         return make_response("Missing authorization code from Google.", 400)
 
@@ -3529,13 +3520,13 @@ def _hash_token(token: str) -> str:
 
 @app.get("/setup")
 def setup():
-    if has_any_user():
+    if has_any_user() and not has_bootstrap_only_user():
         return redirect(url_for("login"))
     return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=None)
 
 @app.post("/setup")
 def setup_post():
-    if has_any_user():
+    if has_any_user() and not has_bootstrap_only_user():
         return redirect(url_for("login"))
     username = _clean_username(request.form.get("username", ""))
     email = (request.form.get("email") or "").strip()
@@ -3550,6 +3541,14 @@ def setup_post():
         return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters")
 
     data = load_users()
+    # If we were in bootstrap mode (only the temporary local user existed), remove it once a real owner is created.
+    try:
+        users0 = data.get("users") or {}
+        if "local" in users0 and set(users0.keys()) == {"local"} and username != "local":
+            del users0["local"]
+            data["users"] = users0
+    except Exception:
+        pass
     data["users"][username] = _new_user(username=username, password=password, email=email)
     save_users(data)
 
@@ -3559,8 +3558,10 @@ def setup_post():
 
 @app.get("/login")
 def login():
-    allow_setup = not has_any_user()
-    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled())
+    allow_setup = (not has_any_user()) or has_bootstrap_only_user()
+    # Always allow creating the very first account.
+    allow_signup = _signup_enabled() or allow_setup
+    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=allow_signup)
 
 @app.post("/login")
 def login_post():
@@ -3723,22 +3724,6 @@ def api_operator_profile_set():
         if k in payload:
             prof[k] = (payload.get(k) or "")
     _save_operator_profile(uname, prof)
-    # onboarding_operator_profile: mark Operator Profile step when profile is saved with any meaningful content
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        op = _load_operator_profile(uname) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
-        ok = False
-        for k in meaningful:
-            if (op.get(k) or "").strip():
-                ok = True
-                break
-        if ok:
-            _mark_onboarding_step(uname, "operator_profile", True)
-    except Exception:
-        pass
-
-
     return jsonify({"ok": True, "profile": prof})
 
 
@@ -4987,7 +4972,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
-      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
@@ -5018,7 +5002,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
@@ -6873,7 +6856,6 @@ function makeSeat(defn, idx){
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
-          try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -7597,7 +7579,6 @@ function makeSeat(defn, idx){
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
@@ -7648,7 +7629,6 @@ function makeSeat(defn, idx){
       setOpStatus("Complete");
       $("followMsg").value = "";
       await refreshThread();
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
@@ -7669,7 +7649,6 @@ function makeSeat(defn, idx){
       }
       await loadState();
       showModal("Installed", "Full team installed.");
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
     $("clearGroup").onclick = () => {
@@ -8191,7 +8170,6 @@ function makeSeat(defn, idx){
     async function afterSettingsSaved(){
       try{ await loadState(); }catch(e){}
       try{ await runFirstRunGuidance(); }catch(e){}
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     }
 
     // Clicking outside bubble clears it
@@ -9172,305 +9150,6 @@ function applyRTTransformV4(){
 
 
 
-
-
-
-<!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); min-width:260px; min-height:220px; resize:both; overflow:auto; display:none;">
-  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden;">
-    <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
-      <div style="display:flex; gap:10px; align-items:center;">
-        <div style="width:10px; height:10px; border-radius:999px; background:linear-gradient(135deg,#7c3aed,#22c55e); box-shadow:0 0 18px rgba(124,58,237,0.55);"></div>
-        <div>
-          <div style="font-weight:800; letter-spacing:0.2px; font-size:14px;">Get Started</div>
-          <div id="onbSub" style="font-size:12px; opacity:0.8;">0 of 5 complete</div>
-        </div>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
-        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
-      </div>
-    </div>
-    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
-  </div>
-</div>
-
-<style>
-  .onbItem{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.03); cursor:pointer; }
-  .onbItem:hover{ background:rgba(255,255,255,0.06); }
-  .onbDot{ width:12px; height:12px; border-radius:999px; border:1px solid rgba(255,255,255,0.35); flex:0 0 auto; }
-  .onbDone{ background:rgba(34,197,94,0.95); border-color:rgba(34,197,94,0.95); }
-  .onbNextPulse{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); animation:onbPulse 1.6s infinite; border-color:rgba(124,58,237,0.70) !important; }
-  @keyframes onbPulse{ 0%{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); } 70%{ box-shadow:0 0 0 12px rgba(124,58,237,0.00); } 100%{ box-shadow:0 0 0 0 rgba(124,58,237,0.00); } }
-  .onbTitle{ font-size:13px; font-weight:700; }
-  .onbMeta{ font-size:12px; opacity:0.75; }
-
-  /* Topbar "Next step" glow (purple) */
-  .onbBtnGlow{
-    border-color: rgba(124,58,237,0.85) !important;
-    box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18);
-    animation: onbBtnPulse 1.6s infinite;
-  }
-  @keyframes onbBtnPulse{
-    0%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18); }
-    70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
-    100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
-  }
-</style>
-
-<script>
-(function(){
-  let onbData = null;
-  let drag = {active:false, dx:0, dy:0};
-
-  function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
-
-  function syncOnboardingButtons(){
-    try{
-      const topBtn = document.getElementById("onboardingBtn");
-      const mobBtn = document.getElementById("mobileOnboardingBtn");
-      const showGlow = !!(onbData && onbData.ok && !onbData.all_done && (onbData.next_key || ""));
-      if(topBtn){
-        if(showGlow) topBtn.classList.add("onbBtnGlow");
-        else topBtn.classList.remove("onbBtnGlow");
-        // Keep label stable and short
-        topBtn.textContent = "Next step";
-      }
-      if(mobBtn){
-        mobBtn.textContent = "Next step";
-      }
-    }catch(e){}
-  }
-
-  async function openOnboarding(){
-    try{
-      // Undismiss (if previously hidden)
-      await fetch("/api/onboarding/dismiss", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({dismissed:false})
-      });
-    }catch(e){}
-    try{
-      await fetchOnboarding();
-      const panel = onb$("onboardingPanel");
-      if(panel) panel.style.display = "block";
-    }catch(e){}
-  }
-
-  function closeOnboarding(){
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-    // Do not dismiss. User can reopen via "Next step" button.
-  }
-
-
-  function wireOnboardingButtons(){
-    try{
-      const topBtn = document.getElementById("onboardingBtn");
-      const mobBtn = document.getElementById("mobileOnboardingBtn");
-      if(topBtn) topBtn.addEventListener("click", openOnboarding);
-      if(mobBtn) mobBtn.addEventListener("click", ()=>{
-        try{
-          // Close mobile drawer if present
-          const overlay = document.getElementById("mobileDrawerOverlay");
-          if(overlay) overlay.classList.remove("show");
-          try{ document.body.style.overflow = ""; }catch(_){}
-        }catch(_){}
-        openOnboarding();
-      });
-    }catch(e){}
-  }
-
-  function setPanelPos(x,y){
-    const panel = onb$("onboardingPanel");
-    if(!panel) return;
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
-    panel.style.left = Math.max(8, x) + "px";
-    panel.style.top = Math.max(8, y) + "px";
-  }
-
-  async function fetchOnboarding(){
-    try{
-      const res = await fetch("/api/onboarding/status");
-      const data = await res.json();
-      if(!data || !data.ok) return;
-      onbData = data;
-      renderOnboarding();
-      syncOnboardingButtons();
-      try{ window.onboardingStatus = onbData; }catch(_){ }
-    }catch(e){}
-  }
-
-  function renderOnboarding(){
-    const panel = onb$("onboardingPanel");
-    const list = onb$("onbList");
-    const sub = onb$("onbSub");
-    if(!panel || !list || !sub || !onbData) return;
-
-    if(onbData.dismissed || onbData.all_done){
-      panel.style.display = "none";
-      return;
-    }
-
-    panel.style.display = "block";
-    sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
-
-    list.innerHTML = "";
-    const nextKey = onbData.next_key || "";
-
-    (onbData.steps||[]).forEach((s)=>{
-      const row = document.createElement("div");
-      row.className = "onbItem";
-      row.setAttribute("data-key", s.key);
-
-      const dot = document.createElement("div");
-      dot.className = "onbDot" + (s.done ? " onbDone" : "");
-      if(!s.done && s.key === nextKey){
-        row.className += " onbNextPulse";
-      }
-
-      const wrap = document.createElement("div");
-      wrap.style.display = "flex";
-      wrap.style.flexDirection = "column";
-      wrap.style.gap = "2px";
-
-      const title = document.createElement("div");
-      title.className = "onbTitle";
-      title.textContent = s.title;
-
-      const meta = document.createElement("div");
-      meta.className = "onbMeta";
-      meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
-
-      wrap.appendChild(title);
-      wrap.appendChild(meta);
-
-      row.appendChild(dot);
-      row.appendChild(wrap);
-
-      row.addEventListener("click", ()=>onbAction(s.key, s.done));
-      list.appendChild(row);
-    });
-  }
-
-  async function dismissOnboarding(){
-    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-  }
-
-  function focusEl(id){
-    try{
-      const el = document.getElementById(id);
-      if(el){
-        el.scrollIntoView({behavior:"smooth", block:"center"});
-        setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 80);
-        return true;
-      }
-    }catch(e){}
-    return false;
-  }
-
-  async function onbAction(key, alreadyDone){
-    if(alreadyDone) return;
-
-    try{
-      if(key === "openai_key"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
-        return;
-      }
-
-      if(key === "operator_profile"){
-        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
-        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
-        return;
-      }
-
-      if(key === "full_team"){
-        try{
-          const r = await fetch("/api/install/full", {method:"POST"});
-          const d = await r.json();
-          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
-          else{ if(typeof showToast === "function") showToast("Install failed"); }
-        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
-        setTimeout(fetchOnboarding, 300);
-        return;
-      }
-
-      if(key === "first_prompt"){
-        focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
-        return;
-      }
-
-      if(key === "gmail_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("gmailConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/gmail/connect"; }
-        }, 200);
-        return;
-      }
-    }finally{
-      setTimeout(fetchOnboarding, 600);
-    }
-  }
-
-  function wireDrag(){
-    const header = onb$("onbHeader");
-    const panel = onb$("onboardingPanel");
-    if(!header || !panel) return;
-
-    header.addEventListener("pointerdown", (e)=>{
-      try{
-        if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
-      }catch(_){ }
-      drag.active = true;
-      header.style.cursor = "grabbing";
-      const rect = panel.getBoundingClientRect();
-      drag.dx = e.clientX - rect.left;
-      drag.dy = e.clientY - rect.top;
-      try{ header.setPointerCapture(e.pointerId); }catch(err){}
-    });
-
-    header.addEventListener("pointermove", (e)=>{
-      if(!drag.active) return;
-      setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
-    });
-
-    header.addEventListener("pointerup", (e)=>{
-      drag.active = false;
-      header.style.cursor = "grab";
-      try{ header.releasePointerCapture(e.pointerId); }catch(err){}
-    });
-  }
-
-  function wireHide(){
-    const btn = onb$("onbHide");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
-  }
-
-  function wireExit(){
-    const btn = onb$("onbExit");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
-  }
-
-  try{
-    try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
-
-    wireDrag();
-    wireHide();
-    wireExit();
-    wireOnboardingButtons();
-    setTimeout(fetchOnboarding, 450);
-    setInterval(fetchOnboarding, 12000);
-  }catch(e){}
-})();
-</script>
 
 </body>
 </html>
