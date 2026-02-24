@@ -5214,6 +5214,129 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
+
+
+/* Guided Onboarding Widget (Overlay) */
+/* Guided Onboarding Widget v2 */
+#onboardFab{
+  display:none;
+  padding:8px 10px;
+  border-radius: 12px;
+  border:1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  font-weight:800;
+  font-size:12px;
+  cursor:pointer;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+}
+#onboardFab.on{ display:inline-flex; align-items:center; gap:8px; }
+#onboardFab .dot{
+  width:8px; height:8px; border-radius:999px;
+  background: rgba(124,58,237,0.95);
+  box-shadow: 0 0 16px rgba(124,58,237,0.55), 0 0 28px rgba(124,58,237,0.25);
+  animation: onboardPulse 1.25s ease-in-out infinite;
+}
+@keyframes onboardPulse{
+  0%{ transform: scale(1); opacity: 0.9; }
+  50%{ transform: scale(1.25); opacity: 1; }
+  100%{ transform: scale(1); opacity: 0.9; }
+}
+
+#onboardPanel{
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  z-index: 260;
+  border:1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  overflow:hidden;
+  background: rgba(7,10,22,0.62);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 55px rgba(0,0,0,0.55);
+  display:none;
+}
+#onboardPanel.show{ display:block; }
+#onboardPanel.min .body{ display:none; }
+#onboardPanel.min{ width: 220px; }
+
+#onboardHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px 10px;
+  border-bottom:1px solid rgba(255,255,255,0.10);
+  cursor: grab;
+  user-select: none;
+}
+#onboardHead:active{ cursor: grabbing; }
+#onboardTitle{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+#onboardTitle .t1{ font-weight:900; font-size:13px; }
+#onboardTitle .t2{ font-size:11px; opacity:0.78; }
+#onboardHead .actions{ display:flex; gap:8px; align-items:center; }
+.onbBtn{
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding:6px 9px;
+  border-radius: 10px;
+  cursor:pointer;
+  font-weight:800;
+  font-size:11px;
+}
+.onbBtn:active{ transform: translateY(1px); }
+
+#onboardPanel .body{ padding: 10px 10px 12px 10px; }
+.onbStep{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px;
+  border-radius: 14px;
+  border:1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  margin-bottom:8px;
+  cursor:pointer;
+}
+.onbStep:last-child{ margin-bottom:0; }
+.onbStep .sicon{
+  width:22px; height:22px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.20);
+  font-weight:900;
+  font-size:12px;
+}
+.onbStep .stext{ flex:1; }
+.onbStep .st1{ font-weight:900; font-size:12px; }
+.onbStep .st2{ font-size:11px; opacity:0.78; margin-top:2px; line-height:1.25; }
+
+.onbStep.done{
+  opacity:0.75;
+}
+.onbStep.reco{
+  border-color: rgba(247,211,106,0.36);
+  box-shadow: 0 0 0 1px rgba(247,211,106,0.20) inset, 0 0 26px rgba(124,58,237,0.16);
+  background: rgba(247,211,106,0.05);
+  animation: onbGlow 1.35s ease-in-out infinite;
+}
+@keyframes onbGlow{
+  0%{ transform: translateY(0px); }
+  50%{ transform: translateY(-1px); }
+  100%{ transform: translateY(0px); }
+}
+.coachGlowStrong{
+  box-shadow: 0 0 0 2px rgba(124,58,237,0.35), 0 0 32px rgba(124,58,237,0.22) !important;
+  border-color: rgba(124,58,237,0.70) !important;
+}
 </style>
 </head>
 <body>
@@ -9304,6 +9427,330 @@ function applyRTTransformV4(){
 
 
 
+
+
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function q(sel, root){ return (root||document).querySelector(sel); }
+
+  const LS_PANEL = "rt_onboard_panel_v2";
+  const LS_POS = "rt_onboard_pos_v2";
+  const LS_MIN = "rt_onboard_min_v2";
+
+  function safeGet(k){ try{ return localStorage.getItem(k)||""; }catch(_){ return ""; } }
+  function safeSet(k,v){ try{ localStorage.setItem(k, String(v)); }catch(_){ } }
+
+  function clearTargets(){
+    document.querySelectorAll(".coachGlowStrong").forEach(el => el.classList.remove("coachGlowStrong"));
+  }
+
+  function injectFab(){
+    const settingsBtn = $("settingsBtn");
+    const right = q(".topbar .rightmeta");
+    if(!right || !settingsBtn) return null;
+
+    if($("onboardFab")) return $("onboardFab");
+
+    const b = document.createElement("button");
+    b.id = "onboardFab";
+    b.innerHTML = '<span class="dot"></span><span>Get started</span>';
+    b.className = "btn";
+    b.style.padding = "8px 10px";
+    b.style.borderRadius = "12px";
+    b.style.whiteSpace = "nowrap";
+
+    // insert right after Settings if possible
+    try{
+      settingsBtn.insertAdjacentElement("afterend", b);
+    }catch(e){
+      right.appendChild(b);
+    }
+    return b;
+  }
+
+  function ensurePanel(){
+    if($("onboardPanel")) return $("onboardPanel");
+    const panel = document.createElement("div");
+    panel.id = "onboardPanel";
+    panel.innerHTML = `
+      <div id="onboardHead">
+        <div id="onboardTitle">
+          <div class="t1">Get started</div>
+          <div class="t2">Next best action</div>
+        </div>
+        <div class="actions">
+          <button class="onbBtn" id="onbMinBtn" title="Minimize">Min</button>
+          <button class="onbBtn" id="onbCloseBtn" title="Close">Close</button>
+        </div>
+      </div>
+      <div class="body">
+        <div id="onbSteps"></div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function setPanelPos(panel, left, top){
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    panel.style.right = "auto";
+  }
+
+  function restorePanel(panel){
+    const pos = safeGet(LS_POS);
+    if(pos){
+      try{
+        const o = JSON.parse(pos);
+        if(o && isFinite(o.left) && isFinite(o.top)){
+          setPanelPos(panel, o.left, o.top);
+        }
+      }catch(e){}
+    }
+    const min = safeGet(LS_MIN) === "1";
+    panel.classList.toggle("min", min);
+  }
+
+  function savePanel(panel){
+    try{
+      const r = panel.getBoundingClientRect();
+      safeSet(LS_POS, JSON.stringify({left: r.left, top: r.top}));
+    }catch(e){}
+  }
+
+  function togglePanel(show){
+    const panel = ensurePanel();
+    if(show) panel.classList.add("show");
+    else panel.classList.remove("show");
+    safeSet(LS_PANEL, show ? "1" : "0");
+  }
+
+  function toggleMin(){
+    const panel = ensurePanel();
+    const nowMin = !panel.classList.contains("min");
+    panel.classList.toggle("min", nowMin);
+    safeSet(LS_MIN, nowMin ? "1" : "0");
+  }
+
+  function labelFor(id){
+    const labels = {
+      add_openai_key: ["Add OpenAI key", "Opens Settings so you can paste your API key."],
+      fill_operator_profile: ["Fill Operator card", "Click Operator and add your business context."],
+      install_full_team: ["Install full team", "Adds the full teammate set to your system."],
+      send_first_prompt: ["Send first prompt", "Use the Group Console to trigger the round table."]
+    };
+    return labels[id] || [id, ""];
+  }
+
+  function iconFor(done, reco){
+    if(done) return "✓";
+    if(reco) return "→";
+    return "•";
+  }
+
+  function highlightTarget(stepId){
+    clearTargets();
+    if(stepId === "add_openai_key"){
+      const b = $("settingsBtn");
+      if(b) b.classList.add("coachGlowStrong");
+    }
+    if(stepId === "fill_operator_profile"){
+      const seat = q('.seat[data-name="Operator"]');
+      if(seat) seat.classList.add("coachGlowStrong");
+    }
+    if(stepId === "install_full_team"){
+      const b = $("installFullBtn");
+      if(b) b.classList.add("coachGlowStrong");
+    }
+    if(stepId === "send_first_prompt"){
+      const box = $("opPrompt");
+      const send = $("conveneAll");
+      if(box) box.classList.add("coachGlowStrong");
+      if(send) send.classList.add("coachGlowStrong");
+    }
+  }
+
+  function goToStep(stepId){
+    if(stepId === "add_openai_key"){
+      if($("settingsBtn")) $("settingsBtn").click();
+      return;
+    }
+    if(stepId === "fill_operator_profile"){
+      try{
+        if(typeof window.selectSeat === "function"){
+          window.selectSeat("Operator");
+        }else{
+          // fallback: click the seat card if selectSeat isn't exposed
+          const seat = q('.seat[data-name="Operator"]');
+          if(seat) seat.click();
+        }
+      }catch(e){}
+      return;
+    }
+    if(stepId === "install_full_team"){
+      if($("installFullBtn")) $("installFullBtn").click();
+      return;
+    }
+    if(stepId === "send_first_prompt"){
+      try{
+        if($("opPrompt")) $("opPrompt").focus();
+        try{ window.scrollTo({top: 0, behavior:"smooth"}); }catch(_){}
+      }catch(e){}
+      return;
+    }
+  }
+
+  async function refreshOnboarding(){
+    let data = null;
+    try{
+      const res = await fetch("/api/onboarding/status");
+      data = await res.json();
+    }catch(e){ return; }
+
+    if(!data || !data.ok) return;
+
+    const ob = data.onboarding || {};
+    const steps = ob.steps || [];
+    const next = ob.next_step || "";
+    const completed = !!ob.completed;
+
+    const fab = injectFab();
+    if(!fab) return;
+
+    if(completed){
+      fab.classList.remove("on");
+      fab.style.display = "none";
+      togglePanel(false);
+      clearTargets();
+      return;
+    }
+
+    fab.classList.add("on");
+    fab.style.display = "inline-flex";
+
+    const panel = ensurePanel();
+    restorePanel(panel);
+
+    const open = safeGet(LS_PANEL) === "1";
+    if(open) panel.classList.add("show");
+
+    const stepsDiv = $("onbSteps");
+    if(!stepsDiv) return;
+
+    stepsDiv.innerHTML = "";
+    steps.forEach(s => {
+      const id = s.id;
+      const done = !!s.done;
+      const reco = !done && id === next;
+      const [t1, t2] = labelFor(id);
+
+      const row = document.createElement("div");
+      row.className = "onbStep" + (done ? " done" : "") + (reco ? " reco" : "");
+      row.innerHTML = `
+        <div class="sicon">${iconFor(done, reco)}</div>
+        <div class="stext">
+          <div class="st1">${t1}</div>
+          <div class="st2">${t2}</div>
+        </div>
+      `;
+      row.addEventListener("click", ()=>{ togglePanel(true); goToStep(id); highlightTarget(id); }, {passive:true});
+      stepsDiv.appendChild(row);
+    });
+
+    // Keep the recommended step highlighted even when panel is closed
+    if(next) highlightTarget(next);
+
+    // If the user clicks the FAB, open/close panel
+    fab.onclick = ()=>{
+      const isOpen = ensurePanel().classList.contains("show");
+      togglePanel(!isOpen);
+    };
+
+    // Close/min buttons
+    const close = $("onbCloseBtn");
+    if(close) close.onclick = ()=> togglePanel(false);
+    const min = $("onbMinBtn");
+    if(min) min.onclick = ()=> toggleMin();
+  }
+
+  function initDrag(){
+    const panel = ensurePanel();
+    const head = $("onboardHead");
+    if(!panel || !head) return;
+
+    let dragging = false;
+    let startX=0, startY=0, startLeft=0, startTop=0;
+
+    function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+    head.addEventListener("pointerdown", (e)=>{
+      const t = e.target;
+      if(t && (t.id === "onbMinBtn" || t.id === "onbCloseBtn")) return;
+      dragging = true;
+      head.setPointerCapture(e.pointerId);
+      const r = panel.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startLeft = r.left; startTop = r.top;
+      setPanelPos(panel, r.left, r.top);
+    });
+
+    head.addEventListener("pointermove", (e)=>{
+      if(!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      const r = panel.getBoundingClientRect();
+      const nextLeft = startLeft + dx;
+      const nextTop = startTop + dy;
+
+      const maxLeft = window.innerWidth - r.width - 8;
+      const maxTop = window.innerHeight - r.height - 8;
+
+      panel.style.left = clamp(nextLeft, 8, Math.max(8, maxLeft)) + "px";
+      panel.style.top = clamp(nextTop, 8, Math.max(8, maxTop)) + "px";
+    });
+
+    function endDrag(pid){
+      if(!dragging) return;
+      dragging = false;
+      try{ head.releasePointerCapture(pid); }catch(_){}
+      savePanel(panel);
+    }
+    head.addEventListener("pointerup", (e)=> endDrag(e.pointerId));
+    head.addEventListener("pointercancel", (e)=> endDrag(e.pointerId));
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    // Ensure the panel exists (but do not show)
+    ensurePanel();
+    initDrag();
+
+    // restore open state
+    const open = safeGet(LS_PANEL) === "1";
+    if(open) togglePanel(true);
+
+    // refresh now + after key UI events
+    refreshOnboarding();
+    setInterval(refreshOnboarding, 12000);
+
+    // after Settings save, refresh onboarding quickly (best-effort hook)
+    window.afterSettingsSaved = (function(prev){
+      return async function(){
+        try{ if(typeof prev === "function") await prev(); }catch(e){}
+        try{ await refreshOnboarding(); }catch(e){}
+      };
+    })(window.afterSettingsSaved);
+
+    // after "Install full team", refresh (hook by wrapping click handler if present)
+    const b = $("installFullBtn");
+    if(b){
+      b.addEventListener("click", ()=>{ setTimeout(refreshOnboarding, 1400); }, true);
+    }
+  });
+})();
+</script>
 
 </body>
 </html>
