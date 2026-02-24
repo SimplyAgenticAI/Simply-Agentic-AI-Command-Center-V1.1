@@ -34,7 +34,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V2.2.2")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -9632,8 +9632,6 @@ def api_passes_run():
             "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
             "For each: Failure mode, early warning signal, prevention, recovery step. "
             "Prioritize the most likely failures first."
-        ),
-and the fastest validation test."
         ),
         "constraints": (
             "CONSTRAINT SCAN. Identify constraints and dependencies. "
