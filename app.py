@@ -10173,3 +10173,27 @@ ADD_UI_POLISH_V8 = r'''
 </script>
 '''
 
+
+
+
+# =========================
+# OAUTH STATE STORE (additive safety)
+# =========================
+OAUTH_STATE_STORE = DATA / "oauth_states.json"
+
+def _load_oauth_states():
+    return load_json(OAUTH_STATE_STORE, {})
+
+def _save_oauth_states(data):
+    save_json(OAUTH_STATE_STORE, data)
+
+def _store_oauth_state(state, username):
+    data = _load_oauth_states()
+    data[state] = {"username": username, "at": now_iso()}
+    _save_oauth_states(data)
+
+def _consume_oauth_state(state):
+    data = _load_oauth_states()
+    rec = data.pop(state, None)
+    _save_oauth_states(data)
+    return rec
