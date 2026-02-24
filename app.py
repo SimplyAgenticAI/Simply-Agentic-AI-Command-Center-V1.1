@@ -2559,6 +2559,46 @@ def api_install_core():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+@app.route("/api/install/selected", methods=["POST"])
+def api_install_selected():
+    username = _get_session_username()
+    if not username:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    names = payload.get("names") or []
+    if not isinstance(names, list):
+        return jsonify({"ok": False, "error": "Invalid names"}), 400
+    # Validate against available locked teammates
+    allowed = set(PREBUILT_LOCKED.keys())
+    names = [n for n in names if isinstance(n, str) and n in allowed]
+    if not names:
+        return jsonify({"ok": False, "error": "No valid teammates selected"}), 400
+    try:
+        reg = load_registry()
+        installed = reg.get("installed") or {}
+        order = reg.get("installed_order") or []
+
+        for name in names:
+            installed[name] = PREBUILT_LOCKED[name]
+            if name not in order:
+                order.append(name)
+
+        reg["installed"] = installed
+        reg["installed_order"] = order
+
+        active = reg.get("active_order") or []
+        for name in order:
+            if name not in active:
+                active.append(name)
+        reg["active_order"] = active
+
+        save_registry(reg)
+        append_log("selected_teammates_installed", {"user": username, "names": names, "at": now_iso()})
+        return jsonify({"ok": True, "installed": list(installed.keys()), "selected": names})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.post("/api/active_order")
 def api_set_active_order():
     data = request.get_json(force=True) or {}
@@ -5408,6 +5448,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <div class="actions">
                   <button class="btn" id="cancelSettings">Cancel</button>
+                  <button class="btn" id="installFullTeamAdvancedBtn" title="Advanced: enable all teammates">Enable full team</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                 </div>
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
@@ -7770,17 +7811,63 @@ function makeSeat(defn, idx){
 
     $("sendFollow").onclick = sendFollow;
 
-    $("installFullBtn").onclick = async () => {
-      const res = await fetch("/api/install/core", {method:"POST"});
-      const data = await res.json();
-      if(!data.ok){
-        showModal("Error", data.error || "Install failed");
-        return;
-      }
-      await loadState();
-      showModal("Installed", "Full team installed.");
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-    };
+    
+$("installFullBtn").onclick = async () => {
+  // Less overwhelming onboarding: let users choose, with recommended defaults preselected.
+  const all = ["Alex","Sunshine","Willow","Ava","Orion","Luna","Atlis"];
+  const recommended = ["Alex","Sunshine","Willow"];
+
+  const rows = all.map(n => {
+    const checked = recommended.includes(n) ? "checked" : "";
+    const badge = recommended.includes(n) ? '<span class="pill" style="margin-left:8px; border:1px solid rgba(180,120,255,.55); padding:2px 8px; border-radius:999px; font-size:12px; color:#d9c3ff;">Recommended</span>' : "";
+    return `<label style="display:flex; align-items:center; gap:10px; padding:6px 0;">
+      <input type="checkbox" class="tmPick" value="${n}" ${checked} />
+      <span style="font-weight:600;">${n}</span>${badge}
+    </label>`;
+  }).join("");
+
+  const html = `
+    <div class="tiny" style="margin-bottom:10px;">Start small. You can add more anytime.</div>
+    <div style="max-height:260px; overflow:auto; padding-right:6px;">${rows}</div>
+    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+      <button class="btn btnPrimary" id="enableSelectedBtn">Enable selected</button>
+      <button class="btn" id="enableRecommendedBtn">Enable recommended 3</button>
+      <button class="btn" id="enableFullBtn">Enable full team</button>
+    </div>
+  `;
+  showModal("Enable teammates", html);
+
+  const getSelected = () => Array.from(document.querySelectorAll(".tmPick")).filter(x=>x.checked).map(x=>x.value);
+
+  $("enableSelectedBtn").onclick = async () => {
+    const names = getSelected();
+    const r = await fetch("/api/install/selected", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({names})});
+    const d = await r.json();
+    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
+    await loadState();
+    showModal("Enabled", `Enabled: ${d.selected.join(", ")}`);
+    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+  };
+
+  $("enableRecommendedBtn").onclick = async () => {
+    const r = await fetch("/api/install/core", {method:"POST"});
+    const d = await r.json();
+    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
+    await loadState();
+    showModal("Enabled", "Recommended teammates enabled.");
+    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+  };
+
+  $("enableFullBtn").onclick = async () => {
+    const r = await fetch("/api/install/full", {method:"POST"});
+    const d = await r.json();
+    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
+    await loadState();
+    showModal("Enabled", "Full team enabled.");
+    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+  };
+};
+
 
     $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
@@ -9507,7 +9594,7 @@ function applyRTTransformV4(){
         try{
           const r = await fetch("/api/install/core", {method:"POST"});
           const d = await r.json();
-          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
+          if(d && d.ok){ if(typeof showToast === "function") showToast("Enabled teammates"); }
           else{ if(typeof showToast === "function") showToast("Install failed"); }
         }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
         setTimeout(fetchOnboarding, 300);
