@@ -4137,6 +4137,10 @@ HTML = r"""
     .modal.minimized .modalBodyWrap{ display:none; }
 
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
+    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+    .passRow .tiny{ margin-left: 2px; }
+    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
     .pill{
       display:inline-flex;
       gap:8px;
@@ -5112,6 +5116,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
 
+            <div class="passRow" id="groupPassRow">
+              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
+              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
+              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+            </div>
+
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
               <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
@@ -5153,6 +5167,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+        </div>
+
+        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
+          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
         <div class="thread" id="thread"></div>
@@ -5268,6 +5292,7 @@ id="diagOverlay"></div>
     let selectedSeat = "";
     let seatStatus = {};
     let lastGroupOutputs = {};
+    let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
 
     let groupFileIds = [];
@@ -5348,17 +5373,38 @@ id="diagOverlay"></div>
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
+
       if(savedSize){
         win.style.width = Math.max(360, savedSize.width) + "px";
         win.style.height = Math.max(260, savedSize.height) + "px";
       }
+
+      // If we have a saved position, clamp it so the modal never renders off-screen.
       if(saved){
         win.style.transform = "none";
-        win.style.left = saved.left + "px";
-        win.style.top = saved.top + "px";
+
+        // Use current rendered size (after applying savedSize above) to clamp.
+        const mw = Math.max(360, win.offsetWidth || 520);
+        const mh = Math.max(260, win.offsetHeight || 420);
+
+        const margin = 12;
+        const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
+        const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
+
+        const left = Math.min(Math.max(saved.left, margin), maxLeft);
+        const top  = Math.min(Math.max(saved.top, margin), maxTop);
+
+        win.style.left = left + "px";
+        win.style.top  = top + "px";
+
+        // If the saved position was out-of-bounds, persist the corrected one.
+        if(left !== saved.left || top !== saved.top){
+          saveModalPos(left, top);
+        }
         return;
       }
 
+      // Default centered position
       win.style.left = "50%";
       win.style.top = "80px";
       win.style.transform = "translateX(-50%)";
@@ -6514,6 +6560,7 @@ function makeSeat(defn, idx){
     }
 
     function renderThread(msgs){
+      lastSeatAssistantText = "";
       const box = $("thread");
       box.innerHTML = "";
       if(!msgs || msgs.length === 0){
@@ -6531,6 +6578,7 @@ function makeSeat(defn, idx){
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
         content.innerText = m.content;
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -7411,6 +7459,66 @@ function makeSeat(defn, idx){
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
+
+    // -----------------------------
+    // v9: Tactical Passes (stateless one-click analyses)
+    // -----------------------------
+    function _combineGroupOutputs(){
+      const keys = Object.keys(lastGroupOutputs || {});
+      if(keys.length === 0) return "";
+      return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
+    }
+
+    async function runTacticalPass(pass, ctx){
+      const context = (ctx || "seat");
+      const seat = (context === "group") ? "Group" : (selectedSeat || "");
+      const text = (context === "group") ? _combineGroupOutputs() : (lastSeatAssistantText || "");
+      if(!text.trim()){
+        showModal("Nothing to analyze", (context === "group")
+          ? "Run a Group prompt first so there are replies to analyze."
+          : "Send a message to a teammate first so there is an assistant reply to analyze."
+        );
+        return;
+      }
+
+      showModal("Running " + pass + "...", "Thinking...");
+      try{
+        const res = await fetch("/api/passes/run", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({pass, text, seat})
+        });
+        const data = await res.json();
+        if(!data.ok){
+          showModal("Error", data.error || "Pass failed");
+          return;
+        }
+        const title = pass.toUpperCase() + " PASS" + (seat ? (" | " + seat) : "");
+        showModal(title, data.result || "");
+      }catch(e){
+        showModal("Error", String(e || "Pass failed"));
+      }
+    }
+
+    // Wire seat buttons
+    try{
+      $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
+      $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
+      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
+    }catch(_){}
+
+    // Wire group buttons
+    try{
+      $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
+      $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
+      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
+    }catch(_){}
 
     $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
@@ -8953,6 +9061,90 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
+
+
+
+
+@app.route("/api/passes/run", methods=["POST"])
+def api_passes_run():
+    username = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    pass_name = (payload.get("pass") or "").strip().lower()
+    seat = (payload.get("seat") or "").strip()
+    text_in = payload.get("text") or ""
+    if not isinstance(text_in, str):
+        text_in = str(text_in)
+
+    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
+    if pass_name not in allowed:
+        return jsonify({"ok": False, "error": "Unknown pass"}), 400
+
+    # Guardrails: keep request size reasonable
+    if len(text_in.encode("utf-8", errors="ignore")) > 200_000:
+        # Trim from the front so we keep the most recent parts
+        text_in = text_in[-180_000:]
+
+    profile = _load_operator_profile(username)
+    operator_ctx = (
+        f"Operator display name: {(profile.get('display_name') or 'Operator').strip()}\n"
+        f"Business: {(profile.get('business') or '').strip()}\n"
+        f"Offers: {(profile.get('offers') or '').strip()}\n"
+        f"Audience: {(profile.get('audience') or '').strip()}\n"
+        f"Goals: {(profile.get('goals') or '').strip()}\n"
+        f"Constraints: {(profile.get('constraints') or '').strip()}\n"
+        f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
+    ).strip()
+
+    base_system = (
+        "You are a tactical analysis engine inside an agentic command center. "
+        "You run fast, practical analysis passes on the provided text. "
+        "Be concrete and operator-ready. No fluff. "
+        "Do not invent facts. If something is unknown, say so plainly. "
+        "Use short headings and bullets. Avoid long preambles. "
+        "Do not use em dashes."
+    )
+
+    pass_instructions = {
+        "risk": (
+            "RISK ASSESSMENT. Identify the top risks in executing the plan or advice in the text. "
+            "Include: Risk level (Low, Medium, High), risk categories, and mitigations. "
+            "End with Stop conditions: 2 to 4 conditions where the operator should pause before proceeding."
+        ),
+        "scale": (
+            "SCALABILITY RANKING. Score scalability from 1 to 10. "
+            "Name the primary bottleneck and the first thing that breaks when volume doubles. "
+            "Give 3 scale levers that reduce operator time or increase throughput."
+        ),
+        "failure": (
+            "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
+            "For each: Failure mode, early warning signal, prevention, recovery step. "
+            "Prioritize the most likely failures first."
+        ),
+        "assumptions": (
+            "ASSUMPTION SCAN. List key assumptions implied by the text. "
+            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
+        ),
+        "constraints": (
+            "CONSTRAINT SCAN. Identify constraints and dependencies. "
+            "Classify each as People, Time, Tools, Data, Policy, or Market. "
+            "For each: why it is a constraint and one practical workaround."
+        ),
+        "optimize": (
+            "OPTIMIZATION PASS. Rewrite the plan or output into a clearer, higher leverage version. "
+            "Preserve intent. Reduce steps. Remove redundancy. "
+            "End with: Next 3 actions the operator should take."
+        ),
+    }
+
+    system = base_system + "\n\n" + "Operator context:\n" + operator_ctx + "\n\n" + pass_instructions[pass_name]
+    user_msg = f"Seat: {seat or 'N/A'}\n\nTEXT TO ANALYZE:\n{text_in}"
+
+    try:
+        result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        code, msg = _map_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
 
 
 def _load_operator_profile(username: str) -> Dict[str, Any]:
