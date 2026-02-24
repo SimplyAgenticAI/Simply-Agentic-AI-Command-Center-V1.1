@@ -5332,9 +5332,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
-              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure Simulator</button>
+<button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5385,9 +5384,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
-          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure Simulator</button>
+<button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7722,8 +7720,7 @@ function makeSeat(defn, idx){
       $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
       $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
       $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
-      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+$("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
     }catch(_){}
 
@@ -7732,8 +7729,7 @@ function makeSeat(defn, idx){
       $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
       $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
       $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
-      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+$("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
     }catch(_){}
 
@@ -9592,7 +9588,7 @@ def api_passes_run():
     if not isinstance(text_in, str):
         text_in = str(text_in)
 
-    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
+    allowed = {"risk", "scale", "failure", "constraints", "optimize"}
     if pass_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown pass"}), 400
 
@@ -9637,9 +9633,7 @@ def api_passes_run():
             "For each: Failure mode, early warning signal, prevention, recovery step. "
             "Prioritize the most likely failures first."
         ),
-        "assumptions": (
-            "ASSUMPTION SCAN. List key assumptions implied by the text. "
-            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
+and the fastest validation test."
         ),
         "constraints": (
             "CONSTRAINT SCAN. Identify constraints and dependencies. "
@@ -10174,26 +10168,3 @@ ADD_UI_POLISH_V8 = r'''
 '''
 
 
-
-
-# =========================
-# OAUTH STATE STORE (additive safety)
-# =========================
-OAUTH_STATE_STORE = DATA / "oauth_states.json"
-
-def _load_oauth_states():
-    return load_json(OAUTH_STATE_STORE, {})
-
-def _save_oauth_states(data):
-    save_json(OAUTH_STATE_STORE, data)
-
-def _store_oauth_state(state, username):
-    data = _load_oauth_states()
-    data[state] = {"username": username, "at": now_iso()}
-    _save_oauth_states(data)
-
-def _consume_oauth_state(state):
-    data = _load_oauth_states()
-    rec = data.pop(state, None)
-    _save_oauth_states(data)
-    return rec
