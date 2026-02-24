@@ -535,9 +535,10 @@ ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "openai_key", "title": "Add OpenAI key"},
     {"key": "operator_profile", "title": "Fill out Operator Profile"},
-    {"key": "full_team", "title": "Install full team"},
+    {"key": "full_team", "title": "Enable teammates"},
     {"key": "first_prompt", "title": "Send first prompt"},
     {"key": "gmail_connected", "title": "Connect Gmail"},
+    {"key": "email_connected", "title": "Connect Email"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -606,7 +607,7 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     except Exception:
         pass
 
-    # Step 3: Full team installed
+    # Step 3: Core teammates enabled
     try:
         reg = load_registry()
         installed = reg.get("installed") or {}
@@ -627,6 +628,15 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
             _mark_onboarding_step(username, "gmail_connected", True)
     except Exception:
         pass
+
+    # Step 6: Email connected (SMTP)
+    try:
+        smtp_ok, _reason = smtp_ready_for_user(u)
+        if smtp_ok:
+            _mark_onboarding_step(username, "email_connected", True)
+    except Exception:
+        pass
+
 
     return _load_onboarding(username)
 
@@ -1315,6 +1325,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
+CORE_TEAM = ["Alex", "Sunshine", "Willow"]
 
 
 # =========================
@@ -1374,7 +1385,31 @@ def install_full_team() -> Dict[str, Any]:
     installed = reg["installed"]
     order = reg["installed_order"]
 
-    for name in DEFAULT_ORDER:
+    for name in CORE_TEAM:
+        installed[name] = PREBUILT_LOCKED[name]
+        if name not in order:
+            order.append(name)
+
+    reg["installed"] = installed
+    reg["installed_order"] = order
+
+    active = reg.get("active_order") or []
+    for name in order:
+        if name not in active:
+            active.append(name)
+    reg["active_order"] = active
+
+    save_registry(reg)
+    return reg
+
+
+def install_core_team() -> Dict[str, Any]:
+    """Install the recommended starter teammates (less overwhelming for new users)."""
+    reg = load_registry()
+    installed = reg["installed"]
+    order = reg["installed_order"]
+
+    for name in CORE_TEAM:
         installed[name] = PREBUILT_LOCKED[name]
         if name not in order:
             order.append(name)
@@ -2511,6 +2546,19 @@ def api_install_full():
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
 
 
+
+@app.route("/api/install/core", methods=["GET", "POST"])
+def api_install_core():
+    username = _get_session_username()
+    if not username:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    try:
+        reg = install_core_team()
+        append_log("core_team_installed", {"user": username, "at": now_iso()})
+        return jsonify({"ok": True, "installed": list(reg.get("installed", {}).keys())})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.post("/api/active_order")
 def api_set_active_order():
     data = request.get_json(force=True) or {}
@@ -2942,6 +2990,58 @@ def api_send_email():
 
 
 # =========================
+# OAUTH STATE STORE (additive safety)
+# =========================
+OAUTH_STATE_STORE = DATA / "oauth_states.json"
+
+def _load_oauth_states() -> Dict[str, Any]:
+    data = load_json(OAUTH_STATE_STORE, {})
+    return data if isinstance(data, dict) else {}
+
+def _save_oauth_states(data: Dict[str, Any]) -> None:
+    try:
+        save_json(OAUTH_STATE_STORE, data or {})
+    except Exception:
+        pass
+
+def _store_oauth_state(state: str, username: str, provider: str) -> None:
+    if not state:
+        return
+    data = _load_oauth_states()
+    data[state] = {"username": username or "", "provider": provider or "", "at": now_iso()}
+    _save_oauth_states(data)
+
+def _peek_oauth_state(state: str) -> Optional[Dict[str, Any]]:
+    try:
+        data = _load_oauth_states()
+        return data.get(state) if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+def _consume_oauth_state(state: str) -> Optional[Dict[str, Any]]:
+    data = _load_oauth_states()
+    rec = data.pop(state, None)
+    _save_oauth_states(data)
+    return rec
+
+def _oauth_validate_state(state: str, expected: str, provider: str) -> Tuple[bool, Optional[str]]:
+    """Validate OAuth state. Session-first; fallback to file store if cookies were lost."""
+    if state and expected and state == expected:
+        try:
+            _consume_oauth_state(state)
+        except Exception:
+            pass
+        return True, None
+    try:
+        rec = _consume_oauth_state(state)
+    except Exception:
+        rec = None
+    if rec and rec.get("provider") == provider:
+        return True, (rec.get("username") or None)
+    return False, None
+
+
+# =========================
 # GMAIL OAUTH ROUTES (Option C)
 # =========================
 
@@ -2981,6 +3081,12 @@ def gmail_connect():
 @app.get("/gmail/callback")
 def gmail_callback():
     u = current_user()
+    if not u:
+        tmp_state = request.args.get("state", "")
+        rec = _peek_oauth_state(tmp_state)
+        if rec and rec.get("provider") == "gmail" and rec.get("username"):
+            session["user"] = rec.get("username")
+            u = current_user()
     if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
@@ -3060,6 +3166,12 @@ def calendar_connect():
 @app.get("/calendar/callback")
 def calendar_callback():
     u = current_user()
+    if not u:
+        tmp_state = request.args.get("state", "")
+        rec = _peek_oauth_state(tmp_state)
+        if rec and rec.get("provider") == "calendar" and rec.get("username"):
+            session["user"] = rec.get("username")
+            u = current_user()
     if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
@@ -4985,7 +5097,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="frameworkBtn">Core framework</button>
       <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
       <button class="btn" id="createTeamBtn">Create teammate</button>
-      <button class="btn" id="installFullBtn">Install full team</button>
+      <button class="btn" id="installFullBtn">Enable teammates</button>
       <button class="btn" id="settingsBtn">Settings</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
@@ -5332,9 +5444,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
-              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure Simulator</button>
+<button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5385,9 +5496,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
-          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure Simulator</button>
+<button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7661,7 +7771,7 @@ function makeSeat(defn, idx){
     $("sendFollow").onclick = sendFollow;
 
     $("installFullBtn").onclick = async () => {
-      const res = await fetch("/api/install/full", {method:"POST"});
+      const res = await fetch("/api/install/core", {method:"POST"});
       const data = await res.json();
       if(!data.ok){
         showModal("Error", data.error || "Install failed");
@@ -7722,8 +7832,7 @@ function makeSeat(defn, idx){
       $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
       $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
       $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
-      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+$("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
     }catch(_){}
 
@@ -7732,8 +7841,7 @@ function makeSeat(defn, idx){
       $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
       $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
       $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
-      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+$("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
     }catch(_){}
 
@@ -9381,6 +9489,12 @@ function applyRTTransformV4(){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
         setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
         return;
+      if(key === "email_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{ try{ const el = document.getElementById("smtpHost") || document.getElementById("smtpUser"); if(el) el.focus(); }catch(e){} }, 250);
+        return;
+      }
+
       }
 
       if(key === "operator_profile"){
@@ -9391,7 +9505,7 @@ function applyRTTransformV4(){
 
       if(key === "full_team"){
         try{
-          const r = await fetch("/api/install/full", {method:"POST"});
+          const r = await fetch("/api/install/core", {method:"POST"});
           const d = await r.json();
           if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
           else{ if(typeof showToast === "function") showToast("Install failed"); }
@@ -9592,7 +9706,7 @@ def api_passes_run():
     if not isinstance(text_in, str):
         text_in = str(text_in)
 
-    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
+    allowed = {"risk", "scale", "failure", "constraints", "optimize"}
     if pass_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown pass"}), 400
 
@@ -9636,10 +9750,6 @@ def api_passes_run():
             "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
             "For each: Failure mode, early warning signal, prevention, recovery step. "
             "Prioritize the most likely failures first."
-        ),
-        "assumptions": (
-            "ASSUMPTION SCAN. List key assumptions implied by the text. "
-            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
         ),
         "constraints": (
             "CONSTRAINT SCAN. Identify constraints and dependencies. "
@@ -10173,28 +10283,4 @@ ADD_UI_POLISH_V8 = r'''
 </script>
 '''
 
-
-
-
-# =========================
-# OAUTH STATE STORE (additive safety)
-# =========================
-OAUTH_STATE_STORE = DATA / "oauth_states.json"
-
-def _load_oauth_states():
-    return load_json(OAUTH_STATE_STORE, {})
-
-def _save_oauth_states(data):
-    save_json(OAUTH_STATE_STORE, data)
-
-def _store_oauth_state(state, username):
-    data = _load_oauth_states()
-    data[state] = {"username": username, "at": now_iso()}
-    _save_oauth_states(data)
-
-def _consume_oauth_state(state):
-    data = _load_oauth_states()
-    rec = data.pop(state, None)
-    _save_oauth_states(data)
-    return rec
 
