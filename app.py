@@ -6873,6 +6873,7 @@ function makeSeat(defn, idx){
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
+          try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -7596,6 +7597,7 @@ function makeSeat(defn, idx){
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
@@ -7646,6 +7648,7 @@ function makeSeat(defn, idx){
       setOpStatus("Complete");
       $("followMsg").value = "";
       await refreshThread();
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
@@ -7666,6 +7669,7 @@ function makeSeat(defn, idx){
       }
       await loadState();
       showModal("Installed", "Full team installed.");
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
     $("clearGroup").onclick = () => {
@@ -8187,6 +8191,7 @@ function makeSeat(defn, idx){
     async function afterSettingsSaved(){
       try{ await loadState(); }catch(e){}
       try{ await runFirstRunGuidance(); }catch(e){}
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     }
 
     // Clicking outside bubble clears it
@@ -9171,7 +9176,7 @@ function applyRTTransformV4(){
 
 
 <!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); display:none;">
+<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); min-width:260px; min-height:220px; resize:both; overflow:auto; display:none;">
   <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden;">
     <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
       <div style="display:flex; gap:10px; align-items:center;">
@@ -9182,6 +9187,7 @@ function applyRTTransformV4(){
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
+        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
         <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
       </div>
     </div>
@@ -9252,6 +9258,13 @@ function applyRTTransformV4(){
     }catch(e){}
   }
 
+  function closeOnboarding(){
+    const panel = onb$("onboardingPanel");
+    if(panel) panel.style.display = "none";
+    // Do not dismiss. User can reopen via "Next step" button.
+  }
+
+
   function wireOnboardingButtons(){
     try{
       const topBtn = document.getElementById("onboardingBtn");
@@ -9286,6 +9299,7 @@ function applyRTTransformV4(){
       onbData = data;
       renderOnboarding();
       syncOnboardingButtons();
+      try{ window.onboardingStatus = onbData; }catch(_){ }
     }catch(e){}
   }
 
@@ -9412,6 +9426,9 @@ function applyRTTransformV4(){
     if(!header || !panel) return;
 
     header.addEventListener("pointerdown", (e)=>{
+      try{
+        if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
+      }catch(_){ }
       drag.active = true;
       header.style.cursor = "grabbing";
       const rect = panel.getBoundingClientRect();
@@ -9434,12 +9451,20 @@ function applyRTTransformV4(){
 
   function wireHide(){
     const btn = onb$("onbHide");
-    if(btn) btn.addEventListener("click", dismissOnboarding);
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
+  }
+
+  function wireExit(){
+    const btn = onb$("onbExit");
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
   }
 
   try{
+    try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
+
     wireDrag();
     wireHide();
+    wireExit();
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
     setInterval(fetchOnboarding, 12000);
