@@ -524,156 +524,6 @@ ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
 OPERATOR_PROFILE_DIR = DATA / "operator_profile"
 
-
-
-# =========================
-# GUIDED ONBOARDING (additive)
-# =========================
-ONBOARDING_DIR = DATA / "onboarding"
-ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
-
-ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "openai_key", "title": "Add OpenAI key"},
-    {"key": "operator_profile", "title": "Fill out Operator Profile"},
-    {"key": "full_team", "title": "Enable teammates"},
-    {"key": "first_prompt", "title": "Send first prompt"},
-    {"key": "gmail_connected", "title": "Connect Gmail"},
-    {"key": "email_connected", "title": "Connect Email"},
-]
-
-def _onboarding_path_for_user(username: str) -> Path:
-    u = _safe_name(username or "anon")
-    d = ONBOARDING_DIR / u
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "state.json"
-
-def _load_onboarding(username: str) -> Dict[str, Any]:
-    path = _onboarding_path_for_user(username)
-    data = load_json(path, {})
-    if not isinstance(data, dict):
-        data = {}
-    data.setdefault("dismissed", False)
-    data.setdefault("steps", {})
-    if not isinstance(data.get("steps"), dict):
-        data["steps"] = {}
-    for s in ONBOARDING_STEPS:
-        data["steps"].setdefault(s["key"], {"done": False, "at": None})
-    return data
-
-def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
-    path = _onboarding_path_for_user(username)
-    data = data or {}
-    data["updated_at"] = now_iso()
-    save_json(path, data)
-
-def _mark_onboarding_step(username: str, key: str, done: bool = True) -> None:
-    try:
-        st = _load_onboarding(username)
-        st.setdefault("steps", {})
-        st["steps"].setdefault(key, {"done": False, "at": None})
-        st["steps"][key]["done"] = bool(done)
-        if done:
-            st["steps"][key]["at"] = now_iso()
-        _save_onboarding(username, st)
-    except Exception:
-        pass
-
-def _dismiss_onboarding(username: str, dismissed: bool = True) -> None:
-    try:
-        st = _load_onboarding(username)
-        st["dismissed"] = bool(dismissed)
-        _save_onboarding(username, st)
-    except Exception:
-        pass
-
-def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    _ = _load_onboarding(username)
-
-    # Step 1: OpenAI key
-    try:
-        key = (((u or {}).get("settings") or {}).get("openai_key") or "").strip()
-        if key:
-            _mark_onboarding_step(username, "openai_key", True)
-    except Exception:
-        pass
-
-    # Step 2: Operator profile
-    try:
-        op = _load_operator_profile(username) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
-        if any(((op.get(k) or "").strip() for k in meaningful)):
-            _mark_onboarding_step(username, "operator_profile", True)
-    except Exception:
-        pass
-
-    # Step 3: Core teammates enabled
-    try:
-        reg = load_registry()
-        installed = reg.get("installed") or {}
-        if isinstance(installed, dict):
-            all_present = True
-            for n in DEFAULT_ORDER:
-                if n not in installed:
-                    all_present = False
-                    break
-            if all_present:
-                _mark_onboarding_step(username, "full_team", True)
-    except Exception:
-        pass
-
-    # Step 5: Gmail connected
-    try:
-        if _user_gmail_oauth(u):
-            _mark_onboarding_step(username, "gmail_connected", True)
-    except Exception:
-        pass
-
-    # Step 6: Email connected (SMTP)
-    try:
-        smtp_ok, _reason = smtp_ready_for_user(u)
-        if smtp_ok:
-            _mark_onboarding_step(username, "email_connected", True)
-    except Exception:
-        pass
-
-
-    return _load_onboarding(username)
-
-def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    st = _reconcile_onboarding_from_truth(u)
-    steps = st.get("steps") or {}
-
-    out_steps: List[Dict[str, Any]] = []
-    done_count = 0
-    for s in ONBOARDING_STEPS:
-        k = s["key"]
-        done = bool((steps.get(k) or {}).get("done"))
-        if done:
-            done_count += 1
-        out_steps.append({"key": k, "title": s["title"], "done": done})
-
-    next_key = ""
-    for s in out_steps:
-        if not s["done"]:
-            next_key = s["key"]
-            break
-
-    all_done = done_count == len(ONBOARDING_STEPS)
-    pct = int(round((done_count / max(1, len(ONBOARDING_STEPS))) * 100))
-
-    return {
-        "ok": True,
-        "dismissed": bool(st.get("dismissed")),
-        "steps": out_steps,
-        "done_count": done_count,
-        "total": len(ONBOARDING_STEPS),
-        "progress_pct": pct,
-        "next_key": next_key,
-        "all_done": all_done,
-        "username": username,
-    }
 ACTION_STACK_SCHEDULES_DIR = DATA / "action_stack_schedules"
 
 ACTION_STACKS_DIR.mkdir(exist_ok=True)
@@ -1325,9 +1175,10 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
+
+
+
 CORE_TEAM = ["Alex", "Sunshine", "Willow"]
-
-
 # =========================
 # REGISTRY + THREADS
 # =========================
@@ -1385,7 +1236,7 @@ def install_full_team() -> Dict[str, Any]:
     installed = reg["installed"]
     order = reg["installed_order"]
 
-    for name in CORE_TEAM:
+    for name in DEFAULT_ORDER:
         installed[name] = PREBUILT_LOCKED[name]
         if name not in order:
             order.append(name)
@@ -1404,10 +1255,10 @@ def install_full_team() -> Dict[str, Any]:
 
 
 def install_core_team() -> Dict[str, Any]:
-    """Install the recommended starter teammates (less overwhelming for new users)."""
+    """Install the recommended starter teammates (Alex, Sunshine, Willow)."""
     reg = load_registry()
-    installed = reg["installed"]
-    order = reg["installed_order"]
+    installed = reg.get("installed") or {}
+    order = reg.get("installed_order") or []
 
     for name in CORE_TEAM:
         installed[name] = PREBUILT_LOCKED[name]
@@ -2396,27 +2247,6 @@ def api_me():
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
 
-
-@app.get("/api/onboarding/status")
-def api_onboarding_status():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    return jsonify(_onboarding_status_payload(u))
-
-@app.post("/api/onboarding/dismiss")
-def api_onboarding_dismiss():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    data = request.get_json(silent=True) or {}
-    dismissed = bool(data.get("dismissed", True))
-    _dismiss_onboarding(username, dismissed)
-    return jsonify({"ok": True, "dismissed": dismissed})
-
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
@@ -2465,16 +2295,6 @@ def api_set_user_settings():
         u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
-    except Exception:
-        pass
-
 
     data = request.get_json(force=True) or {}
     openai_key_in = (data.get("openai_key") or "")
@@ -2535,69 +2355,13 @@ def api_set_framework():
 @app.post("/api/install/full")
 def api_install_full():
     reg = install_full_team()
-    # onboarding_full_team: mark Full Team step after successful install
-    try:
-        uname = _get_session_username()
-        _mark_onboarding_step(uname, "full_team", True)
-    except Exception:
-        pass
-
-
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
 
-
-
-@app.route("/api/install/core", methods=["GET", "POST"])
+@app.post("/api/install/core")
 def api_install_core():
-    username = _get_session_username()
-    if not username:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        reg = install_core_team()
-        append_log("core_team_installed", {"user": username, "at": now_iso()})
-        return jsonify({"ok": True, "installed": list(reg.get("installed", {}).keys())})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    reg = install_core_team()
+    return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
 
-
-@app.route("/api/install/selected", methods=["POST"])
-def api_install_selected():
-    username = _get_session_username()
-    if not username:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    names = payload.get("names") or []
-    if not isinstance(names, list):
-        return jsonify({"ok": False, "error": "Invalid names"}), 400
-    # Validate against available locked teammates
-    allowed = set(PREBUILT_LOCKED.keys())
-    names = [n for n in names if isinstance(n, str) and n in allowed]
-    if not names:
-        return jsonify({"ok": False, "error": "No valid teammates selected"}), 400
-    try:
-        reg = load_registry()
-        installed = reg.get("installed") or {}
-        order = reg.get("installed_order") or []
-
-        for name in names:
-            installed[name] = PREBUILT_LOCKED[name]
-            if name not in order:
-                order.append(name)
-
-        reg["installed"] = installed
-        reg["installed_order"] = order
-
-        active = reg.get("active_order") or []
-        for name in order:
-            if name not in active:
-                active.append(name)
-        reg["active_order"] = active
-
-        save_registry(reg)
-        append_log("selected_teammates_installed", {"user": username, "names": names, "at": now_iso()})
-        return jsonify({"ok": True, "installed": list(installed.keys()), "selected": names})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.post("/api/active_order")
 def api_set_active_order():
@@ -2916,14 +2680,6 @@ def api_followup():
         teammate=name,
         status="success"
     )
-    # onboarding_first_prompt: mark after the first successful prompt is sent
-    try:
-        uname = _get_session_username()
-        _mark_onboarding_step(uname, "first_prompt", True)
-    except Exception:
-        pass
-
-
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
@@ -3030,58 +2786,6 @@ def api_send_email():
 
 
 # =========================
-# OAUTH STATE STORE (additive safety)
-# =========================
-OAUTH_STATE_STORE = DATA / "oauth_states.json"
-
-def _load_oauth_states() -> Dict[str, Any]:
-    data = load_json(OAUTH_STATE_STORE, {})
-    return data if isinstance(data, dict) else {}
-
-def _save_oauth_states(data: Dict[str, Any]) -> None:
-    try:
-        save_json(OAUTH_STATE_STORE, data or {})
-    except Exception:
-        pass
-
-def _store_oauth_state(state: str, username: str, provider: str) -> None:
-    if not state:
-        return
-    data = _load_oauth_states()
-    data[state] = {"username": username or "", "provider": provider or "", "at": now_iso()}
-    _save_oauth_states(data)
-
-def _peek_oauth_state(state: str) -> Optional[Dict[str, Any]]:
-    try:
-        data = _load_oauth_states()
-        return data.get(state) if isinstance(data, dict) else None
-    except Exception:
-        return None
-
-def _consume_oauth_state(state: str) -> Optional[Dict[str, Any]]:
-    data = _load_oauth_states()
-    rec = data.pop(state, None)
-    _save_oauth_states(data)
-    return rec
-
-def _oauth_validate_state(state: str, expected: str, provider: str) -> Tuple[bool, Optional[str]]:
-    """Validate OAuth state. Session-first; fallback to file store if cookies were lost."""
-    if state and expected and state == expected:
-        try:
-            _consume_oauth_state(state)
-        except Exception:
-            pass
-        return True, None
-    try:
-        rec = _consume_oauth_state(state)
-    except Exception:
-        rec = None
-    if rec and rec.get("provider") == provider:
-        return True, (rec.get("username") or None)
-    return False, None
-
-
-# =========================
 # GMAIL OAUTH ROUTES (Option C)
 # =========================
 
@@ -3122,12 +2826,6 @@ def gmail_connect():
 def gmail_callback():
     u = current_user()
     if not u:
-        tmp_state = request.args.get("state", "")
-        rec = _peek_oauth_state(tmp_state)
-        if rec and rec.get("provider") == "gmail" and rec.get("username"):
-            session["user"] = rec.get("username")
-            u = current_user()
-    if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
     if not ok:
@@ -3154,14 +2852,6 @@ def gmail_callback():
 
     _save_user_gmail_oauth(u, token_info)
     append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
-    # onboarding_gmail_connected: mark Gmail step after successful connect
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        _mark_onboarding_step(uname, "gmail_connected", True)
-    except Exception:
-        pass
-
-
     return redirect("/#settings")
 
 
@@ -3206,12 +2896,6 @@ def calendar_connect():
 @app.get("/calendar/callback")
 def calendar_callback():
     u = current_user()
-    if not u:
-        tmp_state = request.args.get("state", "")
-        rec = _peek_oauth_state(tmp_state)
-        if rec and rec.get("provider") == "calendar" and rec.get("username"):
-            session["user"] = rec.get("username")
-            u = current_user()
     if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
@@ -3875,22 +3559,6 @@ def api_operator_profile_set():
         if k in payload:
             prof[k] = (payload.get(k) or "")
     _save_operator_profile(uname, prof)
-    # onboarding_operator_profile: mark Operator Profile step when profile is saved with any meaningful content
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        op = _load_operator_profile(uname) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
-        ok = False
-        for k in meaningful:
-            if (op.get(k) or "").strip():
-                ok = True
-                break
-        if ok:
-            _mark_onboarding_step(uname, "operator_profile", True)
-    except Exception:
-        pass
-
-
     return jsonify({"ok": True, "profile": prof})
 
 
@@ -5137,9 +4805,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="frameworkBtn">Core framework</button>
       <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
       <button class="btn" id="createTeamBtn">Create teammate</button>
-      <button class="btn" id="installFullBtn">Enable teammates</button>
-      <button class="btn" id="settingsBtn">Settings</button>
-      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+            <button class="btn" id="settingsBtn">Settings</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
@@ -5170,7 +4836,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
@@ -5448,8 +5113,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <div class="actions">
                   <button class="btn" id="cancelSettings">Cancel</button>
-                  <button class="btn" id="installFullTeamAdvancedBtn" title="Advanced: enable all teammates">Enable full team</button>
-                  <button class="btn btnPrimary" id="saveSettings">Save settings</button>
+                  <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,.08);">
+  <div class="tiny" style="margin-bottom:8px; opacity:.85;">Advanced</div>
+  <button class="btn" id="enableFullTeamAdvancedBtn" title="Installs all teammates. You can dismiss any after.">Enable full team</button>
+</div>
+<button class="btn btnPrimary" id="saveSettings">Save settings</button>
                 </div>
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
@@ -5485,8 +5153,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure Simulator</button>
-<button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5537,8 +5206,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure Simulator</button>
-<button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7024,7 +6694,6 @@ function makeSeat(defn, idx){
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
-          try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -7748,7 +7417,6 @@ function makeSeat(defn, idx){
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
       setOpStatus("Complete");
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
@@ -7799,7 +7467,6 @@ function makeSeat(defn, idx){
       setOpStatus("Complete");
       $("followMsg").value = "";
       await refreshThread();
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
@@ -7811,65 +7478,7 @@ function makeSeat(defn, idx){
 
     $("sendFollow").onclick = sendFollow;
 
-    
-$("installFullBtn").onclick = async () => {
-  // Less overwhelming onboarding: let users choose, with recommended defaults preselected.
-  const all = ["Alex","Sunshine","Willow","Ava","Orion","Luna","Atlis"];
-  const recommended = ["Alex","Sunshine","Willow"];
-
-  const rows = all.map(n => {
-    const checked = recommended.includes(n) ? "checked" : "";
-    const badge = recommended.includes(n) ? '<span class="pill" style="margin-left:8px; border:1px solid rgba(180,120,255,.55); padding:2px 8px; border-radius:999px; font-size:12px; color:#d9c3ff;">Recommended</span>' : "";
-    return `<label style="display:flex; align-items:center; gap:10px; padding:6px 0;">
-      <input type="checkbox" class="tmPick" value="${n}" ${checked} />
-      <span style="font-weight:600;">${n}</span>${badge}
-    </label>`;
-  }).join("");
-
-  const html = `
-    <div class="tiny" style="margin-bottom:10px;">Start small. You can add more anytime.</div>
-    <div style="max-height:260px; overflow:auto; padding-right:6px;">${rows}</div>
-    <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
-      <button class="btn btnPrimary" id="enableSelectedBtn">Enable selected</button>
-      <button class="btn" id="enableRecommendedBtn">Enable recommended 3</button>
-      <button class="btn" id="enableFullBtn">Enable full team</button>
-    </div>
-  `;
-  showModal("Enable teammates", html);
-
-  const getSelected = () => Array.from(document.querySelectorAll(".tmPick")).filter(x=>x.checked).map(x=>x.value);
-
-  $("enableSelectedBtn").onclick = async () => {
-    const names = getSelected();
-    const r = await fetch("/api/install/selected", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({names})});
-    const d = await r.json();
-    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
-    await loadState();
-    showModal("Enabled", `Enabled: ${d.selected.join(", ")}`);
-    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-  };
-
-  $("enableRecommendedBtn").onclick = async () => {
-    const r = await fetch("/api/install/core", {method:"POST"});
-    const d = await r.json();
-    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
-    await loadState();
-    showModal("Enabled", "Recommended teammates enabled.");
-    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-  };
-
-  $("enableFullBtn").onclick = async () => {
-    const r = await fetch("/api/install/full", {method:"POST"});
-    const d = await r.json();
-    if(!d.ok){ showModal("Error", d.error || "Enable failed"); return; }
-    await loadState();
-    showModal("Enabled", "Full team enabled.");
-    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-  };
-};
-
-
-    $("clearGroup").onclick = () => {
+        $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
@@ -7919,7 +7528,8 @@ $("installFullBtn").onclick = async () => {
       $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
       $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
       $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-$("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
     }catch(_){}
 
@@ -7928,7 +7538,8 @@ $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
       $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
       $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-$("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
     }catch(_){}
 
@@ -8015,6 +7626,18 @@ $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
 
     // Manage teammates (active seats)
     function renderManageList(){
+      // If this is a brand new user with no installed teammates, guide them with the recommended 3.
+      const isEmpty = !(state && state.installed_order && state.installed_order.length);
+      const banner = isEmpty ? (`
+        <div style="padding:10px 12px; border:1px solid rgba(180,120,255,.35); background:rgba(124,58,237,.08); border-radius:12px; margin-bottom:10px;">
+          <div style="font-weight:700; margin-bottom:4px;">Start with 3 recommended teammates</div>
+          <div class="tiny" style="opacity:.9; margin-bottom:10px;">Alex, Sunshine, and Willow. You can add more anytime.</div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btnPrimary" id="enableCoreFromManage">Enable recommended 3</button>
+          </div>
+        </div>
+      `) : "";
+
       const list = $("manageList");
       list.innerHTML = "";
 
@@ -8088,6 +7711,29 @@ $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       await loadState();
       renderManageList();
       showManageModal();
+
+      // Wire recommended enable button if present (first-run helper)
+      setTimeout(()=>{
+        const btn = document.getElementById("enableCoreFromManage");
+        if(btn){
+          btn.onclick = async () => {
+            btn.disabled = true;
+            try{
+              const r = await fetch("/api/install/core", {method:"POST"});
+              const d = await r.json();
+              if(!d.ok){ showModal("Error", d.error || "Enable failed"); btn.disabled = false; return; }
+              await loadState();
+              renderManageList();
+              showModal("Enabled", "Recommended teammates enabled.");
+            }catch(e){
+              showModal("Error", "Enable failed");
+            }finally{
+              btn.disabled = false;
+            }
+          };
+        }
+      }, 50);
+
     };
 
     $("cancelManage").onclick = () => hideModal();
@@ -8242,7 +7888,19 @@ $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
     $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
-    $("saveSettings").onclick = async () => {
+    $("enableFullTeamAdvancedBtn").onclick = async () => {
+      try{
+        const r = await fetch("/api/install/full", {method:"POST"});
+        const d = await r.json();
+        if(!d.ok){ showModal("Error", d.error || "Enable full team failed"); return; }
+        await loadState();
+        showModal("Enabled", "Full team enabled.");
+      }catch(e){
+        showModal("Error", "Enable full team failed");
+      }
+    };
+
+$("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
@@ -8386,7 +8044,6 @@ $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
     async function afterSettingsSaved(){
       try{ await loadState(); }catch(e){}
       try{ await runFirstRunGuidance(); }catch(e){}
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     }
 
     // Clicking outside bubble clears it
@@ -9368,311 +9025,6 @@ function applyRTTransformV4(){
 
 
 
-
-
-<!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); min-width:260px; min-height:220px; resize:both; overflow:auto; display:none;">
-  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden;">
-    <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
-      <div style="display:flex; gap:10px; align-items:center;">
-        <div style="width:10px; height:10px; border-radius:999px; background:linear-gradient(135deg,#7c3aed,#22c55e); box-shadow:0 0 18px rgba(124,58,237,0.55);"></div>
-        <div>
-          <div style="font-weight:800; letter-spacing:0.2px; font-size:14px;">Get Started</div>
-          <div id="onbSub" style="font-size:12px; opacity:0.8;">0 of 5 complete</div>
-        </div>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
-        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
-      </div>
-    </div>
-    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
-  </div>
-</div>
-
-<style>
-  .onbItem{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.03); cursor:pointer; }
-  .onbItem:hover{ background:rgba(255,255,255,0.06); }
-  .onbDot{ width:12px; height:12px; border-radius:999px; border:1px solid rgba(255,255,255,0.35); flex:0 0 auto; }
-  .onbDone{ background:rgba(34,197,94,0.95); border-color:rgba(34,197,94,0.95); }
-  .onbNextPulse{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); animation:onbPulse 1.6s infinite; border-color:rgba(124,58,237,0.70) !important; }
-  @keyframes onbPulse{ 0%{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); } 70%{ box-shadow:0 0 0 12px rgba(124,58,237,0.00); } 100%{ box-shadow:0 0 0 0 rgba(124,58,237,0.00); } }
-  .onbTitle{ font-size:13px; font-weight:700; }
-  .onbMeta{ font-size:12px; opacity:0.75; }
-
-  /* Topbar "Next step" glow (purple) */
-  .onbBtnGlow{
-    border-color: rgba(124,58,237,0.85) !important;
-    box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18);
-    animation: onbBtnPulse 1.6s infinite;
-  }
-  @keyframes onbBtnPulse{
-    0%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18); }
-    70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
-    100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
-  }
-</style>
-
-<script>
-(function(){
-  let onbData = null;
-  let drag = {active:false, dx:0, dy:0};
-
-  function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
-
-  function syncOnboardingButtons(){
-    try{
-      const topBtn = document.getElementById("onboardingBtn");
-      const mobBtn = document.getElementById("mobileOnboardingBtn");
-      const showGlow = !!(onbData && onbData.ok && !onbData.all_done && (onbData.next_key || ""));
-      if(topBtn){
-        if(showGlow) topBtn.classList.add("onbBtnGlow");
-        else topBtn.classList.remove("onbBtnGlow");
-        // Keep label stable and short
-        topBtn.textContent = "Next step";
-      }
-      if(mobBtn){
-        mobBtn.textContent = "Next step";
-      }
-    }catch(e){}
-  }
-
-  async function openOnboarding(){
-    try{
-      // Undismiss (if previously hidden)
-      await fetch("/api/onboarding/dismiss", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({dismissed:false})
-      });
-    }catch(e){}
-    try{
-      await fetchOnboarding();
-      const panel = onb$("onboardingPanel");
-      if(panel) panel.style.display = "block";
-    }catch(e){}
-  }
-
-  function closeOnboarding(){
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-    // Do not dismiss. User can reopen via "Next step" button.
-  }
-
-
-  function wireOnboardingButtons(){
-    try{
-      const topBtn = document.getElementById("onboardingBtn");
-      const mobBtn = document.getElementById("mobileOnboardingBtn");
-      if(topBtn) topBtn.addEventListener("click", openOnboarding);
-      if(mobBtn) mobBtn.addEventListener("click", ()=>{
-        try{
-          // Close mobile drawer if present
-          const overlay = document.getElementById("mobileDrawerOverlay");
-          if(overlay) overlay.classList.remove("show");
-          try{ document.body.style.overflow = ""; }catch(_){}
-        }catch(_){}
-        openOnboarding();
-      });
-    }catch(e){}
-  }
-
-  function setPanelPos(x,y){
-    const panel = onb$("onboardingPanel");
-    if(!panel) return;
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
-    panel.style.left = Math.max(8, x) + "px";
-    panel.style.top = Math.max(8, y) + "px";
-  }
-
-  async function fetchOnboarding(){
-    try{
-      const res = await fetch("/api/onboarding/status");
-      const data = await res.json();
-      if(!data || !data.ok) return;
-      onbData = data;
-      renderOnboarding();
-      syncOnboardingButtons();
-      try{ window.onboardingStatus = onbData; }catch(_){ }
-    }catch(e){}
-  }
-
-  function renderOnboarding(){
-    const panel = onb$("onboardingPanel");
-    const list = onb$("onbList");
-    const sub = onb$("onbSub");
-    if(!panel || !list || !sub || !onbData) return;
-
-    if(onbData.dismissed || onbData.all_done){
-      panel.style.display = "none";
-      return;
-    }
-
-    panel.style.display = "block";
-    sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
-
-    list.innerHTML = "";
-    const nextKey = onbData.next_key || "";
-
-    (onbData.steps||[]).forEach((s)=>{
-      const row = document.createElement("div");
-      row.className = "onbItem";
-      row.setAttribute("data-key", s.key);
-
-      const dot = document.createElement("div");
-      dot.className = "onbDot" + (s.done ? " onbDone" : "");
-      if(!s.done && s.key === nextKey){
-        row.className += " onbNextPulse";
-      }
-
-      const wrap = document.createElement("div");
-      wrap.style.display = "flex";
-      wrap.style.flexDirection = "column";
-      wrap.style.gap = "2px";
-
-      const title = document.createElement("div");
-      title.className = "onbTitle";
-      title.textContent = s.title;
-
-      const meta = document.createElement("div");
-      meta.className = "onbMeta";
-      meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
-
-      wrap.appendChild(title);
-      wrap.appendChild(meta);
-
-      row.appendChild(dot);
-      row.appendChild(wrap);
-
-      row.addEventListener("click", ()=>onbAction(s.key, s.done));
-      list.appendChild(row);
-    });
-  }
-
-  async function dismissOnboarding(){
-    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-  }
-
-  function focusEl(id){
-    try{
-      const el = document.getElementById(id);
-      if(el){
-        el.scrollIntoView({behavior:"smooth", block:"center"});
-        setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 80);
-        return true;
-      }
-    }catch(e){}
-    return false;
-  }
-
-  async function onbAction(key, alreadyDone){
-    if(alreadyDone) return;
-
-    try{
-      if(key === "openai_key"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
-        return;
-      if(key === "email_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ try{ const el = document.getElementById("smtpHost") || document.getElementById("smtpUser"); if(el) el.focus(); }catch(e){} }, 250);
-        return;
-      }
-
-      }
-
-      if(key === "operator_profile"){
-        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
-        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
-        return;
-      }
-
-      if(key === "full_team"){
-        try{
-          const r = await fetch("/api/install/core", {method:"POST"});
-          const d = await r.json();
-          if(d && d.ok){ if(typeof showToast === "function") showToast("Enabled teammates"); }
-          else{ if(typeof showToast === "function") showToast("Install failed"); }
-        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
-        setTimeout(fetchOnboarding, 300);
-        return;
-      }
-
-      if(key === "first_prompt"){
-        focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
-        return;
-      }
-
-      if(key === "gmail_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("gmailConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/gmail/connect"; }
-        }, 200);
-        return;
-      }
-    }finally{
-      setTimeout(fetchOnboarding, 600);
-    }
-  }
-
-  function wireDrag(){
-    const header = onb$("onbHeader");
-    const panel = onb$("onboardingPanel");
-    if(!header || !panel) return;
-
-    header.addEventListener("pointerdown", (e)=>{
-      try{
-        if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
-      }catch(_){ }
-      drag.active = true;
-      header.style.cursor = "grabbing";
-      const rect = panel.getBoundingClientRect();
-      drag.dx = e.clientX - rect.left;
-      drag.dy = e.clientY - rect.top;
-      try{ header.setPointerCapture(e.pointerId); }catch(err){}
-    });
-
-    header.addEventListener("pointermove", (e)=>{
-      if(!drag.active) return;
-      setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
-    });
-
-    header.addEventListener("pointerup", (e)=>{
-      drag.active = false;
-      header.style.cursor = "grab";
-      try{ header.releasePointerCapture(e.pointerId); }catch(err){}
-    });
-  }
-
-  function wireHide(){
-    const btn = onb$("onbHide");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
-  }
-
-  function wireExit(){
-    const btn = onb$("onbExit");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
-  }
-
-  try{
-    try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
-
-    wireDrag();
-    wireHide();
-    wireExit();
-    wireOnboardingButtons();
-    setTimeout(fetchOnboarding, 450);
-    setInterval(fetchOnboarding, 12000);
-  }catch(e){}
-})();
-</script>
-
 </body>
 </html>
 """
@@ -9793,7 +9145,7 @@ def api_passes_run():
     if not isinstance(text_in, str):
         text_in = str(text_in)
 
-    allowed = {"risk", "scale", "failure", "constraints", "optimize"}
+    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
     if pass_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown pass"}), 400
 
@@ -9837,6 +9189,10 @@ def api_passes_run():
             "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
             "For each: Failure mode, early warning signal, prevention, recovery step. "
             "Prioritize the most likely failures first."
+        ),
+        "assumptions": (
+            "ASSUMPTION SCAN. List key assumptions implied by the text. "
+            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
         ),
         "constraints": (
             "CONSTRAINT SCAN. Identify constraints and dependencies. "
@@ -10369,5 +9725,4 @@ ADD_UI_POLISH_V8 = r'''
 })();
 </script>
 '''
-
 
