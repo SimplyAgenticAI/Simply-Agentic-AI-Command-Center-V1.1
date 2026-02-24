@@ -2578,25 +2578,25 @@ def api_convene():
     })
 
     
-# Guided onboarding: mark first prompt sent (best-effort, never blocks)
-try:
-    username = _get_session_username()
-    if username:
-        ob = _load_onboarding(username)
-        if not ob.get("first_prompt_sent"):
-            ob["first_prompt_sent"] = True
-            _save_onboarding(username, ob)
-except Exception:
-    pass
+    # Guided onboarding: mark first prompt sent (best-effort, never blocks)
+    try:
+        username = _get_session_username()
+        if username:
+            ob = _load_onboarding(username)
+            if not ob.get("first_prompt_sent"):
+                ob["first_prompt_sent"] = True
+                _save_onboarding(username, ob)
+    except Exception:
+        pass
 
-return jsonify({
-        "ok": True,
-        "mode": "execute",
-        "atlis_report": atlis_report,
-        "outputs": outputs,
-        "email_drafts": email_drafts,
-        "attachment_meta": attach_meta
-    })
+    return jsonify({
+            "ok": True,
+            "mode": "execute",
+            "atlis_report": atlis_report,
+            "outputs": outputs,
+            "email_drafts": email_drafts,
+            "attachment_meta": attach_meta
+        })
 
 
 @app.post("/api/followup")
