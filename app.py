@@ -7640,10 +7640,20 @@ function makeSeat(defn, idx){
 
       const list = $("manageList");
       list.innerHTML = "";
+      if(banner){ list.innerHTML = banner; }
 
       const installedOrder = (state && state.installed_order) ? state.installed_order : [];
       const active = new Set((state && state.active_order) ? state.active_order : []);
       manageDraftActive = installedOrder.filter(n => active.has(n));
+
+      try{
+        const saveBtn = $("saveManage");
+        if(saveBtn) saveBtn.disabled = (installedOrder.length===0);
+      }catch(e){}
+
+      if(installedOrder.length===0){
+        return;
+      }
 
       installedOrder.forEach((name) => {
         const defn = state.installed[name];
