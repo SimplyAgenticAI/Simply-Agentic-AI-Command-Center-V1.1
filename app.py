@@ -527,58 +527,6 @@ OPERATOR_PROFILE_DIR = DATA / "operator_profile"
 
 
 # =========================
-# OAUTH STATE STORE (additive safety)
-# =========================
-OAUTH_STATE_STORE = DATA / "oauth_states.json"
-
-def _load_oauth_states() -> Dict[str, Any]:
-    data = load_json(OAUTH_STATE_STORE, {})
-    return data if isinstance(data, dict) else {}
-
-def _save_oauth_states(data: Dict[str, Any]) -> None:
-    try:
-        save_json(OAUTH_STATE_STORE, data or {})
-    except Exception:
-        pass
-
-def _store_oauth_state(state: str, username: str, provider: str) -> None:
-    if not state:
-        return
-    data = _load_oauth_states()
-    data[state] = {"username": username or "", "provider": provider or "", "at": now_iso()}
-    _save_oauth_states(data)
-
-def _consume_oauth_state(state: str) -> Optional[Dict[str, Any]]:
-    data = _load_oauth_states()
-    rec = data.pop(state, None)
-    _save_oauth_states(data)
-    return rec
-
-def _peek_oauth_state(state: str) -> Optional[Dict[str, Any]]:
-    try:
-        data = _load_oauth_states()
-        return data.get(state) if isinstance(data, dict) else None
-    except Exception:
-        return None
-
-def _oauth_validate_state(state: str, expected: str, provider: str) -> Tuple[bool, Optional[str]]:
-    """Validate state; session-first, file-fallback for lost cookies."""
-    if state and expected and state == expected:
-        try:
-            _consume_oauth_state(state)
-        except Exception:
-            pass
-        return True, None
-    try:
-        rec = _consume_oauth_state(state)
-    except Exception:
-        rec = None
-    if rec and rec.get("provider") == provider:
-        return True, (rec.get("username") or None)
-    return False, None
-
-
-# =========================
 # GUIDED ONBOARDING (additive)
 # =========================
 ONBOARDING_DIR = DATA / "onboarding"
@@ -590,8 +538,6 @@ ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "full_team", "title": "Install full team"},
     {"key": "first_prompt", "title": "Send first prompt"},
     {"key": "gmail_connected", "title": "Connect Gmail"},
-    {"key": "calendar_connected", "title": "Connect Calendar"},
-    {"key": "email_connected", "title": "Connect Email"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -679,22 +625,6 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     try:
         if _user_gmail_oauth(u):
             _mark_onboarding_step(username, "gmail_connected", True)
-    except Exception:
-        pass
-
-
-    # Step 6: Calendar connected
-    try:
-        if _user_calendar_oauth(u):
-            _mark_onboarding_step(username, "calendar_connected", True)
-    except Exception:
-        pass
-
-    # Step 7: Email connected (SMTP)
-    try:
-        smtp_ok, _reason = smtp_ready_for_user(u)
-        if smtp_ok:
-            _mark_onboarding_step(username, "email_connected", True)
     except Exception:
         pass
 
@@ -3051,13 +2981,6 @@ def gmail_connect():
 @app.get("/gmail/callback")
 def gmail_callback():
     u = current_user()
-    # If session cookie was lost during Google redirect, recover user from stored OAuth state
-    if not u:
-        tmp_state = request.args.get("state", "")
-        rec = _peek_oauth_state(tmp_state)
-        if rec and rec.get("provider") == "gmail" and rec.get("username"):
-            session["user"] = rec.get("username")
-            u = current_user()
     if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
@@ -3137,13 +3060,6 @@ def calendar_connect():
 @app.get("/calendar/callback")
 def calendar_callback():
     u = current_user()
-    # If session cookie was lost during Google redirect, recover user from stored OAuth state
-    if not u:
-        tmp_state = request.args.get("state", "")
-        rec = _peek_oauth_state(tmp_state)
-        if rec and rec.get("provider") == "calendar" and rec.get("username"):
-            session["user"] = rec.get("username")
-            u = current_user()
     if not u:
         return redirect("/login")
     ok, reason = _google_oauth_ready()
@@ -3170,11 +3086,6 @@ def calendar_callback():
 
     _save_user_calendar_oauth(u, token_info)
     append_log("calendar_connected", {"user": u.get("username", ""), "at": now_iso()})
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        _mark_onboarding_step(uname, "calendar_connected", True)
-    except Exception:
-        pass
     return redirect("/#settings")
 
 @app.post("/api/calendar/create_event")
@@ -5421,8 +5332,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure Simulator</button>
-<button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5473,8 +5385,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure Simulator</button>
-<button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7809,7 +7722,8 @@ function makeSeat(defn, idx){
       $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
       $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
       $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-$("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
     }catch(_){}
 
@@ -7818,7 +7732,8 @@ $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
       $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
       $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-$("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
     }catch(_){}
 
@@ -9497,27 +9412,7 @@ function applyRTTransformV4(){
           const btn = document.getElementById("gmailConnectBtn");
           if(btn){ btn.click(); }
           else{ window.location = "/gmail/connect"; }
-        }
-
-      if(key === "calendar_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("calendarConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/calendar/connect"; }
-        }, 250);
-        return;
-      }
-
-      if(key === "email_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const el = document.getElementById("smtpHost") || document.getElementById("smtpUser");
-          if(el){ el.focus(); }
-        }, 250);
-        return;
-      }
-, 200);
+        }, 200);
         return;
       }
     }finally{
@@ -9697,7 +9592,7 @@ def api_passes_run():
     if not isinstance(text_in, str):
         text_in = str(text_in)
 
-    allowed = {"risk", "scale", "failure", "constraints", "optimize"}
+    allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
     if pass_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown pass"}), 400
 
@@ -9741,6 +9636,10 @@ def api_passes_run():
             "FAILURE SIMULATOR. Produce 5 realistic failure scenarios. "
             "For each: Failure mode, early warning signal, prevention, recovery step. "
             "Prioritize the most likely failures first."
+        ),
+        "assumptions": (
+            "ASSUMPTION SCAN. List key assumptions implied by the text. "
+            "For each: assumption, confidence (High, Medium, Low), and the fastest validation test."
         ),
         "constraints": (
             "CONSTRAINT SCAN. Identify constraints and dependencies. "
@@ -10274,4 +10173,28 @@ ADD_UI_POLISH_V8 = r'''
 </script>
 '''
 
+
+
+
+# =========================
+# OAUTH STATE STORE (additive safety)
+# =========================
+OAUTH_STATE_STORE = DATA / "oauth_states.json"
+
+def _load_oauth_states():
+    return load_json(OAUTH_STATE_STORE, {})
+
+def _save_oauth_states(data):
+    save_json(OAUTH_STATE_STORE, data)
+
+def _store_oauth_state(state, username):
+    data = _load_oauth_states()
+    data[state] = {"username": username, "at": now_iso()}
+    _save_oauth_states(data)
+
+def _consume_oauth_state(state):
+    data = _load_oauth_states()
+    rec = data.pop(state, None)
+    _save_oauth_states(data)
+    return rec
 
