@@ -4987,6 +4987,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
+      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
@@ -5017,6 +5018,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
+        <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
@@ -9196,6 +9198,18 @@ function applyRTTransformV4(){
   @keyframes onbPulse{ 0%{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); } 70%{ box-shadow:0 0 0 12px rgba(124,58,237,0.00); } 100%{ box-shadow:0 0 0 0 rgba(124,58,237,0.00); } }
   .onbTitle{ font-size:13px; font-weight:700; }
   .onbMeta{ font-size:12px; opacity:0.75; }
+
+  /* Topbar "Next step" glow (purple) */
+  .onbBtnGlow{
+    border-color: rgba(124,58,237,0.85) !important;
+    box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18);
+    animation: onbBtnPulse 1.6s infinite;
+  }
+  @keyframes onbBtnPulse{
+    0%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.60), 0 0 28px rgba(124,58,237,0.18); }
+    70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
+    100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
+  }
 </style>
 
 <script>
@@ -9204,6 +9218,56 @@ function applyRTTransformV4(){
   let drag = {active:false, dx:0, dy:0};
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
+
+  function syncOnboardingButtons(){
+    try{
+      const topBtn = document.getElementById("onboardingBtn");
+      const mobBtn = document.getElementById("mobileOnboardingBtn");
+      const showGlow = !!(onbData && onbData.ok && !onbData.all_done && (onbData.next_key || ""));
+      if(topBtn){
+        if(showGlow) topBtn.classList.add("onbBtnGlow");
+        else topBtn.classList.remove("onbBtnGlow");
+        // Keep label stable and short
+        topBtn.textContent = "Next step";
+      }
+      if(mobBtn){
+        mobBtn.textContent = "Next step";
+      }
+    }catch(e){}
+  }
+
+  async function openOnboarding(){
+    try{
+      // Undismiss (if previously hidden)
+      await fetch("/api/onboarding/dismiss", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({dismissed:false})
+      });
+    }catch(e){}
+    try{
+      await fetchOnboarding();
+      const panel = onb$("onboardingPanel");
+      if(panel) panel.style.display = "block";
+    }catch(e){}
+  }
+
+  function wireOnboardingButtons(){
+    try{
+      const topBtn = document.getElementById("onboardingBtn");
+      const mobBtn = document.getElementById("mobileOnboardingBtn");
+      if(topBtn) topBtn.addEventListener("click", openOnboarding);
+      if(mobBtn) mobBtn.addEventListener("click", ()=>{
+        try{
+          // Close mobile drawer if present
+          const overlay = document.getElementById("mobileDrawerOverlay");
+          if(overlay) overlay.classList.remove("show");
+          try{ document.body.style.overflow = ""; }catch(_){}
+        }catch(_){}
+        openOnboarding();
+      });
+    }catch(e){}
+  }
 
   function setPanelPos(x,y){
     const panel = onb$("onboardingPanel");
@@ -9221,6 +9285,7 @@ function applyRTTransformV4(){
       if(!data || !data.ok) return;
       onbData = data;
       renderOnboarding();
+      syncOnboardingButtons();
     }catch(e){}
   }
 
@@ -9375,6 +9440,7 @@ function applyRTTransformV4(){
   try{
     wireDrag();
     wireHide();
+    wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
     setInterval(fetchOnboarding, 12000);
   }catch(e){}
