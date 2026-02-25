@@ -7,7 +7,6 @@ import base64
 import secrets
 import hashlib
 import hmac
-import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -511,451 +510,6 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
     except Exception:
         return []
 
-
-# =========================
-# REAL WORLD EXECUTION ENGINE (additive)
-# =========================
-#
-# Purpose: safely execute external actions (Gmail send, Calendar event create) with:
-# - Action Contracts (typed JSON)
-# - Execution Governor (allowlist + risk gate + kill switch)
-# - Execution Queue (idempotency + retries)
-# - Audit Log (append-only)
-# - Missions (scoped autonomy policies)
-
-EXECUTION_DIR = DATA / "execution"
-EXECUTION_DIR.mkdir(parents=True, exist_ok=True)
-
-MISSIONS_DIR = EXECUTION_DIR / "missions"
-MISSIONS_DIR.mkdir(parents=True, exist_ok=True)
-
-ACTIONS_DIR = EXECUTION_DIR / "actions"
-ACTIONS_DIR.mkdir(parents=True, exist_ok=True)
-
-ACTIONS_QUEUE_DIR = ACTIONS_DIR / "queue"
-ACTIONS_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
-
-ACTIONS_AUDIT_DIR = ACTIONS_DIR / "audit"
-ACTIONS_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
-
-ACTIONS_SETTINGS_DIR = ACTIONS_DIR / "settings"
-ACTIONS_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-
-SUPPORTED_ACTION_TYPES = ["send_email", "create_calendar_event"]
-
-DEFAULT_EXECUTION_SETTINGS = {
-    "kill_switch": False,
-    # allowlist controls which action types are allowed to execute at all
-    "allowlist": ["send_email", "create_calendar_event"],
-    # autonomy: when true, engine can execute queued actions without extra confirmation
-    "autonomy_enabled": True,
-    # risk gate: low/medium/high
-    "max_risk": "low",
-    # daily cap per user
-    "max_actions_per_day": 50,
-    # allowed recipient domains (empty => allow all; prefer setting this)
-    "allowed_recipient_domains": [],
-}
-
-DEFAULT_MISSION = {
-    "id": "default",
-    "name": "Default Mission",
-    "description": "General purpose mission container",
-    "enabled": True,
-    "allowlist": ["send_email", "create_calendar_event"],
-    "max_actions_per_day": 50,
-    "max_risk": "low",
-    "allowed_recipient_domains": [],
-    "created_at": None,
-    "updated_at": None,
-}
-
-def _execution_user_dir(root: Path, username: str) -> Path:
-    d = root / _safe_name(username or "anon")
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-def _settings_path(username: str) -> Path:
-    return _execution_user_dir(ACTIONS_SETTINGS_DIR, username) / "settings.json"
-
-def _missions_path(username: str) -> Path:
-    return _execution_user_dir(MISSIONS_DIR, username) / "missions.json"
-
-def _queue_path(username: str) -> Path:
-    return _execution_user_dir(ACTIONS_QUEUE_DIR, username) / "queue.json"
-
-def _audit_path(username: str) -> Path:
-    return _execution_user_dir(ACTIONS_AUDIT_DIR, username) / "audit.jsonl"
-
-def _load_execution_settings(username: str) -> Dict[str, Any]:
-    st = load_json(_settings_path(username), {}) or {}
-    if not isinstance(st, dict):
-        st = {}
-    out = dict(DEFAULT_EXECUTION_SETTINGS)
-    out.update({k: st.get(k) for k in DEFAULT_EXECUTION_SETTINGS.keys() if k in st})
-    # normalize
-    out["kill_switch"] = bool(out.get("kill_switch"))
-    out["autonomy_enabled"] = bool(out.get("autonomy_enabled"))
-    out["allowlist"] = [x for x in (out.get("allowlist") or []) if isinstance(x, str)]
-    out["max_actions_per_day"] = int(out.get("max_actions_per_day") or 0) or DEFAULT_EXECUTION_SETTINGS["max_actions_per_day"]
-    out["allowed_recipient_domains"] = [x.lower().strip() for x in (out.get("allowed_recipient_domains") or []) if isinstance(x, str) and x.strip()]
-    mr = (out.get("max_risk") or "low").lower().strip()
-    if mr not in ("low", "medium", "high"):
-        mr = "low"
-    out["max_risk"] = mr
-    return out
-
-def _save_execution_settings(username: str, st: Dict[str, Any]) -> None:
-    payload = _load_execution_settings(username)
-    payload.update(st or {})
-    payload["updated_at"] = now_iso()
-    save_json(_settings_path(username), payload)
-
-def _load_missions(username: str) -> Dict[str, Any]:
-    data = load_json(_missions_path(username), {}) or {}
-    if not isinstance(data, dict):
-        data = {}
-    missions = data.get("missions")
-    if not isinstance(missions, list) or not missions:
-        data = {"missions": [dict(DEFAULT_MISSION)], "updated_at": now_iso()}
-        save_json(_missions_path(username), data)
-        return data
-    return data
-
-def _save_missions(username: str, missions: List[Dict[str, Any]]) -> None:
-    save_json(_missions_path(username), {"missions": missions, "updated_at": now_iso()})
-
-def _get_mission(username: str, mission_id: str) -> Dict[str, Any]:
-    data = _load_missions(username)
-    for m in (data.get("missions") or []):
-        if isinstance(m, dict) and (m.get("id") == mission_id):
-            return m
-    # fallback
-    return dict(DEFAULT_MISSION)
-
-def _risk_rank(r: str) -> int:
-    r = (r or "").lower().strip()
-    return {"low": 0, "medium": 1, "high": 2}.get(r, 2)
-
-def _safe_email_domain(addr: str) -> str:
-    try:
-        addr = (addr or "").strip()
-        if "@" not in addr:
-            return ""
-        return addr.split("@", 1)[1].lower().strip()
-    except Exception:
-        return ""
-
-def _score_action_risk(contract: Dict[str, Any], mission: Dict[str, Any], settings: Dict[str, Any]) -> Tuple[str, List[str]]:
-    flags: List[str] = []
-    typ = (contract.get("type") or "").strip()
-    risk = "low"
-
-    if typ == "send_email":
-        to_addr = (contract.get("to") or "").strip()
-        if not EMAIL_RE.match(to_addr):
-            return "high", ["invalid_email"]
-        dom = _safe_email_domain(to_addr)
-        allowed = (mission.get("allowed_recipient_domains") or settings.get("allowed_recipient_domains") or [])
-        allowed = [x.lower().strip() for x in allowed if isinstance(x, str) and x.strip()]
-        if allowed and dom and dom not in allowed:
-            return "high", ["recipient_domain_blocked"]
-        subject = (contract.get("subject") or "")
-        body = (contract.get("body") or "")
-        if len(subject) > 140 or len(body) > 20000:
-            risk = "medium"
-            flags.append("large_email")
-
-    if typ == "create_calendar_event":
-        # calendar events are usually low risk unless missing fields
-        title = (contract.get("title") or "").strip()
-        if not title:
-            return "high", ["missing_title"]
-
-    return risk, flags
-
-def _validate_action_contract(contract: Any) -> Tuple[Optional[Dict[str, Any]], str]:
-    if not isinstance(contract, dict):
-        return None, "Contract must be a JSON object."
-    typ = (contract.get("type") or "").strip()
-    if typ not in SUPPORTED_ACTION_TYPES:
-        return None, "Unsupported action type."
-    # idempotency key required to prevent duplicates
-    ik = (contract.get("idempotency_key") or "").strip()
-    if not ik or len(ik) > 128:
-        return None, "Missing idempotency_key."
-    # normalize
-    c = dict(contract)
-    c["type"] = typ
-    c["idempotency_key"] = ik
-
-    if typ == "send_email":
-        to_addr = (c.get("to") or "").strip()
-        subject = (c.get("subject") or "").strip()
-        body = (c.get("body") or "").strip()
-        if not EMAIL_RE.match(to_addr):
-            return None, "Invalid 'to' email address."
-        if not subject:
-            return None, "Missing subject."
-        if not body:
-            return None, "Missing body."
-        c["to"] = to_addr
-        c["subject"] = subject[:400]
-        c["body"] = body[:40000]
-        c["from_name"] = (c.get("from_name") or "").strip()[:120]
-
-    if typ == "create_calendar_event":
-        title = (c.get("title") or "").strip()
-        start_iso = (c.get("start_iso") or "").strip()
-        end_iso = (c.get("end_iso") or "").strip()
-        timezone = (c.get("timezone") or "UTC").strip()
-        if not title:
-            return None, "Missing title."
-        if not start_iso or not end_iso:
-            return None, "Missing start/end."
-        c["title"] = title[:200]
-        c["start_iso"] = start_iso
-        c["end_iso"] = end_iso
-        c["timezone"] = timezone[:64]
-        attendees = c.get("attendees") or []
-        if not isinstance(attendees, list):
-            attendees = []
-        c["attendees"] = [str(a).strip() for a in attendees if str(a).strip()][:50]
-        c["description"] = (c.get("description") or "")[:5000]
-        c["location"] = (c.get("location") or "")[:240]
-
-    # mission
-    mid = (c.get("mission_id") or "default").strip()
-    c["mission_id"] = mid or "default"
-
-    return c, ""
-
-def _load_queue(username: str) -> Dict[str, Any]:
-    data = load_json(_queue_path(username), {}) or {}
-    if not isinstance(data, dict):
-        data = {}
-    data.setdefault("items", [])
-    if not isinstance(data.get("items"), list):
-        data["items"] = []
-    return data
-
-def _save_queue(username: str, q: Dict[str, Any]) -> None:
-    q = q or {}
-    q["updated_at"] = now_iso()
-    save_json(_queue_path(username), q)
-
-def _append_audit(username: str, entry: Dict[str, Any]) -> None:
-    try:
-        entry = entry or {}
-        entry.setdefault("ts", now_iso())
-        with _audit_path(username).open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-
-def _already_executed(username: str, idempotency_key: str) -> bool:
-    # lightweight scan (last N lines) to avoid growing memory
-    try:
-        p = _audit_path(username)
-        if not p.exists():
-            return False
-        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
-        lines = lines[-500:]
-        for ln in reversed(lines):
-            try:
-                obj = json.loads(ln)
-            except Exception:
-                continue
-            if (obj.get("idempotency_key") or "") == idempotency_key and obj.get("status") == "success":
-                return True
-        return False
-    except Exception:
-        return False
-
-def enqueue_action(username: str, contract: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    settings = _load_execution_settings(username)
-    mission = _get_mission(username, contract.get("mission_id") or "default")
-
-    if settings.get("kill_switch"):
-        return False, "Execution kill switch is ON.", {}
-
-    typ = contract.get("type")
-    allow = set([x for x in (settings.get("allowlist") or []) if isinstance(x, str)])
-    allow_m = set([x for x in (mission.get("allowlist") or []) if isinstance(x, str)])
-    if typ not in allow or typ not in allow_m:
-        return False, "Action type not allowed by allowlist.", {}
-
-    risk, flags = _score_action_risk(contract, mission, settings)
-    if _risk_rank(risk) > _risk_rank(mission.get("max_risk") or settings.get("max_risk")):
-        return False, f"Risk gate blocked action (risk={risk}).", {"risk": risk, "flags": flags}
-
-    ik = contract.get("idempotency_key") or ""
-    if _already_executed(username, ik):
-        return False, "Duplicate blocked by idempotency_key.", {}
-
-    q = _load_queue(username)
-    item = {
-        "id": str(uuid.uuid4()),
-        "created_at": now_iso(),
-        "status": "pending",
-        "attempts": 0,
-        "last_error": "",
-        "risk": risk,
-        "risk_flags": flags,
-        "contract": contract,
-    }
-    q["items"].append(item)
-    _save_queue(username, q)
-    _append_audit(username, {"status": "queued", "idempotency_key": ik, "type": typ, "risk": risk, "mission_id": contract.get("mission_id")})
-    return True, "", item
-
-def _count_actions_today(username: str) -> int:
-    # count successful executions today (UTC) from audit tail
-    try:
-        p = _audit_path(username)
-        if not p.exists():
-            return 0
-        today = datetime.utcnow().date()
-        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-2000:]
-        c = 0
-        for ln in lines:
-            try:
-                obj = json.loads(ln)
-            except Exception:
-                continue
-            if obj.get("status") != "success":
-                continue
-            ts = str(obj.get("ts") or "")
-            try:
-                dt = datetime.fromisoformat(ts.replace("Z",""))
-                if dt.date() == today:
-                    c += 1
-            except Exception:
-                continue
-        return c
-    except Exception:
-        return 0
-
-def _execute_contract_for_user(uobj: Optional[Dict[str, Any]], contract: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    typ = contract.get("type")
-    if typ == "send_email":
-        access_token, err = _gmail_creds_for_user(uobj)
-        if not access_token:
-            return False, err or "Gmail not connected.", {}
-        try:
-            _gmail_send_message(
-                access_token=access_token,
-                to_addr=contract.get("to"),
-                subject=contract.get("subject"),
-                body=contract.get("body"),
-                from_name=contract.get("from_name") or "",
-            )
-            return True, "", {}
-        except Exception as e:
-            return False, str(e), {}
-
-    if typ == "create_calendar_event":
-        access_token, err = _calendar_creds_for_user(uobj)
-        if not access_token:
-            return False, err or "Calendar not connected.", {}
-        try:
-            res = _calendar_create_event(
-                access_token=access_token,
-                title=contract.get("title"),
-                start_iso=contract.get("start_iso"),
-                end_iso=contract.get("end_iso"),
-                timezone=contract.get("timezone") or "UTC",
-                attendees=contract.get("attendees") or [],
-                description=contract.get("description") or "",
-                location=contract.get("location") or "",
-            )
-            return True, "", {"provider": res}
-        except Exception as e:
-            return False, str(e), {}
-
-    return False, "Unsupported action type.", {}
-
-def _process_action_queue_once() -> None:
-    # Called from tick endpoint; safe, bounded work.
-    try:
-        uobj = current_user()
-        username = (uobj.get("username") if isinstance(uobj, dict) else None) or _get_session_username()
-        settings = _load_execution_settings(username)
-        if settings.get("kill_switch"):
-            return
-        if not settings.get("autonomy_enabled"):
-            return
-
-        q = _load_queue(username)
-        items = q.get("items") or []
-        if not items:
-            return
-
-        # daily cap
-        if _count_actions_today(username) >= int(settings.get("max_actions_per_day") or 0):
-            return
-
-        changed = False
-        # process up to 3 per tick
-        for item in items:
-            if item.get("status") != "pending":
-                continue
-            contract = (item.get("contract") or {})
-            if not isinstance(contract, dict):
-                item["status"] = "failed"
-                item["last_error"] = "Invalid contract"
-                changed = True
-                continue
-
-            ik = (contract.get("idempotency_key") or "").strip()
-            if ik and _already_executed(username, ik):
-                item["status"] = "canceled"
-                item["last_error"] = "Duplicate blocked"
-                changed = True
-                continue
-
-            # mission policy cap
-            mission = _get_mission(username, contract.get("mission_id") or "default")
-            cap = int(mission.get("max_actions_per_day") or settings.get("max_actions_per_day") or 50)
-            if _count_actions_today(username) >= cap:
-                return
-
-            item["attempts"] = int(item.get("attempts") or 0) + 1
-            ok, err, meta = _execute_contract_for_user(uobj, contract)
-            if ok:
-                item["status"] = "success"
-                item["executed_at"] = now_iso()
-                changed = True
-                _append_audit(username, {
-                    "status": "success",
-                    "idempotency_key": ik,
-                    "type": contract.get("type"),
-                    "mission_id": contract.get("mission_id"),
-                    "meta": meta or {},
-                })
-            else:
-                item["status"] = "failed" if item["attempts"] >= 2 else "pending"
-                item["last_error"] = err or "Execution failed"
-                changed = True
-                _append_audit(username, {
-                    "status": "failed",
-                    "idempotency_key": ik,
-                    "type": contract.get("type"),
-                    "mission_id": contract.get("mission_id"),
-                    "error": item["last_error"],
-                })
-
-            # process limit
-            processed = sum(1 for it in items if it.get("status") in ("success","failed","canceled") and it.get("executed_at") == item.get("executed_at"))
-            if processed >= 3:
-                break
-
-        if changed:
-            q["items"] = items
-            _save_queue(username, q)
-    except Exception:
-        # Must never break tick
-        return
 
 # =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
@@ -2782,14 +2336,12 @@ def api_action_stacks_schedules_delete(teammate: str):
 def api_action_stack_schedules_tick():
     try:
         _run_due_schedules_once()
-        # additive: resume any due runs and process external action queue
+        # ADDITIVE: optional RPA queue processing (no background threads).
         try:
-            _resume_due_runs_once()
+            if "_rpa_tick_once" in globals():
+                _rpa_tick_once()
         except Exception:
-            pass
-        try:
-            _process_action_queue_once()
-        except Exception:
+            # Never let RPA processing break schedules.
             pass
         return jsonify({"ok": True})
     except Exception as e:
@@ -2815,117 +2367,6 @@ def api_me():
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
-# =========================
-# Execution Engine API (additive)
-# =========================
-
-@app.get("/api/execution/settings")
-def api_execution_settings_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    st = _load_execution_settings(uname)
-    return jsonify({"ok": True, "settings": st, "supported_action_types": SUPPORTED_ACTION_TYPES})
-
-@app.post("/api/execution/settings")
-def api_execution_settings_set():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    if not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "Invalid JSON"}), 400
-    allowed_keys = ["kill_switch", "allowlist", "autonomy_enabled", "max_risk", "max_actions_per_day", "allowed_recipient_domains"]
-    update = {k: payload.get(k) for k in allowed_keys if k in payload}
-    _save_execution_settings(uname, update)
-    return jsonify({"ok": True, "settings": _load_execution_settings(uname)})
-
-@app.get("/api/missions")
-def api_missions_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    return jsonify({"ok": True, **_load_missions(uname)})
-
-@app.post("/api/missions")
-def api_missions_set():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    missions = payload.get("missions") if isinstance(payload, dict) else None
-    if not isinstance(missions, list):
-        return jsonify({"ok": False, "error": "missions must be a list"}), 400
-    cleaned = []
-    for m in missions:
-        if not isinstance(m, dict):
-            continue
-        mid = (m.get("id") or "").strip() or str(uuid.uuid4())
-        cleaned.append({
-            "id": mid,
-            "name": (m.get("name") or "").strip()[:120] or "Mission",
-            "description": (m.get("description") or "")[:800],
-            "enabled": bool(m.get("enabled", True)),
-            "allowlist": [x for x in (m.get("allowlist") or []) if isinstance(x, str)],
-            "max_actions_per_day": int(m.get("max_actions_per_day") or 50),
-            "max_risk": (m.get("max_risk") or "low").lower().strip(),
-            "allowed_recipient_domains": [str(x).lower().strip() for x in (m.get("allowed_recipient_domains") or []) if str(x).strip()],
-            "updated_at": now_iso(),
-            "created_at": m.get("created_at") or now_iso(),
-        })
-    if not cleaned:
-        cleaned = [dict(DEFAULT_MISSION)]
-    _save_missions(uname, cleaned)
-    return jsonify({"ok": True, "missions": cleaned})
-
-@app.get("/api/actions/queue")
-def api_actions_queue_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    q = _load_queue(uname)
-    # return only last 50 for UI
-    items = q.get("items") or []
-    return jsonify({"ok": True, "items": items[-50:]})
-
-@app.post("/api/actions/enqueue")
-def api_actions_enqueue():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    contract, err = _validate_action_contract(payload.get("contract") if isinstance(payload, dict) else None)
-    if not contract:
-        return jsonify({"ok": False, "error": err}), 400
-    ok, msg, meta = enqueue_action(uname, contract)
-    if not ok:
-        return jsonify({"ok": False, "error": msg, "meta": meta}), 400
-    return jsonify({"ok": True, "item": meta})
-
-@app.get("/api/actions/audit_tail")
-def api_actions_audit_tail():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username") or _get_session_username()
-    p = _audit_path(uname)
-    if not p.exists():
-        return jsonify({"ok": True, "lines": []})
-    lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-200:]
-    out = []
-    for ln in lines:
-        try:
-            out.append(json.loads(ln))
-        except Exception:
-            continue
-    return jsonify({"ok": True, "lines": out})
-
 
 
 @app.get("/api/onboarding/status")
@@ -10763,4 +10204,485 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
+
+
+
+
+# =========================
+# OPERATOR BROWSER (RPA) - ADDITIVE
+# Safe, permissioned browser automation via an external local runner (Playwright/Selenium).
+# This app DOES NOT embed browser automation in the Flask process. It enqueues validated
+# "browser_*" action contracts and (optionally) processes them on the existing tick endpoint.
+# =========================
+
+# Runner base URL (your local machine is recommended for logged-in sessions).
+RPA_RUNNER_BASE_URL = os.getenv("RPA_RUNNER_BASE_URL", "http://127.0.0.1:5055").rstrip("/")
+
+# Per-user queue storage
+def _rpa_queue_path(username: str) -> Path:
+    username = _clean_username(username or "anon") or "anon"
+    return DATA / "rpa" / f"queue_{username}.json"
+
+def _rpa_audit_path(username: str) -> Path:
+    username = _clean_username(username or "anon") or "anon"
+    return DATA / "rpa" / f"audit_{username}.jsonl"
+
+def _ensure_rpa_dirs():
+    try:
+        (DATA / "rpa").mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+def _load_rpa_queue(username: str) -> Dict[str, Any]:
+    _ensure_rpa_dirs()
+    return load_json(_rpa_queue_path(username), {"items": []})
+
+def _save_rpa_queue(username: str, data: Dict[str, Any]):
+    _ensure_rpa_dirs()
+    save_json(_rpa_queue_path(username), data)
+
+def _append_rpa_audit(username: str, record: Dict[str, Any]):
+    _ensure_rpa_dirs()
+    p = _rpa_audit_path(username)
+    try:
+        line = json.dumps(record, ensure_ascii=False)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+# ---- RPA Settings (stored in user settings) ----
+def _get_user_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not u:
+        return {}
+    return (u.get("settings") or {})
+
+def _get_rpa_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    settings = _get_user_settings(u)
+    rpa = (settings.get("rpa") or {})
+    # Safe defaults: disabled unless explicitly enabled.
+    return {
+        "enabled": bool(rpa.get("enabled", False)),
+        "kill_switch": bool(rpa.get("kill_switch", True)),  # ON by default
+        "require_approval_for_social": bool(rpa.get("require_approval_for_social", True)),
+        "max_actions_per_tick": int(rpa.get("max_actions_per_tick", 3)),
+        "max_actions_per_day": int(rpa.get("max_actions_per_day", 30)),
+        "quiet_hours": rpa.get("quiet_hours", {"start": "22:00", "end": "07:00"}),
+    }
+
+def _save_rpa_settings_for_user(username: str, new_rpa: Dict[str, Any]) -> None:
+    data = load_users()
+    users = data.get("users") or {}
+    u = users.get(username)
+    if not u:
+        return
+    settings = (u.get("settings") or {})
+    settings["rpa"] = {
+        "enabled": bool(new_rpa.get("enabled", False)),
+        "kill_switch": bool(new_rpa.get("kill_switch", False)),
+        "require_approval_for_social": bool(new_rpa.get("require_approval_for_social", True)),
+        "max_actions_per_tick": int(new_rpa.get("max_actions_per_tick", 3)),
+        "max_actions_per_day": int(new_rpa.get("max_actions_per_day", 30)),
+        "quiet_hours": new_rpa.get("quiet_hours", {"start": "22:00", "end": "07:00"}),
+    }
+    u["settings"] = settings
+    u["updated_at"] = now_iso()
+    users[username] = u
+    data["users"] = users
+    save_users(data)
+
+# ---- Action Contracts ----
+_RPA_ALLOWED_TYPES = {
+    "browser_open_url",
+    "browser_click",
+    "browser_type",
+    "browser_wait_for",
+    "browser_screenshot",
+    "browser_extract",
+    "browser_run_recipe",
+}
+
+def _rpa_contract_validate(contract: Dict[str, Any]) -> Tuple[bool, str]:
+    if not isinstance(contract, dict):
+        return False, "Contract must be an object."
+    ctype = (contract.get("type") or "").strip()
+    if ctype not in _RPA_ALLOWED_TYPES:
+        return False, f"Unsupported RPA contract type: {ctype}"
+    idem = (contract.get("idempotency_key") or "").strip()
+    if not idem:
+        return False, "Missing idempotency_key."
+    # Optional social flag: triggers approval requirement by default.
+    if "social_platform" not in contract:
+        contract["social_platform"] = False
+
+    # Validate by type
+    if ctype == "browser_open_url":
+        url = (contract.get("url") or "").strip()
+        if not (url.startswith("http://") or url.startswith("https://")):
+            return False, "browser_open_url requires a valid http(s) url."
+    elif ctype == "browser_click":
+        # Prefer selectors. Vision targets can be used in the runner but should be explicit.
+        selector = (contract.get("selector") or "").strip()
+        target = (contract.get("target") or "").strip()
+        if not selector and not target:
+            return False, "browser_click requires selector or target."
+    elif ctype == "browser_type":
+        selector = (contract.get("selector") or "").strip()
+        text = contract.get("text")
+        if not selector:
+            return False, "browser_type requires selector."
+        if text is None:
+            return False, "browser_type requires text."
+    elif ctype == "browser_wait_for":
+        selector = (contract.get("selector") or "").strip()
+        timeout_ms = int(contract.get("timeout_ms", 15000))
+        if not selector:
+            return False, "browser_wait_for requires selector."
+        if timeout_ms < 1000 or timeout_ms > 120000:
+            return False, "timeout_ms out of range (1000..120000)."
+        contract["timeout_ms"] = timeout_ms
+    elif ctype == "browser_extract":
+        selector = (contract.get("selector") or "").strip()
+        if not selector:
+            return False, "browser_extract requires selector."
+    elif ctype == "browser_run_recipe":
+        recipe = (contract.get("recipe") or "").strip()
+        if not recipe:
+            return False, "browser_run_recipe requires recipe."
+        # params optional
+    return True, ""
+
+def _rpa_queue_enqueue(username: str, contract: Dict[str, Any]) -> Dict[str, Any]:
+    ok, err = _rpa_contract_validate(contract)
+    if not ok:
+        raise ValueError(err)
+    q = _load_rpa_queue(username)
+    items = q.get("items") or []
+    idem = contract.get("idempotency_key")
+
+    # Idempotency: do not enqueue duplicates.
+    for it in items:
+        if (it.get("contract") or {}).get("idempotency_key") == idem:
+            return it
+
+    item = {
+        "id": str(uuid.uuid4()),
+        "status": "pending",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "attempts": 0,
+        "approved": bool(contract.get("approved", False)),
+        "contract": contract,
+        "result": None,
+        "error": None,
+    }
+    items.append(item)
+    q["items"] = items
+    _save_rpa_queue(username, q)
+    _append_rpa_audit(username, {"event": "enqueue", "at": now_iso(), "item": {"id": item["id"], "contract": contract}})
+    return item
+
+def _rpa_queue_update(username: str, item_id: str, **fields) -> Optional[Dict[str, Any]]:
+    q = _load_rpa_queue(username)
+    items = q.get("items") or []
+    for it in items:
+        if it.get("id") == item_id:
+            for k, v in fields.items():
+                it[k] = v
+            it["updated_at"] = now_iso()
+            _save_rpa_queue(username, q)
+            return it
+    return None
+
+def _rpa_queue_tail(username: str, limit: int = 50) -> List[Dict[str, Any]]:
+    q = _load_rpa_queue(username)
+    items = q.get("items") or []
+    return items[-max(1, int(limit)) :]
+
+# ---- Runner calls ----
+def _rpa_http(method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: int = 35) -> Tuple[bool, Any]:
+    # requests is optional dependency; keep app resilient.
+    try:
+        import requests  # type: ignore
+    except Exception as e:
+        return False, f"requests not installed: {e}"
+
+    url = f"{RPA_RUNNER_BASE_URL}{path}"
+    try:
+        if method.upper() == "GET":
+            r = requests.get(url, timeout=timeout)
+        else:
+            r = requests.request(method.upper(), url, json=payload or {}, timeout=timeout)
+        try:
+            data = r.json()
+        except Exception:
+            data = {"ok": False, "error": r.text[:2000]}
+        if r.status_code >= 400:
+            return False, data
+        return True, data
+    except Exception as e:
+        return False, str(e)
+
+# ---- Quiet hours ----
+def _hhmm_to_minutes(hhmm: str) -> Optional[int]:
+    try:
+        hhmm = (hhmm or "").strip()
+        m = re.match(r"^(\d{1,2}):(\d{2})$", hhmm)
+        if not m:
+            return None
+        h = int(m.group(1)); mi = int(m.group(2))
+        if h < 0 or h > 23 or mi < 0 or mi > 59:
+            return None
+        return h*60 + mi
+    except Exception:
+        return None
+
+def _is_in_quiet_hours(qh: Dict[str, Any]) -> bool:
+    try:
+        start = _hhmm_to_minutes((qh or {}).get("start", "22:00"))
+        end = _hhmm_to_minutes((qh or {}).get("end", "07:00"))
+        if start is None or end is None:
+            return False
+        now = datetime.now()
+        nowm = now.hour*60 + now.minute
+        if start < end:
+            return start <= nowm < end
+        # crosses midnight
+        return (nowm >= start) or (nowm < end)
+    except Exception:
+        return False
+
+# ---- Daily cap ----
+def _rpa_daily_count(username: str, day_iso: str) -> int:
+    # read audit tail cheaply by scanning last ~200 lines
+    p = _rpa_audit_path(username)
+    if not p.exists():
+        return 0
+    cnt = 0
+    try:
+        with open(p, "rb") as f:
+            data = f.read()[-200000:]  # tail
+        for line in data.splitlines():
+            try:
+                rec = json.loads(line.decode("utf-8", errors="ignore"))
+                if rec.get("event") == "execute" and (rec.get("day") == day_iso) and rec.get("status") == "success":
+                    cnt += 1
+            except Exception:
+                continue
+    except Exception:
+        return 0
+    return cnt
+
+# ---- Processing ----
+def _rpa_tick_once():
+    u = current_user()
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
+    if not u:
+        return
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    settings = _get_rpa_settings(u)
+
+    if not settings.get("enabled"):
+        return
+    if settings.get("kill_switch"):
+        return
+    if _is_in_quiet_hours(settings.get("quiet_hours") or {}):
+        return
+
+    day = datetime.now().strftime("%Y-%m-%d")
+    if _rpa_daily_count(uname, day) >= int(settings.get("max_actions_per_day", 30)):
+        return
+
+    q = _load_rpa_queue(uname)
+    items = q.get("items") or []
+    if not items:
+        return
+
+    max_per_tick = max(1, int(settings.get("max_actions_per_tick", 3)))
+    processed = 0
+
+    for it in items:
+        if processed >= max_per_tick:
+            break
+        if it.get("status") not in ("pending", "retry"):
+            continue
+
+        contract = it.get("contract") or {}
+        social = bool(contract.get("social_platform", False))
+        if social and settings.get("require_approval_for_social", True) and not bool(it.get("approved", False)):
+            # Await explicit approval for social actions
+            it["status"] = "awaiting_approval"
+            it["updated_at"] = now_iso()
+            processed += 1
+            continue
+
+        # Execute
+        it["status"] = "running"
+        it["attempts"] = int(it.get("attempts") or 0) + 1
+        it["updated_at"] = now_iso()
+        processed += 1
+
+        ok, data = _rpa_http("POST", "/run", {"contract": contract, "meta": {"queue_id": it.get("id"), "user": uname}})
+        if ok and isinstance(data, dict) and data.get("ok"):
+            it["status"] = "success"
+            it["result"] = data
+            it["error"] = None
+            _append_rpa_audit(uname, {"event": "execute", "at": now_iso(), "day": day, "status": "success", "item_id": it.get("id"), "type": contract.get("type")})
+        else:
+            # Retry a few times for transient runner failures
+            err = data if isinstance(data, str) else (data.get("error") if isinstance(data, dict) else str(data))
+            it["error"] = err
+            if int(it.get("attempts") or 0) < 3:
+                it["status"] = "retry"
+            else:
+                it["status"] = "failed"
+            _append_rpa_audit(uname, {"event": "execute", "at": now_iso(), "day": day, "status": it["status"], "item_id": it.get("id"), "type": contract.get("type"), "error": err})
+
+    q["items"] = items
+    _save_rpa_queue(uname, q)
+
+# ---- API: settings ----
+@app.get("/api/rpa/settings")
+def api_rpa_settings_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "settings": _get_rpa_settings(u)})
+
+@app.post("/api/rpa/settings")
+def api_rpa_settings_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    cur = _get_rpa_settings(u)
+    nxt = {**cur, **(payload.get("settings") or payload)}
+    # Safe normalization
+    nxt["max_actions_per_tick"] = int(nxt.get("max_actions_per_tick", 3))
+    nxt["max_actions_per_day"] = int(nxt.get("max_actions_per_day", 30))
+    _save_rpa_settings_for_user(uname, nxt)
+    # Return fresh
+    u2 = current_user()
+    return jsonify({"ok": True, "settings": _get_rpa_settings(u2)})
+
+# ---- API: runner health ----
+@app.get("/api/rpa/runner_status")
+def api_rpa_runner_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    ok, data = _rpa_http("GET", "/status", None, timeout=10)
+    return jsonify({"ok": True, "runner_ok": bool(ok), "data": data})
+
+# ---- API: queue ----
+@app.get("/api/rpa/queue")
+def api_rpa_queue_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    limit = int(request.args.get("limit", "50"))
+    return jsonify({"ok": True, "items": _rpa_queue_tail(uname, limit=limit)})
+
+@app.post("/api/rpa/enqueue")
+def api_rpa_enqueue():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    contract = (payload.get("contract") or {})
+    try:
+        item = _rpa_queue_enqueue(uname, contract)
+        return jsonify({"ok": True, "item": item})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+@app.post("/api/rpa/approve")
+def api_rpa_approve():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    item_id = (payload.get("id") or "").strip()
+    if not item_id:
+        return jsonify({"ok": False, "error": "Missing id"}), 400
+    it = _rpa_queue_update(uname, item_id, approved=True, status="pending")
+    if not it:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    _append_rpa_audit(uname, {"event": "approve", "at": now_iso(), "item_id": item_id})
+    return jsonify({"ok": True, "item": it})
+
+@app.post("/api/rpa/cancel")
+def api_rpa_cancel():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(force=True) or {}
+    item_id = (payload.get("id") or "").strip()
+    if not item_id:
+        return jsonify({"ok": False, "error": "Missing id"}), 400
+    it = _rpa_queue_update(uname, item_id, status="canceled")
+    if not it:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    _append_rpa_audit(uname, {"event": "cancel", "at": now_iso(), "item_id": item_id})
+    return jsonify({"ok": True, "item": it})
+
+# ---- API: recipe framework (safe placeholders) ----
+# Recipes here are "macros" that the external runner understands. We intentionally keep this app
+# platform-agnostic and require explicit approval for any recipe flagged as social_platform.
+_BUILTIN_RPA_RECIPES = [
+    {
+        "name": "open_url_and_screenshot",
+        "description": "Open a URL and capture a screenshot proof.",
+        "social_platform": False,
+        "params": ["url"],
+        "example_contract": {
+            "type": "browser_run_recipe",
+            "recipe": "open_url_and_screenshot",
+            "params": {"url": "https://example.com"},
+            "social_platform": False,
+            "idempotency_key": "demo_open_url_1"
+        }
+    },
+    {
+        "name": "collect_list_items",
+        "description": "Navigate and extract text from a CSS selector list (runner handles navigation).",
+        "social_platform": False,
+        "params": ["url", "selector"],
+        "example_contract": {
+            "type": "browser_run_recipe",
+            "recipe": "collect_list_items",
+            "params": {"url": "https://example.com", "selector": "a"},
+            "social_platform": False,
+            "idempotency_key": "demo_collect_1"
+        }
+    },
+    # Social automation is high-risk. We keep it gated behind approval + your own runner implementation.
+    {
+        "name": "social_invite_from_reactors_batch",
+        "description": "Invite a batch of people from a reactors list (requires approval; runner must implement).",
+        "social_platform": True,
+        "params": ["post_url", "batch_size"],
+        "example_contract": {
+            "type": "browser_run_recipe",
+            "recipe": "social_invite_from_reactors_batch",
+            "params": {"post_url": "https://social.example/post/123", "batch_size": 10},
+            "social_platform": True,
+            "idempotency_key": "invite_reactors_post123_batch1"
+        }
+    }
+]
+
+@app.get("/api/rpa/recipes")
+def api_rpa_recipes():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "recipes": _BUILTIN_RPA_RECIPES})
 
