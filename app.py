@@ -7,6 +7,7 @@ import base64
 import secrets
 import hashlib
 import hmac
+import shutil  # NEW: used for data migration copy (additive)
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -2839,6 +2840,46 @@ def api_followup():
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
+# =========================
+# ADDITIVE UPGRADE: Operator Summary for group replies
+# =========================
+@app.post("/api/operator/summary")
+def api_operator_summary():
+    data = request.get_json(force=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    outputs = data.get("outputs") or {}
+    if not isinstance(outputs, dict) or not outputs:
+        return jsonify({"ok": False, "error": "Missing outputs"}), 400
+
+    # Build a compact transcript
+    parts: List[str] = []
+    if prompt:
+        parts.append(f"USER PROMPT:\n{prompt}")
+    for k, v in outputs.items():
+        try:
+            vv = (v or "")
+            if not isinstance(vv, str):
+                vv = json.dumps(vv)
+            vv = vv.strip()
+        except Exception:
+            vv = str(v)
+        parts.append(f"--- {k} ---\n{vv}")
+
+    transcript = "\n\n".join(parts).strip()
+
+    system = (
+        "You are the Operator inside a multi-agent Round Table. "
+        "Your job is to merge teammate replies into one clear plan without hype. "
+        "Rules: be concrete, identify disagreements, pick a best path, and list next actions. "
+        "Output format:\n"
+        "1) Operator Summary (3-6 sentences)\n"
+        "2) Action Plan (5-10 bullets)\n"
+        "3) Risks / Unknowns (bullets)\n"
+        "4) Best Next Prompt (one paragraph the user can paste)\n"
+    )
+
+    text = call_llm(system, [{"role": "user", "content": transcript}], temperature=0.35)
+    return jsonify({"ok": True, "summary": text})
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -4981,10 +5022,22 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="rightmeta">
       <div id="modelTag">Model: {{model}}</div>
+      <select id="orchestraMode" class="btn" title="Orchestra mode: how many teammates respond">
+        <option value="full">Full round table</option>
+        <option value="panel">Panel (3 teammates)</option>
+        <option value="solo">Solo (selected seat)</option>
+      </select>
+      <label class="tiny" style="display:inline-flex; align-items:center; gap:6px; margin-left:6px; user-select:none;">
+        <input type="checkbox" id="orchestraSummaryToggle" style="transform: translateY(1px);" />
+        Operator summary
+      </label>
+      <button class="btn btnPrimary" id="orchestraRunBtn" title="Run using Orchestra mode">Run</button>
+
       <button class="btn" id="assembleBtn">Assemble all</button>
       <button class="btn" id="frameworkBtn">Core framework</button>
       <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
       <button class="btn" id="createTeamBtn">Create teammate</button>
+      <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
@@ -5015,6 +5068,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
+        <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
@@ -5167,10 +5221,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" style="margin-bottom:10px;">
                   Toggle who is present at the table. Installed teammates stay installed.
                 </div>
-                <div class="tiny" style="margin:-4px 0 10px 0; opacity:.9;">New here? Recommended starter team: <b>Alex</b>, <b>Sunshine</b>, <b>Willow</b>.</div>
                 <div id="manageList"></div>
                 <div class="actions">
-                  <button class="btn" id="installFullBtn" title="Install the default full team roster">Install full team</button>
                   <button class="btn" id="cancelManage">Cancel</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                 </div>
@@ -5332,7 +5384,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
+              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5383,7 +5437,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7481,6 +7537,169 @@ function makeSeat(defn, idx){
       }
     };
 
+// =========================
+// ADDITIVE UPGRADE: Orchestra Mode (solo/panel/full) + Operator Summary
+// =========================
+function getOrchestraMode(){
+  const el = $("orchestraMode");
+  const v = el ? (el.value || "full") : "full";
+  try{ localStorage.setItem("rt_orchestra_mode_v1", v); }catch(_){}
+  return v;
+}
+function restoreOrchestraMode(){
+  try{
+    const v = localStorage.getItem("rt_orchestra_mode_v1");
+    if(v && $("orchestraMode")) $("orchestraMode").value = v;
+  }catch(_){}
+  try{
+    const s = localStorage.getItem("rt_orchestra_summary_v1");
+    if(s && $("orchestraSummaryToggle")) $("orchestraSummaryToggle").checked = (s === "1");
+  }catch(_){}
+}
+function saveOrchestraSummaryToggle(){
+  try{ localStorage.setItem("rt_orchestra_summary_v1", $("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked ? "1" : "0"); }catch(_){}
+}
+
+function pickPanelSeats(order){
+  const pool = (order || []).filter(n => n && n !== "Operator");
+  if(pool.length <= 3) return pool.slice(0,3);
+  // Prefer installed "recommended 3" if present, else random
+  const preferred = ["Alex", "Ava", "Orion", "Sunshine", "Willow", "Atlis", "Luna", "Simba"];
+  const chosen = [];
+  for(const p of preferred){
+    if(pool.includes(p) && chosen.length < 3) chosen.push(p);
+  }
+  if(chosen.length < 3){
+    // random fill
+    const rest = pool.filter(n => !chosen.includes(n));
+    while(chosen.length < 3 && rest.length){
+      const i = Math.floor(Math.random() * rest.length);
+      chosen.push(rest.splice(i,1)[0]);
+    }
+  }
+  return chosen.slice(0,3);
+}
+
+async function requestOperatorSummary(prompt, outputs){
+  try{
+    const res = await fetch("/api/operator/summary", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({prompt, outputs})
+    });
+    const data = await res.json();
+    if(!data || !data.ok) return null;
+    return data.summary || "";
+  }catch(e){
+    return null;
+  }
+}
+
+function renderOperatorSummaryBox(text){
+  const box = $("groupReplies");
+  if(!box) return;
+  let existing = $("operatorSummaryBox");
+  if(!existing){
+    existing = document.createElement("div");
+    existing.id = "operatorSummaryBox";
+    existing.className = "panel";
+    existing.style.marginTop = "10px";
+    existing.innerHTML = `
+      <div class="h">Operator Summary</div>
+      <pre id="operatorSummaryText" style="white-space:pre-wrap; margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;"></pre>
+    `;
+    box.appendChild(existing);
+  }
+  const pre = $("operatorSummaryText");
+  if(pre) pre.textContent = (text || "").trim();
+}
+
+async function runOrchestra(){
+  const prompt = ($("opPrompt") ? $("opPrompt").value.trim() : "") || "";
+  if(!prompt){
+    showModal("Missing prompt", "Type a prompt in the Group Console.");
+    return;
+  }
+  const mode = getOrchestraMode();
+  saveOrchestraSummaryToggle();
+
+  // Always reuse existing conveneAll for full mode (unchanged behavior)
+  if(mode === "full"){
+    await conveneAll();
+    // Optional operator summary after full run
+    if($("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked && lastGroupOutputs && Object.keys(lastGroupOutputs||{}).length){
+      const sum = await requestOperatorSummary(prompt, lastGroupOutputs);
+      if(sum) renderOperatorSummaryBox(sum);
+    }
+    return;
+  }
+
+  // Panel: run 3 seats only, using the same /api/followup fanout logic (client-side)
+  if(mode === "panel"){
+    const seats = pickPanelSeats(order);
+    if(seats.length === 0){
+      showModal("No teammates", "Install teammates first.");
+      return;
+    }
+    // Reset statuses
+    order.forEach(n => setSeatLive(n, "idle"));
+    seats.forEach(n => setSeatLive(n, "thinking"));
+    setOpStatus("Running panel...");
+
+    const outputs = {};
+    const drafts = {};
+    for(const n of seats){
+      try{
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/followup", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
+          signal: controller.signal
+        });
+        clearTimeout(t);
+        const data = await res.json();
+        if(!data || !data.ok){ setSeatLive(n, "waiting"); continue; }
+        outputs[n] = data.response || "";
+        if(data.email_draft) drafts[n] = data.email_draft;
+        renderGroupReplies(outputs, drafts);
+        setSeatLive(n, "done");
+      }catch(e){
+        setSeatLive(n, "waiting");
+      }
+    }
+    lastGroupOutputs = outputs;
+    renderGroupReplies(outputs, drafts);
+    order.forEach(n => { if(seats.includes(n) === false && !(n in outputs)) setSeatLive(n, "idle"); });
+    setOpStatus("Complete");
+    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+
+    groupFileIds = [];
+    renderAttachList("groupAttachList", groupFileIds);
+
+    if($("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked && Object.keys(outputs||{}).length){
+      const sum = await requestOperatorSummary(prompt, outputs);
+      if(sum) renderOperatorSummaryBox(sum);
+    }
+    return;
+  }
+
+  // Solo: send to selected seat using existing single followup UI
+  if(mode === "solo"){
+    if(!selectedSeat){
+      showModal("No seat selected", "Click a teammate card first (solo mode).");
+      return;
+    }
+    $("followMsg").value = prompt;
+    await sendFollow();
+    // no operator summary for solo
+    return;
+  }
+}
+
+
+
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
@@ -7610,6 +7829,18 @@ function makeSeat(defn, idx){
       await conveneAll();
     }
     $("assembleBtn").onclick = assembleAll;
+
+// Orchestra controls (additive)
+try{ restoreOrchestraMode(); }catch(_){}
+if($("orchestraMode")) $("orchestraMode").addEventListener("change", ()=>{ try{ getOrchestraMode(); }catch(_){ } });
+if($("orchestraSummaryToggle")) $("orchestraSummaryToggle").addEventListener("change", saveOrchestraSummaryToggle);
+if($("orchestraRunBtn")) $("orchestraRunBtn").onclick = runOrchestra;
+
+// Make "Assemble all" respect Orchestra mode (full mode remains identical)
+$("assembleBtn").onclick = async ()=>{ $("opPrompt").value = "All teammates to the round table"; await runOrchestra(); };
+if($("assembleBtn2")) $("assembleBtn2").onclick = async ()=>{ $("opPrompt").value = "All teammates to the round table"; await runOrchestra(); };
+
+
     $("assembleBtn2").onclick = assembleAll;
 
     async function sendFollow(){
@@ -7717,7 +7948,9 @@ function makeSeat(defn, idx){
     try{
       $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
       $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
-      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
+      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
+      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
+      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
       $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
     }catch(_){}
 
@@ -7725,7 +7958,9 @@ function makeSeat(defn, idx){
     try{
       $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
       $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
-      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
+      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
+      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
+      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
       $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
     }catch(_){}
 
