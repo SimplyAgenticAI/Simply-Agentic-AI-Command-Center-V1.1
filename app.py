@@ -7,7 +7,6 @@ import base64
 import secrets
 import hashlib
 import hmac
-import shutil  # NEW: used for data migration copy (additive)
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -2840,46 +2839,81 @@ def api_followup():
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
 
-# =========================
-# ADDITIVE UPGRADE: Operator Summary for group replies
-# =========================
-@app.post("/api/operator/summary")
-def api_operator_summary():
-    data = request.get_json(force=True) or {}
-    prompt = (data.get("prompt") or "").strip()
-    outputs = data.get("outputs") or {}
-    if not isinstance(outputs, dict) or not outputs:
-        return jsonify({"ok": False, "error": "Missing outputs"}), 400
 
-    # Build a compact transcript
-    parts: List[str] = []
-    if prompt:
-        parts.append(f"USER PROMPT:\n{prompt}")
+
+# =========================
+# Operator Summary (additive)
+# =========================
+
+@app.post("/api/operator_summary")
+def api_operator_summary():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get("prompt") or "").strip()
+    outputs = payload.get("outputs") or {}
+
+    if not prompt or not isinstance(outputs, dict) or not outputs:
+        return jsonify({"ok": False, "error": "Missing prompt or outputs"}), 400
+
+    # Pull operator profile as shared context (if present)
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    op = _load_operator_profile(uname) or {}
+    op_ctx = {
+        "display_name": (op.get("display_name") or "").strip(),
+        "business": (op.get("business") or "").strip(),
+        "offers": (op.get("offers") or "").strip(),
+        "audience": (op.get("audience") or "").strip(),
+        "goals": (op.get("goals") or "").strip(),
+        "constraints": (op.get("constraints") or "").strip(),
+        "tone_rules": (op.get("tone_rules") or "").strip(),
+        "notes": (op.get("notes") or "").strip(),
+    }
+
+    # Compact team outputs
+    team_blob_parts = []
     for k, v in outputs.items():
         try:
-            vv = (v or "")
-            if not isinstance(vv, str):
-                vv = json.dumps(vv)
-            vv = vv.strip()
+            txt = str(v or "").strip()
         except Exception:
-            vv = str(v)
-        parts.append(f"--- {k} ---\n{vv}")
-
-    transcript = "\n\n".join(parts).strip()
+            txt = ""
+        if not txt:
+            continue
+        # keep it bounded
+        if len(txt) > 4000:
+            txt = txt[:4000] + "…"
+        team_blob_parts.append(f"[{k}]\n{txt}")
+    team_blob = "\n\n".join(team_blob_parts).strip()
+    if not team_blob:
+        return jsonify({"ok": False, "error": "No usable outputs"}), 400
 
     system = (
-        "You are the Operator inside a multi-agent Round Table. "
-        "Your job is to merge teammate replies into one clear plan without hype. "
-        "Rules: be concrete, identify disagreements, pick a best path, and list next actions. "
-        "Output format:\n"
-        "1) Operator Summary (3-6 sentences)\n"
-        "2) Action Plan (5-10 bullets)\n"
-        "3) Risks / Unknowns (bullets)\n"
-        "4) Best Next Prompt (one paragraph the user can paste)\n"
+        "You are the Operator Summary for a multi-teammate round table. "
+        "Your job is to merge multiple teammate responses into one crisp, actionable plan. "
+        "Be concrete, avoid fluff, and preserve the user's constraints. "
+        "Never invent facts. If information is missing, state what is unknown and proceed with the best safe assumption. "
+        "Format:\n"
+        "1) One-paragraph synthesis\n"
+        "2) 5-bullet action plan (imperative verbs)\n"
+        "3) Risks & watch-outs (3 bullets max)\n"
+        "4) Next message to send (if applicable, otherwise 'N/A')"
     )
 
-    text = call_llm(system, [{"role": "user", "content": transcript}], temperature=0.35)
-    return jsonify({"ok": True, "summary": text})
+    user_msg = (
+        f"Operator profile context (may be empty):\n{json.dumps(op_ctx, ensure_ascii=False)}\n\n"
+        f"Original prompt:\n{prompt}\n\n"
+        f"Teammate outputs:\n{team_blob}"
+    )
+
+    try:
+        summary = call_llm(system=system, messages=[{"role": "user", "content": user_msg}], temperature=0.35)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "LLM error"}), 500
+
+    return jsonify({"ok": True, "summary": (summary or "").strip()})
+
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -5022,17 +5056,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="rightmeta">
       <div id="modelTag">Model: {{model}}</div>
-      <select id="orchestraMode" class="btn" title="Orchestra mode: how many teammates respond">
-        <option value="full">Full round table</option>
-        <option value="panel">Panel (3 teammates)</option>
-        <option value="solo">Solo (selected seat)</option>
-      </select>
-      <label class="tiny" style="display:inline-flex; align-items:center; gap:6px; margin-left:6px; user-select:none;">
-        <input type="checkbox" id="orchestraSummaryToggle" style="transform: translateY(1px);" />
-        Operator summary
-      </label>
-      <button class="btn btnPrimary" id="orchestraRunBtn" title="Run using Orchestra mode">Run</button>
-
       <button class="btn" id="assembleBtn">Assemble all</button>
       <button class="btn" id="frameworkBtn">Core framework</button>
       <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
@@ -5366,10 +5389,27 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console (All Teammates)</div>
+                <div class="t1">Group Console (Full Team)</div>
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <div class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px;">
+                  <div class="tiny" style="opacity:.9;">Mode</div>
+                  <select id="rtMode" style="background:#0b1220; color:var(--text); border:1px solid rgba(148,163,184,.35); border-radius:10px; padding:6px 8px;">
+                    <option value="full">Full team</option>
+                    <option value="panel">Panel (3)</option>
+                    <option value="solo">Solo (1)</option>
+                  </select>
+                </div>
+                <label class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:pointer;">
+                  <input type="checkbox" id="rtAutoPickPanel" style="accent-color:#7c3aed;"/>
+                  <span class="tiny" style="opacity:.9;">Auto pick panel</span>
+                </label>
+                <label class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:pointer;">
+                  <input type="checkbox" id="rtOpSummary" style="accent-color:#7c3aed;"/>
+                  <span class="tiny" style="opacity:.9;">Operator summary</span>
+                </label>
+
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
@@ -5950,6 +5990,141 @@ id="diagOverlay"></div>
       const installed = (state && state.installed) ? state.installed : {};
       return a.filter(n => installed[n]);
     }
+
+    // =========================
+    // Orchestra Mode (additive v1)
+    // full: everyone active
+    // panel: 3 teammates
+    // solo: 1 teammate
+    // =========================
+    const RT_STORAGE_KEYS = {
+      mode: "rt_mode_v1",
+      autoPanel: "rt_auto_panel_v1",
+      opSummary: "rt_op_summary_v1"
+    };
+
+    function rtGetMode(){
+      try{
+        const el = document.getElementById("rtMode");
+        const v = (el && el.value) ? el.value : (localStorage.getItem(RT_STORAGE_KEYS.mode) || "full");
+        return (v === "panel" || v === "solo") ? v : "full";
+      }catch(e){ return "full"; }
+    }
+    function rtGetAutoPanel(){
+      try{
+        const el = document.getElementById("rtAutoPickPanel");
+        if(el) return !!el.checked;
+        return (localStorage.getItem(RT_STORAGE_KEYS.autoPanel) === "1");
+      }catch(e){ return false; }
+    }
+    function rtGetOpSummary(){
+      try{
+        const el = document.getElementById("rtOpSummary");
+        if(el) return !!el.checked;
+        return (localStorage.getItem(RT_STORAGE_KEYS.opSummary) === "1");
+      }catch(e){ return false; }
+    }
+
+    function rtSavePrefs(){
+      try{
+        localStorage.setItem(RT_STORAGE_KEYS.mode, rtGetMode());
+        localStorage.setItem(RT_STORAGE_KEYS.autoPanel, rtGetAutoPanel() ? "1" : "0");
+        localStorage.setItem(RT_STORAGE_KEYS.opSummary, rtGetOpSummary() ? "1" : "0");
+      }catch(e){}
+    }
+
+    function rtApplyPrefsToUI(){
+      try{
+        const mode = (localStorage.getItem(RT_STORAGE_KEYS.mode) || "full");
+        const autoPanel = (localStorage.getItem(RT_STORAGE_KEYS.autoPanel) === "1");
+        const opSum = (localStorage.getItem(RT_STORAGE_KEYS.opSummary) === "1");
+
+        const sel = document.getElementById("rtMode");
+        if(sel) sel.value = (mode === "panel" || mode === "solo") ? mode : "full";
+        const ap = document.getElementById("rtAutoPickPanel");
+        if(ap) ap.checked = !!autoPanel;
+        const os = document.getElementById("rtOpSummary");
+        if(os) os.checked = !!opSum;
+      }catch(e){}
+    }
+
+    function rtSetHeaderLabel(){
+      try{
+        const t1 = document.querySelector(".opTitle .t1");
+        if(!t1) return;
+        const mode = rtGetMode();
+        t1.textContent =
+          mode === "solo" ? "Group Console (Solo)" :
+          mode === "panel" ? "Group Console (Panel of 3)" :
+          "Group Console (Full Team)";
+      }catch(e){}
+    }
+
+    function tokenize(s){
+      try{
+        return (String(s||"").toLowerCase().match(/[a-z0-9]+/g) || []).filter(x => x.length >= 3);
+      }catch(e){ return []; }
+    }
+
+    function scoreTeammate(defn, prompt){
+      const p = new Set(tokenize(prompt));
+      const blob = [defn?.name, defn?.job_title, defn?.mission, defn?.goal, defn?.thinking_style, defn?.responsibilities].join(" ");
+      const t = tokenize(blob);
+      let score = 0;
+      for(const w of t){
+        if(p.has(w)) score += 2;
+      }
+      // Small bias for specialists
+      if(/sales|relationship|clos/i.test(blob)) score += p.has("sales") || p.has("close") ? 3 : 0;
+      if(/research|curat|knowledge/i.test(blob)) score += p.has("research") || p.has("sources") ? 3 : 0;
+      if(/design|graphic|creative/i.test(blob)) score += p.has("graphic") || p.has("design") ? 3 : 0;
+      if(/automation|scale|systems/i.test(blob)) score += p.has("automation") || p.has("scale") ? 3 : 0;
+      if(/integrity|risk|compliance/i.test(blob)) score += p.has("risk") || p.has("policy") ? 3 : 0;
+      return score;
+    }
+
+    function rtPickPanel(prompt, baseOrder){
+      const installed = (state && state.installed) ? state.installed : {};
+      const defs = baseOrder.map(n => installed[n]).filter(Boolean);
+      const ranked = defs
+        .map(d => ({name:d.name, score: scoreTeammate(d, prompt)}))
+        .sort((a,b) => (b.score - a.score));
+      const picked = ranked.slice(0,3).map(x => x.name);
+      // fallback if low scores
+      if(picked.length < 3){
+        for(const n of baseOrder){
+          if(picked.length >= 3) break;
+          if(!picked.includes(n)) picked.push(n);
+        }
+      }
+      return picked.slice(0,3);
+    }
+
+    function rtComputeOrder(prompt){
+      const base = activeOrder();
+      const mode = rtGetMode();
+      if(mode === "solo"){
+        // Prefer selected seat if it's an active teammate; otherwise first active
+        if(selectedSeat && base.includes(selectedSeat)) return [selectedSeat];
+        return base.length ? [base[0]] : [];
+      }
+      if(mode === "panel"){
+        if(rtGetAutoPanel()) return rtPickPanel(prompt, base);
+        return base.slice(0,3);
+      }
+      return base;
+    }
+
+    function rtAnnounceSelection(order){
+      try{
+        const mode = rtGetMode();
+        const label = mode === "solo" ? "Solo" : (mode === "panel" ? "Panel" : "Full team");
+        const names = (order || []).join(", ");
+        if(typeof showToast === "function") showToast(`${label}: ${names || "none"}`);
+      }catch(e){}
+    }
+
+
 
     // RULE: If more than 3 teammates are active, keep the gold and purple pulse on persistently.
     function updateTablePulseFromStatuses(){
@@ -6960,7 +7135,24 @@ function makeSeat(defn, idx){
       const box = $("groupReplies");
       box.innerHTML = "";
 
-      const keys = Object.keys(outputs || {});
+      // Operator summary card (if present)
+      try{
+        const sum = (window.lastOperatorSummary || "").trim();
+        if(sum){
+          const card = document.createElement("div");
+          card.className = "replyCard";
+          const h = document.createElement("div");
+          h.className = "replyHead";
+          h.innerText = "Operator summary";
+          const pre = document.createElement("pre");
+          pre.className = "replyText";
+          pre.innerText = sum;
+          card.appendChild(h);
+          card.appendChild(pre);
+          box.appendChild(card);
+        }
+      }catch(e){}
+const keys = Object.keys(outputs || {});
       if(keys.length === 0){
         const t = document.createElement("div");
         t.className = "tiny";
@@ -7537,169 +7729,6 @@ function makeSeat(defn, idx){
       }
     };
 
-// =========================
-// ADDITIVE UPGRADE: Orchestra Mode (solo/panel/full) + Operator Summary
-// =========================
-function getOrchestraMode(){
-  const el = $("orchestraMode");
-  const v = el ? (el.value || "full") : "full";
-  try{ localStorage.setItem("rt_orchestra_mode_v1", v); }catch(_){}
-  return v;
-}
-function restoreOrchestraMode(){
-  try{
-    const v = localStorage.getItem("rt_orchestra_mode_v1");
-    if(v && $("orchestraMode")) $("orchestraMode").value = v;
-  }catch(_){}
-  try{
-    const s = localStorage.getItem("rt_orchestra_summary_v1");
-    if(s && $("orchestraSummaryToggle")) $("orchestraSummaryToggle").checked = (s === "1");
-  }catch(_){}
-}
-function saveOrchestraSummaryToggle(){
-  try{ localStorage.setItem("rt_orchestra_summary_v1", $("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked ? "1" : "0"); }catch(_){}
-}
-
-function pickPanelSeats(order){
-  const pool = (order || []).filter(n => n && n !== "Operator");
-  if(pool.length <= 3) return pool.slice(0,3);
-  // Prefer installed "recommended 3" if present, else random
-  const preferred = ["Alex", "Ava", "Orion", "Sunshine", "Willow", "Atlis", "Luna", "Simba"];
-  const chosen = [];
-  for(const p of preferred){
-    if(pool.includes(p) && chosen.length < 3) chosen.push(p);
-  }
-  if(chosen.length < 3){
-    // random fill
-    const rest = pool.filter(n => !chosen.includes(n));
-    while(chosen.length < 3 && rest.length){
-      const i = Math.floor(Math.random() * rest.length);
-      chosen.push(rest.splice(i,1)[0]);
-    }
-  }
-  return chosen.slice(0,3);
-}
-
-async function requestOperatorSummary(prompt, outputs){
-  try{
-    const res = await fetch("/api/operator/summary", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({prompt, outputs})
-    });
-    const data = await res.json();
-    if(!data || !data.ok) return null;
-    return data.summary || "";
-  }catch(e){
-    return null;
-  }
-}
-
-function renderOperatorSummaryBox(text){
-  const box = $("groupReplies");
-  if(!box) return;
-  let existing = $("operatorSummaryBox");
-  if(!existing){
-    existing = document.createElement("div");
-    existing.id = "operatorSummaryBox";
-    existing.className = "panel";
-    existing.style.marginTop = "10px";
-    existing.innerHTML = `
-      <div class="h">Operator Summary</div>
-      <pre id="operatorSummaryText" style="white-space:pre-wrap; margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;"></pre>
-    `;
-    box.appendChild(existing);
-  }
-  const pre = $("operatorSummaryText");
-  if(pre) pre.textContent = (text || "").trim();
-}
-
-async function runOrchestra(){
-  const prompt = ($("opPrompt") ? $("opPrompt").value.trim() : "") || "";
-  if(!prompt){
-    showModal("Missing prompt", "Type a prompt in the Group Console.");
-    return;
-  }
-  const mode = getOrchestraMode();
-  saveOrchestraSummaryToggle();
-
-  // Always reuse existing conveneAll for full mode (unchanged behavior)
-  if(mode === "full"){
-    await conveneAll();
-    // Optional operator summary after full run
-    if($("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked && lastGroupOutputs && Object.keys(lastGroupOutputs||{}).length){
-      const sum = await requestOperatorSummary(prompt, lastGroupOutputs);
-      if(sum) renderOperatorSummaryBox(sum);
-    }
-    return;
-  }
-
-  // Panel: run 3 seats only, using the same /api/followup fanout logic (client-side)
-  if(mode === "panel"){
-    const seats = pickPanelSeats(order);
-    if(seats.length === 0){
-      showModal("No teammates", "Install teammates first.");
-      return;
-    }
-    // Reset statuses
-    order.forEach(n => setSeatLive(n, "idle"));
-    seats.forEach(n => setSeatLive(n, "thinking"));
-    setOpStatus("Running panel...");
-
-    const outputs = {};
-    const drafts = {};
-    for(const n of seats){
-      try{
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch("/api/followup", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
-          signal: controller.signal
-        });
-        clearTimeout(t);
-        const data = await res.json();
-        if(!data || !data.ok){ setSeatLive(n, "waiting"); continue; }
-        outputs[n] = data.response || "";
-        if(data.email_draft) drafts[n] = data.email_draft;
-        renderGroupReplies(outputs, drafts);
-        setSeatLive(n, "done");
-      }catch(e){
-        setSeatLive(n, "waiting");
-      }
-    }
-    lastGroupOutputs = outputs;
-    renderGroupReplies(outputs, drafts);
-    order.forEach(n => { if(seats.includes(n) === false && !(n in outputs)) setSeatLive(n, "idle"); });
-    setOpStatus("Complete");
-    try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
-    groupFileIds = [];
-    renderAttachList("groupAttachList", groupFileIds);
-
-    if($("orchestraSummaryToggle") && $("orchestraSummaryToggle").checked && Object.keys(outputs||{}).length){
-      const sum = await requestOperatorSummary(prompt, outputs);
-      if(sum) renderOperatorSummaryBox(sum);
-    }
-    return;
-  }
-
-  // Solo: send to selected seat using existing single followup UI
-  if(mode === "solo"){
-    if(!selectedSeat){
-      showModal("No seat selected", "Click a teammate card first (solo mode).");
-      return;
-    }
-    $("followMsg").value = prompt;
-    await sendFollow();
-    // no operator summary for solo
-    return;
-  }
-}
-
-
-
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
@@ -7707,15 +7736,25 @@ async function runOrchestra(){
         return;
       }
 
-      const reg = state?.registry || null;
-      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
-      if(!order || !order.length){
+      // Base active order from current state (installed + active), then apply Orchestra Mode selection.
+      const baseOrder = activeOrder();
+      if(!baseOrder || !baseOrder.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
       }
 
-      order.forEach(n => setSeatLive(n, "thinking"));
-      setOpStatus("Sending to all");
+      // Orchestra Mode: full | panel (3) | solo (1)
+      const order = rtComputeOrder(prompt);
+      if(!order || !order.length){
+        showModal("No active teammates", "No seats match the selected mode. Add teammates or switch the mode.");
+        return;
+      }
+
+      // Mark only the selected seats as thinking (others stay idle)
+      baseOrder.forEach(n => setSeatLive(n, order.includes(n) ? "thinking" : "idle"));
+      rtAnnounceSelection(order);
+
+      setOpStatus(order.length === baseOrder.length ? "Sending to all" : ("Sending to " + order.length));
 
       // Assembly roll-call stays on the server (fast path)
       if(isAssemblyPhrase(prompt)){
@@ -7806,6 +7845,29 @@ async function runOrchestra(){
       }
 
       lastGroupOutputs = outputs;
+
+
+      // Operator summary (optional)
+      window.lastOperatorSummary = "";
+      if(rtGetOpSummary()){
+        try{
+          setOpStatus("Summarizing");
+          const r = await fetch("/api/operator_summary", {
+            method:"POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({prompt: prompt, outputs: outputs})
+          });
+          const d = await r.json();
+          if(d && d.ok){
+            window.lastOperatorSummary = d.summary || "";
+          }else{
+            window.lastOperatorSummary = "";
+          }
+        }catch(e){
+          window.lastOperatorSummary = "";
+        }
+      }
+
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
@@ -7824,23 +7886,24 @@ async function runOrchestra(){
 
     $("conveneAll").onclick = conveneAll;
 
+    // Orchestra mode controls (additive)
+    try{
+      rtApplyPrefsToUI();
+      rtSetHeaderLabel();
+      const m = document.getElementById("rtMode");
+      const ap = document.getElementById("rtAutoPickPanel");
+      const os = document.getElementById("rtOpSummary");
+      if(m) m.addEventListener("change", ()=>{ rtSavePrefs(); rtSetHeaderLabel(); });
+      if(ap) ap.addEventListener("change", ()=>{ rtSavePrefs(); });
+      if(os) os.addEventListener("change", ()=>{ rtSavePrefs(); });
+    }catch(e){}
+
+
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
     }
     $("assembleBtn").onclick = assembleAll;
-
-// Orchestra controls (additive)
-try{ restoreOrchestraMode(); }catch(_){}
-if($("orchestraMode")) $("orchestraMode").addEventListener("change", ()=>{ try{ getOrchestraMode(); }catch(_){ } });
-if($("orchestraSummaryToggle")) $("orchestraSummaryToggle").addEventListener("change", saveOrchestraSummaryToggle);
-if($("orchestraRunBtn")) $("orchestraRunBtn").onclick = runOrchestra;
-
-// Make "Assemble all" respect Orchestra mode (full mode remains identical)
-$("assembleBtn").onclick = async ()=>{ $("opPrompt").value = "All teammates to the round table"; await runOrchestra(); };
-if($("assembleBtn2")) $("assembleBtn2").onclick = async ()=>{ $("opPrompt").value = "All teammates to the round table"; await runOrchestra(); };
-
-
     $("assembleBtn2").onclick = assembleAll;
 
     async function sendFollow(){
@@ -7901,6 +7964,7 @@ if($("assembleBtn2")) $("assembleBtn2").onclick = async ()=>{ $("opPrompt").valu
 
     $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
+      window.lastOperatorSummary = "";
       renderGroupReplies({}, {});
     };
 
