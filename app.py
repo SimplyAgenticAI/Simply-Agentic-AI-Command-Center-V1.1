@@ -7,6 +7,7 @@ import base64
 import secrets
 import hashlib
 import hmac
+import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -510,6 +511,451 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
     except Exception:
         return []
 
+
+# =========================
+# REAL WORLD EXECUTION ENGINE (additive)
+# =========================
+#
+# Purpose: safely execute external actions (Gmail send, Calendar event create) with:
+# - Action Contracts (typed JSON)
+# - Execution Governor (allowlist + risk gate + kill switch)
+# - Execution Queue (idempotency + retries)
+# - Audit Log (append-only)
+# - Missions (scoped autonomy policies)
+
+EXECUTION_DIR = DATA / "execution"
+EXECUTION_DIR.mkdir(parents=True, exist_ok=True)
+
+MISSIONS_DIR = EXECUTION_DIR / "missions"
+MISSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+ACTIONS_DIR = EXECUTION_DIR / "actions"
+ACTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+ACTIONS_QUEUE_DIR = ACTIONS_DIR / "queue"
+ACTIONS_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+
+ACTIONS_AUDIT_DIR = ACTIONS_DIR / "audit"
+ACTIONS_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
+
+ACTIONS_SETTINGS_DIR = ACTIONS_DIR / "settings"
+ACTIONS_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+
+SUPPORTED_ACTION_TYPES = ["send_email", "create_calendar_event"]
+
+DEFAULT_EXECUTION_SETTINGS = {
+    "kill_switch": False,
+    # allowlist controls which action types are allowed to execute at all
+    "allowlist": ["send_email", "create_calendar_event"],
+    # autonomy: when true, engine can execute queued actions without extra confirmation
+    "autonomy_enabled": True,
+    # risk gate: low/medium/high
+    "max_risk": "low",
+    # daily cap per user
+    "max_actions_per_day": 50,
+    # allowed recipient domains (empty => allow all; prefer setting this)
+    "allowed_recipient_domains": [],
+}
+
+DEFAULT_MISSION = {
+    "id": "default",
+    "name": "Default Mission",
+    "description": "General purpose mission container",
+    "enabled": True,
+    "allowlist": ["send_email", "create_calendar_event"],
+    "max_actions_per_day": 50,
+    "max_risk": "low",
+    "allowed_recipient_domains": [],
+    "created_at": None,
+    "updated_at": None,
+}
+
+def _execution_user_dir(root: Path, username: str) -> Path:
+    d = root / _safe_name(username or "anon")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _settings_path(username: str) -> Path:
+    return _execution_user_dir(ACTIONS_SETTINGS_DIR, username) / "settings.json"
+
+def _missions_path(username: str) -> Path:
+    return _execution_user_dir(MISSIONS_DIR, username) / "missions.json"
+
+def _queue_path(username: str) -> Path:
+    return _execution_user_dir(ACTIONS_QUEUE_DIR, username) / "queue.json"
+
+def _audit_path(username: str) -> Path:
+    return _execution_user_dir(ACTIONS_AUDIT_DIR, username) / "audit.jsonl"
+
+def _load_execution_settings(username: str) -> Dict[str, Any]:
+    st = load_json(_settings_path(username), {}) or {}
+    if not isinstance(st, dict):
+        st = {}
+    out = dict(DEFAULT_EXECUTION_SETTINGS)
+    out.update({k: st.get(k) for k in DEFAULT_EXECUTION_SETTINGS.keys() if k in st})
+    # normalize
+    out["kill_switch"] = bool(out.get("kill_switch"))
+    out["autonomy_enabled"] = bool(out.get("autonomy_enabled"))
+    out["allowlist"] = [x for x in (out.get("allowlist") or []) if isinstance(x, str)]
+    out["max_actions_per_day"] = int(out.get("max_actions_per_day") or 0) or DEFAULT_EXECUTION_SETTINGS["max_actions_per_day"]
+    out["allowed_recipient_domains"] = [x.lower().strip() for x in (out.get("allowed_recipient_domains") or []) if isinstance(x, str) and x.strip()]
+    mr = (out.get("max_risk") or "low").lower().strip()
+    if mr not in ("low", "medium", "high"):
+        mr = "low"
+    out["max_risk"] = mr
+    return out
+
+def _save_execution_settings(username: str, st: Dict[str, Any]) -> None:
+    payload = _load_execution_settings(username)
+    payload.update(st or {})
+    payload["updated_at"] = now_iso()
+    save_json(_settings_path(username), payload)
+
+def _load_missions(username: str) -> Dict[str, Any]:
+    data = load_json(_missions_path(username), {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+    missions = data.get("missions")
+    if not isinstance(missions, list) or not missions:
+        data = {"missions": [dict(DEFAULT_MISSION)], "updated_at": now_iso()}
+        save_json(_missions_path(username), data)
+        return data
+    return data
+
+def _save_missions(username: str, missions: List[Dict[str, Any]]) -> None:
+    save_json(_missions_path(username), {"missions": missions, "updated_at": now_iso()})
+
+def _get_mission(username: str, mission_id: str) -> Dict[str, Any]:
+    data = _load_missions(username)
+    for m in (data.get("missions") or []):
+        if isinstance(m, dict) and (m.get("id") == mission_id):
+            return m
+    # fallback
+    return dict(DEFAULT_MISSION)
+
+def _risk_rank(r: str) -> int:
+    r = (r or "").lower().strip()
+    return {"low": 0, "medium": 1, "high": 2}.get(r, 2)
+
+def _safe_email_domain(addr: str) -> str:
+    try:
+        addr = (addr or "").strip()
+        if "@" not in addr:
+            return ""
+        return addr.split("@", 1)[1].lower().strip()
+    except Exception:
+        return ""
+
+def _score_action_risk(contract: Dict[str, Any], mission: Dict[str, Any], settings: Dict[str, Any]) -> Tuple[str, List[str]]:
+    flags: List[str] = []
+    typ = (contract.get("type") or "").strip()
+    risk = "low"
+
+    if typ == "send_email":
+        to_addr = (contract.get("to") or "").strip()
+        if not EMAIL_RE.match(to_addr):
+            return "high", ["invalid_email"]
+        dom = _safe_email_domain(to_addr)
+        allowed = (mission.get("allowed_recipient_domains") or settings.get("allowed_recipient_domains") or [])
+        allowed = [x.lower().strip() for x in allowed if isinstance(x, str) and x.strip()]
+        if allowed and dom and dom not in allowed:
+            return "high", ["recipient_domain_blocked"]
+        subject = (contract.get("subject") or "")
+        body = (contract.get("body") or "")
+        if len(subject) > 140 or len(body) > 20000:
+            risk = "medium"
+            flags.append("large_email")
+
+    if typ == "create_calendar_event":
+        # calendar events are usually low risk unless missing fields
+        title = (contract.get("title") or "").strip()
+        if not title:
+            return "high", ["missing_title"]
+
+    return risk, flags
+
+def _validate_action_contract(contract: Any) -> Tuple[Optional[Dict[str, Any]], str]:
+    if not isinstance(contract, dict):
+        return None, "Contract must be a JSON object."
+    typ = (contract.get("type") or "").strip()
+    if typ not in SUPPORTED_ACTION_TYPES:
+        return None, "Unsupported action type."
+    # idempotency key required to prevent duplicates
+    ik = (contract.get("idempotency_key") or "").strip()
+    if not ik or len(ik) > 128:
+        return None, "Missing idempotency_key."
+    # normalize
+    c = dict(contract)
+    c["type"] = typ
+    c["idempotency_key"] = ik
+
+    if typ == "send_email":
+        to_addr = (c.get("to") or "").strip()
+        subject = (c.get("subject") or "").strip()
+        body = (c.get("body") or "").strip()
+        if not EMAIL_RE.match(to_addr):
+            return None, "Invalid 'to' email address."
+        if not subject:
+            return None, "Missing subject."
+        if not body:
+            return None, "Missing body."
+        c["to"] = to_addr
+        c["subject"] = subject[:400]
+        c["body"] = body[:40000]
+        c["from_name"] = (c.get("from_name") or "").strip()[:120]
+
+    if typ == "create_calendar_event":
+        title = (c.get("title") or "").strip()
+        start_iso = (c.get("start_iso") or "").strip()
+        end_iso = (c.get("end_iso") or "").strip()
+        timezone = (c.get("timezone") or "UTC").strip()
+        if not title:
+            return None, "Missing title."
+        if not start_iso or not end_iso:
+            return None, "Missing start/end."
+        c["title"] = title[:200]
+        c["start_iso"] = start_iso
+        c["end_iso"] = end_iso
+        c["timezone"] = timezone[:64]
+        attendees = c.get("attendees") or []
+        if not isinstance(attendees, list):
+            attendees = []
+        c["attendees"] = [str(a).strip() for a in attendees if str(a).strip()][:50]
+        c["description"] = (c.get("description") or "")[:5000]
+        c["location"] = (c.get("location") or "")[:240]
+
+    # mission
+    mid = (c.get("mission_id") or "default").strip()
+    c["mission_id"] = mid or "default"
+
+    return c, ""
+
+def _load_queue(username: str) -> Dict[str, Any]:
+    data = load_json(_queue_path(username), {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("items", [])
+    if not isinstance(data.get("items"), list):
+        data["items"] = []
+    return data
+
+def _save_queue(username: str, q: Dict[str, Any]) -> None:
+    q = q or {}
+    q["updated_at"] = now_iso()
+    save_json(_queue_path(username), q)
+
+def _append_audit(username: str, entry: Dict[str, Any]) -> None:
+    try:
+        entry = entry or {}
+        entry.setdefault("ts", now_iso())
+        with _audit_path(username).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+def _already_executed(username: str, idempotency_key: str) -> bool:
+    # lightweight scan (last N lines) to avoid growing memory
+    try:
+        p = _audit_path(username)
+        if not p.exists():
+            return False
+        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+        lines = lines[-500:]
+        for ln in reversed(lines):
+            try:
+                obj = json.loads(ln)
+            except Exception:
+                continue
+            if (obj.get("idempotency_key") or "") == idempotency_key and obj.get("status") == "success":
+                return True
+        return False
+    except Exception:
+        return False
+
+def enqueue_action(username: str, contract: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    settings = _load_execution_settings(username)
+    mission = _get_mission(username, contract.get("mission_id") or "default")
+
+    if settings.get("kill_switch"):
+        return False, "Execution kill switch is ON.", {}
+
+    typ = contract.get("type")
+    allow = set([x for x in (settings.get("allowlist") or []) if isinstance(x, str)])
+    allow_m = set([x for x in (mission.get("allowlist") or []) if isinstance(x, str)])
+    if typ not in allow or typ not in allow_m:
+        return False, "Action type not allowed by allowlist.", {}
+
+    risk, flags = _score_action_risk(contract, mission, settings)
+    if _risk_rank(risk) > _risk_rank(mission.get("max_risk") or settings.get("max_risk")):
+        return False, f"Risk gate blocked action (risk={risk}).", {"risk": risk, "flags": flags}
+
+    ik = contract.get("idempotency_key") or ""
+    if _already_executed(username, ik):
+        return False, "Duplicate blocked by idempotency_key.", {}
+
+    q = _load_queue(username)
+    item = {
+        "id": str(uuid.uuid4()),
+        "created_at": now_iso(),
+        "status": "pending",
+        "attempts": 0,
+        "last_error": "",
+        "risk": risk,
+        "risk_flags": flags,
+        "contract": contract,
+    }
+    q["items"].append(item)
+    _save_queue(username, q)
+    _append_audit(username, {"status": "queued", "idempotency_key": ik, "type": typ, "risk": risk, "mission_id": contract.get("mission_id")})
+    return True, "", item
+
+def _count_actions_today(username: str) -> int:
+    # count successful executions today (UTC) from audit tail
+    try:
+        p = _audit_path(username)
+        if not p.exists():
+            return 0
+        today = datetime.utcnow().date()
+        lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-2000:]
+        c = 0
+        for ln in lines:
+            try:
+                obj = json.loads(ln)
+            except Exception:
+                continue
+            if obj.get("status") != "success":
+                continue
+            ts = str(obj.get("ts") or "")
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z",""))
+                if dt.date() == today:
+                    c += 1
+            except Exception:
+                continue
+        return c
+    except Exception:
+        return 0
+
+def _execute_contract_for_user(uobj: Optional[Dict[str, Any]], contract: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    typ = contract.get("type")
+    if typ == "send_email":
+        access_token, err = _gmail_creds_for_user(uobj)
+        if not access_token:
+            return False, err or "Gmail not connected.", {}
+        try:
+            _gmail_send_message(
+                access_token=access_token,
+                to_addr=contract.get("to"),
+                subject=contract.get("subject"),
+                body=contract.get("body"),
+                from_name=contract.get("from_name") or "",
+            )
+            return True, "", {}
+        except Exception as e:
+            return False, str(e), {}
+
+    if typ == "create_calendar_event":
+        access_token, err = _calendar_creds_for_user(uobj)
+        if not access_token:
+            return False, err or "Calendar not connected.", {}
+        try:
+            res = _calendar_create_event(
+                access_token=access_token,
+                title=contract.get("title"),
+                start_iso=contract.get("start_iso"),
+                end_iso=contract.get("end_iso"),
+                timezone=contract.get("timezone") or "UTC",
+                attendees=contract.get("attendees") or [],
+                description=contract.get("description") or "",
+                location=contract.get("location") or "",
+            )
+            return True, "", {"provider": res}
+        except Exception as e:
+            return False, str(e), {}
+
+    return False, "Unsupported action type.", {}
+
+def _process_action_queue_once() -> None:
+    # Called from tick endpoint; safe, bounded work.
+    try:
+        uobj = current_user()
+        username = (uobj.get("username") if isinstance(uobj, dict) else None) or _get_session_username()
+        settings = _load_execution_settings(username)
+        if settings.get("kill_switch"):
+            return
+        if not settings.get("autonomy_enabled"):
+            return
+
+        q = _load_queue(username)
+        items = q.get("items") or []
+        if not items:
+            return
+
+        # daily cap
+        if _count_actions_today(username) >= int(settings.get("max_actions_per_day") or 0):
+            return
+
+        changed = False
+        # process up to 3 per tick
+        for item in items:
+            if item.get("status") != "pending":
+                continue
+            contract = (item.get("contract") or {})
+            if not isinstance(contract, dict):
+                item["status"] = "failed"
+                item["last_error"] = "Invalid contract"
+                changed = True
+                continue
+
+            ik = (contract.get("idempotency_key") or "").strip()
+            if ik and _already_executed(username, ik):
+                item["status"] = "canceled"
+                item["last_error"] = "Duplicate blocked"
+                changed = True
+                continue
+
+            # mission policy cap
+            mission = _get_mission(username, contract.get("mission_id") or "default")
+            cap = int(mission.get("max_actions_per_day") or settings.get("max_actions_per_day") or 50)
+            if _count_actions_today(username) >= cap:
+                return
+
+            item["attempts"] = int(item.get("attempts") or 0) + 1
+            ok, err, meta = _execute_contract_for_user(uobj, contract)
+            if ok:
+                item["status"] = "success"
+                item["executed_at"] = now_iso()
+                changed = True
+                _append_audit(username, {
+                    "status": "success",
+                    "idempotency_key": ik,
+                    "type": contract.get("type"),
+                    "mission_id": contract.get("mission_id"),
+                    "meta": meta or {},
+                })
+            else:
+                item["status"] = "failed" if item["attempts"] >= 2 else "pending"
+                item["last_error"] = err or "Execution failed"
+                changed = True
+                _append_audit(username, {
+                    "status": "failed",
+                    "idempotency_key": ik,
+                    "type": contract.get("type"),
+                    "mission_id": contract.get("mission_id"),
+                    "error": item["last_error"],
+                })
+
+            # process limit
+            processed = sum(1 for it in items if it.get("status") in ("success","failed","canceled") and it.get("executed_at") == item.get("executed_at"))
+            if processed >= 3:
+                break
+
+        if changed:
+            q["items"] = items
+            _save_queue(username, q)
+    except Exception:
+        # Must never break tick
+        return
 
 # =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
@@ -2336,6 +2782,15 @@ def api_action_stacks_schedules_delete(teammate: str):
 def api_action_stack_schedules_tick():
     try:
         _run_due_schedules_once()
+        # additive: resume any due runs and process external action queue
+        try:
+            _resume_due_runs_once()
+        except Exception:
+            pass
+        try:
+            _process_action_queue_once()
+        except Exception:
+            pass
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -2360,6 +2815,117 @@ def api_me():
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
+# =========================
+# Execution Engine API (additive)
+# =========================
+
+@app.get("/api/execution/settings")
+def api_execution_settings_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    st = _load_execution_settings(uname)
+    return jsonify({"ok": True, "settings": st, "supported_action_types": SUPPORTED_ACTION_TYPES})
+
+@app.post("/api/execution/settings")
+def api_execution_settings_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid JSON"}), 400
+    allowed_keys = ["kill_switch", "allowlist", "autonomy_enabled", "max_risk", "max_actions_per_day", "allowed_recipient_domains"]
+    update = {k: payload.get(k) for k in allowed_keys if k in payload}
+    _save_execution_settings(uname, update)
+    return jsonify({"ok": True, "settings": _load_execution_settings(uname)})
+
+@app.get("/api/missions")
+def api_missions_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    return jsonify({"ok": True, **_load_missions(uname)})
+
+@app.post("/api/missions")
+def api_missions_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    missions = payload.get("missions") if isinstance(payload, dict) else None
+    if not isinstance(missions, list):
+        return jsonify({"ok": False, "error": "missions must be a list"}), 400
+    cleaned = []
+    for m in missions:
+        if not isinstance(m, dict):
+            continue
+        mid = (m.get("id") or "").strip() or str(uuid.uuid4())
+        cleaned.append({
+            "id": mid,
+            "name": (m.get("name") or "").strip()[:120] or "Mission",
+            "description": (m.get("description") or "")[:800],
+            "enabled": bool(m.get("enabled", True)),
+            "allowlist": [x for x in (m.get("allowlist") or []) if isinstance(x, str)],
+            "max_actions_per_day": int(m.get("max_actions_per_day") or 50),
+            "max_risk": (m.get("max_risk") or "low").lower().strip(),
+            "allowed_recipient_domains": [str(x).lower().strip() for x in (m.get("allowed_recipient_domains") or []) if str(x).strip()],
+            "updated_at": now_iso(),
+            "created_at": m.get("created_at") or now_iso(),
+        })
+    if not cleaned:
+        cleaned = [dict(DEFAULT_MISSION)]
+    _save_missions(uname, cleaned)
+    return jsonify({"ok": True, "missions": cleaned})
+
+@app.get("/api/actions/queue")
+def api_actions_queue_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    q = _load_queue(uname)
+    # return only last 50 for UI
+    items = q.get("items") or []
+    return jsonify({"ok": True, "items": items[-50:]})
+
+@app.post("/api/actions/enqueue")
+def api_actions_enqueue():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    contract, err = _validate_action_contract(payload.get("contract") if isinstance(payload, dict) else None)
+    if not contract:
+        return jsonify({"ok": False, "error": err}), 400
+    ok, msg, meta = enqueue_action(uname, contract)
+    if not ok:
+        return jsonify({"ok": False, "error": msg, "meta": meta}), 400
+    return jsonify({"ok": True, "item": meta})
+
+@app.get("/api/actions/audit_tail")
+def api_actions_audit_tail():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username") or _get_session_username()
+    p = _audit_path(uname)
+    if not p.exists():
+        return jsonify({"ok": True, "lines": []})
+    lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()[-200:]
+    out = []
+    for ln in lines:
+        try:
+            out.append(json.loads(ln))
+        except Exception:
+            continue
+    return jsonify({"ok": True, "lines": out})
+
 
 
 @app.get("/api/onboarding/status")
@@ -2838,81 +3404,6 @@ def api_followup():
 
 
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
-
-
-
-# =========================
-# Operator Summary (additive)
-# =========================
-
-@app.post("/api/operator_summary")
-def api_operator_summary():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    payload = request.get_json(silent=True) or {}
-    prompt = (payload.get("prompt") or "").strip()
-    outputs = payload.get("outputs") or {}
-
-    if not prompt or not isinstance(outputs, dict) or not outputs:
-        return jsonify({"ok": False, "error": "Missing prompt or outputs"}), 400
-
-    # Pull operator profile as shared context (if present)
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    op = _load_operator_profile(uname) or {}
-    op_ctx = {
-        "display_name": (op.get("display_name") or "").strip(),
-        "business": (op.get("business") or "").strip(),
-        "offers": (op.get("offers") or "").strip(),
-        "audience": (op.get("audience") or "").strip(),
-        "goals": (op.get("goals") or "").strip(),
-        "constraints": (op.get("constraints") or "").strip(),
-        "tone_rules": (op.get("tone_rules") or "").strip(),
-        "notes": (op.get("notes") or "").strip(),
-    }
-
-    # Compact team outputs
-    team_blob_parts = []
-    for k, v in outputs.items():
-        try:
-            txt = str(v or "").strip()
-        except Exception:
-            txt = ""
-        if not txt:
-            continue
-        # keep it bounded
-        if len(txt) > 4000:
-            txt = txt[:4000] + "…"
-        team_blob_parts.append(f"[{k}]\n{txt}")
-    team_blob = "\n\n".join(team_blob_parts).strip()
-    if not team_blob:
-        return jsonify({"ok": False, "error": "No usable outputs"}), 400
-
-    system = (
-        "You are the Operator Summary for a multi-teammate round table. "
-        "Your job is to merge multiple teammate responses into one crisp, actionable plan. "
-        "Be concrete, avoid fluff, and preserve the user's constraints. "
-        "Never invent facts. If information is missing, state what is unknown and proceed with the best safe assumption. "
-        "Format:\n"
-        "1) One-paragraph synthesis\n"
-        "2) 5-bullet action plan (imperative verbs)\n"
-        "3) Risks & watch-outs (3 bullets max)\n"
-        "4) Next message to send (if applicable, otherwise 'N/A')"
-    )
-
-    user_msg = (
-        f"Operator profile context (may be empty):\n{json.dumps(op_ctx, ensure_ascii=False)}\n\n"
-        f"Original prompt:\n{prompt}\n\n"
-        f"Teammate outputs:\n{team_blob}"
-    )
-
-    try:
-        summary = call_llm(system=system, messages=[{"role": "user", "content": user_msg}], temperature=0.35)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e) or "LLM error"}), 500
-
-    return jsonify({"ok": True, "summary": (summary or "").strip()})
 
 
 @app.get("/api/thread/<name>")
@@ -5389,27 +5880,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console (Full Team)</div>
+                <div class="t1">Group Console (All Teammates)</div>
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <div class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px;">
-                  <div class="tiny" style="opacity:.9;">Mode</div>
-                  <select id="rtMode" style="background:#0b1220; color:var(--text); border:1px solid rgba(148,163,184,.35); border-radius:10px; padding:6px 8px;">
-                    <option value="full">Full team</option>
-                    <option value="panel">Panel (3)</option>
-                    <option value="solo">Solo (1)</option>
-                  </select>
-                </div>
-                <label class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:pointer;">
-                  <input type="checkbox" id="rtAutoPickPanel" style="accent-color:#7c3aed;"/>
-                  <span class="tiny" style="opacity:.9;">Auto pick panel</span>
-                </label>
-                <label class="pill" style="display:flex; align-items:center; gap:8px; padding:6px 10px; cursor:pointer;">
-                  <input type="checkbox" id="rtOpSummary" style="accent-color:#7c3aed;"/>
-                  <span class="tiny" style="opacity:.9;">Operator summary</span>
-                </label>
-
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
@@ -5990,141 +6464,6 @@ id="diagOverlay"></div>
       const installed = (state && state.installed) ? state.installed : {};
       return a.filter(n => installed[n]);
     }
-
-    // =========================
-    // Orchestra Mode (additive v1)
-    // full: everyone active
-    // panel: 3 teammates
-    // solo: 1 teammate
-    // =========================
-    const RT_STORAGE_KEYS = {
-      mode: "rt_mode_v1",
-      autoPanel: "rt_auto_panel_v1",
-      opSummary: "rt_op_summary_v1"
-    };
-
-    function rtGetMode(){
-      try{
-        const el = document.getElementById("rtMode");
-        const v = (el && el.value) ? el.value : (localStorage.getItem(RT_STORAGE_KEYS.mode) || "full");
-        return (v === "panel" || v === "solo") ? v : "full";
-      }catch(e){ return "full"; }
-    }
-    function rtGetAutoPanel(){
-      try{
-        const el = document.getElementById("rtAutoPickPanel");
-        if(el) return !!el.checked;
-        return (localStorage.getItem(RT_STORAGE_KEYS.autoPanel) === "1");
-      }catch(e){ return false; }
-    }
-    function rtGetOpSummary(){
-      try{
-        const el = document.getElementById("rtOpSummary");
-        if(el) return !!el.checked;
-        return (localStorage.getItem(RT_STORAGE_KEYS.opSummary) === "1");
-      }catch(e){ return false; }
-    }
-
-    function rtSavePrefs(){
-      try{
-        localStorage.setItem(RT_STORAGE_KEYS.mode, rtGetMode());
-        localStorage.setItem(RT_STORAGE_KEYS.autoPanel, rtGetAutoPanel() ? "1" : "0");
-        localStorage.setItem(RT_STORAGE_KEYS.opSummary, rtGetOpSummary() ? "1" : "0");
-      }catch(e){}
-    }
-
-    function rtApplyPrefsToUI(){
-      try{
-        const mode = (localStorage.getItem(RT_STORAGE_KEYS.mode) || "full");
-        const autoPanel = (localStorage.getItem(RT_STORAGE_KEYS.autoPanel) === "1");
-        const opSum = (localStorage.getItem(RT_STORAGE_KEYS.opSummary) === "1");
-
-        const sel = document.getElementById("rtMode");
-        if(sel) sel.value = (mode === "panel" || mode === "solo") ? mode : "full";
-        const ap = document.getElementById("rtAutoPickPanel");
-        if(ap) ap.checked = !!autoPanel;
-        const os = document.getElementById("rtOpSummary");
-        if(os) os.checked = !!opSum;
-      }catch(e){}
-    }
-
-    function rtSetHeaderLabel(){
-      try{
-        const t1 = document.querySelector(".opTitle .t1");
-        if(!t1) return;
-        const mode = rtGetMode();
-        t1.textContent =
-          mode === "solo" ? "Group Console (Solo)" :
-          mode === "panel" ? "Group Console (Panel of 3)" :
-          "Group Console (Full Team)";
-      }catch(e){}
-    }
-
-    function tokenize(s){
-      try{
-        return (String(s||"").toLowerCase().match(/[a-z0-9]+/g) || []).filter(x => x.length >= 3);
-      }catch(e){ return []; }
-    }
-
-    function scoreTeammate(defn, prompt){
-      const p = new Set(tokenize(prompt));
-      const blob = [defn?.name, defn?.job_title, defn?.mission, defn?.goal, defn?.thinking_style, defn?.responsibilities].join(" ");
-      const t = tokenize(blob);
-      let score = 0;
-      for(const w of t){
-        if(p.has(w)) score += 2;
-      }
-      // Small bias for specialists
-      if(/sales|relationship|clos/i.test(blob)) score += p.has("sales") || p.has("close") ? 3 : 0;
-      if(/research|curat|knowledge/i.test(blob)) score += p.has("research") || p.has("sources") ? 3 : 0;
-      if(/design|graphic|creative/i.test(blob)) score += p.has("graphic") || p.has("design") ? 3 : 0;
-      if(/automation|scale|systems/i.test(blob)) score += p.has("automation") || p.has("scale") ? 3 : 0;
-      if(/integrity|risk|compliance/i.test(blob)) score += p.has("risk") || p.has("policy") ? 3 : 0;
-      return score;
-    }
-
-    function rtPickPanel(prompt, baseOrder){
-      const installed = (state && state.installed) ? state.installed : {};
-      const defs = baseOrder.map(n => installed[n]).filter(Boolean);
-      const ranked = defs
-        .map(d => ({name:d.name, score: scoreTeammate(d, prompt)}))
-        .sort((a,b) => (b.score - a.score));
-      const picked = ranked.slice(0,3).map(x => x.name);
-      // fallback if low scores
-      if(picked.length < 3){
-        for(const n of baseOrder){
-          if(picked.length >= 3) break;
-          if(!picked.includes(n)) picked.push(n);
-        }
-      }
-      return picked.slice(0,3);
-    }
-
-    function rtComputeOrder(prompt){
-      const base = activeOrder();
-      const mode = rtGetMode();
-      if(mode === "solo"){
-        // Prefer selected seat if it's an active teammate; otherwise first active
-        if(selectedSeat && base.includes(selectedSeat)) return [selectedSeat];
-        return base.length ? [base[0]] : [];
-      }
-      if(mode === "panel"){
-        if(rtGetAutoPanel()) return rtPickPanel(prompt, base);
-        return base.slice(0,3);
-      }
-      return base;
-    }
-
-    function rtAnnounceSelection(order){
-      try{
-        const mode = rtGetMode();
-        const label = mode === "solo" ? "Solo" : (mode === "panel" ? "Panel" : "Full team");
-        const names = (order || []).join(", ");
-        if(typeof showToast === "function") showToast(`${label}: ${names || "none"}`);
-      }catch(e){}
-    }
-
-
 
     // RULE: If more than 3 teammates are active, keep the gold and purple pulse on persistently.
     function updateTablePulseFromStatuses(){
@@ -7135,24 +7474,7 @@ function makeSeat(defn, idx){
       const box = $("groupReplies");
       box.innerHTML = "";
 
-      // Operator summary card (if present)
-      try{
-        const sum = (window.lastOperatorSummary || "").trim();
-        if(sum){
-          const card = document.createElement("div");
-          card.className = "replyCard";
-          const h = document.createElement("div");
-          h.className = "replyHead";
-          h.innerText = "Operator summary";
-          const pre = document.createElement("pre");
-          pre.className = "replyText";
-          pre.innerText = sum;
-          card.appendChild(h);
-          card.appendChild(pre);
-          box.appendChild(card);
-        }
-      }catch(e){}
-const keys = Object.keys(outputs || {});
+      const keys = Object.keys(outputs || {});
       if(keys.length === 0){
         const t = document.createElement("div");
         t.className = "tiny";
@@ -7736,25 +8058,15 @@ const keys = Object.keys(outputs || {});
         return;
       }
 
-      // Base active order from current state (installed + active), then apply Orchestra Mode selection.
-      const baseOrder = activeOrder();
-      if(!baseOrder || !baseOrder.length){
+      const reg = state?.registry || null;
+      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
+      if(!order || !order.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
       }
 
-      // Orchestra Mode: full | panel (3) | solo (1)
-      const order = rtComputeOrder(prompt);
-      if(!order || !order.length){
-        showModal("No active teammates", "No seats match the selected mode. Add teammates or switch the mode.");
-        return;
-      }
-
-      // Mark only the selected seats as thinking (others stay idle)
-      baseOrder.forEach(n => setSeatLive(n, order.includes(n) ? "thinking" : "idle"));
-      rtAnnounceSelection(order);
-
-      setOpStatus(order.length === baseOrder.length ? "Sending to all" : ("Sending to " + order.length));
+      order.forEach(n => setSeatLive(n, "thinking"));
+      setOpStatus("Sending to all");
 
       // Assembly roll-call stays on the server (fast path)
       if(isAssemblyPhrase(prompt)){
@@ -7845,29 +8157,6 @@ const keys = Object.keys(outputs || {});
       }
 
       lastGroupOutputs = outputs;
-
-
-      // Operator summary (optional)
-      window.lastOperatorSummary = "";
-      if(rtGetOpSummary()){
-        try{
-          setOpStatus("Summarizing");
-          const r = await fetch("/api/operator_summary", {
-            method:"POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({prompt: prompt, outputs: outputs})
-          });
-          const d = await r.json();
-          if(d && d.ok){
-            window.lastOperatorSummary = d.summary || "";
-          }else{
-            window.lastOperatorSummary = "";
-          }
-        }catch(e){
-          window.lastOperatorSummary = "";
-        }
-      }
-
       renderGroupReplies(outputs, drafts);
 
       // Seats not present in outputs remain waiting
@@ -7885,19 +8174,6 @@ const keys = Object.keys(outputs || {});
     }
 
     $("conveneAll").onclick = conveneAll;
-
-    // Orchestra mode controls (additive)
-    try{
-      rtApplyPrefsToUI();
-      rtSetHeaderLabel();
-      const m = document.getElementById("rtMode");
-      const ap = document.getElementById("rtAutoPickPanel");
-      const os = document.getElementById("rtOpSummary");
-      if(m) m.addEventListener("change", ()=>{ rtSavePrefs(); rtSetHeaderLabel(); });
-      if(ap) ap.addEventListener("change", ()=>{ rtSavePrefs(); });
-      if(os) os.addEventListener("change", ()=>{ rtSavePrefs(); });
-    }catch(e){}
-
 
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
@@ -7964,7 +8240,6 @@ const keys = Object.keys(outputs || {});
 
     $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
-      window.lastOperatorSummary = "";
       renderGroupReplies({}, {});
     };
 
