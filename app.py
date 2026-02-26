@@ -376,6 +376,186 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
+# =========================
+# RPA / OPERATOR BROWSER (Click Tasks) - SAFE + ADDITIVE
+# =========================
+# This feature enables *approved* UI clicking via a local "runner" service (Playwright).
+# The web app never receives your browser cookies or secrets; it only sends action plans to a runner URL you control.
+#
+# IMPORTANT: This is intentionally "safe by default":
+# - Actions are queued and require explicit approval before execution.
+# - We include rate limits and step caps.
+# - Site-specific mass actions (e.g. auto-inviting on social platforms) are not auto-generated unless you explicitly provide selectors
+#   and you approve the plan.
+#
+RPA_RUNNER_URL = (os.getenv("RPA_RUNNER_URL") or "http://127.0.0.1:8765").rstrip("/")
+RPA_REQUIRE_APPROVAL = (os.getenv("RPA_REQUIRE_APPROVAL", "true").strip().lower() != "false")
+RPA_MAX_STEPS = int(os.getenv("RPA_MAX_STEPS", "40"))
+RPA_MAX_QUEUE = int(os.getenv("RPA_MAX_QUEUE", "50"))
+RPA_TIMEOUT_SEC = int(os.getenv("RPA_TIMEOUT_SEC", "35"))
+
+RPA_BLOCK_RE = re.compile(r"```\s*(rpa_action|rpa)\s*([\s\S]*?)```", re.IGNORECASE)
+
+def _rpa_dir() -> Path:
+    d = DATA / "rpa"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _rpa_path_for_user(username: str) -> Path:
+    u = _safe_name(username or "anon")
+    return _rpa_dir() / f"{u}.json"
+
+def _load_rpa_state(username: str) -> Dict[str, Any]:
+    path = _rpa_path_for_user(username)
+    data = load_json(path, {"queue": [], "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"queue": [], "updated_at": None}
+    q = data.get("queue")
+    if not isinstance(q, list):
+        q = []
+    data["queue"] = q
+    return data
+
+def _save_rpa_state(username: str, data: Dict[str, Any]) -> None:
+    data = data or {}
+    data["updated_at"] = now_iso()
+    save_json(_rpa_path_for_user(username), data)
+
+def _normalize_rpa_plan(plan: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+    if not isinstance(plan, dict):
+        return None, "Plan must be an object."
+    goal = (plan.get("goal") or "").strip()[:500]
+    actions = plan.get("actions")
+    if not isinstance(actions, list) or not actions:
+        return None, "Plan.actions must be a non-empty list."
+    if len(actions) > RPA_MAX_STEPS:
+        return None, f"Too many steps (max {RPA_MAX_STEPS})."
+
+    norm_actions = []
+    allowed = {"open_url", "click", "type", "press", "wait", "scroll", "screenshot", "extract_text"}
+    for i, a in enumerate(actions):
+        if not isinstance(a, dict):
+            return None, f"Step {i+1} must be an object."
+        t = (a.get("type") or "").strip()
+        if t not in allowed:
+            return None, f"Step {i+1} type '{t}' not allowed."
+        aa = {"type": t}
+        # common fields
+        if "url" in a: aa["url"] = str(a.get("url") or "")[:2000]
+        if "selector" in a: aa["selector"] = str(a.get("selector") or "")[:300]
+        if "text" in a: aa["text"] = str(a.get("text") or "")[:2000]
+        if "key" in a: aa["key"] = str(a.get("key") or "")[:40]
+        if "ms" in a:
+            try: aa["ms"] = int(a.get("ms") or 0)
+            except Exception: aa["ms"] = 0
+        if "amount" in a:
+            try: aa["amount"] = int(a.get("amount") or 0)
+            except Exception: aa["amount"] = 0
+        if "notes" in a: aa["notes"] = str(a.get("notes") or "")[:400]
+        norm_actions.append(aa)
+
+    out = {
+        "id": plan.get("id") or ("rpa_" + uuid.uuid4().hex[:10]),
+        "goal": goal or "RPA task",
+        "actions": norm_actions,
+        "created_at": now_iso(),
+        "status": "pending_approval" if RPA_REQUIRE_APPROVAL else "queued",
+        "approved_at": None,
+        "run": {"attempts": 0, "last_error": "", "last_result": None},
+        "meta": plan.get("meta") if isinstance(plan.get("meta"), dict) else {},
+    }
+    return out, ""
+
+def extract_rpa_plan_from_text(text: str) -> Optional[Dict[str, Any]]:
+    if not text:
+        return None
+    m = RPA_BLOCK_RE.search(text)
+    if not m:
+        return None
+    raw = (m.group(2) or "").strip()
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+    except Exception:
+        return None
+    plan, _err = _normalize_rpa_plan(obj)
+    return plan
+
+def _rpa_enqueue(username: str, plan: Dict[str, Any]) -> Tuple[bool, str]:
+    st = _load_rpa_state(username)
+    q = st.get("queue") or []
+    if len(q) >= RPA_MAX_QUEUE:
+        return False, f"Queue is full (max {RPA_MAX_QUEUE})."
+    q.append(plan)
+    st["queue"] = q
+    _save_rpa_state(username, st)
+    return True, ""
+
+def _rpa_find(username: str, job_id: str) -> Tuple[Optional[Dict[str, Any]], int, Dict[str, Any]]:
+    st = _load_rpa_state(username)
+    q = st.get("queue") or []
+    for i, j in enumerate(q):
+        if isinstance(j, dict) and (j.get("id") == job_id):
+            return j, i, st
+    return None, -1, st
+
+def _rpa_runner_call(payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+    try:
+        import requests
+        r = requests.post(RPA_RUNNER_URL + "/run", json=payload, timeout=RPA_TIMEOUT_SEC)
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            return None, f"Runner error {r.status_code}: {data}"
+        return data, ""
+    except Exception as e:
+        return None, f"Runner unreachable: {e}"
+
+def _rpa_tick_once(username: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    st = _load_rpa_state(username)
+    q = st.get("queue") or []
+    # find first runnable
+    job = None
+    idx = -1
+    for i, j in enumerate(q):
+        if not isinstance(j, dict):
+            continue
+        status = (j.get("status") or "")
+        if status in ("queued", "running"):
+            job = j
+            idx = i
+            break
+    if not job:
+        return False, "No runnable job.", None
+
+    # enforce approval
+    if RPA_REQUIRE_APPROVAL and (job.get("status") == "pending_approval"):
+        return False, "Job pending approval.", job
+
+    # mark running
+    job["status"] = "running"
+    job.setdefault("run", {})
+    job["run"]["attempts"] = int((job["run"].get("attempts") or 0)) + 1
+    _save_rpa_state(username, st)
+
+    result, err = _rpa_runner_call({"id": job.get("id"), "goal": job.get("goal"), "actions": job.get("actions")})
+    if not result:
+        job["status"] = "failed"
+        job["run"]["last_error"] = err
+        job["run"]["last_result"] = None
+        _save_rpa_state(username, st)
+        append_task_log("rpa_run_failed", {"job": job, "error": err}, teammate="RPA", status="failed")
+        return False, err, job
+
+    # success
+    job["status"] = "done"
+    job["run"]["last_error"] = ""
+    job["run"]["last_result"] = result
+    _save_rpa_state(username, st)
+    append_task_log("rpa_run_done", {"job": job, "result": result}, teammate="RPA", status="success")
+    return True, "", job
+
+
 
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
@@ -2336,13 +2516,6 @@ def api_action_stacks_schedules_delete(teammate: str):
 def api_action_stack_schedules_tick():
     try:
         _run_due_schedules_once()
-        # ADDITIVE: optional RPA queue processing (no background threads).
-        try:
-            if "_rpa_tick_once" in globals():
-                _rpa_tick_once()
-        except Exception:
-            # Never let RPA processing break schedules.
-            pass
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -2751,6 +2924,24 @@ def api_convene():
         if d:
             email_drafts[name] = d
 
+
+# --- RPA plans (click tasks) extracted from teammate outputs (additive) ---
+rpa_plans: Dict[str, Any] = {}
+rpa_enqueued: Dict[str, str] = {}
+try:
+    username = _get_session_username()
+    for tname, ttext in (outputs or {}).items():
+        plan = extract_rpa_plan_from_text(ttext or "")
+        if plan:
+            plan.setdefault("meta", {})
+            if isinstance(plan.get("meta"), dict):
+                plan["meta"].update({"from_teammate": tname})
+            rpa_plans[tname] = plan
+            ok, err = _rpa_enqueue(username, plan)
+            rpa_enqueued[tname] = (plan.get("id") if ok else "")
+except Exception:
+    pass
+
     append_log("convene", {
         "prompt": prompt,
         "prompt_with_attachments": prompt2,
@@ -2769,6 +2960,8 @@ def api_convene():
         "atlis_report": atlis_report,
         "outputs": outputs,
         "email_drafts": email_drafts,
+        "rpa_plans": rpa_plans,
+        "rpa_enqueued": rpa_enqueued,
         "attachment_meta": attach_meta
     })
 
@@ -2808,6 +3001,22 @@ def api_followup():
 
     draft = extract_email_draft(text)
 
+
+# --- RPA plan extraction (additive) ---
+rpa_plan = None
+rpa_job_id = ""
+try:
+    plan = extract_rpa_plan_from_text(text or "")
+    if plan:
+        plan.setdefault("meta", {})
+        if isinstance(plan.get("meta"), dict):
+            plan["meta"].update({"from_teammate": name})
+        rpa_plan = plan
+        ok, err = _rpa_enqueue(_get_session_username(), plan)
+        rpa_job_id = (plan.get("id") if ok else "")
+except Exception:
+    pass
+
     append_log("followup", {
         "name": name,
         "message": msg,
@@ -2844,7 +3053,7 @@ def api_followup():
 
 
 
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "rpa_plan": rpa_plan, "rpa_job_id": rpa_job_id, "attachment_meta": attach_meta})
 
 
 @app.get("/api/thread/<name>")
@@ -9479,6 +9688,245 @@ function applyRTTransformV4(){
 })();
 </script>
 
+
+<!-- =========================
+     RPA (Click Tasks) UI - additive
+     ========================= -->
+<style>
+  #rpaBadge{
+    position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+    background: rgba(20,20,28,0.92);
+    border: 1px solid rgba(255,255,255,0.12);
+    padding: 10px 12px; border-radius: 14px;
+    cursor: pointer; user-select: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    display: none;
+    max-width: 280px;
+  }
+  #rpaBadge .t{ font-weight: 700; font-size: 13px; }
+  #rpaBadge .s{ opacity: 0.85; font-size: 12px; margin-top: 2px; }
+  #rpaModalBackdrop{
+    position: fixed; inset: 0; z-index: 10000;
+    background: rgba(0,0,0,0.58);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 18px;
+  }
+  #rpaModal{
+    width: min(920px, 96vw);
+    background: rgba(18,18,26,0.98);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+    padding: 16px;
+  }
+  #rpaModal h3{ margin: 0 0 8px 0; font-size: 16px; }
+  #rpaModal .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  #rpaModal .muted{ opacity:0.85; font-size:12px; }
+  #rpaModal pre{
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.10);
+    padding: 10px; border-radius: 12px;
+    max-height: 40vh; overflow:auto;
+    font-size: 12px;
+  }
+  #rpaModal table{ width:100%; border-collapse: collapse; margin-top:10px; }
+  #rpaModal th, #rpaModal td{ border-bottom:1px solid rgba(255,255,255,0.08); padding: 8px; text-align:left; font-size: 12px; }
+  #rpaModal .btn{
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.14);
+    padding: 8px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  #rpaModal .btn.primary{ background: rgba(160,120,255,0.22); border-color: rgba(160,120,255,0.35); }
+</style>
+
+<div id="rpaBadge" title="Click to review queued click tasks">
+  <div class="t">RPA queue</div>
+  <div class="s" id="rpaBadgeText">0 tasks</div>
+</div>
+
+<div id="rpaModalBackdrop">
+  <div id="rpaModal">
+    <div class="row" style="justify-content:space-between;">
+      <h3>RPA click tasks</h3>
+      <button class="btn" id="rpaCloseBtn">Close</button>
+    </div>
+    <div class="muted" id="rpaMetaLine"></div>
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" id="rpaRefreshBtn">Refresh</button>
+      <button class="btn primary" id="rpaRunNextBtn">Run next queued</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:160px;">Status</th>
+          <th>Goal</th>
+          <th style="width:210px;">Actions</th>
+          <th style="width:220px;">Controls</th>
+        </tr>
+      </thead>
+      <tbody id="rpaQueueBody"></tbody>
+    </table>
+
+    <div style="margin-top:10px;">
+      <div class="muted">Last job result</div>
+      <pre id="rpaLastResult">{}</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  const badge = $("rpaBadge");
+  const badgeText = $("rpaBadgeText");
+  const modal = $("rpaModalBackdrop");
+  const closeBtn = $("rpaCloseBtn");
+  const refreshBtn = $("rpaRefreshBtn");
+  const runNextBtn = $("rpaRunNextBtn");
+  const metaLine = $("rpaMetaLine");
+  const queueBody = $("rpaQueueBody");
+  const lastResult = $("rpaLastResult");
+
+  let lastQueue = [];
+  let lastMeta = {runner_url:"", require_approval:true};
+
+  async function api(path, body){
+    const opt = body ? {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)} : {};
+    const r = await fetch(path, opt);
+    const j = await r.json().catch(()=>({ok:false,error:"Bad JSON"}));
+    if(!j.ok) throw new Error(j.error || "Request failed");
+    return j;
+  }
+
+  function openModal(){ modal.style.display = "flex"; }
+  function closeModal(){ modal.style.display = "none"; }
+  closeBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e)=>{ if(e.target === modal) closeModal(); });
+
+  function esc(s){ return (s||"").toString().replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+  function renderQueue(){
+    const q = lastQueue || [];
+    queueBody.innerHTML = "";
+    let pending = 0;
+    let queued = 0;
+    let done = 0;
+
+    q.forEach(job=>{
+      const st = (job.status||"");
+      if(st==="pending_approval") pending++;
+      if(st==="queued" || st==="running") queued++;
+      if(st==="done") done++;
+
+      const actCount = (job.actions||[]).length;
+      const controls = [];
+      if(st==="pending_approval"){
+        controls.push(`<button class="btn primary" data-act="approve" data-id="${esc(job.id)}">Approve</button>`);
+      }
+      if(st==="queued"){
+        controls.push(`<button class="btn primary" data-act="run" data-id="${esc(job.id)}">Run now</button>`);
+      }
+      controls.push(`<button class="btn" data-act="details" data-id="${esc(job.id)}">Details</button>`);
+      controls.push(`<button class="btn" data-act="cancel" data-id="${esc(job.id)}">Cancel</button>`);
+
+      const from = (job.meta && job.meta.from_teammate) ? (" • from " + job.meta.from_teammate) : "";
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${esc(st)}</td>
+        <td><div style="font-weight:700;">${esc(job.goal||"RPA task")}</div><div class="muted">${esc(job.id||"")}${esc(from)}</div></td>
+        <td>${actCount} steps</td>
+        <td>${controls.join(" ")}</td>
+      `;
+      queueBody.appendChild(row);
+    });
+
+    const show = (pending + queued) > 0;
+    badge.style.display = show ? "block" : "none";
+    badgeText.textContent = pending ? (pending + " pending approval") : (queued + " queued");
+  }
+
+  async function refresh(){
+    try{
+      const j = await fetch("/api/rpa/queue").then(r=>r.json());
+      if(j && j.ok){
+        lastQueue = j.queue || [];
+        lastMeta = {runner_url: j.runner_url || "", require_approval: !!j.require_approval};
+        metaLine.textContent = "Runner: " + (lastMeta.runner_url || "(not set)") + " • Approval: " + (lastMeta.require_approval ? "required" : "off");
+        // show last result of most recent job with a result
+        let lr = null;
+        for(let i=lastQueue.length-1;i>=0;i--){
+          const job = lastQueue[i]||{};
+          const res = job.run && job.run.last_result;
+          if(res){ lr = res; break; }
+        }
+        lastResult.textContent = JSON.stringify(lr || {}, null, 2);
+        renderQueue();
+      }
+    }catch(e){
+      // no throw; keep UI quiet
+    }
+  }
+
+  async function approve(jobId){
+    await api("/api/rpa/approve", {job_id: jobId});
+    await refresh();
+  }
+  async function cancel(jobId){
+    await api("/api/rpa/cancel", {job_id: jobId});
+    await refresh();
+  }
+  async function tick(){
+    const j = await fetch("/api/rpa/tick", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"}).then(r=>r.json());
+    await refresh();
+    return j;
+  }
+
+  queueBody.addEventListener("click", async (e)=>{
+    const btn = e.target.closest("button");
+    if(!btn) return;
+    const act = btn.getAttribute("data-act");
+    const id = btn.getAttribute("data-id");
+    try{
+      if(act==="approve"){ await approve(id); }
+      else if(act==="cancel"){ await cancel(id); }
+      else if(act==="run"){ 
+        // ensure approved then tick once
+        try{ await approve(id); }catch(_){}
+        await tick();
+      }
+      else if(act==="details"){
+        const job = (lastQueue||[]).find(x=>x && x.id===id) || null;
+        if(job){
+          alert("RPA job details:\n\n" + JSON.stringify(job, null, 2));
+        }
+      }
+    }catch(err){
+      alert(err.message || "RPA error");
+    }
+  });
+
+  badge.addEventListener("click", async ()=>{
+    await refresh();
+    openModal();
+  });
+
+  refreshBtn.addEventListener("click", refresh);
+  runNextBtn.addEventListener("click", async ()=>{
+    try{ await tick(); openModal(); }catch(e){ alert(e.message||"Run failed"); }
+  });
+
+  // poll
+  setTimeout(refresh, 700);
+  setInterval(refresh, 5000);
+})();
+</script>
+
 </body>
 </html>
 """
@@ -9715,6 +10163,66 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# =========================
+# RPA API (additive)
+# =========================
+
+@app.get("/api/rpa/queue")
+def api_rpa_queue():
+    username = _get_session_username()
+    st = _load_rpa_state(username)
+    return jsonify({"ok": True, "queue": st.get("queue") or [], "runner_url": RPA_RUNNER_URL, "require_approval": RPA_REQUIRE_APPROVAL})
+
+@app.post("/api/rpa/enqueue")
+def api_rpa_enqueue():
+    data = request.get_json(force=True) or {}
+    plan_in = data.get("plan") or {}
+    plan, err = _normalize_rpa_plan(plan_in)
+    if not plan:
+        return jsonify({"ok": False, "error": err or "Invalid plan"}), 400
+    username = _get_session_username()
+    ok, err2 = _rpa_enqueue(username, plan)
+    if not ok:
+        return jsonify({"ok": False, "error": err2}), 400
+    append_task_log("rpa_enqueued", {"job": plan}, teammate="RPA", status="success")
+    return jsonify({"ok": True, "job_id": plan.get("id"), "job": plan})
+
+@app.post("/api/rpa/approve")
+def api_rpa_approve():
+    data = request.get_json(force=True) or {}
+    job_id = (data.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"ok": False, "error": "Missing job_id"}), 400
+    username = _get_session_username()
+    job, idx, st = _rpa_find(username, job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    job["status"] = "queued"
+    job["approved_at"] = now_iso()
+    _save_rpa_state(username, st)
+    append_task_log("rpa_approved", {"job": job}, teammate="RPA", status="success")
+    return jsonify({"ok": True, "job": job})
+
+@app.post("/api/rpa/cancel")
+def api_rpa_cancel():
+    data = request.get_json(force=True) or {}
+    job_id = (data.get("job_id") or "").strip()
+    username = _get_session_username()
+    job, idx, st = _rpa_find(username, job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    job["status"] = "canceled"
+    _save_rpa_state(username, st)
+    append_task_log("rpa_canceled", {"job": job}, teammate="RPA", status="success")
+    return jsonify({"ok": True})
+
+@app.post("/api/rpa/tick")
+def api_rpa_tick():
+    username = _get_session_username()
+    ok, err, job = _rpa_tick_once(username)
+    return jsonify({"ok": ok, "error": err, "job": job})
 
 
 if __name__ == "__main__":
@@ -10204,485 +10712,4 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
-
-
-
-
-# =========================
-# OPERATOR BROWSER (RPA) - ADDITIVE
-# Safe, permissioned browser automation via an external local runner (Playwright/Selenium).
-# This app DOES NOT embed browser automation in the Flask process. It enqueues validated
-# "browser_*" action contracts and (optionally) processes them on the existing tick endpoint.
-# =========================
-
-# Runner base URL (your local machine is recommended for logged-in sessions).
-RPA_RUNNER_BASE_URL = os.getenv("RPA_RUNNER_BASE_URL", "http://127.0.0.1:5055").rstrip("/")
-
-# Per-user queue storage
-def _rpa_queue_path(username: str) -> Path:
-    username = _clean_username(username or "anon") or "anon"
-    return DATA / "rpa" / f"queue_{username}.json"
-
-def _rpa_audit_path(username: str) -> Path:
-    username = _clean_username(username or "anon") or "anon"
-    return DATA / "rpa" / f"audit_{username}.jsonl"
-
-def _ensure_rpa_dirs():
-    try:
-        (DATA / "rpa").mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-def _load_rpa_queue(username: str) -> Dict[str, Any]:
-    _ensure_rpa_dirs()
-    return load_json(_rpa_queue_path(username), {"items": []})
-
-def _save_rpa_queue(username: str, data: Dict[str, Any]):
-    _ensure_rpa_dirs()
-    save_json(_rpa_queue_path(username), data)
-
-def _append_rpa_audit(username: str, record: Dict[str, Any]):
-    _ensure_rpa_dirs()
-    p = _rpa_audit_path(username)
-    try:
-        line = json.dumps(record, ensure_ascii=False)
-        with open(p, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
-
-# ---- RPA Settings (stored in user settings) ----
-def _get_user_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    if not u:
-        return {}
-    return (u.get("settings") or {})
-
-def _get_rpa_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    settings = _get_user_settings(u)
-    rpa = (settings.get("rpa") or {})
-    # Safe defaults: disabled unless explicitly enabled.
-    return {
-        "enabled": bool(rpa.get("enabled", False)),
-        "kill_switch": bool(rpa.get("kill_switch", True)),  # ON by default
-        "require_approval_for_social": bool(rpa.get("require_approval_for_social", True)),
-        "max_actions_per_tick": int(rpa.get("max_actions_per_tick", 3)),
-        "max_actions_per_day": int(rpa.get("max_actions_per_day", 30)),
-        "quiet_hours": rpa.get("quiet_hours", {"start": "22:00", "end": "07:00"}),
-    }
-
-def _save_rpa_settings_for_user(username: str, new_rpa: Dict[str, Any]) -> None:
-    data = load_users()
-    users = data.get("users") or {}
-    u = users.get(username)
-    if not u:
-        return
-    settings = (u.get("settings") or {})
-    settings["rpa"] = {
-        "enabled": bool(new_rpa.get("enabled", False)),
-        "kill_switch": bool(new_rpa.get("kill_switch", False)),
-        "require_approval_for_social": bool(new_rpa.get("require_approval_for_social", True)),
-        "max_actions_per_tick": int(new_rpa.get("max_actions_per_tick", 3)),
-        "max_actions_per_day": int(new_rpa.get("max_actions_per_day", 30)),
-        "quiet_hours": new_rpa.get("quiet_hours", {"start": "22:00", "end": "07:00"}),
-    }
-    u["settings"] = settings
-    u["updated_at"] = now_iso()
-    users[username] = u
-    data["users"] = users
-    save_users(data)
-
-# ---- Action Contracts ----
-_RPA_ALLOWED_TYPES = {
-    "browser_open_url",
-    "browser_click",
-    "browser_type",
-    "browser_wait_for",
-    "browser_screenshot",
-    "browser_extract",
-    "browser_run_recipe",
-}
-
-def _rpa_contract_validate(contract: Dict[str, Any]) -> Tuple[bool, str]:
-    if not isinstance(contract, dict):
-        return False, "Contract must be an object."
-    ctype = (contract.get("type") or "").strip()
-    if ctype not in _RPA_ALLOWED_TYPES:
-        return False, f"Unsupported RPA contract type: {ctype}"
-    idem = (contract.get("idempotency_key") or "").strip()
-    if not idem:
-        return False, "Missing idempotency_key."
-    # Optional social flag: triggers approval requirement by default.
-    if "social_platform" not in contract:
-        contract["social_platform"] = False
-
-    # Validate by type
-    if ctype == "browser_open_url":
-        url = (contract.get("url") or "").strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
-            return False, "browser_open_url requires a valid http(s) url."
-    elif ctype == "browser_click":
-        # Prefer selectors. Vision targets can be used in the runner but should be explicit.
-        selector = (contract.get("selector") or "").strip()
-        target = (contract.get("target") or "").strip()
-        if not selector and not target:
-            return False, "browser_click requires selector or target."
-    elif ctype == "browser_type":
-        selector = (contract.get("selector") or "").strip()
-        text = contract.get("text")
-        if not selector:
-            return False, "browser_type requires selector."
-        if text is None:
-            return False, "browser_type requires text."
-    elif ctype == "browser_wait_for":
-        selector = (contract.get("selector") or "").strip()
-        timeout_ms = int(contract.get("timeout_ms", 15000))
-        if not selector:
-            return False, "browser_wait_for requires selector."
-        if timeout_ms < 1000 or timeout_ms > 120000:
-            return False, "timeout_ms out of range (1000..120000)."
-        contract["timeout_ms"] = timeout_ms
-    elif ctype == "browser_extract":
-        selector = (contract.get("selector") or "").strip()
-        if not selector:
-            return False, "browser_extract requires selector."
-    elif ctype == "browser_run_recipe":
-        recipe = (contract.get("recipe") or "").strip()
-        if not recipe:
-            return False, "browser_run_recipe requires recipe."
-        # params optional
-    return True, ""
-
-def _rpa_queue_enqueue(username: str, contract: Dict[str, Any]) -> Dict[str, Any]:
-    ok, err = _rpa_contract_validate(contract)
-    if not ok:
-        raise ValueError(err)
-    q = _load_rpa_queue(username)
-    items = q.get("items") or []
-    idem = contract.get("idempotency_key")
-
-    # Idempotency: do not enqueue duplicates.
-    for it in items:
-        if (it.get("contract") or {}).get("idempotency_key") == idem:
-            return it
-
-    item = {
-        "id": str(uuid.uuid4()),
-        "status": "pending",
-        "created_at": now_iso(),
-        "updated_at": now_iso(),
-        "attempts": 0,
-        "approved": bool(contract.get("approved", False)),
-        "contract": contract,
-        "result": None,
-        "error": None,
-    }
-    items.append(item)
-    q["items"] = items
-    _save_rpa_queue(username, q)
-    _append_rpa_audit(username, {"event": "enqueue", "at": now_iso(), "item": {"id": item["id"], "contract": contract}})
-    return item
-
-def _rpa_queue_update(username: str, item_id: str, **fields) -> Optional[Dict[str, Any]]:
-    q = _load_rpa_queue(username)
-    items = q.get("items") or []
-    for it in items:
-        if it.get("id") == item_id:
-            for k, v in fields.items():
-                it[k] = v
-            it["updated_at"] = now_iso()
-            _save_rpa_queue(username, q)
-            return it
-    return None
-
-def _rpa_queue_tail(username: str, limit: int = 50) -> List[Dict[str, Any]]:
-    q = _load_rpa_queue(username)
-    items = q.get("items") or []
-    return items[-max(1, int(limit)) :]
-
-# ---- Runner calls ----
-def _rpa_http(method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: int = 35) -> Tuple[bool, Any]:
-    # requests is optional dependency; keep app resilient.
-    try:
-        import requests  # type: ignore
-    except Exception as e:
-        return False, f"requests not installed: {e}"
-
-    url = f"{RPA_RUNNER_BASE_URL}{path}"
-    try:
-        if method.upper() == "GET":
-            r = requests.get(url, timeout=timeout)
-        else:
-            r = requests.request(method.upper(), url, json=payload or {}, timeout=timeout)
-        try:
-            data = r.json()
-        except Exception:
-            data = {"ok": False, "error": r.text[:2000]}
-        if r.status_code >= 400:
-            return False, data
-        return True, data
-    except Exception as e:
-        return False, str(e)
-
-# ---- Quiet hours ----
-def _hhmm_to_minutes(hhmm: str) -> Optional[int]:
-    try:
-        hhmm = (hhmm or "").strip()
-        m = re.match(r"^(\d{1,2}):(\d{2})$", hhmm)
-        if not m:
-            return None
-        h = int(m.group(1)); mi = int(m.group(2))
-        if h < 0 or h > 23 or mi < 0 or mi > 59:
-            return None
-        return h*60 + mi
-    except Exception:
-        return None
-
-def _is_in_quiet_hours(qh: Dict[str, Any]) -> bool:
-    try:
-        start = _hhmm_to_minutes((qh or {}).get("start", "22:00"))
-        end = _hhmm_to_minutes((qh or {}).get("end", "07:00"))
-        if start is None or end is None:
-            return False
-        now = datetime.now()
-        nowm = now.hour*60 + now.minute
-        if start < end:
-            return start <= nowm < end
-        # crosses midnight
-        return (nowm >= start) or (nowm < end)
-    except Exception:
-        return False
-
-# ---- Daily cap ----
-def _rpa_daily_count(username: str, day_iso: str) -> int:
-    # read audit tail cheaply by scanning last ~200 lines
-    p = _rpa_audit_path(username)
-    if not p.exists():
-        return 0
-    cnt = 0
-    try:
-        with open(p, "rb") as f:
-            data = f.read()[-200000:]  # tail
-        for line in data.splitlines():
-            try:
-                rec = json.loads(line.decode("utf-8", errors="ignore"))
-                if rec.get("event") == "execute" and (rec.get("day") == day_iso) and rec.get("status") == "success":
-                    cnt += 1
-            except Exception:
-                continue
-    except Exception:
-        return 0
-    return cnt
-
-# ---- Processing ----
-def _rpa_tick_once():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    if not u:
-        return
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    settings = _get_rpa_settings(u)
-
-    if not settings.get("enabled"):
-        return
-    if settings.get("kill_switch"):
-        return
-    if _is_in_quiet_hours(settings.get("quiet_hours") or {}):
-        return
-
-    day = datetime.now().strftime("%Y-%m-%d")
-    if _rpa_daily_count(uname, day) >= int(settings.get("max_actions_per_day", 30)):
-        return
-
-    q = _load_rpa_queue(uname)
-    items = q.get("items") or []
-    if not items:
-        return
-
-    max_per_tick = max(1, int(settings.get("max_actions_per_tick", 3)))
-    processed = 0
-
-    for it in items:
-        if processed >= max_per_tick:
-            break
-        if it.get("status") not in ("pending", "retry"):
-            continue
-
-        contract = it.get("contract") or {}
-        social = bool(contract.get("social_platform", False))
-        if social and settings.get("require_approval_for_social", True) and not bool(it.get("approved", False)):
-            # Await explicit approval for social actions
-            it["status"] = "awaiting_approval"
-            it["updated_at"] = now_iso()
-            processed += 1
-            continue
-
-        # Execute
-        it["status"] = "running"
-        it["attempts"] = int(it.get("attempts") or 0) + 1
-        it["updated_at"] = now_iso()
-        processed += 1
-
-        ok, data = _rpa_http("POST", "/run", {"contract": contract, "meta": {"queue_id": it.get("id"), "user": uname}})
-        if ok and isinstance(data, dict) and data.get("ok"):
-            it["status"] = "success"
-            it["result"] = data
-            it["error"] = None
-            _append_rpa_audit(uname, {"event": "execute", "at": now_iso(), "day": day, "status": "success", "item_id": it.get("id"), "type": contract.get("type")})
-        else:
-            # Retry a few times for transient runner failures
-            err = data if isinstance(data, str) else (data.get("error") if isinstance(data, dict) else str(data))
-            it["error"] = err
-            if int(it.get("attempts") or 0) < 3:
-                it["status"] = "retry"
-            else:
-                it["status"] = "failed"
-            _append_rpa_audit(uname, {"event": "execute", "at": now_iso(), "day": day, "status": it["status"], "item_id": it.get("id"), "type": contract.get("type"), "error": err})
-
-    q["items"] = items
-    _save_rpa_queue(uname, q)
-
-# ---- API: settings ----
-@app.get("/api/rpa/settings")
-def api_rpa_settings_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    return jsonify({"ok": True, "settings": _get_rpa_settings(u)})
-
-@app.post("/api/rpa/settings")
-def api_rpa_settings_set():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
-    cur = _get_rpa_settings(u)
-    nxt = {**cur, **(payload.get("settings") or payload)}
-    # Safe normalization
-    nxt["max_actions_per_tick"] = int(nxt.get("max_actions_per_tick", 3))
-    nxt["max_actions_per_day"] = int(nxt.get("max_actions_per_day", 30))
-    _save_rpa_settings_for_user(uname, nxt)
-    # Return fresh
-    u2 = current_user()
-    return jsonify({"ok": True, "settings": _get_rpa_settings(u2)})
-
-# ---- API: runner health ----
-@app.get("/api/rpa/runner_status")
-def api_rpa_runner_status():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    ok, data = _rpa_http("GET", "/status", None, timeout=10)
-    return jsonify({"ok": True, "runner_ok": bool(ok), "data": data})
-
-# ---- API: queue ----
-@app.get("/api/rpa/queue")
-def api_rpa_queue_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    limit = int(request.args.get("limit", "50"))
-    return jsonify({"ok": True, "items": _rpa_queue_tail(uname, limit=limit)})
-
-@app.post("/api/rpa/enqueue")
-def api_rpa_enqueue():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
-    contract = (payload.get("contract") or {})
-    try:
-        item = _rpa_queue_enqueue(uname, contract)
-        return jsonify({"ok": True, "item": item})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-
-@app.post("/api/rpa/approve")
-def api_rpa_approve():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
-    item_id = (payload.get("id") or "").strip()
-    if not item_id:
-        return jsonify({"ok": False, "error": "Missing id"}), 400
-    it = _rpa_queue_update(uname, item_id, approved=True, status="pending")
-    if not it:
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    _append_rpa_audit(uname, {"event": "approve", "at": now_iso(), "item_id": item_id})
-    return jsonify({"ok": True, "item": it})
-
-@app.post("/api/rpa/cancel")
-def api_rpa_cancel():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
-    item_id = (payload.get("id") or "").strip()
-    if not item_id:
-        return jsonify({"ok": False, "error": "Missing id"}), 400
-    it = _rpa_queue_update(uname, item_id, status="canceled")
-    if not it:
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    _append_rpa_audit(uname, {"event": "cancel", "at": now_iso(), "item_id": item_id})
-    return jsonify({"ok": True, "item": it})
-
-# ---- API: recipe framework (safe placeholders) ----
-# Recipes here are "macros" that the external runner understands. We intentionally keep this app
-# platform-agnostic and require explicit approval for any recipe flagged as social_platform.
-_BUILTIN_RPA_RECIPES = [
-    {
-        "name": "open_url_and_screenshot",
-        "description": "Open a URL and capture a screenshot proof.",
-        "social_platform": False,
-        "params": ["url"],
-        "example_contract": {
-            "type": "browser_run_recipe",
-            "recipe": "open_url_and_screenshot",
-            "params": {"url": "https://example.com"},
-            "social_platform": False,
-            "idempotency_key": "demo_open_url_1"
-        }
-    },
-    {
-        "name": "collect_list_items",
-        "description": "Navigate and extract text from a CSS selector list (runner handles navigation).",
-        "social_platform": False,
-        "params": ["url", "selector"],
-        "example_contract": {
-            "type": "browser_run_recipe",
-            "recipe": "collect_list_items",
-            "params": {"url": "https://example.com", "selector": "a"},
-            "social_platform": False,
-            "idempotency_key": "demo_collect_1"
-        }
-    },
-    # Social automation is high-risk. We keep it gated behind approval + your own runner implementation.
-    {
-        "name": "social_invite_from_reactors_batch",
-        "description": "Invite a batch of people from a reactors list (requires approval; runner must implement).",
-        "social_platform": True,
-        "params": ["post_url", "batch_size"],
-        "example_contract": {
-            "type": "browser_run_recipe",
-            "recipe": "social_invite_from_reactors_batch",
-            "params": {"post_url": "https://social.example/post/123", "batch_size": 10},
-            "social_platform": True,
-            "idempotency_key": "invite_reactors_post123_batch1"
-        }
-    }
-]
-
-@app.get("/api/rpa/recipes")
-def api_rpa_recipes():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    return jsonify({"ok": True, "recipes": _BUILTIN_RPA_RECIPES})
 
