@@ -749,7 +749,7 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     defn = (reg.get("installed") or {}).get(teammate)
     if not defn:
         return ""
-    sys = teammate_system_prompt(defn)
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
     msg2, _, vision_images = build_prompt_with_attachments(prompt, file_ids)
     user_content = _build_user_content(msg2, vision_images)
     return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
@@ -1920,7 +1920,7 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
 # PROMPTS + LLM
 # =========================
 
-def teammate_system_prompt(defn: Dict[str, Any]) -> str:
+def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) -> str:
     role_block = {
         "name": defn.get("name", ""),
         "job_title": defn.get("job_title", ""),
@@ -1984,12 +1984,23 @@ def teammate_system_prompt(defn: Dict[str, Any]) -> str:
 
     framework = load_core_framework()
 
+    lighting_block = ""
+    if lighting_mode:
+        lighting_block = (
+            "LIGHTING MODE (USER REQUESTED)\n"
+            "Do not ask clarifying questions.\n"
+            "Do not push back or debate.\n"
+            "Deliver exactly what the user asked for, directly and completely.\n"
+            "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
+        )
+
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
         f"{email_rules}\n"
+        f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
         f"{client_block}\n\n"
@@ -2636,6 +2647,7 @@ def api_convene():
     data = request.get_json(force=True)
     prompt = (data.get("prompt") or "").strip()
     file_ids = data.get("file_ids") or []
+    lighting_mode = bool(data.get("lighting_mode"))
 
     if not prompt:
         return jsonify({"ok": False, "error": "Missing prompt"}), 400
@@ -2663,7 +2675,7 @@ def api_convene():
     user_content = _build_user_content(prompt2, vision_images)
 
     atlis = installed.get("Atlis") or PREBUILT_LOCKED["Atlis"]
-    atlis_sys = teammate_system_prompt(atlis)
+    atlis_sys = teammate_system_prompt(atlis, lighting_mode=lighting_mode)
     try:
         atlis_report = call_llm(
             atlis_sys,
@@ -2705,7 +2717,7 @@ def api_convene():
         if not defn:
             continue
 
-        sys = teammate_system_prompt(defn)
+        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
         thread = load_thread(name)
         thread = thread[-12:] if len(thread) > 12 else thread
@@ -2772,6 +2784,7 @@ def api_followup():
     name = (data.get("name") or "").strip()
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
+    lighting_mode = bool(data.get("lighting_mode"))
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
@@ -2785,7 +2798,7 @@ def api_followup():
     user_content = _build_user_content(msg2, vision_images)
 
     defn = installed[name]
-    sys = teammate_system_prompt(defn)
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
     thread = load_thread(name)
     thread = thread[-14:] if len(thread) > 14 else thread
@@ -5322,6 +5335,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
+                <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
@@ -5332,9 +5346,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>
-              <button class="btn btnMini passBtn" id="passGroupAssump" title="Run Assumption Scan on the most recent group output">⚠ Assumptions</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -5385,9 +5397,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>
-          <button class="btn btnMini passBtn" id="passSeatAssump" title="Run Assumption Scan on the most recent assistant output in this seat">⚠ Assumptions</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
@@ -7223,6 +7233,26 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
+
+        // AUTO SEND AFTER TALKING STOPS (ADD v1)
+        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
+        try{
+          const snapshot = (combined || "").trim();
+          if(snapshot){
+            setTimeout(() => {
+              try{
+                const t = $(targetId);
+                const current = ((t && t.value) ? t.value : "").trim();
+                if(current !== snapshot) return; // user edited; do not auto send
+                if(targetId === "opPrompt"){
+                  conveneAll();
+                }else if(targetId === "followMsg"){
+                  sendFollow();
+                }
+              }catch(_){}
+            }, 2000);
+          }
+        }catch(_){}
       };
 
       try{
@@ -7234,6 +7264,32 @@ function makeSeat(defn, idx){
 
     $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
     $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+
+    // ----- Lighting Mode (ADD v1) -----
+    // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
+    // Safety constraints still apply.
+    let lightingModeOn = false;
+
+    function updateLightingButton(){
+      const b = $("lightingModeBtn");
+      if(!b) return;
+      b.classList.toggle("btnPrimary", !!lightingModeOn);
+      b.innerText = lightingModeOn ? "Lighting: On" : "Lighting mode";
+    }
+
+    try{
+      const b = $("lightingModeBtn");
+      if(b){
+        b.onclick = () => {
+          lightingModeOn = !lightingModeOn;
+          updateLightingButton();
+        };
+        updateLightingButton();
+      }
+    }catch(_){}
+    // ----- end Lighting Mode -----
+
+
 
     function updateAlwaysButtons(){
       const g = $("alwaysListenGroupBtn");
@@ -7511,7 +7567,7 @@ function makeSeat(defn, idx){
           const res = await fetch("/api/convene", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({prompt, file_ids: groupFileIds})
+            body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
           });
           const data = await res.json();
 
@@ -7633,7 +7689,7 @@ function makeSeat(defn, idx){
       const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds})
+        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
       });
       const data = await res.json();
 
@@ -8256,17 +8312,9 @@ $("saveFramework").onclick = async () => {
   loadState();
 
 
-// ===== ONE BLOCK ENTER-TO-SEND + AUTO SEND AFTER VOICE =====
+// ===== ONE BLOCK ENTER-TO-SEND (ADD v1) =====
 
 (function(){
-
-  let lastSend = 0;
-  function canSend(){
-    const now = Date.now();
-    if(now - lastSend < 900) return false;
-    lastSend = now;
-    return true;
-  }
 
   function enableEnterSend(id, fn){
     const el = document.getElementById(id);
@@ -8283,66 +8331,6 @@ $("saveFramework").onclick = async () => {
 
   enableEnterSend("opPrompt", conveneAll);
   enableEnterSend("followMsg", sendFollow);
-
-  function autoSend(mode){
-    if(!canSend()) return;
-
-    if(mode === "group"){
-      const v = (document.getElementById("opPrompt").value || "").trim();
-      if(v) conveneAll();
-      return;
-    }
-
-    const v2 = (document.getElementById("followMsg").value || "").trim();
-    if(v2) sendFollow();
-  }
-
-  if(typeof startDictation === "function"){
-    const orig = startDictation;
-
-    window.startDictation = function(targetId, statusId){
-      const result = orig(targetId, statusId);
-
-      setTimeout(() => {
-        if(targetId === "opPrompt") autoSend("group");
-        if(targetId === "followMsg") autoSend("dm");
-      }, 400);
-
-      return result;
-    };
-  }
-
-  if(typeof startAlwaysListening === "function"){
-    const origAlways = startAlwaysListening;
-
-    window.startAlwaysListening = function(mode){
-      const result = origAlways(mode);
-
-      const target = mode === "group"
-        ? document.getElementById("opPrompt")
-        : document.getElementById("followMsg");
-
-      if(!target) return result;
-
-      let lastVal = target.value;
-
-      const observer = new MutationObserver(() => {
-        const current = target.value;
-
-        if(current !== lastVal){
-          lastVal = current;
-
-          setTimeout(() => {
-            autoSend(mode === "group" ? "group" : "dm");
-          }, 600);
-        }
-      });
-
-      observer.observe(target, { attributes: true, childList: true, subtree: true });
-
-      return result;
-    };
-  }
 
 })();
 
