@@ -7773,27 +7773,25 @@ function makeSeat(defn, idx){
       }
     }
 
-    // Wire seat buttons
-    try{
-      $("passSeatRisk").onclick = () => runTacticalPass("risk", "seat");
-      $("passSeatScale").onclick = () => runTacticalPass("scale", "seat");
-      $("passSeatFail").onclick = () => runTacticalPass("failure", "seat");
-      $("passSeatAssump").onclick = () => runTacticalPass("assumptions", "seat");
-      $("passSeatConstr").onclick = () => runTacticalPass("constraints", "seat");
-      $("passSeatOpt").onclick = () => runTacticalPass("optimize", "seat");
-    }catch(_){}
+    // Wire seat/group pass buttons (robust to missing buttons)
+    const bind = (id, fn) => { try{ const el = $(id); if(el) el.onclick = fn; }catch(_){ } };
 
-    // Wire group buttons
-    try{
-      $("passGroupRisk").onclick = () => runTacticalPass("risk", "group");
-      $("passGroupScale").onclick = () => runTacticalPass("scale", "group");
-      $("passGroupFail").onclick = () => runTacticalPass("failure", "group");
-      $("passGroupAssump").onclick = () => runTacticalPass("assumptions", "group");
-      $("passGroupConstr").onclick = () => runTacticalPass("constraints", "group");
-      $("passGroupOpt").onclick = () => runTacticalPass("optimize", "group");
-    }catch(_){}
+    // Seat pass buttons
+    bind("passSeatRisk",   () => runTacticalPass("risk", "seat"));
+    bind("passSeatScale",  () => runTacticalPass("scale", "seat"));
+    bind("passSeatFail",   () => runTacticalPass("failure", "seat"));
+    bind("passSeatConstr", () => runTacticalPass("constraints", "seat"));
+    bind("passSeatOpt",    () => runTacticalPass("optimize", "seat"));
 
-    $("draftWithSelected").onclick = async () => {
+    // Group pass buttons
+    bind("passGroupRisk",   () => runTacticalPass("risk", "group"));
+    bind("passGroupScale",  () => runTacticalPass("scale", "group"));
+    bind("passGroupFail",   () => runTacticalPass("failure", "group"));
+    bind("passGroupConstr", () => runTacticalPass("constraints", "group"));
+    bind("passGroupOpt",    () => runTacticalPass("optimize", "group"));
+
+
+$("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
         showModal("No seat selected", "Select a teammate first.");
         return;
