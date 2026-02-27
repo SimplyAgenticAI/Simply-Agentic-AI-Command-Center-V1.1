@@ -7655,7 +7655,7 @@ function makeSeat(defn, idx){
 
 const workMode = ($("workModeSel") && $("workModeSel").value) ? $("workModeSel").value : "broadcast";
 if(workMode === "relay"){
-  // Relay: Alex -> Willow -> ... around the table for N seats
+  // Relay mode: teammates think one-after-another with visible "active" glow.
   let relayN = 3;
   try{
     relayN = parseInt(($("relayCount") && $("relayCount").value) ? $("relayCount").value : "3", 10);
@@ -7666,7 +7666,7 @@ if(workMode === "relay"){
   // Start from the currently selected seat if available, otherwise start from the first seat.
   const startName = (selectedSeat && order.includes(selectedSeat)) ? selectedSeat : (order[0] || "");
 
-  // Mark only the relay chain as thinking
+  // Build chain in table order (wrap around)
   const chain = [];
   try{
     const startIdx = order.indexOf(startName);
@@ -7678,56 +7678,105 @@ if(workMode === "relay"){
     chain.push(...order.slice(0, relayN));
   }
 
-  chain.forEach(n => setSeatLive(n, "thinking"));
+  // Initialize statuses: everyone idle/waiting, first one thinking
+  order.forEach(n => setSeatLive(n, "waiting"));
+  if(chain[0]) setSeatLive(chain[0], "thinking");
   setOpStatus(`Relay running (${chain.length})`);
 
+  // Ensure group replies are visible immediately
   try{
-    const res = await fetch("/api/relay", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        prompt,
-        start_name: startName,
-        count: relayN,
-        file_ids: groupFileIds,
-        lighting_mode: !!lightingModeOn
-      })
-    });
-    const data = await res.json();
-    if(!data.ok){
-      chain.forEach(n => setSeatLive(n, "waiting"));
-      setOpStatus("Error");
-      showModal("Error", data.error || "Relay failed");
-      return;
+    if(Object.keys(lastGroupOutputs || {}).length === 0){
+      renderGroupReplies({}, {});
     }
+  }catch(e){}
 
-    (data.outputs || []).forEach(o => {
+  // Sequential baton passing
+  let batonText = "";
+  for(let i=0; i<chain.length; i++){
+    const name = chain[i];
+
+    // Light up the active teammate card only
+    try{
+      order.forEach(n => {
+        if(n === name) setSeatLive(n, "thinking");
+        else if(chain.slice(0,i).includes(n)) setSeatLive(n, "done");
+        else setSeatLive(n, "waiting");
+      });
+    }catch(e){}
+
+    const message = batonText
+      ? `${prompt}
+
+---
+
+Baton context from the previous teammate:
+
+${batonText}`
+      : prompt;
+
+    try{
+      const res = await fetch("/api/followup", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          name,
+          message,
+          file_ids: groupFileIds,
+          lighting_mode: !!lightingModeOn
+        })
+      });
+      const data = await res.json();
+      if(!data.ok){
+        setSeatLive(name, "waiting");
+        setOpStatus("Error");
+        showModal("Error", data.error || "Relay step failed");
+        return;
+      }
+
+      const responseText = (data.text || data.response || "").toString();
+
+      // 1) Individual card gets the reply
       try{
-        if(o && o.name){
-          setSeatLive(o.name, "done");
-          if(o.response) setSeatLastOut(o.name, o.response);
-          if(o.email_draft) applyDraftToEmailConsole(o.email_draft);
+        setSeatLastOut(name, responseText);
+      }catch(e){}
+
+      // 2) Group Replies gets the reply (incrementally, in the order it happened)
+      try{
+        lastGroupOutputs = lastGroupOutputs || {};
+        lastGroupOutputs[name] = responseText;
+        renderGroupReplies(lastGroupOutputs, {});
+        // keep the newest visible
+        const box = $("groupReplies");
+        if(box) box.scrollTop = box.scrollHeight;
+      }catch(e){}
+
+      // Mark this teammate done, and prep baton for the next teammate
+      setSeatLive(name, "done");
+      batonText = `${name}:
+${responseText}`;
+
+      // If you're currently viewing this teammate in the DM panel, refresh it so the message appears there too
+      try{
+        if(selectedSeat && selectedSeat === name){
+          await refreshThread();
         }
       }catch(e){}
-    });
 
-    setOpStatus("Relay complete");
-    // Refresh thread if the active seat participated
-    try{
-      if(selectedSeat && (data.chain || []).includes(selectedSeat)){
-        await refreshThread();
-      }
-    }catch(e){}
-    return;
-  }catch(e){
-    chain.forEach(n => setSeatLive(n, "waiting"));
-    setOpStatus("Error");
-    showModal("Error", String(e || "Relay failed"));
-    return;
+    }catch(e){
+      setSeatLive(name, "waiting");
+      setOpStatus("Error");
+      showModal("Error", String(e || "Relay step failed"));
+      return;
+    }
   }
+
+  // Final state
+  try{ order.forEach(n => { if(chain.includes(n)) setSeatLive(n, "done"); else setSeatLive(n, "waiting"); }); }catch(e){}
+  setOpStatus("Relay complete");
+  return;
 }
 
-      order.forEach(n => setSeatLive(n, "thinking"));
+      order.forEach(n => setSeatLive(n, "thinking"));(n => setSeatLive(n, "thinking"));
       setOpStatus("Sending to all");
 
       // Assembly roll-call stays on the server (fast path)
