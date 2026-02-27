@@ -2778,98 +2778,6 @@ def api_convene():
     })
 
 
-@app.post("/api/relay")
-def api_relay():
-    data = request.get_json(force=True) or {}
-    prompt = (data.get("prompt") or "").strip()
-    start_name = (data.get("start_name") or "").strip()
-    count_raw = data.get("count")
-    file_ids = data.get("file_ids") or []
-    lighting_mode = bool(data.get("lighting_mode"))
-
-    if not prompt:
-        return jsonify({"ok": False, "error": "Missing prompt"}), 400
-
-    try:
-        count = int(count_raw) if count_raw is not None else 3
-    except Exception:
-        count = 3
-    count = max(1, min(20, count))
-
-    reg = load_registry()
-    installed = reg["installed"]
-    order = reg.get("active_order") or reg.get("installed_order") or []
-    if not installed:
-        return jsonify({"ok": False, "error": "No teammates installed"}), 400
-    if not order:
-        return jsonify({"ok": False, "error": "No active teammates in the round table"}), 400
-
-    # Determine relay chain
-    start_idx = 0
-    if start_name and start_name in order:
-        start_idx = order.index(start_name)
-
-    chain: List[str] = []
-    for i in range(len(order)):
-        n = order[(start_idx + i) % len(order)]
-        if n in installed:
-            chain.append(n)
-        if len(chain) >= count:
-            break
-
-    if not chain:
-        return jsonify({"ok": False, "error": "No valid teammates found for relay"}), 400
-
-    prompt2, attach_meta, vision_images = build_prompt_with_attachments(prompt, file_ids)
-    user_content_first = _build_user_content(prompt2, vision_images)
-
-    outputs: List[Dict[str, Any]] = []
-    prev_name = ""
-    prev_output = ""
-
-    for i, name in enumerate(chain):
-        defn = installed[name]
-        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
-
-        thread = load_thread(name)
-        thread = thread[-14:] if len(thread) > 14 else thread
-
-        msgs: List[Dict[str, Any]] = []
-        msgs.extend(thread)
-
-        if i == 0:
-            baton_msg = prompt2
-            user_content = user_content_first
-        else:
-            baton_msg = f"{prompt2}\n\nPrevious teammate output ({prev_name}):\n{prev_output}".strip()
-            user_content = _build_user_content(baton_msg, [])
-
-        msgs.append({"role": "user", "content": user_content})
-
-        text = call_llm(sys, msgs, temperature=0.65)
-
-        new_thread = thread + [{"role": "user", "content": baton_msg}, {"role": "assistant", "content": text}]
-        save_thread(name, new_thread)
-
-        draft = extract_email_draft(text)
-        outputs.append({"name": name, "response": text, "email_draft": draft})
-
-        prev_name = name
-        prev_output = text
-
-    append_log("relay", {
-        "prompt": prompt,
-        "prompt_with_attachments": prompt2,
-        "attachment_meta": attach_meta,
-        "vision_images_count": len(vision_images),
-        "chain": chain,
-        "lighting_mode": lighting_mode,
-        "outputs": outputs,
-    })
-
-    return jsonify({"ok": True, "chain": chain, "outputs": outputs, "attachment_meta": attach_meta})
-
-
 @app.post("/api/followup")
 def api_followup():
     data = request.get_json(force=True)
@@ -5428,12 +5336,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
-                <select class="btn btnMini" id="workModeSel" title="Choose how multiple teammates collaborate on this prompt">
-                  <option value="broadcast" selected>Broadcast</option>
-                  <option value="relay">Relay</option>
-                </select>
-                <input id="relayCount" type="number" min="1" max="20" value="3" title="How many teammates in the relay" style="width:72px; padding:8px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:var(--text); font-size:12px;" />
-
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
@@ -7653,80 +7555,6 @@ function makeSeat(defn, idx){
         return;
       }
 
-const workMode = ($("workModeSel") && $("workModeSel").value) ? $("workModeSel").value : "broadcast";
-if(workMode === "relay"){
-  // Relay: Alex -> Willow -> ... around the table for N seats
-  let relayN = 3;
-  try{
-    relayN = parseInt(($("relayCount") && $("relayCount").value) ? $("relayCount").value : "3", 10);
-    if(isNaN(relayN)) relayN = 3;
-  }catch(e){ relayN = 3; }
-  relayN = Math.max(1, Math.min(20, relayN));
-
-  // Start from the currently selected seat if available, otherwise start from the first seat.
-  const startName = (selectedSeat && order.includes(selectedSeat)) ? selectedSeat : (order[0] || "");
-
-  // Mark only the relay chain as thinking
-  const chain = [];
-  try{
-    const startIdx = order.indexOf(startName);
-    for(let i=0; i<order.length && chain.length < relayN; i++){
-      const nm = order[(startIdx + i) % order.length];
-      chain.push(nm);
-    }
-  }catch(e){
-    chain.push(...order.slice(0, relayN));
-  }
-
-  chain.forEach(n => setSeatLive(n, "thinking"));
-  setOpStatus(`Relay running (${chain.length})`);
-
-  try{
-    const res = await fetch("/api/relay", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        prompt,
-        start_name: startName,
-        count: relayN,
-        file_ids: groupFileIds,
-        lighting_mode: !!lightingModeOn
-      })
-    });
-    const data = await res.json();
-    if(!data.ok){
-      chain.forEach(n => setSeatLive(n, "waiting"));
-      setOpStatus("Error");
-      showModal("Error", data.error || "Relay failed");
-      return;
-    }
-
-    (data.outputs || []).forEach(o => {
-      try{
-        if(o && o.name){
-          setSeatLive(o.name, "done");
-          if(o.response) setSeatLastOut(o.name, o.response);
-          if(o.email_draft) applyDraftToEmailConsole(o.email_draft);
-        }
-      }catch(e){}
-    });
-
-    setOpStatus("Relay complete");
-    // Refresh thread if the active seat participated
-    try{
-      if(selectedSeat && (data.chain || []).includes(selectedSeat)){
-        await refreshThread();
-      }
-    }catch(e){}
-    return;
-  }catch(e){
-    chain.forEach(n => setSeatLive(n, "waiting"));
-    setOpStatus("Error");
-    showModal("Error", String(e || "Relay failed"));
-    return;
-  }
-}
-
       order.forEach(n => setSeatLive(n, "thinking"));
       setOpStatus("Sending to all");
 
@@ -7785,7 +7613,7 @@ if(workMode === "relay"){
           const res = await fetch("/api/followup", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn}),
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
             signal: controller.signal
           });
           clearTimeout(t);
@@ -9401,16 +9229,14 @@ function applyRTTransformV4(){
   }
 
   async function openOnboarding(){
-  try{
-    // Clear user-closed state (explicit reopen)
-    try{ localStorage.removeItem("onb_user_closed"); }catch(e){}
-    // Undismiss (if previously hidden)
-    await fetch("/api/onboarding/dismiss", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({dismissed:false})
-    });
-  }catch(e){}
+    try{
+      // Undismiss (if previously hidden)
+      await fetch("/api/onboarding/dismiss", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({dismissed:false})
+      });
+    }catch(e){}
     try{
       await fetchOnboarding();
       const panel = onb$("onboardingPanel");
@@ -9419,12 +9245,10 @@ function applyRTTransformV4(){
   }
 
   function closeOnboarding(){
-  const panel = onb$("onboardingPanel");
-  if(panel) panel.style.display = "none";
-  // Remember user-closed state so it doesn't auto pop back up.
-  try{ localStorage.setItem("onb_user_closed", "1"); }catch(e){}
-  // User can reopen via the "Next step" button.
-}
+    const panel = onb$("onboardingPanel");
+    if(panel) panel.style.display = "none";
+    // Do not dismiss. User can reopen via "Next step" button.
+  }
 
 
   function wireOnboardingButtons(){
@@ -9472,20 +9296,11 @@ function applyRTTransformV4(){
     if(!panel || !list || !sub || !onbData) return;
 
     if(onbData.dismissed || onbData.all_done){
-  panel.style.display = "none";
-  return;
-}
+      panel.style.display = "none";
+      return;
+    }
 
-// Respect user-closed state: do not auto pop up unless user clicks "Next step".
-try{
-  const closed = (localStorage.getItem("onb_user_closed") || "") === "1";
-  if(closed){
-    panel.style.display = "none";
-    return;
-  }
-}catch(e){}
-
-panel.style.display = "block";
+    panel.style.display = "block";
     sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
 
     list.innerHTML = "";
