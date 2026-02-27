@@ -3477,6 +3477,99 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
+
+    /* Relay setup UI (additive) */
+    #relayCount{ display:none !important; }
+    #relaySetupBtn{ white-space:nowrap; }
+
+    .relayOverlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(6px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      padding: 24px;
+    }
+    .relayWin{
+      width: min(720px, 96vw);
+      max-height: 82vh;
+      overflow: auto;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 18px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+      padding: 18px;
+    }
+    .relayHead{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .relayTitle{
+      font-weight: 800;
+      letter-spacing: .2px;
+      font-size: 16px;
+    }
+    .relayHint{
+      opacity: .82;
+      font-size: 12px;
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+    .relayGrid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .relayRow{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.05);
+    }
+    .relayRowLeft{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .relayName{
+      font-weight: 700;
+      font-size: 13px;
+      overflow:hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .relayMeta{
+      opacity:.75;
+      font-size: 11px;
+      overflow:hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 360px;
+    }
+    .relayTopControls{
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .relayFooter{
+      display:flex;
+      justify-content:flex-end;
+      gap: 10px;
+      margin-top: 14px;
+    }
 </style>
 """
 
@@ -5432,6 +5525,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   <option value="broadcast" selected>Broadcast</option>
                   <option value="relay">Relay</option>
                 </select>
+                <button class="btn btnMini" id="relaySetupBtn" style="display:none">Relay setup</button>
                 <input id="relayCount" type="number" min="1" max="20" value="3" title="How many teammates in the relay" style="width:72px; padding:8px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:var(--text); font-size:12px;" />
 
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
@@ -6865,7 +6959,7 @@ function makeSeat(defn, idx){
         try{ el.focus({preventScroll:true}); }catch(_){}
         try{ el.scrollIntoView({behavior:"smooth", block:"center", inline:"center"}); }catch(_){}
       }catch(_){}
-
+    }
 
     // Relay-only glow without changing the selected seat or side panel.
     // Used to highlight which teammate is currently "thinking" during Relay mode.
@@ -6883,7 +6977,6 @@ function makeSeat(defn, idx){
           }
         });
       }catch(_){}
-    }
     }
 
     async function selectSeat(name){
@@ -7387,6 +7480,156 @@ function makeSeat(defn, idx){
     // Safety constraints still apply.
     let lightingModeOn = false;
 
+    // Relay selection (additive): user-chosen teammates and step count
+    let relaySelection = null; // { names: [..], steps: n }
+
+    function openRelaySetup(){
+      try{
+        const overlay = $("relayOverlay");
+        if(!overlay) return;
+
+        // Build list from active order (preferred) else installed order
+        const order = activeOrder();
+        const installed = state && state.installed ? state.installed : {};
+        const names = (order && order.length) ? order.slice() : Object.keys(installed || {});
+        const listEl = $("relayList");
+        if(listEl) listEl.innerHTML = "";
+
+        // Default selection: keep last, else first 3 in active order
+        let selected = (relaySelection && Array.isArray(relaySelection.names)) ? relaySelection.names.slice() : names.slice(0, 3);
+
+        // Create rows
+        names.forEach(n => {
+          const defn = installed[n] || {};
+          const row = document.createElement("div");
+          row.className = "relayRow";
+          row.dataset.name = n;
+
+          const left = document.createElement("div");
+          left.className = "relayRowLeft";
+
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = selected.includes(n);
+          cb.addEventListener("change", ()=>{ /* no-op, read on start */ });
+
+          const textWrap = document.createElement("div");
+          textWrap.style.minWidth = "0";
+
+          const nm = document.createElement("div");
+          nm.className = "relayName";
+          nm.innerText = n;
+
+          const meta = document.createElement("div");
+          meta.className = "relayMeta";
+          meta.innerText = defn.job_title ? `${defn.job_title}  |  ${defn.version || ""}` : "";
+
+          textWrap.appendChild(nm);
+          if(meta.innerText) textWrap.appendChild(meta);
+
+          left.appendChild(cb);
+          left.appendChild(textWrap);
+
+          const up = document.createElement("button");
+          up.className = "btn btnMini";
+          up.innerText = "Up";
+          up.addEventListener("click", (e)=>{
+            e.preventDefault();
+            e.stopPropagation();
+            const prev = row.previousElementSibling;
+            if(prev) listEl.insertBefore(row, prev);
+          });
+
+          const dn = document.createElement("button");
+          dn.className = "btn btnMini";
+          dn.innerText = "Down";
+          dn.addEventListener("click", (e)=>{
+            e.preventDefault();
+            e.stopPropagation();
+            const next = row.nextElementSibling;
+            if(next) listEl.insertBefore(next, row);
+          });
+
+          const right = document.createElement("div");
+          right.style.display = "flex";
+          right.style.gap = "8px";
+          right.appendChild(up);
+          right.appendChild(dn);
+
+          row.appendChild(left);
+          row.appendChild(right);
+
+          if(listEl) listEl.appendChild(row);
+        });
+
+        // Steps default
+        const stepsInp = $("relayStepsInp");
+        if(stepsInp){
+          let n = 3;
+          try{
+            n = relaySelection && relaySelection.steps ? parseInt(relaySelection.steps, 10) : 3;
+            if(isNaN(n)) n = 3;
+          }catch(_){ n = 3; }
+          stepsInp.value = String(n);
+        }
+
+        overlay.style.display = "flex";
+        overlay.setAttribute("aria-hidden","false");
+      }catch(e){
+        console.warn(e);
+      }
+    }
+
+    function closeRelaySetup(){
+      const overlay = $("relayOverlay");
+      if(!overlay) return;
+      overlay.style.display = "none";
+      overlay.setAttribute("aria-hidden","true");
+    }
+
+    function relayUseActiveOrder(){
+      try{
+        const order = activeOrder();
+        const listEl = $("relayList");
+        if(!listEl || !order || !order.length) return;
+        const rows = Array.from(listEl.querySelectorAll(".relayRow"));
+        const byName = {};
+        rows.forEach(r => { byName[r.dataset.name] = r; });
+        listEl.innerHTML = "";
+        order.forEach(n => { if(byName[n]) listEl.appendChild(byName[n]); });
+      }catch(_){}
+    }
+
+    function relaySelectAll(v){
+      try{
+        const listEl = $("relayList");
+        if(!listEl) return;
+        const cbs = listEl.querySelectorAll("input[type=checkbox]");
+        cbs.forEach(cb => cb.checked = !!v);
+      }catch(_){}
+    }
+
+    function readRelaySelection(){
+      const listEl = $("relayList");
+      const stepsInp = $("relayStepsInp");
+      let steps = 3;
+      try{
+        steps = parseInt(stepsInp && stepsInp.value ? stepsInp.value : "3", 10);
+        if(isNaN(steps)) steps = 3;
+      }catch(_){ steps = 3; }
+      steps = Math.max(1, Math.min(20, steps));
+
+      const names = [];
+      if(listEl){
+        const rows = Array.from(listEl.querySelectorAll(".relayRow"));
+        rows.forEach(r => {
+          const cb = r.querySelector("input[type=checkbox]");
+          if(cb && cb.checked) names.push(r.dataset.name);
+        });
+      }
+      return { steps, names };
+    }
+
     function updateLightingButton(){
       const b = $("lightingModeBtn");
       if(!b) return;
@@ -7405,6 +7648,81 @@ function makeSeat(defn, idx){
       }
     }catch(_){}
     // ----- end Lighting Mode -----
+
+
+    // ----- Relay Setup UI (additive) -----
+    function updateWorkModeUI(){
+      try{
+        const sel = $("workModeSel");
+        const btn = $("relaySetupBtn");
+        if(!sel || !btn) return;
+        const isRelay = (sel.value === "relay");
+        btn.style.display = isRelay ? "inline-block" : "none";
+      }catch(_){}
+    }
+
+    try{
+      const sel = $("workModeSel");
+      if(sel){
+        sel.addEventListener("change", ()=>{
+          updateWorkModeUI();
+        });
+        updateWorkModeUI();
+      }
+    }catch(_){}
+
+    try{
+      const b = $("relaySetupBtn");
+      if(b){
+        b.onclick = () => openRelaySetup();
+      }
+    }catch(_){}
+
+    // Relay modal buttons
+    try{
+      const closeBtn = $("relayCloseBtn");
+      const cancelBtn = $("relayCancelBtn");
+      if(closeBtn) closeBtn.onclick = () => closeRelaySetup();
+      if(cancelBtn) cancelBtn.onclick = () => closeRelaySetup();
+    }catch(_){}
+
+    try{
+      const allBtn = $("relaySelectAllBtn");
+      const noneBtn = $("relaySelectNoneBtn");
+      const useOrderBtn = $("relayUseActiveOrderBtn");
+      if(allBtn) allBtn.onclick = () => relaySelectAll(true);
+      if(noneBtn) noneBtn.onclick = () => relaySelectAll(false);
+      if(useOrderBtn) useOrderBtn.onclick = () => relayUseActiveOrder();
+    }catch(_){}
+
+    try{
+      const startBtn = $("relayStartBtn");
+      if(startBtn){
+        startBtn.onclick = () => {
+          const sel = readRelaySelection();
+          if(!sel.names || !sel.names.length){
+            showModal("Pick at least one teammate", "Select one or more teammates for Relay.");
+            return;
+          }
+          relaySelection = { names: sel.names, steps: sel.steps };
+          closeRelaySetup();
+          // Trigger the send button, which will use relaySelection
+          try{ $("conveneAll").click(); }catch(_){}
+        };
+      }
+    }catch(_){}
+
+    // Close overlay when clicking outside the window
+    try{
+      const ov = $("relayOverlay");
+      if(ov){
+        ov.addEventListener("click", (e)=>{
+          if(e.target === ov) closeRelaySetup();
+        });
+      }
+    }catch(_){}
+    // ----- end Relay Setup UI -----
+
 
 
 
@@ -7675,26 +7993,41 @@ function makeSeat(defn, idx){
 const workMode = ($("workModeSel") && $("workModeSel").value) ? $("workModeSel").value : "broadcast";
 if(workMode === "relay"){
   // Relay mode: teammates think one-after-another with visible "active" glow.
+  // User chooses the exact teammates + step count in the Relay setup overlay.
+  if(!relaySelection || !Array.isArray(relaySelection.names) || relaySelection.names.length === 0){
+    openRelaySetup();
+    return;
+  }
+
   let relayN = 3;
   try{
-    relayN = parseInt(($("relayCount") && $("relayCount").value) ? $("relayCount").value : "3", 10);
+    relayN = parseInt(relaySelection.steps || "3", 10);
     if(isNaN(relayN)) relayN = 3;
   }catch(e){ relayN = 3; }
   relayN = Math.max(1, Math.min(20, relayN));
 
-  // Start from the currently selected seat if available, otherwise start from the first seat.
-  const startName = (selectedSeat && order.includes(selectedSeat)) ? selectedSeat : (order[0] || "");
+  // Keep picked teammates in the current active order (as displayed)
+  const picked = relaySelection.names.filter(n => order.includes(n));
+  if(!picked.length){
+    relaySelection = null;
+    showModal("Relay selection is empty", "None of the selected teammates are currently active. Pick teammates again.");
+    openRelaySetup();
+    return;
+  }
 
-  // Build chain in table order (wrap around)
+  // Start from the currently selected seat if it's in the picked list, otherwise start from the first picked teammate.
+  const startName = (selectedSeat && picked.includes(selectedSeat)) ? selectedSeat : (picked[0] || "");
+
+  // Build chain in picked order (wrap around)
   const chain = [];
   try{
-    const startIdx = order.indexOf(startName);
-    for(let i=0; i<order.length && chain.length < relayN; i++){
-      const nm = order[(startIdx + i) % order.length];
+    const startIdx = picked.indexOf(startName);
+    for(let i=0; i<picked.length && chain.length < relayN; i++){
+      const nm = picked[(startIdx + i) % picked.length];
       chain.push(nm);
     }
   }catch(e){
-    chain.push(...order.slice(0, relayN));
+    chain.push(...picked.slice(0, relayN));
   }
 
   // Initialize statuses: everyone idle/waiting, first one thinking
@@ -9714,6 +10047,36 @@ panel.style.display = "block";
 })();
 </script>
 
+
+    <!-- Relay Setup Overlay (additive) -->
+    <div class="relayOverlay" id="relayOverlay" aria-hidden="true">
+      <div class="relayWin" role="dialog" aria-modal="true" aria-labelledby="relayTitle">
+        <div class="relayHead">
+          <div>
+            <div class="relayTitle" id="relayTitle">Relay setup</div>
+            <div class="relayHint">Pick the teammates and how many steps to run. Relay runs one at a time and passes the baton through your chosen order.</div>
+          </div>
+          <button class="btn btnMini" id="relayCloseBtn" title="Close">Close</button>
+        </div>
+
+        <div class="relayTopControls">
+          <div class="pill">
+            <span style="opacity:.8; font-size:12px;">Steps</span>
+            <input id="relayStepsInp" type="number" min="1" max="20" value="3" style="width:70px; margin-left:10px; padding:8px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.06); color:var(--text); font-size:12px;" />
+          </div>
+          <button class="btn btnMini" id="relaySelectAllBtn">Select all</button>
+          <button class="btn btnMini" id="relaySelectNoneBtn">Select none</button>
+          <button class="btn btnMini" id="relayUseActiveOrderBtn">Use active order</button>
+        </div>
+
+        <div class="relayGrid" id="relayList"></div>
+
+        <div class="relayFooter">
+          <button class="btn" id="relayCancelBtn">Cancel</button>
+          <button class="btn btnPrimary" id="relayStartBtn">Start relay</button>
+        </div>
+      </div>
+    </div>
 </body>
 </html>
 """
