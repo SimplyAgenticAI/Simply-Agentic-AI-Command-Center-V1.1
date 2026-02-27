@@ -6865,6 +6865,25 @@ function makeSeat(defn, idx){
         try{ el.focus({preventScroll:true}); }catch(_){}
         try{ el.scrollIntoView({behavior:"smooth", block:"center", inline:"center"}); }catch(_){}
       }catch(_){}
+
+
+    // Relay-only glow without changing the selected seat or side panel.
+    // Used to highlight which teammate is currently "thinking" during Relay mode.
+    function setSeatGlowOnly(name){
+      try{
+        const all = document.querySelectorAll(".seat");
+        all.forEach(el => {
+          if(name && el.dataset.name === name){
+            // Restart CSS animation for a fresh glow each handoff
+            el.classList.remove("seatPulse");
+            void el.offsetWidth; // reflow
+            el.classList.add("seatPulse");
+          }else{
+            el.classList.remove("seatPulse");
+          }
+        });
+      }catch(_){}
+    }
     }
 
     async function selectSeat(name){
@@ -7702,6 +7721,8 @@ if(workMode === "relay"){
         else if(chain.slice(0,i).includes(n)) setSeatLive(n, "done");
         else setSeatLive(n, "waiting");
       });
+      // Visual glow for the active relay thinker
+      try{ setSeatGlowOnly(name); }catch(_){}
     }catch(e){}
 
     const message = batonText
@@ -7772,6 +7793,7 @@ ${responseText}`;
 
   // Final state
   try{ order.forEach(n => { if(chain.includes(n)) setSeatLive(n, "done"); else setSeatLive(n, "waiting"); }); }catch(e){}
+  try{ setSeatGlowOnly(""); }catch(_){}
   setOpStatus("Relay complete");
   return;
 }
