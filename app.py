@@ -7,6 +7,13 @@ import base64
 import secrets
 import hashlib
 import hmac
+import threading
+import time
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
+
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -60,6 +67,8 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+SCHEDULE_TZ = os.getenv("SCHEDULE_TZ", "America/New_York")
+STACK_BG_RUNNER_ENABLED = os.getenv("STACK_BG_RUNNER_ENABLED", "1").strip() not in ("0","false","False")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
@@ -257,17 +266,6 @@ def _load_or_create_secret() -> str:
 app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-# OAuth note (additive): Some environments require SameSite=None;Secure for third-party OAuth redirects.
-# If PUBLIC_BASE_URL is https, we enable Secure cookies and relax SameSite to None to prevent state loss.
-try:
-    _pbu = (os.getenv("PUBLIC_BASE_URL") or "").strip().lower()
-    if _pbu.startswith("https://"):
-        app.config["SESSION_COOKIE_SECURE"] = True
-        app.config["SESSION_COOKIE_SAMESITE"] = "None"
-except Exception:
-    pass
-
 
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
@@ -737,6 +735,29 @@ def _parse_local_dt(dt_local: str) -> Optional[datetime]:
     except Exception:
         return None
 
+def _get_schedule_zone():
+    """Return ZoneInfo for schedules (best-effort)."""
+    try:
+        if ZoneInfo is None:
+            return None
+        return ZoneInfo(SCHEDULE_TZ or "UTC")
+    except Exception:
+        return None
+
+def _local_dt_to_utc_iso(dt_local: datetime) -> str:
+    """Convert a naive local datetime (interpreted in SCHEDULE_TZ) to UTC ISO Z."""
+    try:
+        z = _get_schedule_zone()
+        if not z:
+            # fallback: treat as local server time and convert with naive assumption (store as-is)
+            return dt_local.isoformat() + "Z"
+        aware = dt_local.replace(tzinfo=z)
+        utc_dt = aware.astimezone(ZoneInfo("UTC")) if ZoneInfo else aware
+        return utc_dt.replace(tzinfo=None).isoformat() + "Z"
+    except Exception:
+        return dt_local.isoformat() + "Z"
+
+
 def _safe_render(template: str, ctx: Dict[str, Any]) -> str:
     out = template or ""
     for k, v in (ctx or {}).items():
@@ -974,7 +995,11 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
         return
-    now_local = datetime.now()
+
+    # Prefer UTC comparisons when we have run_at_utc, otherwise fall back to server-local.
+    now_utc = datetime.utcnow()
+    now_local_server = datetime.now()
+
     for user_dir in ACTION_STACK_SCHEDULES_DIR.iterdir():
         if not user_dir.is_dir():
             continue
@@ -982,6 +1007,7 @@ def _run_due_schedules_once() -> None:
         schedules = _load_schedules(u)
         if not schedules:
             continue
+
         changed = False
         for s in schedules:
             try:
@@ -991,20 +1017,54 @@ def _run_due_schedules_once() -> None:
                 last_run = s.get("last_run")
                 due = False
 
+                # Resolve schedule timezone (best-effort).
+                tz_name = (s.get("tz") or SCHEDULE_TZ or "UTC")
+                tz = None
+                try:
+                    if ZoneInfo is not None:
+                        tz = ZoneInfo(tz_name)
+                except Exception:
+                    tz = None
+
                 if mode == "once":
-                    dt = _parse_local_dt(s.get("run_at") or "")
-                    if dt and now_local >= dt and not last_run:
-                        due = True
+                    # New path: run_at_utc
+                    run_at_utc = (s.get("run_at_utc") or "").strip()
+                    if run_at_utc:
+                        try:
+                            dt_utc = datetime.fromisoformat(run_at_utc.replace("Z", ""))
+                            if now_utc >= dt_utc and not last_run:
+                                due = True
+                        except Exception:
+                            dt_utc = None
+                    # Legacy path: run_at (server-local)
+                    if (not due) and (not last_run):
+                        dt_local = _parse_local_dt(s.get("run_at") or "")
+                        if dt_local and now_local_server >= dt_local:
+                            due = True
+
                 elif mode == "daily":
-                    t = s.get("time") or ""
+                    t = (s.get("time") or "").strip()
                     if re.match(r"^\d{2}:\d{2}$", t):
                         hh, mm = t.split(":")
+                        # Use schedule tz if possible; fall back to server-local.
+                        if tz:
+                            now_local = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).replace(tzinfo=None)
+                        else:
+                            now_local = now_local_server
+
                         target = now_local.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
-                        if abs((now_local - target).total_seconds()) <= 45:
+
+                        # Wider window to avoid missing the moment due to polling jitter or CPU sleep.
+                        if abs((now_local - target).total_seconds()) <= 90:
                             if last_run:
                                 try:
-                                    lr = datetime.fromisoformat(str(last_run).replace("Z",""))
-                                    due = (lr.date() != now_local.date())
+                                    lr = datetime.fromisoformat(str(last_run).replace("Z", ""))
+                                    # Compare dates in the schedule timezone if possible.
+                                    if tz:
+                                        lr_local = lr.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).date()
+                                        due = (lr_local != now_local.date())
+                                    else:
+                                        due = (lr.date() != now_local.date())
                                 except Exception:
                                     due = True
                             else:
@@ -1017,17 +1077,23 @@ def _run_due_schedules_once() -> None:
                 stack = (data.get("stacks") or {}).get(stack_name)
                 if not stack:
                     continue
+
                 steps = _normalize_steps(stack.get("steps"))
                 run = _init_run(u=u, teammate=teammate, stack_name=stack_name, steps=steps, user_input="")
                 _persist_run(run)
+
+                # Execute immediately.
                 _run_action_stack_engine(run)
 
                 s["last_run"] = now_iso()
                 changed = True
             except Exception:
                 continue
+
         if changed:
             _save_schedules(u, schedules)
+
+
 
 def _resume_due_runs_once() -> None:
     """Resume any waiting runs that are due."""
@@ -2329,12 +2395,34 @@ def api_action_stacks_schedules_create(teammate: str):
         run_at = (payload.get("run_at") or "").strip()
         if not _parse_local_dt(run_at):
             return jsonify({"ok": False, "error": "Invalid run_at"}), 400
-        schedules.append({"id": sid, "teammate": teammate, "stack_name": stack_name, "mode": "once", "run_at": run_at, "last_run": None, "created_at": now_iso()})
+        dt_local = _parse_local_dt(run_at)
+        # Store both local and UTC forms; the engine will prefer run_at_utc when present.
+        run_at_utc = _local_dt_to_utc_iso(dt_local) if dt_local else ""
+        schedules.append({
+            "id": sid,
+            "teammate": teammate,
+            "stack_name": stack_name,
+            "mode": "once",
+            "run_at": run_at,
+            "run_at_utc": run_at_utc,
+            "tz": SCHEDULE_TZ,
+            "last_run": None,
+            "created_at": now_iso()
+        })
     elif mode == "daily":
         t = (payload.get("time") or "").strip()
         if not re.match(r"^\\d{2}:\\d{2}$", t):
             return jsonify({"ok": False, "error": "Invalid time"}), 400
-        schedules.append({"id": sid, "teammate": teammate, "stack_name": stack_name, "mode": "daily", "time": t, "last_run": None, "created_at": now_iso()})
+        schedules.append({
+            "id": sid,
+            "teammate": teammate,
+            "stack_name": stack_name,
+            "mode": "daily",
+            "time": t,
+            "tz": SCHEDULE_TZ,
+            "last_run": None,
+            "created_at": now_iso()
+        })
     else:
         return jsonify({"ok": False, "error": "Invalid mode"}), 400
     _save_schedules(uname, schedules)
@@ -2356,8 +2444,11 @@ def api_action_stacks_schedules_delete(teammate: str):
 
 @app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
+    # This endpoint is safe to call frequently (UI poll + background loop).
+    # It runs due schedules and resumes any waiting runs that have become due.
     try:
         _run_due_schedules_once()
+        _resume_due_runs_once()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -2987,105 +3078,6 @@ def api_gmail_disconnect():
     return jsonify({"ok": True})
 
 
-
-# =========================
-# OAUTH STATE HARDENING (additive)
-# =========================
-# Reasons for state mismatch in practice:
-# - user starts multiple connect flows in different tabs (state overwritten)
-# - browser strips cookies on redirect in some deployments
-# We keep a short rolling window of states and also persist a pending state per-user as a fallback.
-
-def _oauth_state_list(key: str, max_len: int = 6) -> list:
-    lst = session.get(key) or []
-    if not isinstance(lst, list):
-        lst = []
-    # keep only recent strings
-    out = []
-    for s in lst:
-        if isinstance(s, str) and s:
-            out.append(s)
-    if len(out) > max_len:
-        out = out[-max_len:]
-    session[key] = out
-    return out
-
-def _remember_oauth_state(flow: str, state: str, u: dict | None = None) -> None:
-    try:
-        if not state:
-            return
-        key = f"{flow}_oauth_states"
-        lst = _oauth_state_list(key)
-        lst.append(state)
-        if len(lst) > 6:
-            lst[:] = lst[-6:]
-        session[key] = lst
-        # also store latest (back-compat)
-        session[f"{flow}_oauth_state"] = state
-    except Exception:
-        pass
-
-    # best-effort per-user persistence (survives tab races; does NOT survive logout)
-    try:
-        if u and isinstance(u, dict):
-            users = load_users()
-            uname = u.get("username")
-            rec = (users.get("users") or {}).get(uname) or u
-            rec.setdefault("settings", {})
-            rec["settings"][f"{flow}_oauth_state_pending"] = {"state": state, "ts": now_iso()}
-            (users.get("users") or {})[uname] = rec
-            save_users(users)
-    except Exception:
-        pass
-
-def _is_valid_oauth_state(flow: str, returned_state: str, u: dict | None = None) -> bool:
-    if not returned_state:
-        return False
-    try:
-        # Accept any recent state in rolling window.
-        lst = session.get(f"{flow}_oauth_states") or []
-        if isinstance(lst, list) and returned_state in lst:
-            return True
-    except Exception:
-        pass
-
-    try:
-        # Back-compat single expected state
-        expected = session.get(f"{flow}_oauth_state", "")
-        if expected and returned_state == expected:
-            return True
-    except Exception:
-        pass
-
-    # Per-user persisted fallback (handles multi-tab overwrite where the cookie is still present).
-    try:
-        if u and isinstance(u, dict):
-            pend = ((u.get("settings") or {}).get(f"{flow}_oauth_state_pending")) or {}
-            if isinstance(pend, dict) and pend.get("state") == returned_state:
-                return True
-    except Exception:
-        pass
-
-    return False
-
-def _clear_oauth_state(flow: str, u: dict | None = None) -> None:
-    try:
-        session.pop(f"{flow}_oauth_state", None)
-        session.pop(f"{flow}_oauth_states", None)
-    except Exception:
-        pass
-    try:
-        if u and isinstance(u, dict):
-            users = load_users()
-            uname = u.get("username")
-            rec = (users.get("users") or {}).get(uname) or u
-            rec.setdefault("settings", {})
-            rec["settings"].pop(f"{flow}_oauth_state_pending", None)
-            (users.get("users") or {})[uname] = rec
-            save_users(users)
-    except Exception:
-        pass
-
 @app.get("/gmail/connect")
 def gmail_connect():
     u = current_user()
@@ -3096,7 +3088,7 @@ def gmail_connect():
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
     state = secrets.token_urlsafe(24)
-    _remember_oauth_state("gmail", state, u)
+    session["gmail_oauth_state"] = state
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
 
@@ -3111,9 +3103,9 @@ def gmail_callback():
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
     state = request.args.get("state", "")
-    if not _is_valid_oauth_state("gmail", state, u):
+    expected = session.get("gmail_oauth_state", "")
+    if not state or not expected or state != expected:
         return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
-    _clear_oauth_state("gmail", u)
 
     code = request.args.get("code", "")
     if not code:
@@ -3175,7 +3167,7 @@ def calendar_connect():
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
     state = secrets.token_urlsafe(24)
-    _remember_oauth_state("calendar", state, u)
+    session["calendar_oauth_state"] = state
     auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
     return redirect(auth_url)
 
@@ -3190,9 +3182,9 @@ def calendar_callback():
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
     state = request.args.get("state", "")
-    if not _is_valid_oauth_state("calendar", state, u):
+    expected = session.get("calendar_oauth_state", "")
+    if not state or not expected or state != expected:
         return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
-    _clear_oauth_state("calendar", u)
 
     code = request.args.get("code", "")
     if not code:
@@ -5178,7 +5170,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid" style="margin-top:10px;">
     <div>
       <label>Stack name</label>
-      <input id="stackName" placeholder="e.g. Welcome Sequence" />
+      <input id="stackName" name="stack_name" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" data-lpignore="true" data-1p-ignore="true" placeholder="e.g. Welcome Sequence" />
     </div>
     <div>
       <label>Saved stacks</label>
@@ -5188,7 +5180,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <div style="margin-top:10px;">
     <label>Add Prompt step</label>
-    <textarea id="stackPrompt" rows="3" placeholder="Example: Write the welcome email for {{input}}"></textarea>
+    <textarea id="stackPrompt" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" placeholder="Example: Write the welcome email for {{input}}"></textarea>
     <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
       <button class="btn" id="stackAddPromptBtn">Add step</button>
       <button class="btn" id="stackClearBtn">Clear</button>
@@ -5205,11 +5197,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid">
     <div>
       <label>Run once at</label>
-      <input id="stackRunAt" type="datetime-local" />
+      <input id="stackRunAt" type="datetime-local" autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
     </div>
     <div>
       <label>Run daily at</label>
-      <input id="stackDailyAt" type="time" />
+      <input id="stackDailyAt" type="time" autocomplete="off" data-lpignore="true" data-1p-ignore="true" />
     </div>
   </div>
   <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
@@ -6389,51 +6381,119 @@ async function saveCurrentStack(){
 async function runCurrentStack(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
+
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({input: (($("mainPrompt") && $("mainPrompt").value) || "").trim(), client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")})
-  });
-  const data = await res.json();
-  if(!data.ok){ if($("stackStatus")) $("stackStatus").innerText = data.error || "Run failed."; return; }
-  renderStackSteps();
-  renderRunOutputs(data.run);
+
+  // NOTE: older builds used mainPrompt; current UI uses opPrompt.
+  const input = ((($("mainPrompt") && $("mainPrompt").value) || "").trim()) || ((($("opPrompt") && $("opPrompt").value) || "").trim());
+
+  if($("stackStatus")) $("stackStatus").innerText = "Running stack...";
+
+  try{
+    const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        input,
+        client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")
+      })
+    });
+
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+
+    if(!res.ok || !data || !data.ok){
+      const msg = (data && data.error) ? data.error : (`Run failed (HTTP ${res.status || "?"}).`);
+      if($("stackStatus")) $("stackStatus").innerText = msg;
+      try{ showModal("Stack run error", msg + "
+
+Tip: open DevTools Console for details."); }catch(_){}
+      return;
+    }
+
+    if($("stackStatus")) $("stackStatus").innerText = "Run complete.";
+    try{ renderStackSteps(); }catch(_){}
+    try{ renderRunOutputs(data.run); }catch(_){}
+  }catch(e){
+    const msg = "Run failed: " + String(e || "Unknown error");
+    if($("stackStatus")) $("stackStatus").innerText = msg;
+    try{ showModal("Stack run error", msg); }catch(_){}
+  }
 }
 
 async function scheduleOnce(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
   const runAt = ($("stackRunAt") && $("stackRunAt").value) || "";
+
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
-  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
-  if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a datetime."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
-  });
-  const data = await res.json();
-  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
-  loadSchedulesForTeammate(teammate);
+  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
+  if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a date/time."; return; }
+
+  if($("stackStatus")) $("stackStatus").innerText = "Scheduling...";
+
+  try{
+    const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
+    });
+
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+
+    if(!res.ok || !data || !data.ok){
+      const msg = (data && data.error) ? data.error : (`Schedule failed (HTTP ${res.status || "?"}).`);
+      if($("stackStatus")) $("stackStatus").innerText = msg;
+      try{ showModal("Schedule error", msg); }catch(_){}
+      return;
+    }
+
+    if($("stackStatus")) $("stackStatus").innerText = "Scheduled.";
+    try{ loadSchedulesForTeammate(teammate); }catch(_){}
+  }catch(e){
+    const msg = "Schedule failed: " + String(e || "Unknown error");
+    if($("stackStatus")) $("stackStatus").innerText = msg;
+    try{ showModal("Schedule error", msg); }catch(_){}
+  }
 }
 
 async function scheduleDaily(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
   const t = ($("stackDailyAt") && $("stackDailyAt").value) || "";
+
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
   if(!t){ if($("stackStatus")) $("stackStatus").innerText = "Pick a daily time."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({mode:"daily", stack_name:name, time: t})
-  });
-  const data = await res.json();
-  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
-  loadSchedulesForTeammate(teammate);
+
+  if($("stackStatus")) $("stackStatus").innerText = "Scheduling...";
+
+  try{
+    const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({mode:"daily", stack_name:name, time: t})
+    });
+
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+
+    if(!res.ok || !data || !data.ok){
+      const msg = (data && data.error) ? data.error : (`Schedule failed (HTTP ${res.status || "?"}).`);
+      if($("stackStatus")) $("stackStatus").innerText = msg;
+      try{ showModal("Schedule error", msg); }catch(_){}
+      return;
+    }
+
+    if($("stackStatus")) $("stackStatus").innerText = "Scheduled.";
+    try{ loadSchedulesForTeammate(teammate); }catch(_){}
+  }catch(e){
+    const msg = "Schedule failed: " + String(e || "Unknown error");
+    if($("stackStatus")) $("stackStatus").innerText = msg;
+    try{ showModal("Schedule error", msg); }catch(_){}
+  }
 }
 
 window.openStackForTeammate = function(name){
@@ -9804,6 +9864,43 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+
+
+# ===== Action Stack background runner (additive) =====
+# This makes schedules + "stack future" work even if the UI isn't open,
+# and ensures waiting runs resume without relying on client-side polling.
+_BG_STACK_THREAD = None
+
+def start_stack_bg_runner():
+    global _BG_STACK_THREAD
+    try:
+        if not STACK_BG_RUNNER_ENABLED:
+            return
+        if _BG_STACK_THREAD is not None and getattr(_BG_STACK_THREAD, "is_alive", lambda: False)():
+            return
+
+        def _loop():
+            while True:
+                try:
+                    _run_due_schedules_once()
+                    _resume_due_runs_once()
+                except Exception:
+                    pass
+                try:
+                    time.sleep(20)
+                except Exception:
+                    return
+
+        t = threading.Thread(target=_loop, daemon=True, name="action_stack_scheduler")
+        t.start()
+        _BG_STACK_THREAD = t
+    except Exception:
+        pass
+
+# Start immediately for WSGI deployments (best-effort).
+start_stack_bg_runner()
 
 
 if __name__ == "__main__":
