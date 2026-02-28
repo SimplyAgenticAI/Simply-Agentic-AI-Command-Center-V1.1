@@ -10184,3 +10184,492 @@ def _consume_oauth_state(state):
     _save_oauth_states(data)
     return rec
 
+
+
+
+# =========================
+# ADD v1.13: ROUND TABLE EXPANSIONS (Additive only)
+# - Scenario Mode (per-user)
+# - Goal Mode (per-user)
+# - Per-teammate memory profiles (per-user)
+# - Discussion mode endpoint (multi-teammate council pass)
+# - Confidence/assumptions metadata (new endpoints only; does not change existing reply formats)
+# - Thread versioning (non-breaking wrapper around save_thread)
+# =========================
+
+# --- Storage paths (per-user) ---
+SCENARIOS_DIR = DATA / "scenarios"
+GOALS_DIR = DATA / "goals"
+TEAMMATE_MEMORY_DIR = DATA / "teammate_memory"
+THREAD_VERSIONS_DIR = DATA / "thread_versions"
+SKILL_PACKS_DIR = DATA / "skill_packs"
+
+for _d in (SCENARIOS_DIR, GOALS_DIR, TEAMMATE_MEMORY_DIR, THREAD_VERSIONS_DIR, SKILL_PACKS_DIR):
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+def _user_file(root: Path, username: str, filename: str) -> Path:
+    d = root / _safe_name(username or "anon")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d / filename
+
+def _load_user_json(root: Path, username: str, filename: str, default: Any) -> Any:
+    return load_json(_user_file(root, username, filename), default)
+
+def _save_user_json(root: Path, username: str, filename: str, payload: Any) -> None:
+    save_json(_user_file(root, username, filename), payload)
+
+# --- Scenario Mode ---
+def _load_scenario(username: str) -> Dict[str, Any]:
+    data = _load_user_json(SCENARIOS_DIR, username, "scenario.json", {"scenario": "", "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"scenario": "", "updated_at": None}
+    data.setdefault("scenario", "")
+    return data
+
+def _save_scenario(username: str, scenario: str) -> Dict[str, Any]:
+    payload = {"scenario": (scenario or "").strip(), "updated_at": now_iso()}
+    _save_user_json(SCENARIOS_DIR, username, "scenario.json", payload)
+    return payload
+
+# --- Goal Mode ---
+def _load_goals(username: str) -> Dict[str, Any]:
+    data = _load_user_json(GOALS_DIR, username, "goals.json", {"active_goal_id": "", "goals": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"active_goal_id": "", "goals": {}, "updated_at": None}
+    data.setdefault("active_goal_id", "")
+    data.setdefault("goals", {})
+    if not isinstance(data.get("goals"), dict):
+        data["goals"] = {}
+    return data
+
+def _save_goals(username: str, data: Dict[str, Any]) -> None:
+    data = data or {}
+    data.setdefault("active_goal_id", "")
+    data.setdefault("goals", {})
+    if not isinstance(data.get("goals"), dict):
+        data["goals"] = {}
+    data["updated_at"] = now_iso()
+    _save_user_json(GOALS_DIR, username, "goals.json", data)
+
+def _new_goal_id() -> str:
+    return "g_" + uuid.uuid4().hex[:10]
+
+def _goal_summary_for_injection(username: str, limit: int = 5) -> str:
+    try:
+        data = _load_goals(username)
+        gid = (data.get("active_goal_id") or "").strip()
+        goals = data.get("goals") or {}
+        if gid and isinstance(goals.get(gid), dict):
+            g = goals[gid]
+            title = (g.get("title") or "").strip()
+            status = (g.get("status") or "").strip()
+            notes = (g.get("notes") or "").strip()
+            return f"ACTIVE GOAL\nTitle: {title}\nStatus: {status}\nNotes: {notes}".strip()
+        # fallback: newest few
+        rows = []
+        for k, v in list(goals.items())[:limit]:
+            if not isinstance(v, dict):
+                continue
+            rows.append(f"- {v.get('title','').strip()} ({v.get('status','').strip()})")
+        if rows:
+            return "GOALS\n" + "\n".join(rows)
+    except Exception:
+        pass
+    return ""
+
+# --- Per-teammate memory profiles ---
+def _tm_mem_path(username: str, teammate: str) -> Path:
+    safe_tm = _safe_name(teammate or "teammate")
+    return _user_file(TEAMMATE_MEMORY_DIR, username, f"{safe_tm}.json")
+
+def _load_teammate_memory(username: str, teammate: str) -> Dict[str, Any]:
+    data = load_json(_tm_mem_path(username, teammate), {"memory": "", "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"memory": "", "updated_at": None}
+    data.setdefault("memory", "")
+    return data
+
+def _save_teammate_memory(username: str, teammate: str, memory_text: str) -> Dict[str, Any]:
+    payload = {"memory": (memory_text or "").strip(), "updated_at": now_iso()}
+    save_json(_tm_mem_path(username, teammate), payload)
+    return payload
+
+# --- Thread versioning (wrap save_thread without breaking existing behavior) ---
+try:
+    _save_thread_original = save_thread  # type: ignore[name-defined]
+except Exception:
+    _save_thread_original = None
+
+def save_thread(teammate_name: str, msgs: List[Dict[str, str]]) -> None:  # type: ignore[override]
+    """Non-breaking wrapper:
+    - calls the original save_thread
+    - also writes a timestamped snapshot (best-effort)
+    """
+    try:
+        if _save_thread_original:
+            _save_thread_original(teammate_name, msgs)  # type: ignore[misc]
+        else:
+            # fallback to legacy path if original missing
+            save_json(thread_path(teammate_name), msgs)
+    except Exception:
+        # never break core flows
+        try:
+            save_json(thread_path(teammate_name), msgs)
+        except Exception:
+            pass
+
+    # snapshot, best-effort
+    try:
+        u = _get_session_username()
+        snap_dir = _user_file(THREAD_VERSIONS_DIR, u, _safe_name(teammate_name))
+        try:
+            snap_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        snap_path = snap_dir / f"{stamp}.json"
+        save_json(snap_path, {"teammate": teammate_name, "ts": now_iso(), "messages": msgs})
+    except Exception:
+        pass
+
+# --- System prompt injection wrapper (Operator Profile + Scenario + Goal + Teammate memory) ---
+try:
+    _teammate_system_prompt_original = teammate_system_prompt  # type: ignore[name-defined]
+except Exception:
+    _teammate_system_prompt_original = None
+
+def _compose_shared_context_for(username: str, teammate_name: str) -> str:
+    parts: List[str] = []
+    # Operator profile (existing feature)
+    try:
+        op = _load_operator_profile(username)  # type: ignore[name-defined]
+        if isinstance(op, dict):
+            display_name = (op.get("display_name") or "Operator").strip()
+            business = (op.get("business") or "").strip()
+            offers = (op.get("offers") or "").strip()
+            audience = (op.get("audience") or "").strip()
+            goals = (op.get("goals") or "").strip()
+            constraints = (op.get("constraints") or "").strip()
+            tone_rules = (op.get("tone_rules") or "").strip()
+            notes = (op.get("notes") or "").strip()
+            if any([business, offers, audience, goals, constraints, tone_rules, notes]):
+                parts.append(
+                    (
+                        "OPERATOR PROFILE\n"
+                        f"Operator: {display_name}\n"
+                        f"Business: {business}\n"
+                        f"Offers: {offers}\n"
+                        f"Audience: {audience}\n"
+                        f"Goals: {goals}\n"
+                        f"Constraints: {constraints}\n"
+                        f"Tone rules: {tone_rules}\n"
+                        f"Notes: {notes}"
+                    ).strip()
+                )
+    except Exception:
+        pass
+
+    # Scenario (new)
+    try:
+        sc = _load_scenario(username).get("scenario") or ""
+        sc = str(sc).strip()
+        if sc:
+            parts.append(("SCENARIO MODE\n" + sc).strip())
+    except Exception:
+        pass
+
+    # Active goal (new)
+    try:
+        gsum = _goal_summary_for_injection(username)
+        if gsum:
+            parts.append(gsum.strip())
+    except Exception:
+        pass
+
+    # Teammate memory (new)
+    try:
+        tm = _load_teammate_memory(username, teammate_name).get("memory") or ""
+        tm = str(tm).strip()
+        if tm:
+            parts.append((f"TEAMMATE MEMORY ({teammate_name})\n" + tm).strip())
+    except Exception:
+        pass
+
+    return "\n\n".join([p for p in parts if p])
+
+def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) -> str:  # type: ignore[override]
+    """Non-breaking wrapper.
+    Preserves existing prompt, but appends a shared context section at the end.
+    """
+    base = ""
+    try:
+        if _teammate_system_prompt_original:
+            base = _teammate_system_prompt_original(defn, lighting_mode=lighting_mode)  # type: ignore[misc]
+        else:
+            base = str(defn or "")
+    except Exception:
+        base = ""
+    try:
+        username = _get_session_username()
+        shared = _compose_shared_context_for(username, (defn.get("name") or "").strip())
+        if shared:
+            # append as an additive context block
+            base = (base or "").rstrip() + "\n\n" + ("SHARED CONTEXT (AUTO)\n" + shared).strip()
+    except Exception:
+        pass
+    return base
+
+# --- Confidence / assumptions meta (heuristic; does NOT change existing endpoints) ---
+_UNCERTAINTY_PAT = re.compile(r"\b(maybe|might|possibly|not sure|uncertain|unknown|it depends)\b", re.IGNORECASE)
+_ASSUMPTION_PAT = re.compile(r"\b(assume|assuming|assumption)\b", re.IGNORECASE)
+
+def _meta_for_text(text: str) -> Dict[str, Any]:
+    t = (text or "").strip()
+    if not t:
+        return {"confidence": 0, "assumption_signals": 0, "uncertainty_signals": 0}
+    unc = len(_UNCERTAINTY_PAT.findall(t))
+    asm = len(_ASSUMPTION_PAT.findall(t))
+    # Simple heuristic scoring
+    conf = 85
+    conf -= min(35, unc * 6)
+    conf -= min(20, asm * 4)
+    conf = max(10, min(95, conf))
+    # Basic risk score
+    risk = "Low"
+    if conf < 55:
+        risk = "High"
+    elif conf < 70:
+        risk = "Medium"
+    return {"confidence": conf, "risk": risk, "assumption_signals": asm, "uncertainty_signals": unc}
+
+# --- Discussion Mode (multi-teammate council) ---
+def _discussion_run(username: str, prompt: str, selected: Optional[List[str]] = None, rounds: int = 1, file_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    order = reg.get("active_order") or []
+    seats = [n for n in order if n in installed]
+    if selected:
+        sel = []
+        for n in selected:
+            if isinstance(n, str) and n.strip() in seats:
+                sel.append(n.strip())
+        if sel:
+            seats = sel
+    seats = seats[:10]  # safety cap
+
+    rounds = int(rounds or 1)
+    rounds = max(1, min(3, rounds))
+
+    transcript: List[Dict[str, Any]] = []
+    working = prompt or ""
+
+    for r in range(rounds):
+        for i, name in enumerate(seats):
+            out = _call_teammate_prompt_for_user(username, name, working, file_ids=file_ids or [])
+            transcript.append({
+                "round": r + 1,
+                "teammate": name,
+                "reply": out,
+                "meta": _meta_for_text(out),
+            })
+            # Provide the next teammate the prior reply and ask for critique/build.
+            working = (
+                (prompt or "").strip()
+                + "\n\n"
+                + "PRIOR TEAMMATE OUTPUT\n"
+                + f"From: {name}\n"
+                + (out or "").strip()
+                + "\n\n"
+                + "Your job: add value, correct issues, and improve clarity. Do not repeat. If you disagree, say why."
+            )
+
+    # final synthesis by Operator seat (neutral system voice) via existing llm call (no teammate role required)
+    try:
+        sys = (
+            "You are the Operator synthesizer inside an agentic command center. "
+            "Synthesize the council responses into one clean, actionable final answer. "
+            "Keep it structured. Do not use em dashes. Do not invent facts."
+        )
+        joined = "\n\n".join([f"[{t['teammate']} r{t['round']}]\n{t['reply']}" for t in transcript])
+        final = call_llm(sys, [{"role": "user", "content": (prompt or '').strip() + "\n\nCOUNCIL OUTPUTS\n" + joined}], temperature=0.4)
+    except Exception:
+        final = ""
+
+    return {"ok": True, "selected": seats, "rounds": rounds, "transcript": transcript, "final": final, "final_meta": _meta_for_text(final)}
+
+# --- Skill Packs (minimal registry, additive) ---
+def _skill_packs_path(username: str) -> Path:
+    return _user_file(SKILL_PACKS_DIR, username, "packs.json")
+
+def _load_skill_packs(username: str) -> Dict[str, Any]:
+    data = load_json(_skill_packs_path(username), {"installed": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"installed": {}, "updated_at": None}
+    data.setdefault("installed", {})
+    if not isinstance(data.get("installed"), dict):
+        data["installed"] = {}
+    return data
+
+def _save_skill_packs(username: str, data: Dict[str, Any]) -> None:
+    data = data or {}
+    data.setdefault("installed", {})
+    if not isinstance(data.get("installed"), dict):
+        data["installed"] = {}
+    data["updated_at"] = now_iso()
+    save_json(_skill_packs_path(username), data)
+
+# -------------------------
+# NEW API endpoints (non-breaking additions)
+# -------------------------
+
+@app.route("/api/scenario", methods=["GET", "POST"])
+def api_scenario():
+    u = _get_session_username()
+    if request.method == "GET":
+        return jsonify({"ok": True, **_load_scenario(u)})
+    payload = request.get_json(silent=True) or {}
+    scenario = payload.get("scenario") or ""
+    saved = _save_scenario(u, str(scenario))
+    append_task_log("scenario_update", {"scenario_len": len(saved.get("scenario") or "")}, teammate="Operator", status="success")
+    return jsonify({"ok": True, **saved})
+
+@app.route("/api/goals", methods=["GET", "POST"])
+def api_goals():
+    u = _get_session_username()
+    if request.method == "GET":
+        return jsonify({"ok": True, **_load_goals(u)})
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or "").strip().lower() or "add"
+    data = _load_goals(u)
+    goals = data.get("goals") or {}
+
+    if action == "add":
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            return jsonify({"ok": False, "error": "Missing title"}), 400
+        gid = _new_goal_id()
+        goals[gid] = {
+            "id": gid,
+            "title": title,
+            "status": str(payload.get("status") or "active").strip(),
+            "notes": str(payload.get("notes") or "").strip(),
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        data["goals"] = goals
+        if not data.get("active_goal_id"):
+            data["active_goal_id"] = gid
+        _save_goals(u, data)
+        append_task_log("goal_add", {"id": gid, "title": title}, teammate="Operator", status="success")
+        return jsonify({"ok": True, **data})
+
+    if action == "set_active":
+        gid = str(payload.get("id") or "").strip()
+        if gid and gid in goals:
+            data["active_goal_id"] = gid
+            _save_goals(u, data)
+            append_task_log("goal_set_active", {"id": gid}, teammate="Operator", status="success")
+            return jsonify({"ok": True, **data})
+        return jsonify({"ok": False, "error": "Unknown goal id"}), 400
+
+    if action == "update":
+        gid = str(payload.get("id") or "").strip()
+        if not gid or gid not in goals or not isinstance(goals.get(gid), dict):
+            return jsonify({"ok": False, "error": "Unknown goal id"}), 400
+        g = goals[gid]
+        if "title" in payload:
+            g["title"] = str(payload.get("title") or "").strip()
+        if "status" in payload:
+            g["status"] = str(payload.get("status") or "").strip()
+        if "notes" in payload:
+            g["notes"] = str(payload.get("notes") or "").strip()
+        g["updated_at"] = now_iso()
+        goals[gid] = g
+        data["goals"] = goals
+        _save_goals(u, data)
+        append_task_log("goal_update", {"id": gid}, teammate="Operator", status="success")
+        return jsonify({"ok": True, **data})
+
+    if action == "delete":
+        gid = str(payload.get("id") or "").strip()
+        if gid and gid in goals:
+            goals.pop(gid, None)
+            if data.get("active_goal_id") == gid:
+                data["active_goal_id"] = ""
+            data["goals"] = goals
+            _save_goals(u, data)
+            append_task_log("goal_delete", {"id": gid}, teammate="Operator", status="success")
+            return jsonify({"ok": True, **data})
+        return jsonify({"ok": False, "error": "Unknown goal id"}), 400
+
+    return jsonify({"ok": False, "error": "Unknown action"}), 400
+
+@app.route("/api/teammate_memory", methods=["GET", "POST"])
+def api_teammate_memory():
+    u = _get_session_username()
+    teammate = (request.args.get("teammate") or (request.get_json(silent=True) or {}).get("teammate") or "").strip()
+    if not teammate:
+        return jsonify({"ok": False, "error": "Missing teammate"}), 400
+    if request.method == "GET":
+        return jsonify({"ok": True, "teammate": teammate, **_load_teammate_memory(u, teammate)})
+    payload = request.get_json(silent=True) or {}
+    mem = str(payload.get("memory") or "").strip()
+    saved = _save_teammate_memory(u, teammate, mem)
+    append_task_log("teammate_memory_update", {"teammate": teammate, "memory_len": len(mem)}, teammate=teammate, status="success")
+    return jsonify({"ok": True, "teammate": teammate, **saved})
+
+@app.route("/api/discussion", methods=["POST"])
+def api_discussion():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    prompt = payload.get("prompt") or payload.get("text") or ""
+    if not isinstance(prompt, str):
+        prompt = str(prompt)
+    selected = payload.get("selected")
+    if selected is not None and not isinstance(selected, list):
+        selected = None
+    rounds = payload.get("rounds") or 1
+    file_ids = payload.get("file_ids") or []
+    if not isinstance(file_ids, list):
+        file_ids = []
+    res = _discussion_run(u, prompt, selected=selected, rounds=rounds, file_ids=file_ids)
+    append_log("discussion", {"user": u, "selected": res.get("selected"), "rounds": res.get("rounds")})
+    return jsonify(res)
+
+@app.route("/api/skill_packs", methods=["GET", "POST"])
+def api_skill_packs():
+    u = _get_session_username()
+    if request.method == "GET":
+        return jsonify({"ok": True, **_load_skill_packs(u)})
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or "").strip().lower() or "install"
+    data = _load_skill_packs(u)
+    installed = data.get("installed") or {}
+
+    if action == "install":
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Missing name"}), 400
+        installed[name] = {"name": name, "notes": str(payload.get("notes") or "").strip(), "installed_at": now_iso()}
+        data["installed"] = installed
+        _save_skill_packs(u, data)
+        append_task_log("skill_pack_install", {"name": name}, teammate="Operator", status="success")
+        return jsonify({"ok": True, **data})
+
+    if action == "remove":
+        name = str(payload.get("name") or "").strip()
+        if name and name in installed:
+            installed.pop(name, None)
+            data["installed"] = installed
+            _save_skill_packs(u, data)
+            append_task_log("skill_pack_remove", {"name": name}, teammate="Operator", status="success")
+            return jsonify({"ok": True, **data})
+        return jsonify({"ok": False, "error": "Unknown pack"}), 400
+
+    return jsonify({"ok": False, "error": "Unknown action"}), 400
