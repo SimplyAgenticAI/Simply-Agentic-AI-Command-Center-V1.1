@@ -10673,3 +10673,841 @@ def api_skill_packs():
         return jsonify({"ok": False, "error": "Unknown pack"}), 400
 
     return jsonify({"ok": False, "error": "Unknown action"}), 400
+
+
+
+# ============================================================
+# ADVANCED IDEAS PACK (Additive) - v1.14
+# This section adds scaffolding + safe APIs for many "v2-v5" ideas
+# WITHOUT breaking existing behavior.
+# ============================================================
+
+# NOTE: This file is intentionally additive. It does NOT remove or refactor existing code.
+# It layers new data stores + API endpoints + optional stack-step types that are backwards compatible.
+
+from typing import Callable  # additive import
+
+# ------------------------------
+# FEATURE FLAGS (global defaults + per-user overrides)
+# ------------------------------
+
+FEATURES_PATH = DATA / "feature_flags.json"
+
+DEFAULT_FEATURE_FLAGS = {
+    # System modes
+    "discussion_mode": True,
+    "council_voting": True,
+    "scenario_mode": True,
+    "goal_mode": True,
+    "worlds_mode": False,  # off by default until UI supports it
+    "laws_mode": True,
+    "skill_packs": True,
+
+    # Stack engine extensions
+    "stack_conditionals": True,
+    "stack_loops": False,  # off by default (safety)
+
+    # Immersion / UI hooks (APIs only, UI optional)
+    "ui_themes": True,
+    "relay_visualization": True,
+    "typing_stream": False,  # requires UI/websocket
+    "voice_personas": False,  # requires TTS
+}
+
+def _feature_flags_load() -> Dict[str, Any]:
+    data = load_json(FEATURES_PATH, {"updated_at": None, "defaults": {}, "per_user": {}}) or {}
+    if not isinstance(data, dict):
+        data = {"updated_at": None, "defaults": {}, "per_user": {}}
+    data.setdefault("defaults", {})
+    data.setdefault("per_user", {})
+    # Merge in any new defaults without overwriting user edits
+    for k, v in DEFAULT_FEATURE_FLAGS.items():
+        if k not in data["defaults"]:
+            data["defaults"][k] = v
+    return data
+
+def _feature_flags_save(data: Dict[str, Any]) -> None:
+    data = data or {}
+    data["updated_at"] = now_iso()
+    save_json(FEATURES_PATH, data)
+
+def _feature_flags_for_user(username: str) -> Dict[str, bool]:
+    data = _feature_flags_load()
+    defaults = data.get("defaults") or {}
+    per = (data.get("per_user") or {}).get(username) or {}
+    out: Dict[str, bool] = {}
+    for k, v in defaults.items():
+        out[k] = bool(per.get(k, v))
+    # preserve any extra keys in per-user (forward compat)
+    for k, v in (per or {}).items():
+        if k not in out:
+            out[k] = bool(v)
+    return out
+
+def _set_feature_flags_for_user(username: str, updates: Dict[str, Any]) -> Dict[str, bool]:
+    data = _feature_flags_load()
+    data.setdefault("per_user", {})
+    cur = (data["per_user"].get(username) or {})
+    if not isinstance(cur, dict):
+        cur = {}
+    for k, v in (updates or {}).items():
+        if k not in DEFAULT_FEATURE_FLAGS:
+            # allow unknown keys for future features, but keep them boolean
+            cur[k] = bool(v)
+        else:
+            cur[k] = bool(v)
+    data["per_user"][username] = cur
+    _feature_flags_save(data)
+    return _feature_flags_for_user(username)
+
+# ------------------------------
+# WORLDS MODE (multi-reality context)
+# ------------------------------
+WORLDS_DIR = DATA / "worlds"
+WORLDS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _world_dir(username: str, world_id: str) -> Path:
+    u = _safe_name(username or "anon")
+    wid = _safe_name(world_id or "default")
+    d = WORLDS_DIR / u / wid
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _worlds_index_path(username: str) -> Path:
+    u = _safe_name(username or "anon")
+    d = WORLDS_DIR / u
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "_index.json"
+
+def _load_worlds_index(username: str) -> Dict[str, Any]:
+    return load_json(_worlds_index_path(username), {"active_world_id": "default", "worlds": {}}) or {"active_world_id": "default", "worlds": {}}
+
+def _save_worlds_index(username: str, data: Dict[str, Any]) -> None:
+    save_json(_worlds_index_path(username), data or {"active_world_id": "default", "worlds": {}})
+
+def _get_active_world_id(username: str) -> str:
+    idx = _load_worlds_index(username)
+    wid = (idx.get("active_world_id") or "default").strip() or "default"
+    return wid
+
+def _set_active_world_id(username: str, world_id: str) -> str:
+    idx = _load_worlds_index(username)
+    idx["active_world_id"] = (world_id or "default").strip() or "default"
+    _save_worlds_index(username, idx)
+    return idx["active_world_id"]
+
+def _world_context_get(username: str, world_id: str) -> Dict[str, Any]:
+    d = _world_dir(username, world_id)
+    return load_json(d / "context.json", {"scenario": "", "goals": {"active_goal_id": "", "goals": {}}, "notes": ""}) or {"scenario": "", "goals": {"active_goal_id": "", "goals": {}}, "notes": ""}
+
+def _world_context_set(username: str, world_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    d = _world_dir(username, world_id)
+    cur = _world_context_get(username, world_id)
+    if not isinstance(cur, dict):
+        cur = {"scenario": "", "goals": {"active_goal_id": "", "goals": {}}, "notes": ""}
+    for k in ("scenario", "notes"):
+        if k in (payload or {}):
+            cur[k] = str(payload.get(k) or "")
+    # goals: allow pass-through, but keep structure safe
+    if "goals" in (payload or {}):
+        g2 = payload.get("goals") or {}
+        if isinstance(g2, dict):
+            cur["goals"] = g2
+    save_json(d / "context.json", cur)
+    return cur
+
+# ------------------------------
+# LAWS / RULE ENGINE (operator laws)
+# ------------------------------
+LAWS_PATH = DATA / "laws.json"
+
+DEFAULT_LAWS = {
+    "enabled": True,
+    "laws": [
+        {"id": "law_no_autowrite", "title": "Never overwrite files automatically", "enabled": True},
+        {"id": "law_confirm_automation", "title": "Confirm before scheduling automation", "enabled": True},
+        {"id": "law_no_delete_memory", "title": "Never delete memory without explicit operator request", "enabled": True},
+    ],
+    "updated_at": None,
+}
+
+def _load_laws() -> Dict[str, Any]:
+    data = load_json(LAWS_PATH, DEFAULT_LAWS) or DEFAULT_LAWS
+    if not isinstance(data, dict):
+        data = DEFAULT_LAWS.copy()
+    data.setdefault("enabled", True)
+    data.setdefault("laws", [])
+    if not isinstance(data.get("laws"), list):
+        data["laws"] = []
+    return data
+
+def _save_laws(data: Dict[str, Any]) -> None:
+    data = data or {}
+    data["updated_at"] = now_iso()
+    save_json(LAWS_PATH, data)
+
+def _laws_text_for_injection() -> str:
+    d = _load_laws()
+    if not d.get("enabled", True):
+        return ""
+    lines = ["OPERATOR LAWS (ENFORCED)"]
+    for law in (d.get("laws") or []):
+        try:
+            if not (law or {}).get("enabled", True):
+                continue
+            title = str((law or {}).get("title") or "").strip()
+            if title:
+                lines.append(f"- {title}")
+        except Exception:
+            continue
+    return "\n".join(lines).strip() + "\n"
+
+# ------------------------------
+# UI SETTINGS (themes, layout hints, immersion toggles)
+# ------------------------------
+UI_SETTINGS_DIR = DATA / "ui_settings"
+UI_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _ui_settings_path(username: str) -> Path:
+    return UI_SETTINGS_DIR / f"{_safe_name(username)}.json"
+
+def _load_ui_settings(username: str) -> Dict[str, Any]:
+    d = load_json(_ui_settings_path(username), {}) or {}
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("theme", "neon_dark")
+    d.setdefault("layout", {"mode": "round_table", "split_screen": False})
+    d.setdefault("immersion", {"sounds": False, "typing": False, "glow": True})
+    return d
+
+def _save_ui_settings(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    cur = _load_ui_settings(username)
+    if not isinstance(cur, dict):
+        cur = {}
+    # shallow merge with safety
+    if "theme" in (payload or {}):
+        cur["theme"] = str(payload.get("theme") or "neon_dark")
+    if "layout" in (payload or {}) and isinstance(payload.get("layout"), dict):
+        cur.setdefault("layout", {})
+        cur["layout"].update(payload.get("layout") or {})
+    if "immersion" in (payload or {}) and isinstance(payload.get("immersion"), dict):
+        cur.setdefault("immersion", {})
+        cur["immersion"].update(payload.get("immersion") or {})
+    cur["updated_at"] = now_iso()
+    save_json(_ui_settings_path(username), cur)
+    return cur
+
+# ------------------------------
+# STACK TEMPLATES (reusable flows)
+# ------------------------------
+STACK_TEMPLATES_DIR = DATA / "stack_templates"
+STACK_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+def _stack_template_path(name: str) -> Path:
+    return STACK_TEMPLATES_DIR / f"{_safe_name(name)}.json"
+
+def _list_stack_templates() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    try:
+        for p in STACK_TEMPLATES_DIR.glob("*.json"):
+            d = load_json(p, None)
+            if isinstance(d, dict):
+                d.setdefault("name", p.stem)
+                out.append(d)
+    except Exception:
+        pass
+    return out
+
+def _save_stack_template(name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    d = payload or {}
+    if not isinstance(d, dict):
+        d = {}
+    d["name"] = str(name or "").strip() or _safe_name(name)
+    d["updated_at"] = now_iso()
+    save_json(_stack_template_path(name), d)
+    return d
+
+# ------------------------------
+# TEAMS: controls (strength, mode, skeptic/disagree toggles)
+# ------------------------------
+TEAM_CONTROLS_DIR = DATA / "team_controls"
+TEAM_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _team_controls_path(username: str) -> Path:
+    return TEAM_CONTROLS_DIR / f"{_safe_name(username)}.json"
+
+def _load_team_controls(username: str) -> Dict[str, Any]:
+    d = load_json(_team_controls_path(username), {}) or {}
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("global", {
+        "mode": "balanced",  # fast, deep, balanced
+        "risk_awareness": True,
+        "self_check_pass": True,
+        "goal_alignment_check": True,
+        "context_lock": False,
+        "disagreement_mode": False,
+        "skeptic_mode": False,
+    })
+    d.setdefault("teammates", {})  # per-teammate overrides
+    return d
+
+def _save_team_controls(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    cur = _load_team_controls(username)
+    if "global" in (payload or {}) and isinstance(payload.get("global"), dict):
+        cur["global"].update(payload.get("global") or {})
+    if "teammates" in (payload or {}) and isinstance(payload.get("teammates"), dict):
+        cur.setdefault("teammates", {})
+        for k, v in (payload.get("teammates") or {}).items():
+            if not isinstance(v, dict):
+                continue
+            cur["teammates"].setdefault(k, {})
+            cur["teammates"][k].update(v)
+    cur["updated_at"] = now_iso()
+    save_json(_team_controls_path(username), cur)
+    return cur
+
+# ------------------------------
+# COUNCIL VOTING (record + audit)
+# ------------------------------
+VOTES_DIR = DATA / "council_votes"
+VOTES_DIR.mkdir(parents=True, exist_ok=True)
+
+def _votes_path(username: str) -> Path:
+    return VOTES_DIR / f"{_safe_name(username)}.jsonl"
+
+def _append_vote(username: str, payload: Dict[str, Any]) -> None:
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "ts": now_iso(),
+            "user": username,
+            "payload": payload or {},
+        }
+        with _votes_path(username).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+# ------------------------------
+# OPTIONAL: Stack Engine Extensions (conditionals + loops)
+# These are OFF by default (feature flags) to avoid surprises.
+# ------------------------------
+
+# Capture original functions so we can safely extend without breaking.
+try:
+    _normalize_steps_v1 = _normalize_steps  # type: ignore[name-defined]
+except Exception:
+    _normalize_steps_v1 = None  # type: ignore
+
+try:
+    _run_action_stack_engine_v1 = _run_action_stack_engine  # type: ignore[name-defined]
+except Exception:
+    _run_action_stack_engine_v1 = None  # type: ignore
+
+def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:  # override, additive
+    """Backwards-compatible normalization + new step types:
+    - if: evaluates simple contains/equals checks and can set cursor
+    - goto: jump to step index (1-based) or label match
+    - loop: repeat block N times (requires stack_loops flag)
+    """
+    out: List[Dict[str, Any]] = []
+    if isinstance(steps, list):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            typ = (s.get("type") or "").strip().lower()
+            allowed = {
+                "prompt","ask_user","wait","save_memory","route",
+                "if","goto","loop"
+            }
+            if typ not in allowed:
+                typ = "prompt"
+            rec = {
+                "type": typ,
+                "label": (s.get("label") or "").strip()[:80],
+                "prompt": (s.get("prompt") or ""),
+                "seconds": int(s.get("seconds") or 0),
+                "key": (s.get("key") or "").strip()[:80],
+                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
+                # new fields (optional)
+                "op": (s.get("op") or "").strip().lower(),  # contains|equals|starts_with
+                "value": (s.get("value") or ""),
+                "then_goto": s.get("then_goto"),
+                "else_goto": s.get("else_goto"),
+                "goto": s.get("goto"),
+                "count": int(s.get("count") or 0),
+                "from_step": s.get("from_step"),
+                "to_step": s.get("to_step"),
+            }
+            out.append(rec)
+    return out
+
+def _eval_if(op: str, left: str, right: str) -> bool:
+    op = (op or "contains").strip().lower()
+    a = (left or "")
+    b = (right or "")
+    if op == "equals":
+        return a.strip() == b.strip()
+    if op == "starts_with":
+        return a.strip().startswith(b.strip())
+    # default contains
+    return b.strip() in a
+
+def _resolve_goto_target(steps: List[Dict[str, Any]], target: Any) -> Optional[int]:
+    """Return 0-based index cursor target."""
+    if target is None:
+        return None
+    # numeric: 1-based step number
+    if isinstance(target, int):
+        n = max(1, target)
+        return min(len(steps), n) - 1
+    # string: try label match
+    t = str(target).strip()
+    if not t:
+        return None
+    # try parse int string
+    if re.match(r"^\d+$", t):
+        n = max(1, int(t))
+        return min(len(steps), n) - 1
+    # label match
+    for i, st in enumerate(steps):
+        if (st.get("label") or "").strip().lower() == t.lower():
+            return i
+    return None
+
+def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:  # override, additive
+    """Extended stack runner. Falls back to v1 behavior if extensions are disabled."""
+    # If we can't find original, keep existing behavior.
+    if _run_action_stack_engine_v1 is None:
+        return run
+
+    try:
+        u = run.get("user") or "anon"
+        flags = _feature_flags_for_user(u)
+        # If extensions are off, run v1
+        if not flags.get("stack_conditionals", True) and not flags.get("stack_loops", False):
+            return _run_action_stack_engine_v1(run)
+    except Exception:
+        return _run_action_stack_engine_v1(run)
+
+    # We copy v1 engine behavior by delegating most steps, but intercepting new ones.
+    # To keep this safe, we execute one step at a time and then re-enter.
+    try:
+        # Ensure normalized steps with our extended normalizer
+        run["steps"] = _normalize_steps(run.get("steps") or [])
+        steps = run.get("steps") or []
+        cursor = int(run.get("cursor") or 0)
+        u = run.get("user") or "anon"
+        flags = _feature_flags_for_user(u)
+
+        # Let v1 handle waiting/needs_input states correctly by calling it when not in new step types.
+        if cursor >= len(steps):
+            return _run_action_stack_engine_v1(run)
+
+        st = steps[cursor]
+        stype = (st.get("type") or "prompt").strip().lower()
+
+        if stype in ("if","goto","loop"):
+            # We implement these directly, then continue by recursion through v1 (safe).
+            outputs = run.get("outputs") or {}
+            last_output = run.get("last_output", "")
+            # Resolve context similar to v1
+            mem = (_load_action_memory(u).get("memory") or {})
+            ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
+            for i, out in (outputs or {}).items():
+                try:
+                    idx = int(i)
+                    ctx[f"step{idx+1}.output"] = out
+                except Exception:
+                    continue
+            for k, v in (mem or {}).items():
+                ctx[f"memory.{k}"] = v
+
+            if stype == "goto":
+                tgt = st.get("goto")
+                j = _resolve_goto_target(steps, tgt)
+                if j is None:
+                    # no-op
+                    run["cursor"] = cursor + 1
+                else:
+                    run["cursor"] = j
+                _persist_run(run)
+                return _run_action_stack_engine(run)
+
+            if stype == "if":
+                op = st.get("op") or "contains"
+                left = _safe_render(str(st.get("prompt") or "{{last}}"), ctx)
+                right = str(st.get("value") or "")
+                ok = _eval_if(op, left, right)
+                tgt = st.get("then_goto") if ok else st.get("else_goto")
+                j = _resolve_goto_target(steps, tgt)
+                run["cursor"] = (j if j is not None else cursor + 1)
+                _append_run_log(run, "if", {"step": cursor + 1, "ok": ok, "op": op, "value": right, "target": tgt})
+                _persist_run(run)
+                return _run_action_stack_engine(run)
+
+            if stype == "loop":
+                if not flags.get("stack_loops", False):
+                    # loops disabled, treat as no-op
+                    run["cursor"] = cursor + 1
+                    _persist_run(run)
+                    return _run_action_stack_engine(run)
+
+                # loop block from_step..to_step (1-based), repeat count times.
+                count = int(st.get("count") or 0)
+                from_step = st.get("from_step")
+                to_step = st.get("to_step")
+                if count <= 0:
+                    run["cursor"] = cursor + 1
+                    _persist_run(run)
+                    return _run_action_stack_engine(run)
+                start_i = _resolve_goto_target(steps, from_step) if from_step is not None else None
+                end_i = _resolve_goto_target(steps, to_step) if to_step is not None else None
+                if start_i is None or end_i is None or start_i > end_i:
+                    run["cursor"] = cursor + 1
+                    _persist_run(run)
+                    return _run_action_stack_engine(run)
+
+                # Maintain loop state in run (additive)
+                loop_state = run.get("_loop_state") or {}
+                if not isinstance(loop_state, dict):
+                    loop_state = {}
+                key = f"{cursor}:{start_i}:{end_i}:{count}"
+                state = loop_state.get(key) or {"i": 0, "cursor": start_i}
+                i = int(state.get("i") or 0)
+                subcursor = int(state.get("cursor") or start_i)
+
+                if i >= count:
+                    # loop complete
+                    loop_state.pop(key, None)
+                    run["_loop_state"] = loop_state
+                    run["cursor"] = cursor + 1
+                    _append_run_log(run, "loop_complete", {"step": cursor + 1, "count": count})
+                    _persist_run(run)
+                    return _run_action_stack_engine(run)
+
+                # Jump into block
+                run["_loop_state"] = loop_state
+                run["cursor"] = subcursor
+                # When we reach end_i, increment iteration and jump back to start_i
+                if subcursor == end_i:
+                    state["i"] = i + 1
+                    state["cursor"] = start_i
+                else:
+                    state["cursor"] = subcursor + 1
+                loop_state[key] = state
+                _append_run_log(run, "loop", {"step": cursor + 1, "iter": i + 1, "jump_to": subcursor + 1})
+                _persist_run(run)
+                return _run_action_stack_engine_v1(run)
+
+        # Otherwise, use v1 engine for normal types
+        return _run_action_stack_engine_v1(run)
+
+    except Exception:
+        # safety: fallback to v1
+        return _run_action_stack_engine_v1(run)
+
+# ------------------------------
+# PROMPT INJECTION HELPERS (scenario + goal + laws + team controls)
+# ------------------------------
+
+def _active_goal_text(username: str) -> str:
+    # Prefer world context if worlds_mode enabled
+    try:
+        flags = _feature_flags_for_user(username)
+        if flags.get("worlds_mode", False):
+            wid = _get_active_world_id(username)
+            ctx = _world_context_get(username, wid)
+            g = (ctx.get("goals") or {})
+            active_id = (g.get("active_goal_id") or "").strip()
+            goals = g.get("goals") or {}
+            if active_id and active_id in goals and isinstance(goals[active_id], dict):
+                gg = goals[active_id]
+                title = str(gg.get("title") or "").strip()
+                notes = str(gg.get("notes") or "").strip()
+                if title:
+                    return ("ACTIVE GOAL\n- " + title + (("\nNotes: " + notes) if notes else "") + "\n").strip() + "\n"
+    except Exception:
+        pass
+
+    # Fallback to existing goals store if present (v1.13)
+    try:
+        p = DATA / "goals" / f"{_safe_name(username)}.json"
+        d = load_json(p, {"active_goal_id": "", "goals": {}}) or {"active_goal_id": "", "goals": {}}
+        active_id = (d.get("active_goal_id") or "").strip()
+        goals = d.get("goals") or {}
+        if active_id and active_id in goals and isinstance(goals[active_id], dict):
+            gg = goals[active_id]
+            title = str(gg.get("title") or "").strip()
+            notes = str(gg.get("notes") or "").strip()
+            if title:
+                return ("ACTIVE GOAL\n- " + title + (("\nNotes: " + notes) if notes else "") + "\n").strip() + "\n"
+    except Exception:
+        pass
+    return ""
+
+def _scenario_text(username: str) -> str:
+    # Prefer world scenario if enabled
+    try:
+        flags = _feature_flags_for_user(username)
+        if flags.get("worlds_mode", False):
+            wid = _get_active_world_id(username)
+            ctx = _world_context_get(username, wid)
+            sc = str(ctx.get("scenario") or "").strip()
+            if sc:
+                return ("SCENARIO CONTEXT\n" + sc.strip() + "\n").strip() + "\n"
+    except Exception:
+        pass
+    # Fallback to existing scenario store if present (v1.13)
+    try:
+        p = DATA / "scenario" / f"{_safe_name(username)}.json"
+        d = load_json(p, {"scenario": ""}) or {"scenario": ""}
+        sc = str(d.get("scenario") or "").strip()
+        if sc:
+            return ("SCENARIO CONTEXT\n" + sc.strip() + "\n").strip() + "\n"
+    except Exception:
+        pass
+    return ""
+
+def _team_controls_text(username: str) -> str:
+    try:
+        tc = _load_team_controls(username) or {}
+        g = tc.get("global") or {}
+        lines = ["TEAM BEHAVIOR MODES"]
+        for k in ("mode","risk_awareness","self_check_pass","goal_alignment_check","context_lock","disagreement_mode","skeptic_mode"):
+            if k in g:
+                lines.append(f"- {k}: {g.get(k)}")
+        return "\n".join(lines).strip() + "\n"
+    except Exception:
+        return ""
+
+# Patch teammate_system_prompt injection without breaking originals.
+try:
+    _teammate_system_prompt_v1 = teammate_system_prompt  # type: ignore[name-defined]
+except Exception:
+    _teammate_system_prompt_v1 = None  # type: ignore
+
+def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: str = "") -> str:  # override, additive
+    base = _teammate_system_prompt_v1(defn, lighting_mode=lighting_mode) if _teammate_system_prompt_v1 else ""
+    # Determine username (session)
+    try:
+        uname = _get_session_username()
+    except Exception:
+        uname = "anon"
+    # Respect feature flags
+    try:
+        flags = _feature_flags_for_user(uname)
+    except Exception:
+        flags = DEFAULT_FEATURE_FLAGS
+    inject = ""
+    if flags.get("laws_mode", True):
+        inject += _laws_text_for_injection()
+    if flags.get("scenario_mode", True):
+        inject += _scenario_text(uname)
+    if flags.get("goal_mode", True):
+        inject += _active_goal_text(uname)
+    inject += _team_controls_text(uname)
+
+    if inject.strip():
+        return (base.strip() + "\n\n" + inject.strip()).strip()
+    return base
+
+# ------------------------------
+# APIs: Feature flags, laws, worlds, UI settings, team controls, templates, votes
+# ------------------------------
+
+@app.get("/api/feature_flags")
+def api_feature_flags_get():
+    u = _get_session_username()
+    return jsonify({"ok": True, "flags": _feature_flags_for_user(u)})
+
+@app.post("/api/feature_flags")
+def api_feature_flags_set():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    flags = _set_feature_flags_for_user(u, payload.get("flags") or payload)
+    return jsonify({"ok": True, "flags": flags})
+
+@app.get("/api/laws")
+def api_laws_get():
+    return jsonify({"ok": True, "laws": _load_laws()})
+
+@app.post("/api/laws")
+def api_laws_set():
+    payload = request.get_json(silent=True) or {}
+    cur = _load_laws()
+    if "enabled" in payload:
+        cur["enabled"] = bool(payload.get("enabled"))
+    if "laws" in payload and isinstance(payload.get("laws"), list):
+        # sanitize
+        clean = []
+        for law in payload.get("laws") or []:
+            if not isinstance(law, dict):
+                continue
+            clean.append({
+                "id": str(law.get("id") or uuid.uuid4().hex[:10]),
+                "title": str(law.get("title") or "").strip(),
+                "enabled": bool(law.get("enabled", True)),
+            })
+        cur["laws"] = clean
+    _save_laws(cur)
+    return jsonify({"ok": True, "laws": _load_laws()})
+
+@app.get("/api/ui_settings")
+def api_ui_settings_get():
+    u = _get_session_username()
+    return jsonify({"ok": True, "ui": _load_ui_settings(u)})
+
+@app.post("/api/ui_settings")
+def api_ui_settings_set():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "ui": _save_ui_settings(u, payload)})
+
+@app.get("/api/team_controls")
+def api_team_controls_get():
+    u = _get_session_username()
+    return jsonify({"ok": True, "controls": _load_team_controls(u)})
+
+@app.post("/api/team_controls")
+def api_team_controls_set():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "controls": _save_team_controls(u, payload)})
+
+@app.get("/api/worlds")
+def api_worlds_list():
+    u = _get_session_username()
+    idx = _load_worlds_index(u)
+    return jsonify({"ok": True, "active_world_id": _get_active_world_id(u), "worlds": idx.get("worlds") or {}})
+
+@app.post("/api/worlds")
+def api_worlds_create_or_update():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    world_id = (payload.get("world_id") or payload.get("id") or "default").strip() or "default"
+    idx = _load_worlds_index(u)
+    idx.setdefault("worlds", {})
+    w = idx["worlds"].get(world_id) or {"id": world_id, "title": world_id, "created_at": now_iso()}
+    if "title" in payload:
+        w["title"] = str(payload.get("title") or world_id)
+    w["updated_at"] = now_iso()
+    idx["worlds"][world_id] = w
+    _save_worlds_index(u, idx)
+    if payload.get("set_active"):
+        _set_active_world_id(u, world_id)
+    return jsonify({"ok": True, "active_world_id": _get_active_world_id(u), "world": w})
+
+@app.post("/api/worlds/active")
+def api_worlds_set_active():
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    world_id = (payload.get("world_id") or payload.get("id") or "default").strip() or "default"
+    return jsonify({"ok": True, "active_world_id": _set_active_world_id(u, world_id)})
+
+@app.get("/api/worlds/context")
+def api_world_context_get():
+    u = _get_session_username()
+    wid = _get_active_world_id(u)
+    return jsonify({"ok": True, "world_id": wid, "context": _world_context_get(u, wid)})
+
+@app.post("/api/worlds/context")
+def api_world_context_set():
+    u = _get_session_username()
+    wid = _get_active_world_id(u)
+    payload = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "world_id": wid, "context": _world_context_set(u, wid, payload)})
+
+@app.get("/api/stack_templates")
+def api_stack_templates_list():
+    return jsonify({"ok": True, "templates": _list_stack_templates()})
+
+@app.post("/api/stack_templates")
+def api_stack_templates_save():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or payload.get("template_name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing template name"}), 400
+    saved = _save_stack_template(name, payload)
+    return jsonify({"ok": True, "template": saved})
+
+@app.post("/api/council_vote")
+def api_council_vote():
+    """Record a council vote for an action/decision. Payload is arbitrary JSON."""
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    _append_vote(u, payload)
+    # also append to task log for visibility
+    try:
+        append_task_log(action="council_vote", record=payload, teammate="", status="success")
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+@app.post("/api/suggest_stacks")
+def api_suggest_stacks():
+    """Ask Orion/Alex to propose action stacks based on a goal/scenario.
+    This is safe: it returns suggestions only and does not install/run them.
+    """
+    u = _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "Missing prompt"}), 400
+
+    reg = load_registry()
+    active = reg.get("active_order") or []
+    # prefer Orion then Alex then Ava
+    order = [n for n in ["Orion","Alex","Ava"] if n in active] or active[:2]
+    ideas: List[Dict[str, Any]] = []
+
+    for tm in order[:3]:
+        try:
+            sys = teammate_system_prompt((reg.get("installed") or {}).get(tm) or {"name": tm}, lighting_mode=lighting_mode)
+            sc = _scenario_text(u)
+            gg = _active_goal_text(u)
+            laws = _laws_text_for_injection()
+            tc = _team_controls_text(u)
+            user_msg = f"""{laws}{sc}{gg}{tc}
+You are to propose 1-3 ACTION STACKS as JSON only.
+Each stack:
+- name
+- teammate (who runs it)
+- steps (list of steps)
+Constraints:
+- do not run anything
+- do not schedule anything
+- keep steps simple and safe
+User request:
+{prompt}
+"""
+            out = call_llm(sys, [{"role":"user","content": user_msg}], temperature=0.35)
+            ideas.append({"teammate": tm, "raw": out})
+        except Exception as e:
+            ideas.append({"teammate": tm, "raw": "", "error": str(e)})
+
+    return jsonify({"ok": True, "suggestions": ideas})
+
+# ------------------------------
+# IMMERSION / REALISM HOOKS (API only)
+# ------------------------------
+
+@app.get("/api/immersion/presence")
+def api_immersion_presence():
+    """Return a lightweight 'presence' signal the UI can use (who is active, last actions)."""
+    u = _get_session_username()
+    # last few task log entries for signal
+    recent = read_task_log(limit=10)  # existing
+    return jsonify({"ok": True, "user": u, "recent": recent})
+
+# ------------------------------
+# Backwards compatible version bump (display only)
+# ------------------------------
+try:
+    # Preserve existing title but annotate minor bump if not already changed.
+    if isinstance(APP_TITLE, str) and "v1.14" not in APP_TITLE.lower():
+        APP_TITLE = APP_TITLE.replace("V1.12", "V1.14").replace("v1.12", "v1.14")
+except Exception:
+    pass
+
