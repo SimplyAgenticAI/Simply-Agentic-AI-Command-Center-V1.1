@@ -11740,6 +11740,39 @@ ADD_UI_POLISH_V8 = r'''
     }, 250);
   });
 })();
+
+function showToast(msg, type) {
+  try {
+    const el = document.createElement("div");
+    el.textContent = msg;
+
+    el.style.position = "fixed";
+    el.style.bottom = "20px";
+    el.style.right = "20px";
+    el.style.padding = "10px 14px";
+    el.style.borderRadius = "8px";
+    el.style.fontSize = "14px";
+    el.style.zIndex = 999999;
+
+    if (type === "error") {
+      el.style.background = "#7f1d1d";
+      el.style.color = "#fff";
+    } else {
+      el.style.background = "#1f2937";
+      el.style.color = "#fff";
+    }
+
+    document.body.appendChild(el);
+
+    setTimeout(() => {
+      el.remove();
+    }, 3000);
+
+  } catch (e) {
+    alert(msg);
+  }
+}
+
 </script>
 '''
 
