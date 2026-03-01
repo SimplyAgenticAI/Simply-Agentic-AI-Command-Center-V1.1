@@ -2346,7 +2346,18 @@ def api_action_stacks_schedules_delete(teammate: str):
 @app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
     try:
+        # Action Stacks schedules
         _run_due_schedules_once()
+        # Resume Action Stack runs that are due (additive fix)
+        try:
+            _resume_due_runs_once()
+        except Exception:
+            pass
+        # CRM automations (sequences, reminders) - additive
+        try:
+            _crm_tick_once()
+        except Exception:
+            pass
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -5000,6 +5011,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
+      <button class="btn" id="crmBtn">Client Center</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5031,6 +5043,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
+        <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -5314,6 +5327,258 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
 
+              
+
+<div class="modalForm" id="crmForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Broadcast, pipeline, tasks, sequences, and calendar without leaving the Round Table.</div>
+
+  <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+    <button class="btn btnMini" id="crmTabClients">Clients</button>
+    <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
+    <button class="btn btnMini" id="crmTabBroadcast">Broadcast</button>
+    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
+    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
+    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
+  </div>
+
+  <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
+
+  <!-- Clients -->
+  <div id="crmViewClients" style="display:none;">
+    <div class="grid">
+      <div>
+        <label>Search</label>
+        <input id="crmSearch" placeholder="Name, email, tag..." />
+      </div>
+      <div>
+        <label>Filter</label>
+        <select id="crmFilter">
+          <option value="">All</option>
+          <option value="status:lead">Status: Lead</option>
+          <option value="status:active">Status: Active</option>
+          <option value="status:vip">Status: VIP</option>
+          <option value="status:past">Status: Past</option>
+          <option value="stage:Lead">Stage: Lead</option>
+          <option value="stage:Conversation">Stage: Conversation</option>
+          <option value="stage:Interested">Stage: Interested</option>
+          <option value="stage:Call booked">Stage: Call booked</option>
+          <option value="stage:Client">Stage: Client</option>
+          <option value="stage:VIP">Stage: VIP</option>
+          <option value="stage:Past client">Stage: Past client</option>
+          <option value="stage:Cold">Stage: Cold</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
+      <button class="btn" id="crmRefreshClients">Refresh</button>
+      <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
+    </div>
+
+    <div id="crmClientsList" style="margin-top:10px;"></div>
+
+    <div id="crmClientEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+      <div class="tiny" id="crmEditTitle" style="margin-bottom:8px;">Client</div>
+      <div class="grid">
+        <div>
+          <label>Name</label>
+          <input id="crmName" />
+        </div>
+        <div>
+          <label>Email</label>
+          <input id="crmEmail" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Phone</label>
+          <input id="crmPhone" placeholder="+15551234567" />
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="crmStatusSel">
+            <option value="lead">lead</option>
+            <option value="active">active</option>
+            <option value="vip">vip</option>
+            <option value="past">past</option>
+            <option value="cold">cold</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Pipeline stage</label>
+          <input id="crmStage" placeholder="Lead" />
+        </div>
+        <div>
+          <label>Tags (comma separated)</label>
+          <input id="crmTags" placeholder="realtor, vip" />
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Notes</label>
+        <textarea id="crmNotes" rows="3" placeholder="Notes..."></textarea>
+      </div>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn" id="crmCancelEdit">Cancel</button>
+        <button class="btn btnPrimary" id="crmSaveClient">Save</button>
+      </div>
+      <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Pipeline -->
+  <div id="crmViewPipeline" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages (one per line). This controls filtering, sequences, and followups.</div>
+    <label>Stages</label>
+    <textarea id="crmStagesText" style="height:180px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn" id="crmReloadPipeline">Reload</button>
+      <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
+    </div>
+    <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- Broadcast -->
+  <div id="crmViewBroadcast" style="display:none;">
+    <div class="grid">
+      <div>
+        <label>Audience</label>
+        <select id="crmAudience">
+          <option value="all">All clients</option>
+          <option value="tag">Tag</option>
+          <option value="stage">Pipeline stage</option>
+          <option value="status">Status</option>
+          <option value="selected">Selected client IDs</option>
+        </select>
+      </div>
+      <div>
+        <label>Value</label>
+        <input id="crmAudienceValue" placeholder="e.g. realtor" />
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Subject</label>
+      <input id="crmEmailSubject" placeholder="Quick update" />
+      <label style="margin-top:10px;">Message</label>
+      <textarea id="crmEmailBody" style="height:180px" placeholder="Hey {first_name},\n\n..."></textarea>
+      <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: You can use {name} in the body for personalization.</div>
+    </div>
+
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn" id="crmBroadcastDryRun">Dry run</button>
+      <button class="btn btnPrimary" id="crmBroadcastSend">Send</button>
+    </div>
+    <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- Tasks -->
+  <div id="crmViewTasks" style="display:none;">
+    <div class="actions" style="justify-content:flex-start;">
+      <button class="btn" id="crmRefreshTasks">Refresh</button>
+      <button class="btn btnPrimary" id="crmNewTaskBtn">New task</button>
+    </div>
+    <div id="crmTasksList" style="margin-top:10px;"></div>
+
+    <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+      <div class="tiny" id="crmTaskTitle" style="margin-bottom:8px;">Task</div>
+      <label>Title</label>
+      <input id="crmTaskText" placeholder="Follow up with..." />
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Due date</label>
+          <input id="crmTaskDue" type="date" />
+        </div>
+        <div>
+          <label>Priority</label>
+          <select id="crmTaskPriority">
+            <option value="normal">normal</option>
+            <option value="high">high</option>
+            <option value="low">low</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Client ID (optional)</label>
+        <input id="crmTaskClientId" placeholder="client_..." />
+      </div>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn" id="crmCancelTask">Cancel</button>
+        <button class="btn btnPrimary" id="crmSaveTask">Save</button>
+      </div>
+      <div class="tiny" id="crmTaskStatus" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Sequences -->
+  <div id="crmViewSequences" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Sequences are automated nurture steps that run on schedule. Add a sequence, then enroll clients.</div>
+
+    <div class="actions" style="justify-content:flex-start;">
+      <button class="btn" id="crmRefreshSeq">Refresh</button>
+      <button class="btn btnPrimary" id="crmNewSeqBtn">New sequence</button>
+    </div>
+
+    <div id="crmSeqList" style="margin-top:10px;"></div>
+
+    <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+      <div class="tiny" style="margin-bottom:8px;">Create sequence</div>
+      <label>Name</label>
+      <input id="crmSeqName" placeholder="Monthly Value Drop" />
+      <label style="margin-top:10px;">Steps (JSON array)</label>
+      <textarea id="crmSeqSteps" style="height:180px" placeholder='[{"after_days":0,"channel":"email","subject":"Welcome","body":"Hi {name}..."}]'></textarea>
+      <div class="tiny" style="margin-top:8px; opacity:.85;">Each step: after_days, channel=email, subject, body. (This UI is minimal but fully operational.)</div>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn" id="crmCancelSeq">Cancel</button>
+        <button class="btn btnPrimary" id="crmSaveSeq">Save</button>
+      </div>
+      <div class="tiny" id="crmSeqStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div style="margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+      <div class="tiny" style="margin-bottom:8px;">Enroll client</div>
+      <div class="grid">
+        <div>
+          <label>Client ID</label>
+          <input id="crmEnrollClient" placeholder="client_..." />
+        </div>
+        <div>
+          <label>Sequence ID</label>
+          <input id="crmEnrollSeq" placeholder="seq_..." />
+        </div>
+      </div>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn btnPrimary" id="crmEnrollBtn">Enroll</button>
+      </div>
+      <div class="tiny" id="crmEnrollStatus" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Calendar -->
+  <div id="crmViewCalendar" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
+    <label>Title</label>
+    <input id="crmCalTitle" placeholder="Client check-in" />
+    <div class="grid" style="margin-top:10px;">
+      <div>
+        <label>Start</label>
+        <input id="crmCalStart" type="datetime-local" />
+      </div>
+      <div>
+        <label>End</label>
+        <input id="crmCalEnd" type="datetime-local" />
+      </div>
+    </div>
+    <label style="margin-top:10px;">Description</label>
+    <textarea id="crmCalDesc" rows="3" placeholder="Notes..."></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
+    </div>
+    <div class="tiny" id="crmCalStatus" style="margin-top:8px;"></div>
+  </div>
+</div>
+
               <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
@@ -5546,6 +5811,17 @@ id="diagOverlay"></div>
 
     const $ = (id) => document.getElementById(id);
 
+    function escapeHtml(str){
+      const s = (str === null || str === undefined) ? '' : String(str);
+      return s
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
+
     function isAssemblyPhrase(p){
       const s = (p || "").trim().toLowerCase();
       const triggers = [
@@ -5642,6 +5918,7 @@ id="diagOverlay"></div>
       if($("settingsForm")) $("settingsForm").style.display = "none";
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("crmForm")) $("crmForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -8098,7 +8375,502 @@ $("draftWithSelected").onclick = async () => {
       }
     }
 
-    $("settingsBtn").onclick = () => showSettingsModal();
+    
+
+    // =========================
+    // CRM UI (Client Command Center)
+    // =========================
+    let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
+    let crmEditingClientId = null;
+    let crmEditingTaskId = null;
+
+    function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
+
+    function crmHideViews(){
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
+      ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
+    }
+
+    function crmShowView(id){
+      crmHideViews();
+      const el=$(id); if(el) el.style.display = "block";
+      try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
+    }
+
+    async function crmFetchState(){
+      try{
+        const res = await fetch('/api/crm/state');
+        const data = await res.json();
+        if(data.ok){
+          crmCache.pipeline = (data.pipeline_stages || []);
+          return data;
+        }
+      }catch(e){}
+      return null;
+    }
+
+    async function crmFetchClients(){
+      const res = await fetch('/api/crm/clients');
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error||'clients load failed');
+      crmCache.clients = data.clients || [];
+      return crmCache.clients;
+    }
+
+    function crmMatchFilter(c, q, filt){
+      const text = (q||'').trim().toLowerCase();
+      if(text){
+        const blob = [c.name,c.email,c.phone,(c.tags||[]).join(' '),c.status,c.pipeline_stage].filter(Boolean).join(' ').toLowerCase();
+        if(!blob.includes(text)) return false;
+      }
+      const f = (filt||'').trim();
+      if(!f) return true;
+      if(f.startsWith('status:')) return (c.status||'') === f.split(':',2)[1];
+      if(f.startsWith('stage:')) return (c.pipeline_stage||'') === f.split(':',2)[1];
+      return true;
+    }
+
+    function crmRenderClients(){
+      const box = $("crmClientsList");
+      if(!box) return;
+      const q = ($("crmSearch")?.value || '');
+      const filt = ($("crmFilter")?.value || '');
+      const list = (crmCache.clients||[]).filter(c=>crmMatchFilter(c,q,filt));
+
+      if(!list.length){
+        box.innerHTML = '<div class="tiny" style="opacity:.9;">No clients found.</div>';
+        return;
+      }
+
+      const rows = list.map(c=>{
+        const tags = (c.tags||[]).map(t=>`<span class="pill" style="margin-right:6px;">${escapeHtml(t)}</span>`).join('');
+        const id = escapeHtml(c.id||'');
+        const name = escapeHtml(c.name||'');
+        const email = escapeHtml(c.email||'');
+        const stage = escapeHtml(c.pipeline_stage||'');
+        const status = escapeHtml(c.status||'');
+        return `
+          <div class="diagCard" style="padding:10px;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:700;">${name || '(no name)'} <span style="opacity:.75; font-weight:500;">${status ? '• '+status : ''}</span></div>
+                <div class="tiny" style="opacity:.9;">${email} ${stage ? '• ' + stage : ''}</div>
+                <div style="margin-top:6px;">${tags}</div>
+                <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:flex-start;">
+                <button class="btn btnTiny" data-crm-edit="${id}">Edit</button>
+                <button class="btn btnTiny" data-crm-del="${id}">Delete</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      box.innerHTML = rows;
+
+      // bind
+      box.querySelectorAll('[data-crm-edit]').forEach(btn=>{
+        btn.addEventListener('click', ()=> crmOpenClientEditor(btn.getAttribute('data-crm-edit')));
+      });
+      box.querySelectorAll('[data-crm-del]').forEach(btn=>{
+        btn.addEventListener('click', ()=> crmDeleteClient(btn.getAttribute('data-crm-del')));
+      });
+    }
+
+    function crmOpenClientEditor(id){
+      const ed = $("crmClientEditor");
+      if(!ed) return;
+      ed.style.display = 'block';
+      crmEditingClientId = id || null;
+      const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
+      $("crmEditTitle").innerText = id ? 'Edit client' : 'Add client';
+      $("crmName").value = c.name || '';
+      $("crmEmail").value = c.email || '';
+      $("crmPhone").value = c.phone || '';
+      $("crmStatusSel").value = c.status || 'lead';
+      $("crmStage").value = c.pipeline_stage || '';
+      $("crmTags").value = (c.tags||[]).join(', ');
+      $("crmNotes").value = c.notes || '';
+      $("crmEditStatus").innerText = '';
+    }
+
+    async function crmDeleteClient(id){
+      if(!id) return;
+      if(!confirm('Delete this client?')) return;
+      try{
+        const res = await fetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'delete failed');
+        await crmFetchClients();
+        crmRenderClients();
+        showToast('Client deleted');
+      }catch(e){
+        showToast('Delete failed');
+      }
+    }
+
+    async function crmSaveClient(){
+      const st = $("crmEditStatus");
+      if(st) st.innerText = 'Saving...';
+      const payload = {
+        name: ($("crmName").value||'').trim(),
+        email: ($("crmEmail").value||'').trim(),
+        phone: ($("crmPhone").value||'').trim(),
+        status: ($("crmStatusSel").value||'lead').trim(),
+        pipeline_stage: ($("crmStage").value||'').trim(),
+        tags: (($("crmTags").value||'').split(',').map(x=>x.trim()).filter(Boolean)),
+        notes: ($("crmNotes").value||'').trim(),
+      };
+      try{
+        let url = '/api/crm/clients';
+        let method = 'POST';
+        if(crmEditingClientId){
+          url = '/api/crm/clients/' + encodeURIComponent(crmEditingClientId);
+          method = 'POST';
+        }
+        const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'save failed');
+        if(st) st.innerText = 'Saved';
+        $("crmClientEditor").style.display = 'none';
+        crmEditingClientId = null;
+        await crmFetchClients();
+        crmRenderClients();
+        showToast('Saved');
+      }catch(e){
+        if(st) st.innerText = 'Save failed';
+      }
+    }
+
+    async function crmLoadPipelineIntoBox(){
+      const st = $("crmPipelineStatus");
+      if(st) st.innerText = 'Loading...';
+      const data = await crmFetchState();
+      const stages = (data && data.pipeline_stages) ? data.pipeline_stages : (crmCache.pipeline||[]);
+      $("crmStagesText").value = (stages||[]).join('\n');
+      if(st) st.innerText = 'Ready';
+    }
+
+    async function crmSavePipeline(){
+      const st = $("crmPipelineStatus");
+      if(st) st.innerText = 'Saving...';
+      const stages = ($("crmStagesText").value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+      try{
+        const res = await fetch('/api/crm/pipeline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stages})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'save failed');
+        if(st) st.innerText = 'Saved';
+        crmCache.pipeline = stages;
+        showToast('Pipeline saved');
+      }catch(e){
+        if(st) st.innerText = 'Save failed';
+      }
+    }
+
+    function crmAudiencePayload(){
+      const a = ($("crmAudience").value||'all');
+      const v = ($("crmAudienceValue").value||'').trim();
+      const p = {};
+      if(a==='all'){ p.all = true; }
+      return {a, v};
+    }
+
+    async function crmBroadcastEmail(dry_run=false){
+      const st = $("crmBroadcastStatus");
+      if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
+      const audience = ($("crmAudience").value||'all');
+      const val = ($("crmAudienceValue").value||'').trim();
+      const subject = ($("crmEmailSubject").value||'').trim();
+      const body = ($("crmEmailBody").value||'').trim();
+      const payload = {subject, body, dry_run: !!dry_run};
+      if(audience==='all') payload.all = true;
+      if(audience==='tag') payload.tag = val;
+      if(audience==='stage') payload.stage = val;
+      if(audience==='status') payload.status = val;
+      if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
+      try{
+        const res = await fetch('/api/crm/broadcast/email', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'broadcast failed');
+        if(st) st.innerText = dry_run ? `Dry run: would send to ${data.count||0}` : `Sent to ${data.count||0}`;
+        showToast(dry_run ? 'Dry run complete' : 'Broadcast sent');
+      }catch(e){
+        if(st) st.innerText = 'Failed: check Settings email config';
+      }
+    }
+
+    async function crmFetchTasks(){
+      const res = await fetch('/api/crm/tasks');
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error||'tasks load failed');
+      crmCache.tasks = data.tasks || [];
+      return crmCache.tasks;
+    }
+
+    function crmRenderTasks(){
+      const box = $("crmTasksList");
+      if(!box) return;
+      const list = crmCache.tasks || [];
+      if(!list.length){
+        box.innerHTML = '<div class="tiny" style="opacity:.9;">No tasks yet.</div>';
+        return;
+      }
+      box.innerHTML = list.map(t=>{
+        const id = escapeHtml(t.id||'');
+        const title = escapeHtml(t.title||'');
+        const due = escapeHtml(t.due||'');
+        const pri = escapeHtml(t.priority||'normal');
+        const done = t.done ? '✅' : '⬜';
+        const client = escapeHtml(t.client_id||'');
+        return `
+          <div class="diagCard" style="padding:10px;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:700;">${done} ${title}</div>
+                <div class="tiny" style="opacity:.9;">${due ? 'Due: '+due+' • ' : ''}${pri}${client ? ' • Client: '+client : ''}</div>
+                <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:flex-start;">
+                <button class="btn btnTiny" data-task-edit="${id}">Edit</button>
+                <button class="btn btnTiny" data-task-toggle="${id}">${t.done ? 'Undone' : 'Done'}</button>
+                <button class="btn btnTiny" data-task-del="${id}">Delete</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      box.querySelectorAll('[data-task-edit]').forEach(b=>b.addEventListener('click', ()=>crmOpenTaskEditor(b.getAttribute('data-task-edit'))));
+      box.querySelectorAll('[data-task-toggle]').forEach(b=>b.addEventListener('click', ()=>crmToggleTask(b.getAttribute('data-task-toggle'))));
+      box.querySelectorAll('[data-task-del]').forEach(b=>b.addEventListener('click', ()=>crmDeleteTask(b.getAttribute('data-task-del'))));
+    }
+
+    function crmOpenTaskEditor(id){
+      const ed = $("crmTaskEditor"); if(!ed) return;
+      ed.style.display = 'block';
+      crmEditingTaskId = id || null;
+      const t = (crmCache.tasks||[]).find(x=>x.id===id) || {title:'',due:'',priority:'normal',client_id:''};
+      $("crmTaskTitle").innerText = id ? 'Edit task' : 'New task';
+      $("crmTaskText").value = t.title || '';
+      $("crmTaskDue").value = t.due || '';
+      $("crmTaskPriority").value = t.priority || 'normal';
+      $("crmTaskClientId").value = t.client_id || '';
+      $("crmTaskStatus").innerText = '';
+    }
+
+    async function crmSaveTask(){
+      const st = $("crmTaskStatus"); if(st) st.innerText='Saving...';
+      const payload = {
+        title: ($("crmTaskText").value||'').trim(),
+        due: ($("crmTaskDue").value||'').trim(),
+        priority: ($("crmTaskPriority").value||'normal').trim(),
+        client_id: ($("crmTaskClientId").value||'').trim(),
+      };
+      try{
+        let url='/api/crm/tasks';
+        if(crmEditingTaskId) url='/api/crm/tasks/' + encodeURIComponent(crmEditingTaskId);
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'save failed');
+        if(st) st.innerText='Saved';
+        $("crmTaskEditor").style.display='none';
+        crmEditingTaskId=null;
+        await crmFetchTasks();
+        crmRenderTasks();
+        showToast('Task saved');
+      }catch(e){
+        if(st) st.innerText='Save failed';
+      }
+    }
+
+    async function crmToggleTask(id){
+      if(!id) return;
+      const t = (crmCache.tasks||[]).find(x=>x.id===id);
+      if(!t) return;
+      try{
+        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !t.done})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'toggle failed');
+        await crmFetchTasks();
+        crmRenderTasks();
+      }catch(e){ showToast('Update failed'); }
+    }
+
+    async function crmDeleteTask(id){
+      if(!id) return;
+      if(!confirm('Delete this task?')) return;
+      try{
+        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'DELETE'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'delete failed');
+        await crmFetchTasks();
+        crmRenderTasks();
+      }catch(e){ showToast('Delete failed'); }
+    }
+
+    async function crmFetchSequences(){
+      const res = await fetch('/api/crm/sequences');
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error||'sequences load failed');
+      crmCache.sequences = data.sequences || [];
+      return crmCache.sequences;
+    }
+
+    function crmRenderSequences(){
+      const box = $("crmSeqList"); if(!box) return;
+      const list = crmCache.sequences || [];
+      if(!list.length){
+        box.innerHTML = '<div class="tiny" style="opacity:.9;">No sequences yet.</div>';
+        return;
+      }
+      box.innerHTML = list.map(s=>{
+        const id = escapeHtml(s.id||'');
+        const name = escapeHtml(s.name||'');
+        const steps = Array.isArray(s.steps) ? s.steps.length : 0;
+        return `
+          <div class="diagCard" style="padding:10px;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:700;">${name}</div>
+                <div class="tiny" style="opacity:.9;">Steps: ${steps}</div>
+                <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function crmSaveSequence(){
+      const st = $("crmSeqStatus"); if(st) st.innerText='Saving...';
+      const name = ($("crmSeqName").value||'').trim();
+      const raw = ($("crmSeqSteps").value||'').trim();
+      try{
+        const steps = raw ? JSON.parse(raw) : [];
+        const res = await fetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'save failed');
+        if(st) st.innerText='Saved';
+        $("crmSeqEditor").style.display='none';
+        await crmFetchSequences();
+        crmRenderSequences();
+        showToast('Sequence saved');
+      }catch(e){
+        if(st) st.innerText='Save failed (check JSON)';
+      }
+    }
+
+    async function crmEnroll(){
+      const st = $("crmEnrollStatus"); if(st) st.innerText='Enrolling...';
+      const client_id = ($("crmEnrollClient").value||'').trim();
+      const sequence_id = ($("crmEnrollSeq").value||'').trim();
+      try{
+        const res = await fetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'enroll failed');
+        if(st) st.innerText='Enrolled';
+        showToast('Enrolled');
+      }catch(e){
+        if(st) st.innerText='Enroll failed';
+      }
+    }
+
+    async function crmCreateCalendarEvent(){
+      const st = $("crmCalStatus"); if(st) st.innerText='Creating...';
+      const payload = {
+        title: ($("crmCalTitle").value||'').trim(),
+        start: ($("crmCalStart").value||'').trim(),
+        end: ($("crmCalEnd").value||'').trim(),
+        description: ($("crmCalDesc").value||'').trim(),
+      };
+      try{
+        const res = await fetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'calendar failed');
+        if(st) st.innerText = 'Created';
+        showToast('Event created');
+      }catch(e){
+        if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
+      }
+    }
+
+    function showCRMModal(){
+      showModal();
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("stackForm")) $("stackForm").style.display = "none";
+      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("crmForm")) $("crmForm").style.display = "block";
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
+
+      $("modalTitle").innerText = "Client Command Center";
+      crmSetStatus('Loading...');
+
+      // default view
+      crmShowView('crmViewClients');
+
+      // load
+      (async()=>{
+        try{
+          await crmFetchState();
+          await crmFetchClients();
+          crmRenderClients();
+          crmSetStatus('Ready');
+        }catch(e){
+          crmSetStatus('Load failed');
+        }
+      })();
+    }
+
+    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
+
+    // CRM tab binds (safe if missing)
+    function bindCRM(){
+      const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
+      b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
+      b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
+      b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
+      b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
+      b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
+      b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
+
+      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
+      b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
+      b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
+      b('crmSaveClient', crmSaveClient);
+
+      if($("crmSearch")) $("crmSearch").addEventListener('input', crmRenderClients);
+      if($("crmFilter")) $("crmFilter").addEventListener('change', crmRenderClients);
+
+      b('crmReloadPipeline', crmLoadPipelineIntoBox);
+      b('crmSavePipeline', crmSavePipeline);
+
+      b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
+      b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
+
+      b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
+      b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
+      b('crmCancelTask', ()=>{ const ed=$("crmTaskEditor"); if(ed) ed.style.display='none'; crmEditingTaskId=null; });
+      b('crmSaveTask', crmSaveTask);
+
+      b('crmRefreshSeq', async()=>{ try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
+      b('crmNewSeqBtn', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='block'; if($("crmSeqStatus")) $("crmSeqStatus").innerText=''; });
+      b('crmCancelSeq', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='none'; });
+      b('crmSaveSeq', crmSaveSequence);
+      b('crmEnrollBtn', crmEnroll);
+
+      b('crmCreateEventBtn', crmCreateCalendarEvent);
+    }
+
+    // run once (safe)
+    try{ bindCRM(); }catch(e){}
+
+$("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
     $("saveSettings").onclick = async () => {
@@ -9566,6 +10338,742 @@ def api_clients_delete(client_id):
     return jsonify({"ok": True})
 
 
+
+
+
+# =========================
+# CRM COMMAND CENTER (Full CRM Mode) - additive v1
+# =========================
+#
+# This module extends Client Memory Profiles into a full CRM:
+# - Clients with pipeline stages, tags, custom fields
+# - Tasks + reminders
+# - Broadcast email (SMS placeholder)
+# - Sequences (nurture automation) driven by tick() without background workers
+# - Calendar event creation (Google Calendar OAuth)
+#
+# Design constraints:
+# - Additive only: does not break existing /api/clients endpoints
+# - Storage is per-user JSON in DATA/crm/<user>.json
+# - Safe defaults and migration from existing clients store if CRM store is empty
+
+CRM_DIR = DATA / "crm"
+CRM_DIR.mkdir(parents=True, exist_ok=True)
+
+def _crm_path_for_user(username: str) -> Path:
+    safe = _safe_name(username or "anon")
+    return CRM_DIR / f"{safe}.json"
+
+def _default_pipeline_stages() -> List[str]:
+    return ["Lead", "Conversation", "Interested", "Call booked", "Client", "VIP", "Past client", "Cold"]
+
+def _crm_default_state() -> Dict[str, Any]:
+    return {
+        "version": "crm_v1",
+        "updated_at": None,
+        "clients": {},          # id -> client dict
+        "pipeline": {"stages": _default_pipeline_stages()},
+        "tasks": {},            # id -> task dict
+        "sequences": {},        # id -> sequence dict
+        "enrollments": {},      # id -> enrollment dict
+        "messages": [],         # recent message log (bounded)
+        "settings": {
+            "sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""},
+        },
+    }
+
+def _crm_load(username: str) -> Dict[str, Any]:
+    path = _crm_path_for_user(username)
+    data = load_json(path, _crm_default_state())
+    if not isinstance(data, dict):
+        data = _crm_default_state()
+    data.setdefault("clients", {})
+    data.setdefault("pipeline", {"stages": _default_pipeline_stages()})
+    data.setdefault("tasks", {})
+    data.setdefault("sequences", {})
+    data.setdefault("enrollments", {})
+    data.setdefault("messages", [])
+    data.setdefault("settings", {"sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""}})
+    # self-heal pipeline
+    if not isinstance(data.get("pipeline"), dict):
+        data["pipeline"] = {"stages": _default_pipeline_stages()}
+    if not isinstance((data["pipeline"].get("stages")), list) or not data["pipeline"]["stages"]:
+        data["pipeline"]["stages"] = _default_pipeline_stages()
+    # coerce maps
+    for k in ["clients", "tasks", "sequences", "enrollments"]:
+        if not isinstance(data.get(k), dict):
+            data[k] = {}
+    if not isinstance(data.get("messages"), list):
+        data["messages"] = []
+    return data
+
+def _crm_save(username: str, data: Dict[str, Any]) -> None:
+    data = data or {}
+    data["updated_at"] = now_iso()
+    # bound messages log
+    try:
+        msgs = data.get("messages") or []
+        if isinstance(msgs, list) and len(msgs) > 500:
+            data["messages"] = msgs[-500:]
+    except Exception:
+        pass
+    save_json(_crm_path_for_user(username), data)
+
+def _crm_new_id(prefix: str) -> str:
+    prefix = re.sub(r"[^a-zA-Z0-9_]+", "_", (prefix or "x"))
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+def _crm_migrate_from_client_memory_if_empty(username: str) -> None:
+    """Best-effort migration: if CRM has no clients but legacy client memory has clients, import them."""
+    try:
+        crm = _crm_load(username)
+        if (crm.get("clients") or {}):
+            return
+        legacy = _load_clients(username)
+        legacy_clients = legacy.get("clients") or {}
+        if not isinstance(legacy_clients, dict) or not legacy_clients:
+            return
+        out = {}
+        for cid, c in legacy_clients.items():
+            if not isinstance(c, dict):
+                continue
+            new_id = cid if cid else _crm_new_id("c")
+            tags = c.get("tags") or ""
+            tags_list = [t.strip() for t in str(tags).split(",") if t.strip()]
+            out[new_id] = {
+                "id": new_id,
+                "name": (c.get("name") or "").strip(),
+                "company": (c.get("company") or "").strip(),
+                "email": (c.get("email") or "").strip(),
+                "phone": "",
+                "tags": tags_list,
+                "status": "lead",
+                "pipeline_stage": "Lead",
+                "last_contact": "",
+                "next_followup": "",
+                "notes": (c.get("notes") or "").strip(),
+                "last_summary": (c.get("last_summary") or "").strip(),
+                "custom_fields": {},
+                "created_at": c.get("updated_at") or now_iso(),
+                "updated_at": c.get("updated_at") or now_iso(),
+            }
+        crm["clients"] = out
+        _crm_save(username, crm)
+    except Exception:
+        return
+
+def _crm_client_matches_filter(c: Dict[str, Any], filt: Dict[str, Any]) -> bool:
+    if not isinstance(c, dict):
+        return False
+    tags = c.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    tags = [str(t).strip() for t in (tags or []) if str(t).strip()]
+    stage = (c.get("pipeline_stage") or "").strip()
+    status = (c.get("status") or "").strip()
+    need_tag = (filt.get("tag") or "").strip()
+    need_stage = (filt.get("stage") or "").strip()
+    need_status = (filt.get("status") or "").strip()
+    ids = filt.get("ids") or []
+    if ids and c.get("id") not in ids:
+        return False
+    if need_tag and (need_tag not in tags):
+        return False
+    if need_stage and stage != need_stage:
+        return False
+    if need_status and status != need_status:
+        return False
+    return True
+
+def _crm_log_message(username: str, rec: Dict[str, Any]) -> None:
+    try:
+        crm = _crm_load(username)
+        crm.setdefault("messages", [])
+        rec = rec or {}
+        rec.setdefault("ts", now_iso())
+        crm["messages"].append(rec)
+        _crm_save(username, crm)
+    except Exception:
+        pass
+
+def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str, from_name: str = "") -> Tuple[bool, str, str]:
+    """Returns (ok, provider, error)."""
+    cap = _email_capability_for_user(u)
+    try:
+        if cap.get("gmail_connected"):
+            access_token, reason = _gmail_creds_for_user(u)
+            if not access_token:
+                return False, "gmail_oauth", reason or "Gmail not connected."
+            _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=from_name or _user_smtp_settings(u).get("from_name",""))
+            return True, "gmail_oauth", ""
+        ready, reason = smtp_ready_for_user(u)
+        if not ready:
+            return False, "smtp", reason or "SMTP not connected."
+        s = _user_smtp_settings(u)
+        host = s["host"]; port = s["port"]
+        user = s["user"] or SMTP_USER
+        password = s["pass"] or SMTP_PASS
+        fn = from_name or s["from_name"]
+        if not user or not password:
+            return False, "smtp", "Missing SMTP credentials."
+        send_email_smtp_with_creds(to_addr=to_addr, subject=subject, body=body, host=host, port=port, user=user, password=password, from_name=fn)
+        return True, "smtp", ""
+    except Exception as e:
+        return False, "email", str(e)
+
+def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
+    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
+    # No hard dependency. Only works if configured.
+    try:
+        crm = _crm_load(username)
+        sms = ((crm.get("settings") or {}).get("sms") or {})
+        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
+        if provider != "twilio":
+            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
+        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
+        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
+        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
+        if not sid or not token or not from_num:
+            return False, "Twilio missing SID/TOKEN/FROM."
+        import requests
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
+        if r.status_code >= 400:
+            return False, f"Twilio error: {r.text}"
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+def _crm_tick_once() -> None:
+    """Run due CRM automations (tasks reminders, sequences enrollments). Safe, bounded work."""
+    # Called by /api/action_stack_schedules/tick
+    max_sends = 40  # hard cap per tick across all users
+    sends_done = 0
+    now_utc = datetime.utcnow()
+
+    for user_path in CRM_DIR.glob("*.json"):
+        if sends_done >= max_sends:
+            break
+        username = user_path.stem or "anon"
+        try:
+            crm = load_json(user_path, _crm_default_state())
+            if not isinstance(crm, dict):
+                continue
+            enroll = crm.get("enrollments") or {}
+            seqs = crm.get("sequences") or {}
+            clients = crm.get("clients") or {}
+            changed = False
+
+            # Process due enrollments (email only; sms optional)
+            for eid, e in list(enroll.items()):
+                if sends_done >= max_sends:
+                    break
+                if not isinstance(e, dict):
+                    continue
+                status = (e.get("status") or "active").strip().lower()
+                if status != "active":
+                    continue
+                next_due = (e.get("next_due") or "").strip()
+                if not next_due:
+                    continue
+                try:
+                    due_dt = datetime.fromisoformat(next_due.replace("Z",""))
+                except Exception:
+                    due_dt = None
+                if not due_dt or now_utc < due_dt:
+                    continue
+
+                seq_id = (e.get("sequence_id") or "").strip()
+                client_id = (e.get("client_id") or "").strip()
+                step_i = int(e.get("step_index") or 0)
+
+                seq = seqs.get(seq_id) if isinstance(seqs, dict) else None
+                c = clients.get(client_id) if isinstance(clients, dict) else None
+                if not isinstance(seq, dict) or not isinstance(c, dict):
+                    e["status"] = "stopped"
+                    enroll[eid] = e
+                    changed = True
+                    continue
+
+                steps = seq.get("steps") or []
+                if not isinstance(steps, list) or step_i >= len(steps):
+                    e["status"] = "complete"
+                    enroll[eid] = e
+                    changed = True
+                    continue
+
+                step = steps[step_i] if isinstance(steps[step_i], dict) else {}
+                channel = (step.get("channel") or "email").strip().lower()
+                subj_t = (step.get("subject") or "").strip()
+                body_t = (step.get("body") or "").strip()
+                delay_days = int(step.get("delay_days") or 0)
+
+                # Render templates
+                ctx = {
+                    "name": c.get("name",""),
+                    "company": c.get("company",""),
+                    "email": c.get("email",""),
+                    "phone": c.get("phone",""),
+                    "stage": c.get("pipeline_stage",""),
+                }
+                subj = _safe_render(subj_t, ctx) if subj_t else ""
+                body = _safe_render(body_t, ctx) if body_t else ""
+
+                ok_send = False
+                provider = ""
+                err = ""
+
+                # Get a user record for provider creds if possible
+                users_db = load_users()
+                urec = (users_db.get("users") or {}).get(username)
+                if not isinstance(urec, dict):
+                    urec = current_user() if (current_user() and (current_user().get("username")==username)) else None
+
+                if channel == "sms":
+                    phone = (c.get("phone") or "").strip()
+                    if phone and body:
+                        ok_send, err = _crm_try_send_sms(username, phone, body)
+                        provider = "sms"
+                    else:
+                        ok_send = False
+                        err = "Missing phone/body."
+                        provider = "sms"
+                else:
+                    to_addr = (c.get("email") or "").strip()
+                    if to_addr and EMAIL_RE.match(to_addr) and body:
+                        if isinstance(urec, dict):
+                            ok_send, provider, err = _crm_send_email_to(urec, to_addr, subj or (seq.get("default_subject") or "Update"), body)
+                        else:
+                            ok_send = False
+                            provider = "email"
+                            err = "User record not available for email credentials."
+                    else:
+                        ok_send = False
+                        provider = "email"
+                        err = "Missing/invalid email or empty body."
+
+                # Log message
+                try:
+                    crm.setdefault("messages", [])
+                    crm["messages"].append({
+                        "ts": now_iso(),
+                        "type": "sequence_step",
+                        "sequence_id": seq_id,
+                        "enrollment_id": eid,
+                        "client_id": client_id,
+                        "step_index": step_i,
+                        "channel": channel,
+                        "provider": provider,
+                        "ok": bool(ok_send),
+                        "error": err,
+                        "subject": subj,
+                    })
+                    if len(crm["messages"]) > 500:
+                        crm["messages"] = crm["messages"][-500:]
+                except Exception:
+                    pass
+
+                # Advance
+                if ok_send:
+                    sends_done += 1
+                    e["step_index"] = step_i + 1
+                    if (step_i + 1) >= len(steps):
+                        e["status"] = "complete"
+                        e["next_due"] = ""
+                    else:
+                        e["next_due"] = (now_utc + timedelta(days=max(0, delay_days))).isoformat() + "Z"
+                    enroll[eid] = e
+                    changed = True
+                else:
+                    # backoff 1 day to avoid hammering
+                    e["next_due"] = (now_utc + timedelta(days=1)).isoformat() + "Z"
+                    enroll[eid] = e
+                    changed = True
+
+            if changed:
+                crm["enrollments"] = enroll
+                save_json(user_path, crm)
+
+        except Exception:
+            continue
+
+# ---- CRM APIs ----
+
+@app.get("/api/crm/state")
+def api_crm_state():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _crm_migrate_from_client_memory_if_empty(uname)
+    crm = _crm_load(uname)
+    return jsonify({"ok": True, "pipeline": crm.get("pipeline") or {}, "counts": {
+        "clients": len(crm.get("clients") or {}),
+        "tasks": len(crm.get("tasks") or {}),
+        "sequences": len(crm.get("sequences") or {}),
+        "enrollments": len(crm.get("enrollments") or {}),
+    }})
+
+@app.get("/api/crm/clients")
+def api_crm_clients_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _crm_migrate_from_client_memory_if_empty(uname)
+    crm = _crm_load(uname)
+    clients = list((crm.get("clients") or {}).values())
+    # sort by updated_at desc
+    def _ts(x):
+        try:
+            return str(x.get("updated_at") or "")
+        except Exception:
+            return ""
+    clients.sort(key=_ts, reverse=True)
+    return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}})
+
+@app.post("/api/crm/clients")
+def api_crm_clients_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    crm = _crm_load(uname)
+    cid = _crm_new_id("c")
+    now = now_iso()
+    tags_in = payload.get("tags") or []
+    if isinstance(tags_in, str):
+        tags = [t.strip() for t in tags_in.split(",") if t.strip()]
+    elif isinstance(tags_in, list):
+        tags = [str(t).strip() for t in tags_in if str(t).strip()]
+    else:
+        tags = []
+    stage = (payload.get("pipeline_stage") or "Lead").strip()
+    if stage not in (crm.get("pipeline",{}).get("stages") or []):
+        stage = "Lead"
+    client = {
+        "id": cid,
+        "name": name,
+        "company": (payload.get("company") or "").strip(),
+        "email": (payload.get("email") or "").strip(),
+        "phone": (payload.get("phone") or "").strip(),
+        "tags": tags,
+        "status": (payload.get("status") or "lead").strip(),
+        "pipeline_stage": stage,
+        "last_contact": (payload.get("last_contact") or "").strip(),
+        "next_followup": (payload.get("next_followup") or "").strip(),
+        "notes": (payload.get("notes") or "").strip(),
+        "last_summary": (payload.get("last_summary") or "").strip(),
+        "custom_fields": payload.get("custom_fields") if isinstance(payload.get("custom_fields"), dict) else {},
+        "created_at": now,
+        "updated_at": now,
+    }
+    crm["clients"][cid] = client
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "client": client})
+
+@app.post("/api/crm/clients/<client_id>")
+def api_crm_clients_update(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    crm = _crm_load(uname)
+    clients = crm.get("clients") or {}
+    if client_id not in clients or not isinstance(clients[client_id], dict):
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    c = clients[client_id]
+    for k in ["name","company","email","phone","status","last_contact","next_followup","notes","last_summary"]:
+        if k in payload:
+            c[k] = (payload.get(k) or "").strip()
+    if "pipeline_stage" in payload:
+        stage = (payload.get("pipeline_stage") or "").strip()
+        if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
+            c["pipeline_stage"] = stage
+    if "tags" in payload:
+        tags_in = payload.get("tags") or []
+        if isinstance(tags_in, str):
+            c["tags"] = [t.strip() for t in tags_in.split(",") if t.strip()]
+        elif isinstance(tags_in, list):
+            c["tags"] = [str(t).strip() for t in tags_in if str(t).strip()]
+    if "custom_fields" in payload and isinstance(payload.get("custom_fields"), dict):
+        c["custom_fields"] = payload.get("custom_fields") or {}
+    c["updated_at"] = now_iso()
+    clients[client_id] = c
+    crm["clients"] = clients
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "client": c})
+
+@app.delete("/api/crm/clients/<client_id>")
+def api_crm_clients_delete(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    clients = crm.get("clients") or {}
+    clients.pop(client_id, None)
+    crm["clients"] = clients
+    _crm_save(uname, crm)
+    return jsonify({"ok": True})
+
+@app.post("/api/crm/pipeline")
+def api_crm_pipeline_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    stages = payload.get("stages")
+    if isinstance(stages, str):
+        stages = [s.strip() for s in stages.splitlines() if s.strip()]
+    if not isinstance(stages, list) or not stages:
+        return jsonify({"ok": False, "error": "Stages are required"}), 400
+    stages = [str(s).strip() for s in stages if str(s).strip()]
+    stages = stages[:40]
+    crm = _crm_load(uname)
+    crm["pipeline"] = {"stages": stages}
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "pipeline": crm["pipeline"]})
+
+@app.post("/api/crm/broadcast/email")
+def api_crm_broadcast_email():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    subject = (payload.get("subject") or "").strip()
+    body = (payload.get("body") or "").strip()
+    filt = payload.get("filter") or {}
+    if not subject or not body:
+        return jsonify({"ok": False, "error": "Missing subject or body"}), 400
+    crm = _crm_load(uname)
+    clients = list((crm.get("clients") or {}).values())
+    recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+    # safety cap
+    if len(recipients) > 250:
+        return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
+
+    sent = 0
+    failed = 0
+    results = []
+    from_name = (_user_smtp_settings(u).get("from_name","") or "").strip()
+
+    for c in recipients:
+        to_addr = (c.get("email") or "").strip()
+        if not to_addr or (not EMAIL_RE.match(to_addr)):
+            failed += 1
+            results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing/invalid email"})
+            continue
+        ok, provider, err = _crm_send_email_to(u, to_addr, subject, _safe_render(body, {"name": c.get("name",""), "company": c.get("company","")}), from_name=from_name)
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+        results.append({"client_id": c.get("id",""), "ok": bool(ok), "provider": provider, "error": err})
+
+    _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
+    return jsonify({"ok": True, "sent": sent, "failed": failed, "results": results})
+
+@app.post("/api/crm/tasks")
+def api_crm_task_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "error": "Title is required"}), 400
+    due = (payload.get("due") or "").strip()  # ISO string
+    crm = _crm_load(uname)
+    tid = _crm_new_id("t")
+    task = {
+        "id": tid,
+        "title": title,
+        "client_id": (payload.get("client_id") or "").strip(),
+        "status": (payload.get("status") or "open").strip(),
+        "priority": (payload.get("priority") or "normal").strip(),
+        "due": due,
+        "notes": (payload.get("notes") or "").strip(),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    crm["tasks"][tid] = task
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "task": task})
+
+@app.get("/api/crm/tasks")
+def api_crm_tasks_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    tasks = list((crm.get("tasks") or {}).values())
+    status = (request.args.get("status") or "").strip()
+    if status:
+        tasks = [t for t in tasks if (t.get("status") or "") == status]
+    # sort due asc then created desc
+    def _key(t):
+        return (t.get("due") or "9999", t.get("created_at") or "")
+    tasks.sort(key=_key)
+    return jsonify({"ok": True, "tasks": tasks})
+
+@app.post("/api/crm/tasks/<task_id>")
+def api_crm_task_update(task_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    crm = _crm_load(uname)
+    tasks = crm.get("tasks") or {}
+    if task_id not in tasks or not isinstance(tasks[task_id], dict):
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+    t = tasks[task_id]
+    for k in ["title","client_id","status","priority","due","notes"]:
+        if k in payload:
+            t[k] = (payload.get(k) or "").strip()
+    t["updated_at"] = now_iso()
+    tasks[task_id] = t
+    crm["tasks"] = tasks
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "task": t})
+
+@app.delete("/api/crm/tasks/<task_id>")
+def api_crm_task_delete(task_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    tasks = crm.get("tasks") or {}
+    tasks.pop(task_id, None)
+    crm["tasks"] = tasks
+    _crm_save(uname, crm)
+    return jsonify({"ok": True})
+
+@app.post("/api/crm/sequences")
+def api_crm_sequence_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    steps = payload.get("steps") or []
+    if isinstance(steps, str):
+        # allow a simple newline format: each line "delay_days|email|Subject|Body"
+        parsed = []
+        for ln in steps.splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            parts = ln.split("|")
+            if len(parts) >= 4:
+                parsed.append({"delay_days": int(parts[0] or 0), "channel": parts[1].strip() or "email", "subject": parts[2].strip(), "body": "|".join(parts[3:]).strip()})
+        steps = parsed
+    if not isinstance(steps, list) or not steps:
+        return jsonify({"ok": False, "error": "At least one step is required"}), 400
+    clean_steps = []
+    for st in steps[:25]:
+        if not isinstance(st, dict):
+            continue
+        clean_steps.append({
+            "delay_days": int(st.get("delay_days") or 0),
+            "channel": (st.get("channel") or "email").strip().lower(),
+            "subject": (st.get("subject") or "").strip(),
+            "body": (st.get("body") or "").strip(),
+        })
+    if not clean_steps:
+        return jsonify({"ok": False, "error": "Invalid steps"}), 400
+
+    crm = _crm_load(uname)
+    sid = _crm_new_id("seq")
+    seq = {
+        "id": sid,
+        "name": name,
+        "default_subject": (payload.get("default_subject") or "").strip(),
+        "steps": clean_steps,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    crm["sequences"][sid] = seq
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "sequence": seq})
+
+@app.get("/api/crm/sequences")
+def api_crm_sequences_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    seqs = list((crm.get("sequences") or {}).values())
+    seqs.sort(key=lambda s: (s.get("updated_at") or ""), reverse=True)
+    return jsonify({"ok": True, "sequences": seqs, "enrollments": list((crm.get("enrollments") or {}).values())})
+
+@app.post("/api/crm/enroll")
+def api_crm_enroll_client():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    client_id = (payload.get("client_id") or "").strip()
+    seq_id = (payload.get("sequence_id") or "").strip()
+    if not client_id or not seq_id:
+        return jsonify({"ok": False, "error": "Missing client_id or sequence_id"}), 400
+    crm = _crm_load(uname)
+    if client_id not in (crm.get("clients") or {}):
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    if seq_id not in (crm.get("sequences") or {}):
+        return jsonify({"ok": False, "error": "Sequence not found"}), 404
+    eid = _crm_new_id("enr")
+    now = datetime.utcnow().isoformat() + "Z"
+    enrollment = {
+        "id": eid,
+        "client_id": client_id,
+        "sequence_id": seq_id,
+        "status": "active",
+        "step_index": 0,
+        "next_due": now,
+        "created_at": now,
+        "updated_at": now,
+    }
+    crm["enrollments"][eid] = enrollment
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "enrollment": enrollment})
+
+@app.post("/api/crm/calendar/create_event")
+def api_crm_calendar_create_event():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    title = (payload.get("title") or "").strip()
+    start_iso = (payload.get("start_iso") or "").strip()
+    end_iso = (payload.get("end_iso") or "").strip()
+    timezone = (payload.get("timezone") or "America/New_York").strip()
+    if not title or not start_iso or not end_iso:
+        return jsonify({"ok": False, "error": "Missing title/start_iso/end_iso"}), 400
+    access_token, reason = _calendar_creds_for_user(u)
+    if not access_token:
+        return jsonify({"ok": False, "error": reason}), 400
+    try:
+        event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""))
+        return jsonify({"ok": True, "event": event})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/passes/run", methods=["POST"])
