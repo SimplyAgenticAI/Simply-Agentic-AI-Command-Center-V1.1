@@ -3027,7 +3027,7 @@ def gmail_connect():
 
     state = secrets.token_urlsafe(24)
     session["gmail_oauth_states_single"] = state
-        _push_oauth_state("gmail_oauth_states", state)
+    _push_oauth_state("gmail_oauth_states", state)
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
 
@@ -3042,10 +3042,8 @@ def gmail_callback():
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
     state = request.args.get("state", "")
-    expected = session.get("gmail_oauth_state", "")
-    if not state or not expected or state != expected:
+    if not _oauth_state_matches("gmail_oauth_states", state):
         return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
-
     code = request.args.get("code", "")
     if not code:
         return make_response("Missing authorization code from Google.", 400)
