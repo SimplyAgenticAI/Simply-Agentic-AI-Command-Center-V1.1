@@ -5330,12 +5330,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Broadcast, pipeline, tasks, sequences, and calendar without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Email broadcast, pipeline, tasks, sequences, and calendar without leaving the Round Table.</div>
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
-    <button class="btn btnMini" id="crmTabBroadcast">Broadcast</button>
+    <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabTasks">Tasks</button>
     <button class="btn btnMini" id="crmTabSequences">Sequences</button>
     <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
@@ -8579,24 +8579,52 @@ $("draftWithSelected").onclick = async () => {
     async function crmBroadcastEmail(dry_run=false){
       const st = $("crmBroadcastStatus");
       if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
+
       const audience = ($("crmAudience").value||'all');
       const val = ($("crmAudienceValue").value||'').trim();
       const subject = ($("crmEmailSubject").value||'').trim();
       const body = ($("crmEmailBody").value||'').trim();
+
+      if(!subject || !body){
+        if(st) st.innerText = 'Failed: subject and body are required';
+        return;
+      }
+
       const payload = {subject, body, dry_run: !!dry_run};
-      if(audience==='all') payload.all = true;
       if(audience==='tag') payload.tag = val;
       if(audience==='stage') payload.stage = val;
       if(audience==='status') payload.status = val;
       if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
+
       try{
-        const res = await fetch('/api/crm/broadcast/email', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'broadcast failed');
-        if(st) st.innerText = dry_run ? `Dry run: would send to ${data.count||0}` : `Sent to ${data.count||0}`;
-        showToast(dry_run ? 'Dry run complete' : 'Broadcast sent');
+        const res = await fetch('/api/crm/broadcast/email', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+
+        let data = null;
+        try{ data = await res.json(); }catch(e){}
+
+        if(!res.ok){
+          const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
+          throw new Error(msg);
+        }
+        if(!data || !data.ok){
+          throw new Error((data && data.error) ? data.error : 'Broadcast failed');
+        }
+
+        if(st){
+          if(dry_run){
+            st.innerText = `Dry run: would send to ${data.count||0}`;
+          }else{
+            st.innerText = `Sent: ${data.sent||0} | Failed: ${data.failed||0} | Total: ${data.count||0}`;
+          }
+        }
+        showToast(dry_run ? 'Dry run complete' : 'Email broadcast sent');
+
       }catch(e){
-        if(st) st.innerText = 'Failed: check Settings email config';
+        if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
       }
     }
 
@@ -10843,43 +10871,91 @@ def api_crm_pipeline_set():
 
 @app.post("/api/crm/broadcast/email")
 def api_crm_broadcast_email():
+    """
+    Bulk email sender for CRM.
+    Supports:
+      - payload.filter = {tag, stage, status, ids}
+      - OR UI-friendly keys: all/tag/stage/status/client_ids
+      - payload.dry_run = true (no sends, returns count only)
+    Returns: {ok, count, sent, failed, results}
+    """
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+
     payload = request.get_json(silent=True) or {}
     subject = (payload.get("subject") or "").strip()
-    body = (payload.get("body") or "").strip()
-    filt = payload.get("filter") or {}
-    if not subject or not body:
+    body_t = (payload.get("body") or "").strip()
+    dry_run = bool(payload.get("dry_run"))
+
+    if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
-    crm = _crm_load(uname)
-    clients = list((crm.get("clients") or {}).values())
-    recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
-    # safety cap
-    if len(recipients) > 250:
-        return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
 
-    sent = 0
-    failed = 0
-    results = []
-    from_name = (_user_smtp_settings(u).get("from_name","") or "").strip()
+    # Accept either {filter:{...}} or direct UI keys.
+    filt = payload.get("filter") or {}
+    if not isinstance(filt, dict):
+        filt = {}
 
-    for c in recipients:
-        to_addr = (c.get("email") or "").strip()
-        if not to_addr or (not EMAIL_RE.match(to_addr)):
-            failed += 1
-            results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing/invalid email"})
-            continue
-        ok, provider, err = _crm_send_email_to(u, to_addr, subject, _safe_render(body, {"name": c.get("name",""), "company": c.get("company","")}), from_name=from_name)
-        if ok:
-            sent += 1
-        else:
-            failed += 1
-        results.append({"client_id": c.get("id",""), "ok": bool(ok), "provider": provider, "error": err})
+    # UI keys override / fill filter when present.
+    if payload.get("tag"):
+        filt["tag"] = str(payload.get("tag") or "").strip()
+    if payload.get("stage"):
+        filt["stage"] = str(payload.get("stage") or "").strip()
+    if payload.get("status"):
+        filt["status"] = str(payload.get("status") or "").strip()
+    if payload.get("client_ids"):
+        ids = payload.get("client_ids") or []
+        if isinstance(ids, str):
+            ids = [x.strip() for x in ids.split(",") if x.strip()]
+        if isinstance(ids, list):
+            filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
 
-    _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
-    return jsonify({"ok": True, "sent": sent, "failed": failed, "results": results})
+    try:
+        crm = _crm_load(uname)
+        clients = list((crm.get("clients") or {}).values())
+        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+
+        # safety cap
+        if len(recipients) > 250:
+            return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
+
+        if dry_run:
+            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
+
+        sent = 0
+        failed = 0
+        results = []
+        from_name = (_user_smtp_settings(u).get("from_name", "") or "").strip()
+
+        for c in recipients:
+            to_addr = (c.get("email") or "").strip()
+            if not to_addr or (not EMAIL_RE.match(to_addr)):
+                failed += 1
+                results.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing/invalid email"})
+                continue
+
+            ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
+            body = _safe_render(body_t, ctx)
+
+            ok, provider, err = _crm_send_email_to(
+                u, to_addr, subject, body,
+                from_name=from_name
+            )
+            if ok:
+                sent += 1
+            else:
+                failed += 1
+            results.append({"client_id": c.get("id", ""), "ok": bool(ok), "provider": provider, "error": err})
+
+        _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
+        return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
+
+    except Exception as e:
+        # Never 500 the UI; return a clear error.
+        return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
+
+
 
 @app.post("/api/crm/tasks")
 def api_crm_task_create():
