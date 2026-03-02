@@ -1799,9 +1799,13 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
             pass
     return access_token, ""
 
-def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
+def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", generate_meet: bool = False) -> Dict[str, Any]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    if generate_meet:
+        # Ask Google to create a Meet link.
+        # Requires calendar.events scope and conferenceDataVersion.
+        url = url + "?conferenceDataVersion=1"
     event: Dict[str, Any] = {
         "summary": title,
         "description": description or "",
@@ -1825,6 +1829,28 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         raise Exception(f"Calendar API error: {data}")
     return data
 
+
+
+def _calendar_list_events(access_token: str, time_min: str, time_max: str, max_results: int = 250) -> List[Dict[str, Any]]:
+    import requests
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    params = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "maxResults": str(int(max_results or 250)),
+        "conferenceDataVersion": "1",
+    }
+    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise Exception(f"Calendar API error: {data}")
+    items = data.get("items") or []
+    out = []
+    for it in items:
+        out.append(it if isinstance(it, dict) else {})
+    return out
 
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
@@ -3424,6 +3450,26 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
+
+/* ===== Calendar (Motion-style) ===== */
+#calGrid{ width:100%; }
+.calWeekHead{ display:grid; grid-template-columns: 64px repeat(7, 1fr); border-bottom:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); }
+.calWeekHead .cell{ padding:10px 8px; font-size:12px; opacity:.9; }
+.calWeek{ display:grid; grid-template-columns: 64px repeat(7, 1fr); position:relative; }
+.calHour{ height:48px; border-top:1px solid rgba(255,255,255,0.06); }
+.calTimeCol{ background: rgba(255,255,255,0.02); }
+.calTimeLabel{ height:48px; display:flex; align-items:flex-start; justify-content:flex-end; padding:6px 10px; font-size:11px; opacity:.65; border-top:1px solid rgba(255,255,255,0.06); }
+.calDayCol{ position:relative; border-left:1px solid rgba(255,255,255,0.06); }
+.calEvent{ position:absolute; left:6px; right:6px; border-radius:12px; padding:8px; border:1px solid rgba(247,211,106,.25); background: rgba(124,58,237,.16); box-shadow: 0 0 18px rgba(124,58,237,.12); cursor:pointer; }
+.calEvent .t{ font-size:12px; font-weight:700; }
+.calEvent .s{ margin-top:2px; font-size:11px; opacity:.85; }
+.calEvent .a{ margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
+.calEvent .a a{ color:#e6edff; text-decoration:none; font-size:11px; border:1px solid rgba(255,255,255,0.16); padding:3px 8px; border-radius:999px; background: rgba(0,0,0,0.18); }
+@media (max-width: 820px){
+  .calWeekHead{ grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); overflow:auto; }
+  .calWeek{ grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); overflow:auto; }
+}
+
 </style>
 """
 
@@ -5040,6 +5086,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
       <button class="btn" id="crmBtn">Client Center</button>
+      <button class="btn" id="calendarBtn">Calendar</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5072,6 +5119,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
         <button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="calendarBtn">Calendar</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -5607,7 +5655,83 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <img id="modalImg" class="imgPreview" alt="Preview"/>
+              
+<div class="modalForm" id="calendarForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">
+    Motion-style Calendar. View your week, schedule tasks, create meetings, and join meetings without leaving the Command Center.
+  </div>
+
+  <div class="actions" style="justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <button class="btn btnMini" id="calTodayBtn">Today</button>
+      <button class="btn btnMini" id="calPrevBtn">◀</button>
+      <button class="btn btnMini" id="calNextBtn">▶</button>
+      <button class="btn btnMini" id="calRefreshBtn">Refresh</button>
+    </div>
+    <div class="tiny" id="calRangeLabel" style="opacity:.9;"></div>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
+    <div style="border:1px solid rgba(255,255,255,10); border-radius:14px; padding:10px; background: rgba(0,0,0,18);">
+      <div class="tiny" style="margin-bottom:8px;">Create meeting</div>
+      <label>Title</label>
+      <input id="calMeetTitle" placeholder="Client call" />
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Start</label>
+          <input id="calMeetStart" type="datetime-local" />
+        </div>
+        <div>
+          <label>End</label>
+          <input id="calMeetEnd" type="datetime-local" />
+        </div>
+      </div>
+      <label style="margin-top:10px;">Attendees (comma emails)</label>
+      <input id="calMeetAttendees" placeholder="name@email.com, other@email.com" />
+      <label style="margin-top:10px;">Notes</label>
+      <textarea id="calMeetDesc" rows="2" placeholder="Agenda."></textarea>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn btnPrimary" id="calCreateMeetBtn">Create meeting</button>
+      </div>
+      <div class="tiny" id="calMeetStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div style="border:1px solid rgba(255,255,255,10); border-radius:14px; padding:10px; background: rgba(0,0,0,18);">
+      <div class="tiny" style="margin-bottom:8px;">Schedule task</div>
+      <label>Task</label>
+      <input id="calTaskTitle" placeholder="Follow up with Sam" />
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Due</label>
+          <input id="calTaskDue" type="datetime-local" />
+        </div>
+        <div>
+          <label>Priority</label>
+          <select id="calTaskPriority">
+            <option value="low">low</option>
+            <option value="normal" selected>normal</option>
+            <option value="high">high</option>
+          </select>
+        </div>
+      </div>
+      <label style="margin-top:10px;">Notes</label>
+      <textarea id="calTaskNotes" rows="2" placeholder="Context, links, next steps."></textarea>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn btnPrimary" id="calCreateTaskBtn">Create task</button>
+      </div>
+      <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px;">
+    <div class="tiny" style="margin-bottom:8px;">Week view</div>
+    <div id="calGrid" style="border:1px solid rgba(255,255,255,10); border-radius:14px; overflow:hidden; background: rgba(0,0,0,18);"></div>
+    <div class="tiny" id="calStatus" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+
+<img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
         </div>
@@ -8870,11 +8994,14 @@ $("draftWithSelected").onclick = async () => {
 
     async function crmCreateCalendarEvent(){
       const st = $("crmCalStatus"); if(st) st.innerText='Creating...';
+      const tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York";
       const payload = {
         title: ($("crmCalTitle").value||'').trim(),
-        start: ($("crmCalStart").value||'').trim(),
-        end: ($("crmCalEnd").value||'').trim(),
+        start_iso: ($("crmCalStart").value||'').trim(),
+        end_iso: ($("crmCalEnd").value||'').trim(),
+        timezone: tz,
         description: ($("crmCalDesc").value||'').trim(),
+        generate_meet: false,
       };
       try{
         const res = await fetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -8919,7 +9046,248 @@ $("draftWithSelected").onclick = async () => {
       })();
     }
 
+
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
+    if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
+
+    // =========================
+    // Calendar (Motion-style week view)
+    // =========================
+    let calAnchor = new Date(); // any date within current week
+    let calEvents = [];
+
+    function _calStartOfWeek(d){
+      const x = new Date(d.getTime());
+      const day = x.getDay(); // 0 Sun .. 6 Sat
+      const diff = (day === 0 ? -6 : (1 - day)); // Monday start
+      x.setDate(x.getDate() + diff);
+      x.setHours(0,0,0,0);
+      return x;
+    }
+    function _calFmtDay(d){
+      try{
+        return d.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+      }catch(e){
+        return String(d);
+      }
+    }
+    function _calPad(n){ return (n<10?'0':'') + n; }
+    function _calToLocalInputValue(dt){
+      try{
+        const d = new Date(dt);
+        const y = d.getFullYear();
+        const m = _calPad(d.getMonth()+1);
+        const da = _calPad(d.getDate());
+        const h = _calPad(d.getHours());
+        const mi = _calPad(d.getMinutes());
+        return `${y}-${m}-${da}T${h}:${mi}`;
+      }catch(e){ return ""; }
+    }
+
+    async function calFetchWeek(){
+      const st = $("calStatus"); if(st) st.innerText = "Loading...";
+      try{
+        const start = _calStartOfWeek(calAnchor);
+        const end = new Date(start.getTime()); end.setDate(end.getDate()+7);
+        const time_min = start.toISOString();
+        const time_max = end.toISOString();
+        const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(time_min)}&time_max=${encodeURIComponent(time_max)}`);
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || "Calendar load failed");
+        calEvents = data.events || [];
+        calRenderWeek();
+        if(st) st.innerText = "Ready";
+      }catch(e){
+        if(st) st.innerText = "Load failed (connect Calendar in Settings)";
+      }
+    }
+
+    function calRenderWeek(){
+      const grid = $("calGrid"); if(!grid) return;
+      const start = _calStartOfWeek(calAnchor);
+      const days = [];
+      for(let i=0;i<7;i++){ const d=new Date(start.getTime()); d.setDate(d.getDate()+i); days.push(d); }
+      const label = $("calRangeLabel");
+      if(label){
+        const end = new Date(start.getTime()); end.setDate(end.getDate()+6);
+        label.innerText = _calFmtDay(start) + "  to  " + _calFmtDay(end);
+      }
+
+      const startHour = 6;
+      const endHour = 20;
+      const hours = [];
+      for(let h=startHour; h<=endHour; h++){ hours.push(h); }
+
+      const head = `
+        <div class="calWeekHead">
+          <div class="cell"></div>
+          ${days.map(d=>`<div class="cell">${_calFmtDay(d)}</div>`).join('')}
+        </div>
+      `;
+
+      // body grid: time column + 7 day columns
+      let body = `<div class="calWeek">`;
+      // time column
+      body += `<div class="calTimeCol">` + hours.map(h=>{
+        const hr = (h===0?12:(h>12?h-12:h));
+        const ampm = (h>=12?'PM':'AM');
+        return `<div class="calTimeLabel">${hr}${ampm}</div>`;
+      }).join('') + `</div>`;
+
+      // day columns
+      body += days.map((d, idx)=>`<div class="calDayCol" data-day="${idx}">
+        ${hours.map(()=>`<div class="calHour"></div>`).join('')}
+      </div>`).join('');
+      body += `</div>`;
+
+      grid.innerHTML = head + body;
+
+      // place events
+      const pxPerMin = 48 / 60; // 48px per hour row
+      const cols = grid.querySelectorAll(".calDayCol");
+      const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
+
+      (calEvents||[]).forEach(ev=>{
+        try{
+          const s = ev.start_dt ? new Date(ev.start_dt) : null;
+          const e = ev.end_dt ? new Date(ev.end_dt) : null;
+          if(!s || !e) return;
+          const dayIndex = Math.floor((new Date(s.getFullYear(), s.getMonth(), s.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
+          if(dayIndex < 0 || dayIndex > 6) return;
+          const col = cols[dayIndex]; if(!col) return;
+
+          const startMin = (s.getHours()*60 + s.getMinutes()) - (startHour*60);
+          const durMin = Math.max(15, (e - s)/60000);
+          const top = clamp(startMin * pxPerMin, 0, (endHour-startHour+1)*60*pxPerMin);
+          const height = clamp(durMin * pxPerMin, 18, 900);
+
+          const timeStr = s.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) + " - " + e.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+          const join = (ev.meet_link || ev.hangout_link || ev.html_link || "");
+          const joinHtml = join ? `<a href="${join}" target="_blank" rel="noopener">Join</a>` : "";
+          const openHtml = ev.html_link ? `<a href="${ev.html_link}" target="_blank" rel="noopener">Open</a>` : "";
+
+          const div = document.createElement("div");
+          div.className = "calEvent";
+          div.style.top = top + "px";
+          div.style.height = height + "px";
+          div.innerHTML = `
+            <div class="t">${(ev.summary||"Event").replace(/</g,"&lt;")}</div>
+            <div class="s">${timeStr}</div>
+            <div class="a">${joinHtml}${openHtml}</div>
+          `;
+          div.onclick = ()=> {
+            const msg = (ev.description||"").trim();
+            const lines = [
+              `Title: ${ev.summary||""}`,
+              `When: ${timeStr}`,
+              ev.location ? `Where: ${ev.location}` : "",
+              join ? `Join: ${join}` : "",
+              ev.html_link ? `Open: ${ev.html_link}` : "",
+              msg ? `\n${msg}` : ""
+            ].filter(Boolean).join("\n");
+            showModal("Calendar event", lines);
+          };
+          col.appendChild(div);
+        }catch(e){}
+      });
+    }
+
+    async function calCreateMeeting(){
+      const st = $("calMeetStatus"); if(st) st.innerText = "Creating...";
+      const tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York";
+      const title = ($("calMeetTitle").value||"").trim();
+      const start = ($("calMeetStart").value||"").trim();
+      const end = ($("calMeetEnd").value||"").trim();
+      const attendees = ($("calMeetAttendees").value||"").split(",").map(x=>x.trim()).filter(Boolean);
+      const description = ($("calMeetDesc").value||"").trim();
+      if(!title || !start || !end){
+        if(st) st.innerText = "Add title, start, and end.";
+        return;
+      }
+      try{
+        const payload = {
+          title,
+          start_iso: start,
+          end_iso: end,
+          timezone: tz,
+          attendees,
+          description,
+          generate_meet: true
+        };
+        const res = await fetch("/api/crm/calendar/create_event", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||"Create failed");
+        if(st) st.innerText = "Created";
+        showToast("Meeting created");
+        await calFetchWeek();
+      }catch(e){
+        if(st) st.innerText = "Create failed (connect Calendar in Settings)";
+      }
+    }
+
+    async function calCreateTask(){
+      const st = $("calTaskStatus"); if(st) st.innerText = "Creating...";
+      const title = ($("calTaskTitle").value||"").trim();
+      const due = ($("calTaskDue").value||"").trim();
+      const priority = ($("calTaskPriority").value||"normal").trim();
+      const notes = ($("calTaskNotes").value||"").trim();
+      if(!title){
+        if(st) st.innerText = "Task title is required.";
+        return;
+      }
+      try{
+        const res = await fetch("/api/crm/tasks", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({title, due, priority, notes})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||"Task failed");
+        if(st) st.innerText = "Created";
+        showToast("Task created");
+      }catch(e){
+        if(st) st.innerText = "Task create failed";
+      }
+    }
+
+    function showCalendarModal(){
+      showModal();
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("stackForm")) $("stackForm").style.display = "none";
+      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("crmForm")) $("crmForm").style.display = "none";
+      if($("calendarForm")) $("calendarForm").style.display = "block";
+
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
+
+      $("modalTitle").innerText = "Calendar";
+
+      // seed meeting times: next 30-min block
+      try{
+        const now = new Date();
+        const m = now.getMinutes();
+        const add = (m<30) ? (30-m) : (60-m);
+        now.setMinutes(m+add, 0, 0);
+        const end = new Date(now.getTime()); end.setMinutes(end.getMinutes()+30);
+        if($("calMeetStart")) $("calMeetStart").value = _calToLocalInputValue(now);
+        if($("calMeetEnd")) $("calMeetEnd").value = _calToLocalInputValue(end);
+        if($("calTaskDue")) $("calTaskDue").value = _calToLocalInputValue(now);
+      }catch(e){}
+
+      // load week
+      calFetchWeek();
+    }
+
+    // calendar controls
+    try{
+      if($("calTodayBtn")) $("calTodayBtn").onclick = ()=>{ calAnchor = new Date(); calFetchWeek(); };
+      if($("calPrevBtn")) $("calPrevBtn").onclick = ()=>{ const s=_calStartOfWeek(calAnchor); s.setDate(s.getDate()-7); calAnchor=s; calFetchWeek(); };
+      if($("calNextBtn")) $("calNextBtn").onclick = ()=>{ const s=_calStartOfWeek(calAnchor); s.setDate(s.getDate()+7); calAnchor=s; calFetchWeek(); };
+      if($("calRefreshBtn")) $("calRefreshBtn").onclick = ()=> calFetchWeek();
+      if($("calCreateMeetBtn")) $("calCreateMeetBtn").onclick = ()=> calCreateMeeting();
+      if($("calCreateTaskBtn")) $("calCreateTaskBtn").onclick = ()=> calCreateTask();
+    }catch(e){}
 
     // CRM tab binds (safe if missing)
     function bindCRM(){
@@ -11309,16 +11677,25 @@ def api_crm_calendar_create_event():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     payload = request.get_json(silent=True) or {}
     title = (payload.get("title") or "").strip()
-    start_iso = (payload.get("start_iso") or "").strip()
-    end_iso = (payload.get("end_iso") or "").strip()
+    # Backward compatible payload keys:
+    start_iso = (payload.get("start_iso") or payload.get("start") or "").strip()
+    end_iso = (payload.get("end_iso") or payload.get("end") or "").strip()
     timezone = (payload.get("timezone") or "America/New_York").strip()
+    generate_meet = bool(payload.get("generate_meet") or False)
+
+    # Normalize datetime-local inputs like "2026-03-02T09:30" to RFC3339-compatible seconds.
+    if start_iso and len(start_iso) == 16 and "T" in start_iso:
+        start_iso = start_iso + ":00"
+    if end_iso and len(end_iso) == 16 and "T" in end_iso:
+        end_iso = end_iso + ":00"
+
     if not title or not start_iso or not end_iso:
-        return jsonify({"ok": False, "error": "Missing title/start_iso/end_iso"}), 400
+        return jsonify({"ok": False, "error": "Missing title/start/end"}), 400
     access_token, reason = _calendar_creds_for_user(u)
     if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
     try:
-        event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""))
+        event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""), generate_meet=generate_meet)
         return jsonify({"ok": True, "event": event})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
