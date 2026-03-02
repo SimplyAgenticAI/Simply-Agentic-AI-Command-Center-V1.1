@@ -1799,13 +1799,9 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
             pass
     return access_token, ""
 
-def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", generate_meet: bool = False) -> Dict[str, Any]:
+def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    if generate_meet:
-        # Ask Google to create a Meet link.
-        # Requires calendar.events scope and conferenceDataVersion.
-        url = url + "?conferenceDataVersion=1"
     event: Dict[str, Any] = {
         "summary": title,
         "description": description or "",
@@ -1829,9 +1825,7 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         raise Exception(f"Calendar API error: {data}")
     return data
 
-
-
-def _calendar_list_events(access_token: str, time_min: str, time_max: str, max_results: int = 250) -> List[Dict[str, Any]]:
+def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     params = {
@@ -1839,18 +1833,28 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, max_r
         "timeMax": time_max,
         "singleEvents": "true",
         "orderBy": "startTime",
-        "maxResults": str(int(max_results or 250)),
-        "conferenceDataVersion": "1",
+        "maxResults": str(max_results),
+        "timeZone": timezone,
     }
     r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
     data = r.json() if r.content else {}
     if r.status_code >= 400:
         raise Exception(f"Calendar API error: {data}")
     items = data.get("items") or []
-    out = []
+    out: List[Dict[str, Any]] = []
     for it in items:
-        out.append(it if isinstance(it, dict) else {})
+        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
+        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
+        out.append({
+            "id": it.get("id",""),
+            "summary": it.get("summary",""),
+            "start": start,
+            "end": end,
+            "htmlLink": it.get("htmlLink",""),
+            "hangoutLink": it.get("hangoutLink",""),
+        })
     return out
+
 
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
@@ -3194,6 +3198,29 @@ def api_calendar_create_event():
     except Exception as e:
         append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
         return jsonify({"ok": False, "error": str(e)}), 500
+@app.get("/api/calendar/events")
+def api_calendar_events():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    access_token, reason = _calendar_creds_for_user(u)
+    if not access_token:
+        return jsonify({"ok": False, "error": reason}), 400
+
+    time_min = (request.args.get("time_min") or "").strip()
+    time_max = (request.args.get("time_max") or "").strip()
+    timezone = (request.args.get("timezone") or "America/New_York").strip()
+    max_results = int((request.args.get("max_results") or "250").strip() or "250")
+    max_results = max(1, min(max_results, 1200))
+
+    if not time_min or not time_max:
+        return jsonify({"ok": False, "error": "Missing time_min/time_max"}), 400
+    try:
+        events = _calendar_list_events(access_token, time_min=time_min, time_max=time_max, timezone=timezone, max_results=max_results)
+        return jsonify({"ok": True, "events": events})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # =========================
 # AUTH ROUTES
 # =========================
@@ -3450,59 +3477,6 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
-
-/* ===== Calendar (Month view) ===== */
-#calGrid{ width:100%; display:grid; grid-template-columns: repeat(7, 1fr); gap:0; }
-.calMonthHead{ display:grid; grid-template-columns: repeat(7, 1fr); border-bottom:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); }
-.calMonthHead .cell{ padding:10px 8px; font-size:12px; opacity:.9; text-align:left; }
-.calDateCell{
-  position:relative;
-  min-height: 110px;
-  padding:10px 10px 12px;
-  border-right:1px solid rgba(255,255,255,0.06);
-  border-bottom:1px solid rgba(255,255,255,0.06);
-  background: rgba(0,0,0,0.08);
-  cursor:pointer;
-}
-.calDateCell:hover{ background: rgba(255,255,255,0.04); }
-.calDateCell.muted{ opacity:.55; }
-.calDateCell .d{
-  font-size:12px;
-  font-weight:800;
-  opacity:.9;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-}
-.calDateCell .d .tag{
-  font-size:10px;
-  opacity:.75;
-  border:1px solid rgba(255,255,255,0.14);
-  padding:2px 8px;
-  border-radius:999px;
-  background: rgba(0,0,0,0.18);
-}
-.calDateCell .events{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
-.calChip{
-  font-size:11px;
-  line-height: 1.15;
-  padding:6px 8px;
-  border-radius:10px;
-  border:1px solid rgba(247,211,106,.22);
-  background: rgba(124,58,237,.14);
-  box-shadow: 0 0 14px rgba(124,58,237,.10);
-  overflow:hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.calMore{ font-size:11px; opacity:.75; padding-left:2px; }
-.calDateSelected{ outline: 2px solid rgba(247,211,106,.35); outline-offset: -2px; }
-@media (max-width: 820px){
-  #calGridWrap{ overflow:auto; }
-  #calGrid{ min-width: 980px; }
-}
-
-
 </style>
 """
 
@@ -5102,6 +5076,62 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
+
+/* === Calendar modal (additive, minimal) === */
+.calWeekdays{
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap:6px;
+  margin-bottom:6px;
+}
+.calWeekdays .calWd{
+  font-size:11px;
+  color: var(--muted);
+  text-align:center;
+  padding:6px 0;
+  opacity:.9;
+}
+.calGrid{
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap:6px;
+}
+.calCell{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:12px;
+  padding:8px;
+  background: rgba(0,0,0,.18);
+  min-height:72px;
+  cursor:pointer;
+  position:relative;
+  overflow:hidden;
+}
+.calCell:hover{
+  border-color: rgba(247,211,106,.35);
+}
+.calCell.muted{
+  opacity:.45;
+}
+.calCell.selected{
+  border-color: rgba(247,211,106,.65);
+  box-shadow: 0 0 18px rgba(247,211,106,.10);
+}
+.calNum{
+  font-weight:800;
+  font-size:12px;
+}
+.calDots{
+  margin-top:6px;
+  display:flex;
+  gap:4px;
+  flex-wrap:wrap;
+}
+.calDot{
+  width:6px; height:6px; border-radius:999px;
+  background: rgba(59,130,246,.75);
+  box-shadow: 0 0 10px rgba(59,130,246,.22);
+}
+
 </style>
 </head>
 <body>
@@ -5118,8 +5148,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
-      <button class="btn" id="crmBtn">Client Center</button>
-      <button class="btn" id="calendarBtn">Calendar</button>
+            <button class="btn" id="calendarBtn">Calendar</button>
+<button class="btn" id="crmBtn">Client Center</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5151,8 +5181,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" data-click="crmBtn">Client Center</button>
-        <button class="btn" data-click="calendarBtn">Calendar</button>
+                <button class="btn" data-click="calendarBtn">Calendar</button>
+<button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -5439,7 +5469,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Manage clients and send broadcast email or SMS without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -5532,6 +5562,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
     </div>
   </div>
+
+  <!-- Pipeline -->
+  <div id="crmViewPipeline" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages (one per line). This controls filtering, sequences, and followups.</div>
+    <label>Stages</label>
+    <textarea id="crmStagesText" style="height:180px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn" id="crmReloadPipeline">Reload</button>
+      <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
+    </div>
     <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
   </div>
 
@@ -5570,38 +5610,44 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 
 
-  <!-- Broadcast SMS -->
-  <div id="crmViewBroadcastSMS" style="display:none;">
-    <div class="grid">
-      <div>
-        <label>Audience</label>
-        <select id="crmSmsAudience">
-          <option value="all">All clients</option>
-          <option value="tag">Tag</option>
-          <option value="stage">Pipeline stage</option>
-          <option value="status">Status</option>
-          <option value="selected">Selected client IDs</option>
-        </select>
-      </div>
-      <div>
-        <label>Value</label>
-        <input id="crmSmsAudienceValue" placeholder="e.g. realtor" />
-      </div>
-    </div>
+<!-- Broadcast SMS -->
+<div id="crmViewBroadcastSMS" style="display:none;">
+  <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
 
-    <div style="margin-top:10px;">
-      <label>Message</label>
-      <textarea id="crmSmsBody" style="height:160px" placeholder="Hey {first_name},\n\n..."></textarea>
-      <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: Keep texts short. You can use {name} or {first_name}.</div>
-      <div class="tiny" style="margin-top:6px; opacity:.85;">SMS requires configuration (provider + credentials) in CRM settings or env vars.</div>
+  <div class="grid">
+    <div>
+      <label>Audience</label>
+      <select id="crmSmsAudience">
+        <option value="all">All clients</option>
+        <option value="tag">Tag</option>
+        <option value="stage">Pipeline stage</option>
+        <option value="status">Status</option>
+        <option value="selected">Selected IDs</option>
+      </select>
     </div>
-
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="crmSmsDryRun">Dry run</button>
-      <button class="btn btnPrimary" id="crmSmsSend">Send</button>
+    <div>
+      <label>Value (tag/stage/status or comma IDs)</label>
+      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" />
     </div>
-    <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
   </div>
+
+  <label style="margin-top:10px;">Message</label>
+  <textarea id="crmSmsBody" rows="6" placeholder="Write your text message..."></textarea>
+
+  <div class="actions" style="justify-content:flex-start; margin-top:10px;">
+    <button class="btn" id="crmSmsDryRun">Dry run</button>
+    <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
+  </div>
+
+  <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
+</div>
+
+  <!-- Tasks -->
+  <div id="crmViewTasks" style="display:none;">
+    <div class="actions" style="justify-content:flex-start;">
+      <button class="btn" id="crmRefreshTasks">Refresh</button>
+      <button class="btn btnPrimary" id="crmNewTaskBtn">New task</button>
+    </div>
     <div id="crmTasksList" style="margin-top:10px;"></div>
 
     <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
@@ -5633,6 +5679,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmTaskStatus" style="margin-top:8px;"></div>
     </div>
   </div>
+
+  <!-- Sequences -->
+  <div id="crmViewSequences" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Sequences are automated nurture steps that run on schedule. Add a sequence, then enroll clients.</div>
+
+    <div class="actions" style="justify-content:flex-start;">
+      <button class="btn" id="crmRefreshSeq">Refresh</button>
+      <button class="btn btnPrimary" id="crmNewSeqBtn">New sequence</button>
+    </div>
+
     <div id="crmSeqList" style="margin-top:10px;"></div>
 
     <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
@@ -5667,6 +5723,17 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEnrollStatus" style="margin-top:8px;"></div>
     </div>
   </div>
+
+  <!-- Calendar -->
+  <div id="crmViewCalendar" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
+    <label>Title</label>
+    <input id="crmCalTitle" placeholder="Client check-in" />
+    <div class="grid" style="margin-top:10px;">
+      <div>
+        <label>Start</label>
+        <input id="crmCalStart" type="datetime-local" />
+      </div>
       <div>
         <label>End</label>
         <input id="crmCalEnd" type="datetime-local" />
@@ -5681,85 +5748,86 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              
-<div class="modalForm" id="calendarForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">
-    Calendar. View your schedule, click any date to add a task or schedule a call, and join meetings without leaving the dashboard.
-  </div>
+              <div class="modalForm" id="calendarForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
 
-  <div class="actions" style="justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-      <button class="btn btnMini" id="calTodayBtn">Today</button>
-      <button class="btn btnMini" id="calPrevBtn">◀</button>
-      <button class="btn btnMini" id="calNextBtn">▶</button>
-      <button class="btn btnMini" id="calRefreshBtn">Refresh</button>
-    </div>
-    <div class="tiny" id="calRangeLabel" style="opacity:.9;"></div>
-  </div>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div style="flex: 1 1 360px; min-width: 280px;">
+      <div class="pillRow" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <button class="btn btnMini" id="calPrevBtn">Prev</button>
+          <button class="btn btnMini" id="calTodayBtn">Today</button>
+          <button class="btn btnMini" id="calNextBtn">Next</button>
+        </div>
+        <div class="pill" id="calMonthLabel">Month</div>
+      </div>
 
-  <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
-    <div style="border:1px solid rgba(255,255,255,10); border-radius:14px; padding:10px; background: rgba(0,0,0,18);">
-      <div class="tiny" style="margin-bottom:8px;">Create meeting</div>
-      <label>Title</label>
-      <input id="calMeetTitle" placeholder="Client call" />
-      <div class="grid" style="margin-top:10px;">
-        <div>
-          <label>Start</label>
-          <input id="calMeetStart" type="datetime-local" />
-        </div>
-        <div>
-          <label>End</label>
-          <input id="calMeetEnd" type="datetime-local" />
-        </div>
-      </div>
-      <label style="margin-top:10px;">Attendees (comma emails)</label>
-      <input id="calMeetAttendees" placeholder="name@email.com, other@email.com" />
-      <label style="margin-top:10px;">Notes</label>
-      <textarea id="calMeetDesc" rows="2" placeholder="Agenda."></textarea>
-      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-        <button class="btn btnPrimary" id="calCreateMeetBtn">Create meeting</button>
-      </div>
-      <div class="tiny" id="calMeetStatus" style="margin-top:8px;"></div>
+      <div class="calWeekdays" id="calWeekdays"></div>
+      <div class="calGrid" id="calGrid"></div>
+      <div class="tiny" id="calLoadStatus" style="margin-top:8px; opacity:.85;"></div>
     </div>
 
-    <div style="border:1px solid rgba(255,255,255,10); border-radius:14px; padding:10px; background: rgba(0,0,0,18);">
-      <div class="tiny" style="margin-bottom:8px;">Schedule task</div>
-      <label>Task</label>
-      <input id="calTaskTitle" placeholder="Follow up with Sam" />
-      <div class="grid" style="margin-top:10px;">
-        <div>
-          <label>Due</label>
-          <input id="calTaskDue" type="datetime-local" />
+    <div style="flex: 1 1 260px; min-width: 260px;">
+      <div class="diagCard" style="padding:10px;">
+        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:800;" id="calSelectedLabel">Select a date</div>
+            <div class="tiny" style="opacity:.85;" id="calSelectedSub"> </div>
+          </div>
         </div>
-        <div>
-          <label>Priority</label>
-          <select id="calTaskPriority">
-            <option value="low">low</option>
-            <option value="normal" selected>normal</option>
-            <option value="high">high</option>
-          </select>
-        </div>
-      </div>
-      <label style="margin-top:10px;">Notes</label>
-      <textarea id="calTaskNotes" rows="2" placeholder="Context, links, next steps."></textarea>
-      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-        <button class="btn btnPrimary" id="calCreateTaskBtn">Create task</button>
-      </div>
-      <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
-    </div>
-  </div>
 
-  <div style="margin-top:12px;">
-    <div class="tiny" style="margin-bottom:8px;">Month</div>
-    <div class="tiny" id="calSelectedDateLabel" style="margin-top:-4px; margin-bottom:8px; opacity:.85;"></div>
-    <div id="calGridWrap" style="border:1px solid rgba(255,255,255,10); border-radius:14px; overflow:hidden; background: rgba(0,0,0,18);">
-      <div id="calMonthHead" class="calMonthHead"></div>
-      <div id="calGrid"></div>
+        <div style="height:10px"></div>
+
+        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+          <div class="tiny" style="margin-bottom:8px;">Add task</div>
+          <label>Title</label>
+          <input id="calTaskTitle" placeholder="Follow up with..." />
+          <div class="grid" style="margin-top:10px;">
+            <div>
+              <label>Time</label>
+              <input id="calTaskTime" type="time" value="17:00" />
+            </div>
+            <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
+              <button class="btn btnPrimary" id="calAddTaskBtn">Add</button>
+            </div>
+          </div>
+          <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+          <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
+          <label>Title</label>
+          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" />
+          <div class="grid" style="margin-top:10px;">
+            <div>
+              <label>Start</label>
+              <input id="calCallTime" type="time" value="09:00" />
+            </div>
+            <div>
+              <label>Duration</label>
+              <select id="calCallDur">
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">60 min</option>
+              </select>
+            </div>
+          </div>
+          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+            <button class="btn btnPrimary" id="calCreateCallBtn">Create</button>
+          </div>
+          <div class="tiny" id="calCallStatus" style="margin-top:8px;"></div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="tiny" style="margin-bottom:6px;">Events</div>
+        <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
+      </div>
     </div>
-    <div class="tiny" id="calStatus" style="margin-top:8px;"></div>
   </div>
 </div>
-
 
 <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
@@ -8605,7 +8673,7 @@ $("draftWithSelected").onclick = async () => {
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewBroadcast","crmViewBroadcastSMS"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -8844,48 +8912,48 @@ $("draftWithSelected").onclick = async () => {
       }catch(e){
         if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
       }
-    
-    async function crmBroadcastSMS(dry_run=false){
-      const st = $("crmSmsStatus");
-      if(st) st.innerText = dry_run ? "Running..." : "Sending...";
-
-      const audience = ($("crmSmsAudience").value || "all").trim();
-      const value = ($("crmSmsAudienceValue").value || "").trim();
-      const body = ($("crmSmsBody").value || "").trim();
-      if(!body){
-        if(st) st.innerText = "Missing message.";
-        return;
-      }
-
-      let payload = { body: body, dry_run: dry_run };
-      if(audience === "tag") payload.tag = value;
-      if(audience === "stage") payload.stage = value;
-      if(audience === "status") payload.status = value;
-      if(audience === "selected"){
-        const ids = (value || "").split(",").map(x=>x.trim()).filter(Boolean);
-        payload.client_ids = ids;
-      }
-
-      try{
-        const res = await fetch("/api/crm/broadcast/sms", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || "Broadcast failed");
-        if(dry_run){
-          if(st) st.innerText = `Dry run: ${data.count} recipients`;
-        }else{
-          if(st) st.innerText = `Sent: ${data.sent}/${data.count}  Failed: ${data.failed}`;
-        }
-      }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : "Broadcast failed";
-      }
     }
+
+    
+async function crmBroadcastSMS(dry_run=false){
+  const st = $("crmSmsStatus");
+  if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
+
+  const audience = ($("crmSmsAudience").value||'all');
+  const val = ($("crmSmsAudienceValue").value||'').trim();
+  const body = ($("crmSmsBody").value||'').trim();
+
+  if(!body){
+    if(st) st.innerText = 'Failed: message is required';
+    return;
+  }
+
+  const payload = {body, dry_run: !!dry_run};
+  if(audience==='tag') payload.tag = val;
+  if(audience==='stage') payload.stage = val;
+  if(audience==='status') payload.status = val;
+  if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
+
+  try{
+    const res = await fetch('/api/crm/broadcast/sms', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'sms failed');
+
+    if(dry_run){
+      if(st) st.innerText = `Dry run: would send to ${data.count||0} recipient(s).`;
+    }else{
+      if(st) st.innerText = `Done. Sent: ${data.sent||0} Failed: ${data.failed||0}`;
+    }
+  }catch(e){
+    if(st) st.innerText = 'Send failed (SMS not configured)';
+  }
 }
 
-    async function crmFetchTasks(){
+async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
       const data = await res.json();
       if(!data.ok) throw new Error(data.error||'tasks load failed');
@@ -9063,14 +9131,11 @@ $("draftWithSelected").onclick = async () => {
 
     async function crmCreateCalendarEvent(){
       const st = $("crmCalStatus"); if(st) st.innerText='Creating...';
-      const tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York";
       const payload = {
         title: ($("crmCalTitle").value||'').trim(),
-        start_iso: ($("crmCalStart").value||'').trim(),
-        end_iso: ($("crmCalEnd").value||'').trim(),
-        timezone: tz,
+        start: ($("crmCalStart").value||'').trim(),
+        end: ($("crmCalEnd").value||'').trim(),
         description: ($("crmCalDesc").value||'').trim(),
-        generate_meet: false,
       };
       try{
         const res = await fetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -9115,319 +9180,18 @@ $("draftWithSelected").onclick = async () => {
       })();
     }
 
-
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
-    if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
-
-    // =========================
-    // Calendar (Month view)
-    // =========================
-    let calAnchor = new Date(); // any date within current month
-    calAnchor.setDate(1); calAnchor.setHours(0,0,0,0);
-    let calEvents = [];
-    let calSelectedDate = null; // "YYYY-MM-DD"
-
-    function _calPad(n){ return (n<10?'0':'') + n; }
-    function _calDateKey(d){ return `${d.getFullYear()}-${_calPad(d.getMonth()+1)}-${_calPad(d.getDate())}`; }
-    function _calFmtMonth(d){
-      try{ return d.toLocaleDateString(undefined, {month:'long', year:'numeric'}); }
-      catch(e){ return String(d); }
-    }
-    function _calFmtDayName(idx){
-      const names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-      return names[idx] || "";
-    }
-    function _calToLocalInputValue(dt){
-      try{
-        const d = new Date(dt);
-        const y = d.getFullYear();
-        const m = _calPad(d.getMonth()+1);
-        const da = _calPad(d.getDate());
-        const h = _calPad(d.getHours());
-        const mi = _calPad(d.getMinutes());
-        return `${y}-${m}-${da}T${h}:${mi}`;
-      }catch(e){ return ""; }
-    }
-    function _calStartOfMonth(d){
-      const x = new Date(d.getTime());
-      x.setDate(1); x.setHours(0,0,0,0);
-      return x;
-    }
-    function _calGridStart(monthStart){
-      // Monday-based grid start (Mon..Sun)
-      const x = new Date(monthStart.getTime());
-      const day = x.getDay(); // 0 Sun .. 6 Sat
-      const mondayIndex = (day === 0 ? 6 : day - 1); // 0 for Mon
-      x.setDate(x.getDate() - mondayIndex);
-      x.setHours(0,0,0,0);
-      return x;
-    }
-
-    function calSetSelectedDate(dateKey){
-      calSelectedDate = dateKey;
-      const lbl = $("calSelectedDateLabel");
-      if(lbl){
-        try{
-          const d = new Date(dateKey + "T00:00:00");
-          lbl.innerText = "Selected date: " + d.toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
-        }catch(e){
-          lbl.innerText = "Selected date: " + dateKey;
-        }
-      }
-
-      // Prefill quick add fields (call + task) to the selected date
-      try{
-        const base = new Date(dateKey + "T00:00:00");
-        const s = new Date(base.getTime()); s.setHours(9,0,0,0);
-        const e = new Date(base.getTime()); e.setHours(9,30,0,0);
-        if($("calMeetStart")) $("calMeetStart").value = _calToLocalInputValue(s);
-        if($("calMeetEnd")) $("calMeetEnd").value = _calToLocalInputValue(e);
-        const due = new Date(base.getTime()); due.setHours(17,0,0,0);
-        if($("calTaskDue")) $("calTaskDue").value = _calToLocalInputValue(due);
-      }catch(e){}
-      calRenderMonth(); // to show selected outline
-      try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
-    }
-
-    async function calFetchMonth(){
-      const st = $("calStatus"); if(st) st.innerText = "Loading...";
-      try{
-        const monthStart = _calStartOfMonth(calAnchor);
-        const gridStart = _calGridStart(monthStart);
-        const gridEnd = new Date(gridStart.getTime()); gridEnd.setDate(gridEnd.getDate() + 42); // 6 weeks
-        const time_min = gridStart.toISOString();
-        const time_max = gridEnd.toISOString();
-
-        const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(time_min)}&time_max=${encodeURIComponent(time_max)}`);
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || "Calendar load failed");
-        calEvents = data.events || [];
-        calRenderMonth();
-        if(st) st.innerText = "Ready";
-      }catch(e){
-        if(st) st.innerText = "Load failed (connect Calendar in Settings)";
-      }
-    }
-
-    function calRenderMonth(){
-      const grid = $("calGrid"); if(!grid) return;
-      const head = $("calMonthHead"); if(!head) return;
-
-      const monthStart = _calStartOfMonth(calAnchor);
-      const gridStart = _calGridStart(monthStart);
-      const monthLabel = $("calRangeLabel");
-      if(monthLabel) monthLabel.innerText = _calFmtMonth(monthStart);
-
-      // header labels
-      head.innerHTML = "";
-      for(let i=0;i<7;i++){
-        const c = document.createElement("div");
-        c.className = "cell";
-        c.innerText = _calFmtDayName(i);
-        head.appendChild(c);
-      }
-
-      // map events by day
-      const byDay = {};
-      (calEvents||[]).forEach(ev=>{
-        try{
-          const s = ev.start_dt ? new Date(ev.start_dt) : null;
-          if(!s) return;
-          const key = _calDateKey(s);
-          if(!byDay[key]) byDay[key] = [];
-          byDay[key].push(ev);
-        }catch(e){}
-      });
-
-      // render 42 cells
-      grid.innerHTML = "";
-      for(let i=0;i<42;i++){
-        const d = new Date(gridStart.getTime()); d.setDate(d.getDate()+i);
-        const key = _calDateKey(d);
-        const inMonth = (d.getMonth() === monthStart.getMonth());
-        const isToday = _calDateKey(new Date()) === key;
-
-        const cell = document.createElement("div");
-        cell.className = "calDateCell" + (inMonth ? "" : " muted") + (calSelectedDate===key ? " calDateSelected" : "");
-        cell.dataset.date = key;
-
-        const top = document.createElement("div");
-        top.className = "d";
-        top.innerHTML = `<span>${d.getDate()}</span>` + (isToday ? `<span class="tag">Today</span>` : ``);
-        cell.appendChild(top);
-
-        const evWrap = document.createElement("div");
-        evWrap.className = "events";
-
-        const items = (byDay[key] || []).slice().sort((a,b)=>{
-          const sa = a.start_dt ? new Date(a.start_dt).getTime() : 0;
-          const sb = b.start_dt ? new Date(b.start_dt).getTime() : 0;
-          return sa - sb;
-        });
-
-        const showN = 3;
-        items.slice(0, showN).forEach(ev=>{
-          const chip = document.createElement("div");
-          chip.className = "calChip";
-          const sdt = ev.start_dt ? new Date(ev.start_dt) : null;
-          const edt = ev.end_dt ? new Date(ev.end_dt) : null;
-          let timeStr = "";
-          try{
-            if(sdt && edt){
-              timeStr = sdt.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) + " ";
-            }
-          }catch(e){}
-          chip.innerText = (timeStr + (ev.summary||"Event")).trim();
-          chip.onclick = (e)=>{
-            e.stopPropagation();
-            const join = (ev.meet_link || ev.hangout_link || ev.html_link || "");
-            const open = (ev.html_link || "");
-            const when = (sdt && edt) ? (sdt.toLocaleString() + "  to  " + edt.toLocaleString()) : "";
-            const msg = (ev.description||"").trim();
-            const lines = [
-              `Title: ${ev.summary||""}`,
-              when ? `When: ${when}` : "",
-              ev.location ? `Where: ${ev.location}` : "",
-              join ? `Join: ${join}` : "",
-              open ? `Open: ${open}` : "",
-              msg ? `
-${msg}` : ""
-            ].filter(Boolean).join("
-");
-            showModal("Calendar event", lines);
-          };
-          evWrap.appendChild(chip);
-        });
-
-        if(items.length > showN){
-          const more = document.createElement("div");
-          more.className = "calMore";
-          more.innerText = `+${items.length - showN} more`;
-          evWrap.appendChild(more);
-        }
-
-        cell.appendChild(evWrap);
-
-        cell.onclick = ()=>{
-          calSetSelectedDate(key);
-        };
-
-        grid.appendChild(cell);
-      }
-    }
-
-
-    async function calCreateMeeting(){
-      const st = $("calMeetStatus"); if(st) st.innerText = "Creating...";
-      const tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York";
-      const title = ($("calMeetTitle").value||"").trim();
-      const start = ($("calMeetStart").value||"").trim();
-      const end = ($("calMeetEnd").value||"").trim();
-      const attendees = ($("calMeetAttendees").value||"").split(",").map(x=>x.trim()).filter(Boolean);
-      const description = ($("calMeetDesc").value||"").trim();
-      if(!title || !start || !end){
-        if(st) st.innerText = "Add title, start, and end.";
-        return;
-      }
-      try{
-        const payload = {
-          title,
-          start_iso: start,
-          end_iso: end,
-          timezone: tz,
-          attendees,
-          description,
-          generate_meet: true
-        };
-        const res = await fetch("/api/crm/calendar/create_event", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||"Create failed");
-        if(st) st.innerText = "Created";
-        showToast("Meeting created");
-        await calFetchMonth();
-      }catch(e){
-        if(st) st.innerText = "Create failed (connect Calendar in Settings)";
-      }
-    }
-
-    async function calCreateTask(){
-      const st = $("calTaskStatus"); if(st) st.innerText = "Creating...";
-      const title = ($("calTaskTitle").value||"").trim();
-      const due = ($("calTaskDue").value||"").trim();
-      const priority = ($("calTaskPriority").value||"normal").trim();
-      const notes = ($("calTaskNotes").value||"").trim();
-      if(!title){
-        if(st) st.innerText = "Task title is required.";
-        return;
-      }
-      try{
-        const res = await fetch("/api/crm/tasks", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({title, due, priority, notes})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||"Task failed");
-        if(st) st.innerText = "Created";
-        showToast("Task created");
-      }catch(e){
-        if(st) st.innerText = "Task create failed";
-      }
-    }
-
-    function showCalendarModal(){
-      showModal();
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
-      if($("modalForm")) $("modalForm").style.display = "none";
-      if($("manageForm")) $("manageForm").style.display = "none";
-      if($("createForm")) $("createForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.display = "none";
-      if($("calendarForm")) $("calendarForm").style.display = "block";
-
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("modalImg")) $("modalImg").style.display = "none";
-
-      $("modalTitle").innerText = "Calendar";
-
-      // Default to current month + select today
-      try{
-        const t=new Date();
-        const x=_calStartOfMonth(t);
-        calAnchor=x;
-        calSetSelectedDate(_calDateKey(t));
-      }catch(e){}
-
-      // seed meeting times: next 30-min block
-      try{
-        const now = new Date();
-        const m = now.getMinutes();
-        const add = (m<30) ? (30-m) : (60-m);
-        now.setMinutes(m+add, 0, 0);
-        const end = new Date(now.getTime()); end.setMinutes(end.getMinutes()+30);
-        if($("calMeetStart")) $("calMeetStart").value = _calToLocalInputValue(now);
-        if($("calMeetEnd")) $("calMeetEnd").value = _calToLocalInputValue(end);
-        if($("calTaskDue")) $("calTaskDue").value = _calToLocalInputValue(now);
-      }catch(e){}
-
-      // load week
-      calFetchMonth();
-    }
-
-    // calendar controls
-    try{
-      if($("calTodayBtn")) $("calTodayBtn").onclick = ()=>{ const x=new Date(); x.setDate(1); x.setHours(0,0,0,0); calAnchor=x; calFetchMonth(); };
-      if($("calPrevBtn")) $("calPrevBtn").onclick = ()=>{ const x=_calStartOfMonth(calAnchor); x.setMonth(x.getMonth()-1); calAnchor=x; calFetchMonth(); };
-      if($("calNextBtn")) $("calNextBtn").onclick = ()=>{ const x=_calStartOfMonth(calAnchor); x.setMonth(x.getMonth()+1); calAnchor=x; calFetchMonth(); };
-      if($("calRefreshBtn")) $("calRefreshBtn").onclick = ()=> calFetchMonth();
-      if($("calCreateMeetBtn")) $("calCreateMeetBtn").onclick = ()=> calCreateMeeting();
-      if($("calCreateTaskBtn")) $("calCreateTaskBtn").onclick = ()=> calCreateTask();
-    }catch(e){}
 
     // CRM tab binds (safe if missing)
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
-            b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
-                        b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); const s=$('crmSmsStatus'); if(s) s.innerText=''; });
+      b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
+      b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
+      b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; });
+      b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
+      b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
+      b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
@@ -9462,6 +9226,266 @@ ${msg}` : ""
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
+
+// =========================
+// Calendar modal (month grid + date click actions)
+// =========================
+const cal = {
+  y: (new Date()).getFullYear(),
+  m: (new Date()).getMonth(), // 0-11
+  selected: null, // 'YYYY-MM-DD'
+  events: {}, // date -> [{summary, start, end, link}]
+  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York")
+};
+
+function pad2(n){ return (n<10?('0'+n):(''+n)); }
+function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
+function calSetStatus(t){ const el=$("calLoadStatus"); if(el) el.innerText = t||""; }
+
+function calWeekdayHeader(){
+  const box = $("calWeekdays");
+  if(!box) return;
+  const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  box.innerHTML = names.map(n=>`<div class="calWd">${n}</div>`).join('');
+}
+
+async function calFetchEventsForVisibleRange(){
+  const first = new Date(cal.y, cal.m, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+
+  const last = new Date(cal.y, cal.m + 1, 0);
+  const end = new Date(last);
+  end.setDate(last.getDate() + (6 - last.getDay()) + 1);
+
+  const timeMin = start.toISOString();
+  const timeMax = end.toISOString();
+
+  calSetStatus('Loading events...');
+  try{
+    const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}&timezone=${encodeURIComponent(cal.tz)}`);
+    const data = await res.json();
+    if(!data.ok){
+      cal.events = {};
+      calSetStatus(data.error || 'Calendar not connected (connect in Settings)');
+      return;
+    }
+    const events = data.events || [];
+    const map = {};
+    events.forEach(ev=>{
+      const s = (ev.start || '').slice(0,10);
+      if(!s) return;
+      map[s] = map[s] || [];
+      map[s].push(ev);
+    });
+    cal.events = map;
+    calSetStatus('');
+  }catch(e){
+    cal.events = {};
+    calSetStatus('Could not load events');
+  }
+}
+
+function calRenderMonth(){
+  const label = $("calMonthLabel");
+  const grid = $("calGrid");
+  if(!grid) return;
+
+  const monthName = new Date(cal.y, cal.m, 1).toLocaleString(undefined, {month:'long', year:'numeric'});
+  if(label) label.innerText = monthName;
+
+  const first = new Date(cal.y, cal.m, 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+
+  const cells = [];
+  for(let i=0;i<42;i++){
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const inMonth = d.getMonth() === cal.m;
+    const key = ymd(d);
+    const evs = cal.events[key] || [];
+    const dots = evs.slice(0,6).map(()=>'<span class="calDot"></span>').join('');
+    const cls = ['calCell', inMonth ? '' : 'muted', (cal.selected===key ? 'selected':'')].filter(Boolean).join(' ');
+    cells.push(`
+      <div class="${cls}" data-cal-date="${key}">
+        <div class="calNum">${d.getDate()}</div>
+        <div class="calDots">${dots}</div>
+      </div>
+    `);
+  }
+  grid.innerHTML = cells.join('');
+
+  grid.querySelectorAll('[data-cal-date]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const dt = el.getAttribute('data-cal-date');
+      calSelectDate(dt);
+      calRenderMonth();
+    });
+  });
+}
+
+function calRenderDayPanel(){
+  const lab = $("calSelectedLabel");
+  const sub = $("calSelectedSub");
+  const list = $("calDayEvents");
+  const dt = cal.selected;
+
+  if(!dt){
+    if(lab) lab.innerText = 'Select a date';
+    if(sub) sub.innerText = '';
+    if(list) list.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
+    return;
+  }
+
+  const pretty = new Date(dt+'T00:00:00').toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
+  if(lab) lab.innerText = pretty;
+  if(sub) sub.innerText = cal.tz;
+
+  const evs = cal.events[dt] || [];
+  if(!evs.length){
+    if(list) list.innerHTML = '<div style="opacity:.85;">No events.</div>';
+  }else{
+    const rows = evs.slice(0,12).map(ev=>{
+      const t = (ev.start || '').replace('T',' ').slice(0,16);
+      const title = escapeHtml(ev.summary || 'Event');
+      const join = ev.hangoutLink ? `<a href="${ev.hangoutLink}" target="_blank" rel="noopener">Join</a>` : (ev.htmlLink ? `<a href="${ev.htmlLink}" target="_blank" rel="noopener">Open</a>` : '');
+      return `<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08);">
+        <div style="opacity:.95;">${title}<div style="opacity:.8; font-size:11px;">${escapeHtml(t)}</div></div>
+        <div style="white-space:nowrap; opacity:.95;">${join}</div>
+      </div>`;
+    }).join('');
+    if(list) list.innerHTML = `<div>${rows}</div>`;
+  }
+}
+
+function calSelectDate(dt){
+  cal.selected = dt;
+  calRenderDayPanel();
+  if($("calTaskStatus")) $("calTaskStatus").innerText = '';
+  if($("calCallStatus")) $("calCallStatus").innerText = '';
+}
+
+async function calAddTask(){
+  const st = $("calTaskStatus");
+  if(st) st.innerText = 'Adding...';
+  const dt = cal.selected;
+  const title = ($("calTaskTitle").value||'').trim();
+  const tm = ($("calTaskTime").value||'').trim();
+  if(!dt){
+    if(st) st.innerText = 'Pick a date first';
+    return;
+  }
+  if(!title){
+    if(st) st.innerText = 'Title required';
+    return;
+  }
+  const due = tm ? `${dt}T${tm}` : dt;
+  try{
+    const res = await fetch('/api/crm/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, due})});
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'task failed');
+    if(st) st.innerText = 'Added';
+    $("calTaskTitle").value = '';
+    showToast('Task added');
+  }catch(e){
+    if(st) st.innerText = 'Add failed';
+  }
+}
+
+async function calCreateCall(){
+  const st = $("calCallStatus");
+  if(st) st.innerText = 'Creating...';
+  const dt = cal.selected;
+  if(!dt){
+    if(st) st.innerText = 'Pick a date first';
+    return;
+  }
+  const title = ($("calCallTitle").value||'Call').trim() || 'Call';
+  const tm = ($("calCallTime").value||'09:00').trim();
+  const dur = parseInt(($("calCallDur").value||'30').trim(),10) || 30;
+
+  const startLocal = new Date(dt+'T'+tm+':00');
+  const endLocal = new Date(startLocal.getTime() + dur*60000);
+
+  try{
+    const res = await fetch('/api/calendar/create_event', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        title,
+        start: startLocal.toISOString(),
+        end: endLocal.toISOString(),
+        timezone: cal.tz
+      })
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'calendar failed');
+    if(st) st.innerText = 'Created';
+    showToast('Call scheduled');
+    await calFetchEventsForVisibleRange();
+    calRenderMonth();
+    calRenderDayPanel();
+  }catch(e){
+    if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
+  }
+}
+
+function showCalendarModal(){
+  showModal();
+  if($("frameworkForm")) $("frameworkForm").style.display = "none";
+  if($("modalForm")) $("modalForm").style.display = "none";
+  if($("manageForm")) $("manageForm").style.display = "none";
+  if($("createForm")) $("createForm").style.display = "none";
+  if($("settingsForm")) $("settingsForm").style.display = "none";
+  if($("stackForm")) $("stackForm").style.display = "none";
+  if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+  if($("crmForm")) $("crmForm").style.display = "none";
+  if($("calendarForm")) $("calendarForm").style.display = "block";
+  if($("modalBody")) $("modalBody").style.display = "none";
+  if($("modalImg")) $("modalImg").style.display = "none";
+
+  $("modalTitle").innerText = "Calendar";
+  calWeekdayHeader();
+
+  if(!cal.selected) cal.selected = ymd(new Date());
+  calSelectDate(cal.selected);
+
+  (async()=>{
+    await calFetchEventsForVisibleRange();
+    calRenderMonth();
+    calRenderDayPanel();
+  })();
+}
+
+if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
+
+try{
+  if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
+    cal.m -= 1;
+    if(cal.m < 0){ cal.m = 11; cal.y -= 1; }
+    await calFetchEventsForVisibleRange();
+    calRenderMonth();
+  };
+  if($("calNextBtn")) $("calNextBtn").onclick = async ()=>{
+    cal.m += 1;
+    if(cal.m > 11){ cal.m = 0; cal.y += 1; }
+    await calFetchEventsForVisibleRange();
+    calRenderMonth();
+  };
+  if($("calTodayBtn")) $("calTodayBtn").onclick = async ()=>{
+    const d = new Date();
+    cal.y = d.getFullYear();
+    cal.m = d.getMonth();
+    calSelectDate(ymd(d));
+    await calFetchEventsForVisibleRange();
+    calRenderMonth();
+  };
+  if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
+  if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
+}catch(e){}
+
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
@@ -11630,15 +11654,7 @@ def api_crm_broadcast_email():
 
 @app.post("/api/crm/broadcast/sms")
 def api_crm_broadcast_sms():
-    """Bulk SMS sender for CRM (optional).
-
-    Uses _crm_try_send_sms (Twilio when configured).
-    Supports same filter style as email:
-      - payload.filter = {tag, stage, status, ids}
-      - OR UI-friendly keys: tag/stage/status/client_ids
-      - payload.dry_run = true (no sends, returns count only)
-    Returns: {ok, count, sent, failed, results}
-    """
+    """Bulk SMS sender for CRM (Twilio only when configured)."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -11649,9 +11665,8 @@ def api_crm_broadcast_sms():
     dry_run = bool(payload.get("dry_run"))
 
     if not body_t:
-        return jsonify({"ok": False, "error": "Missing message body"}), 400
+        return jsonify({"ok": False, "error": "Missing body"}), 400
 
-    # Accept either {filter:{...}} or direct UI keys.
     filt = payload.get("filter") or {}
     if not isinstance(filt, dict):
         filt = {}
@@ -11674,7 +11689,6 @@ def api_crm_broadcast_sms():
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
 
-        # safety cap
         if len(recipients) > 250:
             return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
 
@@ -11686,32 +11700,27 @@ def api_crm_broadcast_sms():
         results = []
 
         for c in recipients:
-            to_phone = (c.get("phone") or c.get("mobile") or c.get("phone_number") or "").strip()
-            if not to_phone:
+            phone = (c.get("phone") or "").strip()
+            if not phone:
                 failed += 1
-                results.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing phone"})
+                results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing phone"})
                 continue
 
-            ctx = {
-                "name": c.get("name", ""),
-                "first_name": (c.get("name", "").split(" ")[0] if c.get("name") else ""),
-                "company": c.get("company", ""),
-            }
-            msg = _safe_render(body_t, ctx)
+            ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
+            body = _safe_render(body_t, ctx)
 
-            ok, err = _crm_try_send_sms(uname, to_phone, msg)
-            if ok:
+            ok_send, err = _crm_try_send_sms(uname, phone, body)
+            if ok_send:
                 sent += 1
-                results.append({"client_id": c.get("id", ""), "ok": True})
             else:
                 failed += 1
-                results.append({"client_id": c.get("id", ""), "ok": False, "error": err})
+            results.append({"client_id": c.get("id",""), "ok": bool(ok_send), "error": err})
 
         _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
-
 
 
 
@@ -11896,25 +11905,16 @@ def api_crm_calendar_create_event():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     payload = request.get_json(silent=True) or {}
     title = (payload.get("title") or "").strip()
-    # Backward compatible payload keys:
-    start_iso = (payload.get("start_iso") or payload.get("start") or "").strip()
-    end_iso = (payload.get("end_iso") or payload.get("end") or "").strip()
+    start_iso = (payload.get("start_iso") or "").strip()
+    end_iso = (payload.get("end_iso") or "").strip()
     timezone = (payload.get("timezone") or "America/New_York").strip()
-    generate_meet = bool(payload.get("generate_meet") or False)
-
-    # Normalize datetime-local inputs like "2026-03-02T09:30" to RFC3339-compatible seconds.
-    if start_iso and len(start_iso) == 16 and "T" in start_iso:
-        start_iso = start_iso + ":00"
-    if end_iso and len(end_iso) == 16 and "T" in end_iso:
-        end_iso = end_iso + ":00"
-
     if not title or not start_iso or not end_iso:
-        return jsonify({"ok": False, "error": "Missing title/start/end"}), 400
+        return jsonify({"ok": False, "error": "Missing title/start_iso/end_iso"}), 400
     access_token, reason = _calendar_creds_for_user(u)
     if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
     try:
-        event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""), generate_meet=generate_meet)
+        event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""))
         return jsonify({"ok": True, "event": event})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
