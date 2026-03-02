@@ -3424,8 +3424,6 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
-</style>
-
 /* ===== Login Gate Micro-Animation (grass + dragonfly + mushroom spores) ===== */
 .loginCard{
   position: relative;
@@ -3576,6 +3574,9 @@ AUTH_BASE_CSS = r"""
   82%{ opacity:0; transform: translate(-20px, -34px) scale(.8); filter: blur(.4px); }
   100%{ opacity:0; transform: translate(-20px, -34px) scale(.8); filter: blur(.4px); }
 }
+
+</style>
+
 
 """
 
