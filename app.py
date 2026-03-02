@@ -3451,24 +3451,57 @@ AUTH_BASE_CSS = r"""
   }
 }
 
-/* ===== Calendar (Motion-style) ===== */
-#calGrid{ width:100%; }
-.calWeekHead{ display:grid; grid-template-columns: 64px repeat(7, 1fr); border-bottom:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); }
-.calWeekHead .cell{ padding:10px 8px; font-size:12px; opacity:.9; }
-.calWeek{ display:grid; grid-template-columns: 64px repeat(7, 1fr); position:relative; }
-.calHour{ height:48px; border-top:1px solid rgba(255,255,255,0.06); }
-.calTimeCol{ background: rgba(255,255,255,0.02); }
-.calTimeLabel{ height:48px; display:flex; align-items:flex-start; justify-content:flex-end; padding:6px 10px; font-size:11px; opacity:.65; border-top:1px solid rgba(255,255,255,0.06); }
-.calDayCol{ position:relative; border-left:1px solid rgba(255,255,255,0.06); }
-.calEvent{ position:absolute; left:6px; right:6px; border-radius:12px; padding:8px; border:1px solid rgba(247,211,106,.25); background: rgba(124,58,237,.16); box-shadow: 0 0 18px rgba(124,58,237,.12); cursor:pointer; }
-.calEvent .t{ font-size:12px; font-weight:700; }
-.calEvent .s{ margin-top:2px; font-size:11px; opacity:.85; }
-.calEvent .a{ margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; }
-.calEvent .a a{ color:#e6edff; text-decoration:none; font-size:11px; border:1px solid rgba(255,255,255,0.16); padding:3px 8px; border-radius:999px; background: rgba(0,0,0,0.18); }
-@media (max-width: 820px){
-  .calWeekHead{ grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); overflow:auto; }
-  .calWeek{ grid-template-columns: 44px repeat(7, minmax(120px, 1fr)); overflow:auto; }
+/* ===== Calendar (Month view) ===== */
+#calGrid{ width:100%; display:grid; grid-template-columns: repeat(7, 1fr); gap:0; }
+.calMonthHead{ display:grid; grid-template-columns: repeat(7, 1fr); border-bottom:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); }
+.calMonthHead .cell{ padding:10px 8px; font-size:12px; opacity:.9; text-align:left; }
+.calDateCell{
+  position:relative;
+  min-height: 110px;
+  padding:10px 10px 12px;
+  border-right:1px solid rgba(255,255,255,0.06);
+  border-bottom:1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.08);
+  cursor:pointer;
 }
+.calDateCell:hover{ background: rgba(255,255,255,0.04); }
+.calDateCell.muted{ opacity:.55; }
+.calDateCell .d{
+  font-size:12px;
+  font-weight:800;
+  opacity:.9;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.calDateCell .d .tag{
+  font-size:10px;
+  opacity:.75;
+  border:1px solid rgba(255,255,255,0.14);
+  padding:2px 8px;
+  border-radius:999px;
+  background: rgba(0,0,0,0.18);
+}
+.calDateCell .events{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+.calChip{
+  font-size:11px;
+  line-height: 1.15;
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px solid rgba(247,211,106,.22);
+  background: rgba(124,58,237,.14);
+  box-shadow: 0 0 14px rgba(124,58,237,.10);
+  overflow:hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calMore{ font-size:11px; opacity:.75; padding-left:2px; }
+.calDateSelected{ outline: 2px solid rgba(247,211,106,.35); outline-offset: -2px; }
+@media (max-width: 820px){
+  #calGridWrap{ overflow:auto; }
+  #calGrid{ min-width: 980px; }
+}
+
 
 </style>
 """
@@ -5406,15 +5439,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Email broadcast, pipeline, tasks, sequences, and calendar without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Manage clients and send broadcast email or SMS without leaving the Round Table.</div>
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
-    <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
-    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
-    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
-    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
+    <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
 
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
@@ -5502,16 +5532,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
-  <!-- Pipeline -->
-  <div id="crmViewPipeline" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages (one per line). This controls filtering, sequences, and followups.</div>
-    <label>Stages</label>
-    <textarea id="crmStagesText" style="height:180px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="crmReloadPipeline">Reload</button>
-      <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
-    </div>
     <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
   </div>
 
@@ -5549,12 +5569,39 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
   </div>
 
-  <!-- Tasks -->
-  <div id="crmViewTasks" style="display:none;">
-    <div class="actions" style="justify-content:flex-start;">
-      <button class="btn" id="crmRefreshTasks">Refresh</button>
-      <button class="btn btnPrimary" id="crmNewTaskBtn">New task</button>
+
+  <!-- Broadcast SMS -->
+  <div id="crmViewBroadcastSMS" style="display:none;">
+    <div class="grid">
+      <div>
+        <label>Audience</label>
+        <select id="crmSmsAudience">
+          <option value="all">All clients</option>
+          <option value="tag">Tag</option>
+          <option value="stage">Pipeline stage</option>
+          <option value="status">Status</option>
+          <option value="selected">Selected client IDs</option>
+        </select>
+      </div>
+      <div>
+        <label>Value</label>
+        <input id="crmSmsAudienceValue" placeholder="e.g. realtor" />
+      </div>
     </div>
+
+    <div style="margin-top:10px;">
+      <label>Message</label>
+      <textarea id="crmSmsBody" style="height:160px" placeholder="Hey {first_name},\n\n..."></textarea>
+      <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: Keep texts short. You can use {name} or {first_name}.</div>
+      <div class="tiny" style="margin-top:6px; opacity:.85;">SMS requires configuration (provider + credentials) in CRM settings or env vars.</div>
+    </div>
+
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn" id="crmSmsDryRun">Dry run</button>
+      <button class="btn btnPrimary" id="crmSmsSend">Send</button>
+    </div>
+    <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
+  </div>
     <div id="crmTasksList" style="margin-top:10px;"></div>
 
     <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
@@ -5586,16 +5633,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmTaskStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
-  <!-- Sequences -->
-  <div id="crmViewSequences" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Sequences are automated nurture steps that run on schedule. Add a sequence, then enroll clients.</div>
-
-    <div class="actions" style="justify-content:flex-start;">
-      <button class="btn" id="crmRefreshSeq">Refresh</button>
-      <button class="btn btnPrimary" id="crmNewSeqBtn">New sequence</button>
-    </div>
-
     <div id="crmSeqList" style="margin-top:10px;"></div>
 
     <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
@@ -5630,17 +5667,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEnrollStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
-  <!-- Calendar -->
-  <div id="crmViewCalendar" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
-    <label>Title</label>
-    <input id="crmCalTitle" placeholder="Client check-in" />
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Start</label>
-        <input id="crmCalStart" type="datetime-local" />
-      </div>
       <div>
         <label>End</label>
         <input id="crmCalEnd" type="datetime-local" />
@@ -5658,7 +5684,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               
 <div class="modalForm" id="calendarForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">
-    Motion-style Calendar. View your week, schedule tasks, create meetings, and join meetings without leaving the Command Center.
+    Calendar. View your schedule, click any date to add a task or schedule a call, and join meetings without leaving the dashboard.
   </div>
 
   <div class="actions" style="justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
@@ -5724,8 +5750,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 
   <div style="margin-top:12px;">
-    <div class="tiny" style="margin-bottom:8px;">Week view</div>
-    <div id="calGrid" style="border:1px solid rgba(255,255,255,10); border-radius:14px; overflow:hidden; background: rgba(0,0,0,18);"></div>
+    <div class="tiny" style="margin-bottom:8px;">Month</div>
+    <div class="tiny" id="calSelectedDateLabel" style="margin-top:-4px; margin-bottom:8px; opacity:.85;"></div>
+    <div id="calGridWrap" style="border:1px solid rgba(255,255,255,10); border-radius:14px; overflow:hidden; background: rgba(0,0,0,18);">
+      <div id="calMonthHead" class="calMonthHead"></div>
+      <div id="calGrid"></div>
+    </div>
     <div class="tiny" id="calStatus" style="margin-top:8px;"></div>
   </div>
 </div>
@@ -8575,7 +8605,7 @@ $("draftWithSelected").onclick = async () => {
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
+      const ids = ["crmViewClients","crmViewBroadcast","crmViewBroadcastSMS"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -8814,7 +8844,46 @@ $("draftWithSelected").onclick = async () => {
       }catch(e){
         if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
       }
+    
+    async function crmBroadcastSMS(dry_run=false){
+      const st = $("crmSmsStatus");
+      if(st) st.innerText = dry_run ? "Running..." : "Sending...";
+
+      const audience = ($("crmSmsAudience").value || "all").trim();
+      const value = ($("crmSmsAudienceValue").value || "").trim();
+      const body = ($("crmSmsBody").value || "").trim();
+      if(!body){
+        if(st) st.innerText = "Missing message.";
+        return;
+      }
+
+      let payload = { body: body, dry_run: dry_run };
+      if(audience === "tag") payload.tag = value;
+      if(audience === "stage") payload.stage = value;
+      if(audience === "status") payload.status = value;
+      if(audience === "selected"){
+        const ids = (value || "").split(",").map(x=>x.trim()).filter(Boolean);
+        payload.client_ids = ids;
+      }
+
+      try{
+        const res = await fetch("/api/crm/broadcast/sms", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || "Broadcast failed");
+        if(dry_run){
+          if(st) st.innerText = `Dry run: ${data.count} recipients`;
+        }else{
+          if(st) st.innerText = `Sent: ${data.sent}/${data.count}  Failed: ${data.failed}`;
+        }
+      }catch(e){
+        if(st) st.innerText = (e && e.message) ? e.message : "Broadcast failed";
+      }
     }
+}
 
     async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
@@ -9051,27 +9120,23 @@ $("draftWithSelected").onclick = async () => {
     if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
     // =========================
-    // Calendar (Motion-style week view)
+    // Calendar (Month view)
     // =========================
-    let calAnchor = new Date(); // any date within current week
+    let calAnchor = new Date(); // any date within current month
+    calAnchor.setDate(1); calAnchor.setHours(0,0,0,0);
     let calEvents = [];
+    let calSelectedDate = null; // "YYYY-MM-DD"
 
-    function _calStartOfWeek(d){
-      const x = new Date(d.getTime());
-      const day = x.getDay(); // 0 Sun .. 6 Sat
-      const diff = (day === 0 ? -6 : (1 - day)); // Monday start
-      x.setDate(x.getDate() + diff);
-      x.setHours(0,0,0,0);
-      return x;
-    }
-    function _calFmtDay(d){
-      try{
-        return d.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
-      }catch(e){
-        return String(d);
-      }
-    }
     function _calPad(n){ return (n<10?'0':'') + n; }
+    function _calDateKey(d){ return `${d.getFullYear()}-${_calPad(d.getMonth()+1)}-${_calPad(d.getDate())}`; }
+    function _calFmtMonth(d){
+      try{ return d.toLocaleDateString(undefined, {month:'long', year:'numeric'}); }
+      catch(e){ return String(d); }
+    }
+    function _calFmtDayName(idx){
+      const names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+      return names[idx] || "";
+    }
     function _calToLocalInputValue(dt){
       try{
         const d = new Date(dt);
@@ -9083,114 +9148,174 @@ $("draftWithSelected").onclick = async () => {
         return `${y}-${m}-${da}T${h}:${mi}`;
       }catch(e){ return ""; }
     }
+    function _calStartOfMonth(d){
+      const x = new Date(d.getTime());
+      x.setDate(1); x.setHours(0,0,0,0);
+      return x;
+    }
+    function _calGridStart(monthStart){
+      // Monday-based grid start (Mon..Sun)
+      const x = new Date(monthStart.getTime());
+      const day = x.getDay(); // 0 Sun .. 6 Sat
+      const mondayIndex = (day === 0 ? 6 : day - 1); // 0 for Mon
+      x.setDate(x.getDate() - mondayIndex);
+      x.setHours(0,0,0,0);
+      return x;
+    }
 
-    async function calFetchWeek(){
+    function calSetSelectedDate(dateKey){
+      calSelectedDate = dateKey;
+      const lbl = $("calSelectedDateLabel");
+      if(lbl){
+        try{
+          const d = new Date(dateKey + "T00:00:00");
+          lbl.innerText = "Selected date: " + d.toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
+        }catch(e){
+          lbl.innerText = "Selected date: " + dateKey;
+        }
+      }
+
+      // Prefill quick add fields (call + task) to the selected date
+      try{
+        const base = new Date(dateKey + "T00:00:00");
+        const s = new Date(base.getTime()); s.setHours(9,0,0,0);
+        const e = new Date(base.getTime()); e.setHours(9,30,0,0);
+        if($("calMeetStart")) $("calMeetStart").value = _calToLocalInputValue(s);
+        if($("calMeetEnd")) $("calMeetEnd").value = _calToLocalInputValue(e);
+        const due = new Date(base.getTime()); due.setHours(17,0,0,0);
+        if($("calTaskDue")) $("calTaskDue").value = _calToLocalInputValue(due);
+      }catch(e){}
+      calRenderMonth(); // to show selected outline
+      try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
+    }
+
+    async function calFetchMonth(){
       const st = $("calStatus"); if(st) st.innerText = "Loading...";
       try{
-        const start = _calStartOfWeek(calAnchor);
-        const end = new Date(start.getTime()); end.setDate(end.getDate()+7);
-        const time_min = start.toISOString();
-        const time_max = end.toISOString();
+        const monthStart = _calStartOfMonth(calAnchor);
+        const gridStart = _calGridStart(monthStart);
+        const gridEnd = new Date(gridStart.getTime()); gridEnd.setDate(gridEnd.getDate() + 42); // 6 weeks
+        const time_min = gridStart.toISOString();
+        const time_max = gridEnd.toISOString();
+
         const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(time_min)}&time_max=${encodeURIComponent(time_max)}`);
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || "Calendar load failed");
         calEvents = data.events || [];
-        calRenderWeek();
+        calRenderMonth();
         if(st) st.innerText = "Ready";
       }catch(e){
         if(st) st.innerText = "Load failed (connect Calendar in Settings)";
       }
     }
 
-    function calRenderWeek(){
+    function calRenderMonth(){
       const grid = $("calGrid"); if(!grid) return;
-      const start = _calStartOfWeek(calAnchor);
-      const days = [];
-      for(let i=0;i<7;i++){ const d=new Date(start.getTime()); d.setDate(d.getDate()+i); days.push(d); }
-      const label = $("calRangeLabel");
-      if(label){
-        const end = new Date(start.getTime()); end.setDate(end.getDate()+6);
-        label.innerText = _calFmtDay(start) + "  to  " + _calFmtDay(end);
+      const head = $("calMonthHead"); if(!head) return;
+
+      const monthStart = _calStartOfMonth(calAnchor);
+      const gridStart = _calGridStart(monthStart);
+      const monthLabel = $("calRangeLabel");
+      if(monthLabel) monthLabel.innerText = _calFmtMonth(monthStart);
+
+      // header labels
+      head.innerHTML = "";
+      for(let i=0;i<7;i++){
+        const c = document.createElement("div");
+        c.className = "cell";
+        c.innerText = _calFmtDayName(i);
+        head.appendChild(c);
       }
 
-      const startHour = 6;
-      const endHour = 20;
-      const hours = [];
-      for(let h=startHour; h<=endHour; h++){ hours.push(h); }
-
-      const head = `
-        <div class="calWeekHead">
-          <div class="cell"></div>
-          ${days.map(d=>`<div class="cell">${_calFmtDay(d)}</div>`).join('')}
-        </div>
-      `;
-
-      // body grid: time column + 7 day columns
-      let body = `<div class="calWeek">`;
-      // time column
-      body += `<div class="calTimeCol">` + hours.map(h=>{
-        const hr = (h===0?12:(h>12?h-12:h));
-        const ampm = (h>=12?'PM':'AM');
-        return `<div class="calTimeLabel">${hr}${ampm}</div>`;
-      }).join('') + `</div>`;
-
-      // day columns
-      body += days.map((d, idx)=>`<div class="calDayCol" data-day="${idx}">
-        ${hours.map(()=>`<div class="calHour"></div>`).join('')}
-      </div>`).join('');
-      body += `</div>`;
-
-      grid.innerHTML = head + body;
-
-      // place events
-      const pxPerMin = 48 / 60; // 48px per hour row
-      const cols = grid.querySelectorAll(".calDayCol");
-      const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
-
+      // map events by day
+      const byDay = {};
       (calEvents||[]).forEach(ev=>{
         try{
           const s = ev.start_dt ? new Date(ev.start_dt) : null;
-          const e = ev.end_dt ? new Date(ev.end_dt) : null;
-          if(!s || !e) return;
-          const dayIndex = Math.floor((new Date(s.getFullYear(), s.getMonth(), s.getDate()) - new Date(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000);
-          if(dayIndex < 0 || dayIndex > 6) return;
-          const col = cols[dayIndex]; if(!col) return;
+          if(!s) return;
+          const key = _calDateKey(s);
+          if(!byDay[key]) byDay[key] = [];
+          byDay[key].push(ev);
+        }catch(e){}
+      });
 
-          const startMin = (s.getHours()*60 + s.getMinutes()) - (startHour*60);
-          const durMin = Math.max(15, (e - s)/60000);
-          const top = clamp(startMin * pxPerMin, 0, (endHour-startHour+1)*60*pxPerMin);
-          const height = clamp(durMin * pxPerMin, 18, 900);
+      // render 42 cells
+      grid.innerHTML = "";
+      for(let i=0;i<42;i++){
+        const d = new Date(gridStart.getTime()); d.setDate(d.getDate()+i);
+        const key = _calDateKey(d);
+        const inMonth = (d.getMonth() === monthStart.getMonth());
+        const isToday = _calDateKey(new Date()) === key;
 
-          const timeStr = s.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) + " - " + e.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-          const join = (ev.meet_link || ev.hangout_link || ev.html_link || "");
-          const joinHtml = join ? `<a href="${join}" target="_blank" rel="noopener">Join</a>` : "";
-          const openHtml = ev.html_link ? `<a href="${ev.html_link}" target="_blank" rel="noopener">Open</a>` : "";
+        const cell = document.createElement("div");
+        cell.className = "calDateCell" + (inMonth ? "" : " muted") + (calSelectedDate===key ? " calDateSelected" : "");
+        cell.dataset.date = key;
 
-          const div = document.createElement("div");
-          div.className = "calEvent";
-          div.style.top = top + "px";
-          div.style.height = height + "px";
-          div.innerHTML = `
-            <div class="t">${(ev.summary||"Event").replace(/</g,"&lt;")}</div>
-            <div class="s">${timeStr}</div>
-            <div class="a">${joinHtml}${openHtml}</div>
-          `;
-          div.onclick = ()=> {
+        const top = document.createElement("div");
+        top.className = "d";
+        top.innerHTML = `<span>${d.getDate()}</span>` + (isToday ? `<span class="tag">Today</span>` : ``);
+        cell.appendChild(top);
+
+        const evWrap = document.createElement("div");
+        evWrap.className = "events";
+
+        const items = (byDay[key] || []).slice().sort((a,b)=>{
+          const sa = a.start_dt ? new Date(a.start_dt).getTime() : 0;
+          const sb = b.start_dt ? new Date(b.start_dt).getTime() : 0;
+          return sa - sb;
+        });
+
+        const showN = 3;
+        items.slice(0, showN).forEach(ev=>{
+          const chip = document.createElement("div");
+          chip.className = "calChip";
+          const sdt = ev.start_dt ? new Date(ev.start_dt) : null;
+          const edt = ev.end_dt ? new Date(ev.end_dt) : null;
+          let timeStr = "";
+          try{
+            if(sdt && edt){
+              timeStr = sdt.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) + " ";
+            }
+          }catch(e){}
+          chip.innerText = (timeStr + (ev.summary||"Event")).trim();
+          chip.onclick = (e)=>{
+            e.stopPropagation();
+            const join = (ev.meet_link || ev.hangout_link || ev.html_link || "");
+            const open = (ev.html_link || "");
+            const when = (sdt && edt) ? (sdt.toLocaleString() + "  to  " + edt.toLocaleString()) : "";
             const msg = (ev.description||"").trim();
             const lines = [
               `Title: ${ev.summary||""}`,
-              `When: ${timeStr}`,
+              when ? `When: ${when}` : "",
               ev.location ? `Where: ${ev.location}` : "",
               join ? `Join: ${join}` : "",
-              ev.html_link ? `Open: ${ev.html_link}` : "",
-              msg ? `\n${msg}` : ""
-            ].filter(Boolean).join("\n");
+              open ? `Open: ${open}` : "",
+              msg ? `
+${msg}` : ""
+            ].filter(Boolean).join("
+");
             showModal("Calendar event", lines);
           };
-          col.appendChild(div);
-        }catch(e){}
-      });
+          evWrap.appendChild(chip);
+        });
+
+        if(items.length > showN){
+          const more = document.createElement("div");
+          more.className = "calMore";
+          more.innerText = `+${items.length - showN} more`;
+          evWrap.appendChild(more);
+        }
+
+        cell.appendChild(evWrap);
+
+        cell.onclick = ()=>{
+          calSetSelectedDate(key);
+        };
+
+        grid.appendChild(cell);
+      }
     }
+
 
     async function calCreateMeeting(){
       const st = $("calMeetStatus"); if(st) st.innerText = "Creating...";
@@ -9219,7 +9344,7 @@ $("draftWithSelected").onclick = async () => {
         if(!data.ok) throw new Error(data.error||"Create failed");
         if(st) st.innerText = "Created";
         showToast("Meeting created");
-        await calFetchWeek();
+        await calFetchMonth();
       }catch(e){
         if(st) st.innerText = "Create failed (connect Calendar in Settings)";
       }
@@ -9263,6 +9388,14 @@ $("draftWithSelected").onclick = async () => {
 
       $("modalTitle").innerText = "Calendar";
 
+      // Default to current month + select today
+      try{
+        const t=new Date();
+        const x=_calStartOfMonth(t);
+        calAnchor=x;
+        calSetSelectedDate(_calDateKey(t));
+      }catch(e){}
+
       // seed meeting times: next 30-min block
       try{
         const now = new Date();
@@ -9276,15 +9409,15 @@ $("draftWithSelected").onclick = async () => {
       }catch(e){}
 
       // load week
-      calFetchWeek();
+      calFetchMonth();
     }
 
     // calendar controls
     try{
-      if($("calTodayBtn")) $("calTodayBtn").onclick = ()=>{ calAnchor = new Date(); calFetchWeek(); };
-      if($("calPrevBtn")) $("calPrevBtn").onclick = ()=>{ const s=_calStartOfWeek(calAnchor); s.setDate(s.getDate()-7); calAnchor=s; calFetchWeek(); };
-      if($("calNextBtn")) $("calNextBtn").onclick = ()=>{ const s=_calStartOfWeek(calAnchor); s.setDate(s.getDate()+7); calAnchor=s; calFetchWeek(); };
-      if($("calRefreshBtn")) $("calRefreshBtn").onclick = ()=> calFetchWeek();
+      if($("calTodayBtn")) $("calTodayBtn").onclick = ()=>{ const x=new Date(); x.setDate(1); x.setHours(0,0,0,0); calAnchor=x; calFetchMonth(); };
+      if($("calPrevBtn")) $("calPrevBtn").onclick = ()=>{ const x=_calStartOfMonth(calAnchor); x.setMonth(x.getMonth()-1); calAnchor=x; calFetchMonth(); };
+      if($("calNextBtn")) $("calNextBtn").onclick = ()=>{ const x=_calStartOfMonth(calAnchor); x.setMonth(x.getMonth()+1); calAnchor=x; calFetchMonth(); };
+      if($("calRefreshBtn")) $("calRefreshBtn").onclick = ()=> calFetchMonth();
       if($("calCreateMeetBtn")) $("calCreateMeetBtn").onclick = ()=> calCreateMeeting();
       if($("calCreateTaskBtn")) $("calCreateTaskBtn").onclick = ()=> calCreateTask();
     }catch(e){}
@@ -9293,11 +9426,8 @@ $("draftWithSelected").onclick = async () => {
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
-      b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
-      b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
-      b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
-      b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
-      b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
+            b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
+                        b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); const s=$('crmSmsStatus'); if(s) s.innerText=''; });
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
@@ -9312,6 +9442,9 @@ $("draftWithSelected").onclick = async () => {
 
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
+
+      b('crmSmsDryRun', ()=>crmBroadcastSMS(true));
+      b('crmSmsSend', ()=>crmBroadcastSMS(false));
 
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
@@ -11494,6 +11627,92 @@ def api_crm_broadcast_email():
     except Exception as e:
         # Never 500 the UI; return a clear error.
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
+
+@app.post("/api/crm/broadcast/sms")
+def api_crm_broadcast_sms():
+    """Bulk SMS sender for CRM (optional).
+
+    Uses _crm_try_send_sms (Twilio when configured).
+    Supports same filter style as email:
+      - payload.filter = {tag, stage, status, ids}
+      - OR UI-friendly keys: tag/stage/status/client_ids
+      - payload.dry_run = true (no sends, returns count only)
+    Returns: {ok, count, sent, failed, results}
+    """
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+
+    payload = request.get_json(silent=True) or {}
+    body_t = (payload.get("body") or "").strip()
+    dry_run = bool(payload.get("dry_run"))
+
+    if not body_t:
+        return jsonify({"ok": False, "error": "Missing message body"}), 400
+
+    # Accept either {filter:{...}} or direct UI keys.
+    filt = payload.get("filter") or {}
+    if not isinstance(filt, dict):
+        filt = {}
+
+    if payload.get("tag"):
+        filt["tag"] = str(payload.get("tag") or "").strip()
+    if payload.get("stage"):
+        filt["stage"] = str(payload.get("stage") or "").strip()
+    if payload.get("status"):
+        filt["status"] = str(payload.get("status") or "").strip()
+    if payload.get("client_ids"):
+        ids = payload.get("client_ids") or []
+        if isinstance(ids, str):
+            ids = [x.strip() for x in ids.split(",") if x.strip()]
+        if isinstance(ids, list):
+            filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
+
+    try:
+        crm = _crm_load(uname)
+        clients = list((crm.get("clients") or {}).values())
+        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+
+        # safety cap
+        if len(recipients) > 250:
+            return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
+
+        if dry_run:
+            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
+
+        sent = 0
+        failed = 0
+        results = []
+
+        for c in recipients:
+            to_phone = (c.get("phone") or c.get("mobile") or c.get("phone_number") or "").strip()
+            if not to_phone:
+                failed += 1
+                results.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing phone"})
+                continue
+
+            ctx = {
+                "name": c.get("name", ""),
+                "first_name": (c.get("name", "").split(" ")[0] if c.get("name") else ""),
+                "company": c.get("company", ""),
+            }
+            msg = _safe_render(body_t, ctx)
+
+            ok, err = _crm_try_send_sms(uname, to_phone, msg)
+            if ok:
+                sent += 1
+                results.append({"client_id": c.get("id", ""), "ok": True})
+            else:
+                failed += 1
+                results.append({"client_id": c.get("id", ""), "ok": False, "error": err})
+
+        _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
+        return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
+
+
 
 
 
