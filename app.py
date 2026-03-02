@@ -10021,7 +10021,96 @@ function applyRTTransformV4(){
 
 maybeAutoShowOnboarding();
 
-    
+    // ===== Client Center: Pipeline (FlowChat-like columns) =====
+    function ccSelectTab(tab){
+      const panels = ["Clients","Pipeline","EmailBroadcast","Tasks","Sequences","History","Calendar"];
+      for(const p of panels){
+        const el = document.getElementById("ccPanel"+p);
+        if(el) el.style.display = (p===tab) ? "block" : "none";
+      }
+      const btns = [
+        ["Clients","ccTabClients"],
+        ["Pipeline","ccTabPipeline"],
+        ["EmailBroadcast","ccTabEmailBroadcast"],
+        ["Tasks","ccTabTasks"],
+        ["Sequences","ccTabSequences"],
+        ["History","ccTabHistory"],
+        ["Calendar","ccTabCalendar"],
+      ];
+      btns.forEach(([name,id])=>{
+        const b=document.getElementById(id);
+        if(b) b.classList.toggle("btnPrimary", name===tab);
+      });
+    }
+
+    async function loadPipelineStages(){
+      const res = await fetch("/api/crm/state");
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error||"Failed to load CRM state");
+      const stages = (data.state && data.state.pipeline_stages) ? data.state.pipeline_stages : [];
+      const ta = document.getElementById("ccPipelineStages");
+      if(ta) ta.value = stages.join("\n");
+      return stages;
+    }
+
+    function stageSelectHtml(current, stages){
+      const opts = stages.map(s=>`<option value="${escapeHtml(s)}" ${s===current?"selected":""}>${escapeHtml(s)}</option>`).join("");
+      return `<select class="inp" data-role="stageSelect">${opts}</select>`;
+    }
+
+    async function renderPipelineBoard(){
+      const stages = await loadPipelineStages();
+      const clientsRes = await fetch("/api/crm/clients");
+      const clientsData = await clientsRes.json();
+      if(!clientsData.ok) throw new Error(clientsData.error||"Failed to load clients");
+      const clients = clientsData.clients || [];
+      const board = document.getElementById("ccPipelineBoard");
+      if(!board) return;
+      board.innerHTML = "";
+
+      for(const st of stages){
+        const col = document.createElement("div");
+        col.className = "card";
+        col.style.minWidth = "260px";
+        col.style.maxWidth = "260px";
+        col.style.padding = "10px";
+        col.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">${escapeHtml(st)}</div>`;
+        const list = document.createElement("div");
+        list.style.display = "flex";
+        list.style.flexDirection = "column";
+        list.style.gap = "8px";
+
+        const inStage = clients.filter(c => (c.pipeline_stage||"") === st);
+        for(const c of inStage){
+          const card = document.createElement("div");
+          card.style.border = "1px solid rgba(255,255,255,.08)";
+          card.style.borderRadius = "10px";
+          card.style.padding = "8px";
+          card.style.background = "rgba(0,0,0,.18)";
+          card.innerHTML = `
+            <div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">
+              <div style="font-weight:700; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.name||"(no name)")}</div>
+            </div>
+            <div style="font-size:12px; opacity:.85; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.email||"")}</div>
+            <div style="margin-top:6px;">${stageSelectHtml(c.pipeline_stage||st, stages)}</div>
+          `;
+          const sel = card.querySelector('select[data-role="stageSelect"]');
+          if(sel){
+            sel.onchange = async () => {
+              try{
+                const newStage = sel.value;
+                const res = await fetch("/api/crm/clients/"+encodeURIComponent(c.id), {
+                  method:"POST",
+                  headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({pipeline_stage:newStage})
+                });
+                const d = await res.json();
+                if(!d.ok) throw new Error(d.error||"Update failed");
+                showToast("Moved to " + newStage, "success");
+                await renderPipelineBoard();
+              }catch(e){
+                showToast(String(e), "error");
+              }
             };
           }
           list.appendChild(card);
@@ -10033,9 +10122,9 @@ maybeAutoShowOnboarding();
     }
 
 
-    const ccTabPipeline = 
+    const ccTabPipeline = document.getElementById("ccTabPipeline");
     if(ccTabPipeline){
-      ccTabPipeline.onclick = async ()=>{ ccSelectTab("Clients"); await renderPipelineBoard(); };
+      ccTabPipeline.onclick = async ()=>{ ccSelectTab("Pipeline"); await renderPipelineBoard(); };
     }
 </script>
 
