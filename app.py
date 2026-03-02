@@ -1825,36 +1825,6 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         raise Exception(f"Calendar API error: {data}")
     return data
 
-def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
-    import requests
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    params = {
-        "timeMin": time_min,
-        "timeMax": time_max,
-        "singleEvents": "true",
-        "orderBy": "startTime",
-        "maxResults": str(max_results),
-        "timeZone": timezone,
-    }
-    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
-    data = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise Exception(f"Calendar API error: {data}")
-    items = data.get("items") or []
-    out: List[Dict[str, Any]] = []
-    for it in items:
-        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
-        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
-        out.append({
-            "id": it.get("id",""),
-            "summary": it.get("summary",""),
-            "start": start,
-            "end": end,
-            "htmlLink": it.get("htmlLink",""),
-            "hangoutLink": it.get("hangoutLink",""),
-        })
-    return out
-
 
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
@@ -3198,8 +3168,10 @@ def api_calendar_create_event():
     except Exception as e:
         append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
         return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.get("/api/calendar/events")
 def api_calendar_events():
+    """List Google Calendar events within a time range (ISO strings)."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -3209,17 +3181,46 @@ def api_calendar_events():
 
     time_min = (request.args.get("time_min") or "").strip()
     time_max = (request.args.get("time_max") or "").strip()
-    timezone = (request.args.get("timezone") or "America/New_York").strip()
-    max_results = int((request.args.get("max_results") or "250").strip() or "250")
-    max_results = max(1, min(max_results, 1200))
-
     if not time_min or not time_max:
-        return jsonify({"ok": False, "error": "Missing time_min/time_max"}), 400
+        return jsonify({"ok": False, "error": "Provide time_min and time_max as ISO datetime strings."}), 400
+
     try:
-        events = _calendar_list_events(access_token, time_min=time_min, time_max=time_max, timezone=timezone, max_results=max_results)
-        return jsonify({"ok": True, "events": events})
+        import requests
+        url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+        params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": 250,
+        }
+        r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
+        data = r.json() if r.content else {}
+        if r.status_code >= 400:
+            return jsonify({"ok": False, "error": f"Calendar API error: {data}"}), 500
+
+        items = data.get("items") or []
+        out = []
+        for ev in items:
+            if not isinstance(ev, dict):
+                continue
+            start_obj = ev.get("start") or {}
+            end_obj = ev.get("end") or {}
+            start = start_obj.get("dateTime") or start_obj.get("date") or ""
+            end = end_obj.get("dateTime") or end_obj.get("date") or ""
+            out.append({
+                "id": ev.get("id") or "",
+                "summary": ev.get("summary") or "",
+                "start": start,
+                "end": end,
+                "htmlLink": ev.get("htmlLink") or "",
+                "hangoutLink": ev.get("hangoutLink") or "",
+                "location": ev.get("location") or "",
+                "description": ev.get("description") or "",
+            })
+        return jsonify({"ok": True, "events": out})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return jsonify({"ok": False, "error": str(e) or "Failed to fetch events"}), 500
 
 # =========================
 # AUTH ROUTES
@@ -5077,59 +5078,59 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   border-color: rgba(247,211,106,.35) !important;
 }
 
-/* === Calendar modal (additive, minimal) === */
-.calWeekdays{
-  display:grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap:6px;
-  margin-bottom:6px;
-}
-.calWeekdays .calWd{
-  font-size:11px;
-  color: var(--muted);
-  text-align:center;
-  padding:6px 0;
-  opacity:.9;
-}
-.calGrid{
-  display:grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap:6px;
-}
-.calCell{
-  border:1px solid rgba(255,255,255,.10);
+
+/* ===== Calendar Board v1 (additive) ===== */
+.calShell{ display:flex; gap:12px; align-items:stretch; }
+.calMain{ flex:1; min-width: 560px; }
+.calSide{ width: 320px; max-width: 44vw; }
+.calHead{ display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+.calTitle{ font-weight:800; }
+.calControls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.calBoard{ border:1px solid rgba(255,255,255,.10); border-radius:14px; overflow:hidden; background: rgba(0,0,0,.16); }
+.calBoardHead{ display:grid; grid-template-columns: 64px repeat(7, 1fr); border-bottom:1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.14); }
+.calBoardHead .cell{ padding:8px 8px; font-size:12px; color: rgba(230,237,255,.85); border-right:1px solid rgba(255,255,255,.08); }
+.calBoardHead .cell:last-child{ border-right:none; }
+.calScroll{ max-height: 64vh; overflow:auto; position:relative; }
+.calGrid{ display:grid; grid-template-columns: 64px repeat(7, 1fr); position:relative; }
+.calTimeCell{ height:60px; border-bottom:1px solid rgba(255,255,255,.06); padding:6px 8px; font-size:11px; color: rgba(230,237,255,.70); }
+.calDayCell{ height:60px; border-bottom:1px solid rgba(255,255,255,.06); border-right:1px solid rgba(255,255,255,.06); position:relative; }
+.calDayCell:last-child{ border-right:none; }
+.calItem{
+  position:absolute;
+  left:6px; right:6px;
+  border:1px solid rgba(247,211,106,.22);
   border-radius:12px;
-  padding:8px;
-  background: rgba(0,0,0,.18);
-  min-height:72px;
-  cursor:pointer;
-  position:relative;
+  padding:8px 10px;
+  background: rgba(14,22,48,.82);
+  box-shadow: 0 0 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(247,211,106,.10);
+  cursor: grab;
+  user-select:none;
   overflow:hidden;
 }
-.calCell:hover{
-  border-color: rgba(247,211,106,.35);
+.calItem:active{ cursor:grabbing; }
+.calItem .row{ display:flex; gap:8px; align-items:center; justify-content:space-between; }
+.calItem .t{ font-weight:800; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.calItem .m{ font-size:11px; color: rgba(230,237,255,.72); margin-top:4px; }
+.calItemDone{ opacity:.55; }
+.calItemChk{ width:16px; height:16px; }
+.calQuick{ margin-top:10px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.14); }
+.calQuick .tiny{ margin-bottom:6px; }
+.calTaskList{ display:flex; flex-direction:column; gap:8px; }
+.calTaskCard{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:10px;
+  background: rgba(0,0,0,.14);
+  cursor: grab;
 }
-.calCell.muted{
-  opacity:.45;
-}
-.calCell.selected{
-  border-color: rgba(247,211,106,.65);
-  box-shadow: 0 0 18px rgba(247,211,106,.10);
-}
-.calNum{
-  font-weight:800;
-  font-size:12px;
-}
-.calDots{
-  margin-top:6px;
-  display:flex;
-  gap:4px;
-  flex-wrap:wrap;
-}
-.calDot{
-  width:6px; height:6px; border-radius:999px;
-  background: rgba(59,130,246,.75);
-  box-shadow: 0 0 10px rgba(59,130,246,.22);
+.calTaskCard:active{ cursor:grabbing; }
+.calTaskCard .t{ font-weight:800; }
+.calTaskCard .m{ font-size:11px; color: rgba(230,237,255,.72); margin-top:4px; }
+@media (max-width: 900px){
+  .calShell{ flex-direction:column; }
+  .calMain{ min-width: 0; }
+  .calSide{ width:100%; max-width:100%; }
+  .calScroll{ max-height: 52vh; }
 }
 
 </style>
@@ -5148,8 +5149,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="createTeamBtn">Create teammate</button>
       <button class="btn" id="installFullBtn">Install full team</button>
       <button class="btn" id="settingsBtn">Settings</button>
-            <button class="btn" id="calendarBtn">Calendar</button>
-<button class="btn" id="crmBtn">Client Center</button>
+      <button class="btn" id="crmBtn">Client Center</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5181,8 +5181,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-                <button class="btn" data-click="calendarBtn">Calendar</button>
-<button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -5469,12 +5468,15 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Email broadcast, pipeline, tasks, sequences, and calendar without leaving the Round Table.</div>
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
+    <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
-    <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
+    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
+    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
+    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
   </div>
 
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
@@ -5609,39 +5611,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
   </div>
 
-
-<!-- Broadcast SMS -->
-<div id="crmViewBroadcastSMS" style="display:none;">
-  <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
-
-  <div class="grid">
-    <div>
-      <label>Audience</label>
-      <select id="crmSmsAudience">
-        <option value="all">All clients</option>
-        <option value="tag">Tag</option>
-        <option value="stage">Pipeline stage</option>
-        <option value="status">Status</option>
-        <option value="selected">Selected IDs</option>
-      </select>
-    </div>
-    <div>
-      <label>Value (tag/stage/status or comma IDs)</label>
-      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" />
-    </div>
-  </div>
-
-  <label style="margin-top:10px;">Message</label>
-  <textarea id="crmSmsBody" rows="6" placeholder="Write your text message..."></textarea>
-
-  <div class="actions" style="justify-content:flex-start; margin-top:10px;">
-    <button class="btn" id="crmSmsDryRun">Dry run</button>
-    <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
-  </div>
-
-  <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
-</div>
-
   <!-- Tasks -->
   <div id="crmViewTasks" style="display:none;">
     <div class="actions" style="justify-content:flex-start;">
@@ -5748,88 +5717,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
-
-  <div style="display:flex; gap:12px; flex-wrap:wrap;">
-    <div style="flex: 1 1 360px; min-width: 280px;">
-      <div class="pillRow" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button class="btn btnMini" id="calPrevBtn">Prev</button>
-          <button class="btn btnMini" id="calTodayBtn">Today</button>
-          <button class="btn btnMini" id="calNextBtn">Next</button>
-        </div>
-        <div class="pill" id="calMonthLabel">Month</div>
-      </div>
-
-      <div class="calWeekdays" id="calWeekdays"></div>
-      <div class="calGrid" id="calGrid"></div>
-      <div class="tiny" id="calLoadStatus" style="margin-top:8px; opacity:.85;"></div>
-    </div>
-
-    <div style="flex: 1 1 260px; min-width: 260px;">
-      <div class="diagCard" style="padding:10px;">
-        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:800;" id="calSelectedLabel">Select a date</div>
-            <div class="tiny" style="opacity:.85;" id="calSelectedSub"> </div>
-          </div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Add task</div>
-          <label>Title</label>
-          <input id="calTaskTitle" placeholder="Follow up with..." />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Time</label>
-              <input id="calTaskTime" type="time" value="17:00" />
-            </div>
-            <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
-              <button class="btn btnPrimary" id="calAddTaskBtn">Add</button>
-            </div>
-          </div>
-          <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
-          <label>Title</label>
-          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Start</label>
-              <input id="calCallTime" type="time" value="09:00" />
-            </div>
-            <div>
-              <label>Duration</label>
-              <select id="calCallDur">
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </div>
-          </div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnPrimary" id="calCreateCallBtn">Create</button>
-          </div>
-          <div class="tiny" id="calCallStatus" style="margin-top:8px;"></div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div class="tiny" style="margin-bottom:6px;">Events</div>
-        <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<img id="modalImg" class="imgPreview" alt="Preview"/>
+              <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
         </div>
@@ -8673,7 +8561,7 @@ $("draftWithSelected").onclick = async () => {
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -8914,46 +8802,7 @@ $("draftWithSelected").onclick = async () => {
       }
     }
 
-    
-async function crmBroadcastSMS(dry_run=false){
-  const st = $("crmSmsStatus");
-  if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
-
-  const audience = ($("crmSmsAudience").value||'all');
-  const val = ($("crmSmsAudienceValue").value||'').trim();
-  const body = ($("crmSmsBody").value||'').trim();
-
-  if(!body){
-    if(st) st.innerText = 'Failed: message is required';
-    return;
-  }
-
-  const payload = {body, dry_run: !!dry_run};
-  if(audience==='tag') payload.tag = val;
-  if(audience==='stage') payload.stage = val;
-  if(audience==='status') payload.status = val;
-  if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
-
-  try{
-    const res = await fetch('/api/crm/broadcast/sms', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'sms failed');
-
-    if(dry_run){
-      if(st) st.innerText = `Dry run: would send to ${data.count||0} recipient(s).`;
-    }else{
-      if(st) st.innerText = `Done. Sent: ${data.sent||0} Failed: ${data.failed||0}`;
-    }
-  }catch(e){
-    if(st) st.innerText = 'Send failed (SMS not configured)';
-  }
-}
-
-async function crmFetchTasks(){
+    async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
       const data = await res.json();
       if(!data.ok) throw new Error(data.error||'tasks load failed');
@@ -9188,7 +9037,6 @@ async function crmFetchTasks(){
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
-      b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; });
       b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
@@ -9207,9 +9055,6 @@ async function crmFetchTasks(){
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
 
-      b('crmSmsDryRun', ()=>crmBroadcastSMS(true));
-      b('crmSmsSend', ()=>crmBroadcastSMS(false));
-
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
       b('crmCancelTask', ()=>{ const ed=$("crmTaskEditor"); if(ed) ed.style.display='none'; crmEditingTaskId=null; });
@@ -9226,266 +9071,6 @@ async function crmFetchTasks(){
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
-
-// =========================
-// Calendar modal (month grid + date click actions)
-// =========================
-const cal = {
-  y: (new Date()).getFullYear(),
-  m: (new Date()).getMonth(), // 0-11
-  selected: null, // 'YYYY-MM-DD'
-  events: {}, // date -> [{summary, start, end, link}]
-  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York")
-};
-
-function pad2(n){ return (n<10?('0'+n):(''+n)); }
-function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-
-function calSetStatus(t){ const el=$("calLoadStatus"); if(el) el.innerText = t||""; }
-
-function calWeekdayHeader(){
-  const box = $("calWeekdays");
-  if(!box) return;
-  const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  box.innerHTML = names.map(n=>`<div class="calWd">${n}</div>`).join('');
-}
-
-async function calFetchEventsForVisibleRange(){
-  const first = new Date(cal.y, cal.m, 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
-
-  const last = new Date(cal.y, cal.m + 1, 0);
-  const end = new Date(last);
-  end.setDate(last.getDate() + (6 - last.getDay()) + 1);
-
-  const timeMin = start.toISOString();
-  const timeMax = end.toISOString();
-
-  calSetStatus('Loading events...');
-  try{
-    const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}&timezone=${encodeURIComponent(cal.tz)}`);
-    const data = await res.json();
-    if(!data.ok){
-      cal.events = {};
-      calSetStatus(data.error || 'Calendar not connected (connect in Settings)');
-      return;
-    }
-    const events = data.events || [];
-    const map = {};
-    events.forEach(ev=>{
-      const s = (ev.start || '').slice(0,10);
-      if(!s) return;
-      map[s] = map[s] || [];
-      map[s].push(ev);
-    });
-    cal.events = map;
-    calSetStatus('');
-  }catch(e){
-    cal.events = {};
-    calSetStatus('Could not load events');
-  }
-}
-
-function calRenderMonth(){
-  const label = $("calMonthLabel");
-  const grid = $("calGrid");
-  if(!grid) return;
-
-  const monthName = new Date(cal.y, cal.m, 1).toLocaleString(undefined, {month:'long', year:'numeric'});
-  if(label) label.innerText = monthName;
-
-  const first = new Date(cal.y, cal.m, 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
-
-  const cells = [];
-  for(let i=0;i<42;i++){
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const inMonth = d.getMonth() === cal.m;
-    const key = ymd(d);
-    const evs = cal.events[key] || [];
-    const dots = evs.slice(0,6).map(()=>'<span class="calDot"></span>').join('');
-    const cls = ['calCell', inMonth ? '' : 'muted', (cal.selected===key ? 'selected':'')].filter(Boolean).join(' ');
-    cells.push(`
-      <div class="${cls}" data-cal-date="${key}">
-        <div class="calNum">${d.getDate()}</div>
-        <div class="calDots">${dots}</div>
-      </div>
-    `);
-  }
-  grid.innerHTML = cells.join('');
-
-  grid.querySelectorAll('[data-cal-date]').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const dt = el.getAttribute('data-cal-date');
-      calSelectDate(dt);
-      calRenderMonth();
-    });
-  });
-}
-
-function calRenderDayPanel(){
-  const lab = $("calSelectedLabel");
-  const sub = $("calSelectedSub");
-  const list = $("calDayEvents");
-  const dt = cal.selected;
-
-  if(!dt){
-    if(lab) lab.innerText = 'Select a date';
-    if(sub) sub.innerText = '';
-    if(list) list.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
-    return;
-  }
-
-  const pretty = new Date(dt+'T00:00:00').toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
-  if(lab) lab.innerText = pretty;
-  if(sub) sub.innerText = cal.tz;
-
-  const evs = cal.events[dt] || [];
-  if(!evs.length){
-    if(list) list.innerHTML = '<div style="opacity:.85;">No events.</div>';
-  }else{
-    const rows = evs.slice(0,12).map(ev=>{
-      const t = (ev.start || '').replace('T',' ').slice(0,16);
-      const title = escapeHtml(ev.summary || 'Event');
-      const join = ev.hangoutLink ? `<a href="${ev.hangoutLink}" target="_blank" rel="noopener">Join</a>` : (ev.htmlLink ? `<a href="${ev.htmlLink}" target="_blank" rel="noopener">Open</a>` : '');
-      return `<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08);">
-        <div style="opacity:.95;">${title}<div style="opacity:.8; font-size:11px;">${escapeHtml(t)}</div></div>
-        <div style="white-space:nowrap; opacity:.95;">${join}</div>
-      </div>`;
-    }).join('');
-    if(list) list.innerHTML = `<div>${rows}</div>`;
-  }
-}
-
-function calSelectDate(dt){
-  cal.selected = dt;
-  calRenderDayPanel();
-  if($("calTaskStatus")) $("calTaskStatus").innerText = '';
-  if($("calCallStatus")) $("calCallStatus").innerText = '';
-}
-
-async function calAddTask(){
-  const st = $("calTaskStatus");
-  if(st) st.innerText = 'Adding...';
-  const dt = cal.selected;
-  const title = ($("calTaskTitle").value||'').trim();
-  const tm = ($("calTaskTime").value||'').trim();
-  if(!dt){
-    if(st) st.innerText = 'Pick a date first';
-    return;
-  }
-  if(!title){
-    if(st) st.innerText = 'Title required';
-    return;
-  }
-  const due = tm ? `${dt}T${tm}` : dt;
-  try{
-    const res = await fetch('/api/crm/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, due})});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'task failed');
-    if(st) st.innerText = 'Added';
-    $("calTaskTitle").value = '';
-    showToast('Task added');
-  }catch(e){
-    if(st) st.innerText = 'Add failed';
-  }
-}
-
-async function calCreateCall(){
-  const st = $("calCallStatus");
-  if(st) st.innerText = 'Creating...';
-  const dt = cal.selected;
-  if(!dt){
-    if(st) st.innerText = 'Pick a date first';
-    return;
-  }
-  const title = ($("calCallTitle").value||'Call').trim() || 'Call';
-  const tm = ($("calCallTime").value||'09:00').trim();
-  const dur = parseInt(($("calCallDur").value||'30').trim(),10) || 30;
-
-  const startLocal = new Date(dt+'T'+tm+':00');
-  const endLocal = new Date(startLocal.getTime() + dur*60000);
-
-  try{
-    const res = await fetch('/api/calendar/create_event', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        title,
-        start: startLocal.toISOString(),
-        end: endLocal.toISOString(),
-        timezone: cal.tz
-      })
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'calendar failed');
-    if(st) st.innerText = 'Created';
-    showToast('Call scheduled');
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-    calRenderDayPanel();
-  }catch(e){
-    if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
-  }
-}
-
-function showCalendarModal(){
-  showModal();
-  if($("frameworkForm")) $("frameworkForm").style.display = "none";
-  if($("modalForm")) $("modalForm").style.display = "none";
-  if($("manageForm")) $("manageForm").style.display = "none";
-  if($("createForm")) $("createForm").style.display = "none";
-  if($("settingsForm")) $("settingsForm").style.display = "none";
-  if($("stackForm")) $("stackForm").style.display = "none";
-  if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-  if($("crmForm")) $("crmForm").style.display = "none";
-  if($("calendarForm")) $("calendarForm").style.display = "block";
-  if($("modalBody")) $("modalBody").style.display = "none";
-  if($("modalImg")) $("modalImg").style.display = "none";
-
-  $("modalTitle").innerText = "Calendar";
-  calWeekdayHeader();
-
-  if(!cal.selected) cal.selected = ymd(new Date());
-  calSelectDate(cal.selected);
-
-  (async()=>{
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-    calRenderDayPanel();
-  })();
-}
-
-if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
-
-try{
-  if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
-    cal.m -= 1;
-    if(cal.m < 0){ cal.m = 11; cal.y -= 1; }
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-  };
-  if($("calNextBtn")) $("calNextBtn").onclick = async ()=>{
-    cal.m += 1;
-    if(cal.m > 11){ cal.m = 0; cal.y += 1; }
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-  };
-  if($("calTodayBtn")) $("calTodayBtn").onclick = async ()=>{
-    const d = new Date();
-    cal.y = d.getFullYear();
-    cal.m = d.getMonth();
-    calSelectDate(ymd(d));
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-  };
-  if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
-  if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
-}catch(e){}
-
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
@@ -11652,77 +11237,6 @@ def api_crm_broadcast_email():
         # Never 500 the UI; return a clear error.
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
 
-@app.post("/api/crm/broadcast/sms")
-def api_crm_broadcast_sms():
-    """Bulk SMS sender for CRM (Twilio only when configured)."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-
-    payload = request.get_json(silent=True) or {}
-    body_t = (payload.get("body") or "").strip()
-    dry_run = bool(payload.get("dry_run"))
-
-    if not body_t:
-        return jsonify({"ok": False, "error": "Missing body"}), 400
-
-    filt = payload.get("filter") or {}
-    if not isinstance(filt, dict):
-        filt = {}
-
-    if payload.get("tag"):
-        filt["tag"] = str(payload.get("tag") or "").strip()
-    if payload.get("stage"):
-        filt["stage"] = str(payload.get("stage") or "").strip()
-    if payload.get("status"):
-        filt["status"] = str(payload.get("status") or "").strip()
-    if payload.get("client_ids"):
-        ids = payload.get("client_ids") or []
-        if isinstance(ids, str):
-            ids = [x.strip() for x in ids.split(",") if x.strip()]
-        if isinstance(ids, list):
-            filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
-
-    try:
-        crm = _crm_load(uname)
-        clients = list((crm.get("clients") or {}).values())
-        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
-
-        if len(recipients) > 250:
-            return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
-
-        if dry_run:
-            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
-
-        sent = 0
-        failed = 0
-        results = []
-
-        for c in recipients:
-            phone = (c.get("phone") or "").strip()
-            if not phone:
-                failed += 1
-                results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing phone"})
-                continue
-
-            ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
-            body = _safe_render(body_t, ctx)
-
-            ok_send, err = _crm_try_send_sms(uname, phone, body)
-            if ok_send:
-                sent += 1
-            else:
-                failed += 1
-            results.append({"client_id": c.get("id",""), "ok": bool(ok_send), "error": err})
-
-        _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
-        return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
-
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
-
-
 
 
 @app.post("/api/crm/tasks")
@@ -11768,7 +11282,16 @@ def api_crm_tasks_list():
     def _key(t):
         return (t.get("due") or "9999", t.get("created_at") or "")
     tasks.sort(key=_key)
-    return jsonify({"ok": True, "tasks": tasks})
+    tasks_out = []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        tt = dict(t)
+        st = (tt.get("status") or "").lower().strip()
+        tt["done"] = bool(tt.get("done")) or (st in ["done","completed","complete","closed"])
+        tasks_out.append(tt)
+    return jsonify({"ok": True, "tasks": tasks_out})
+
 
 @app.post("/api/crm/tasks/<task_id>")
 def api_crm_task_update(task_id: str):
@@ -11785,6 +11308,15 @@ def api_crm_task_update(task_id: str):
     for k in ["title","client_id","status","priority","due","notes"]:
         if k in payload:
             t[k] = (payload.get(k) or "").strip()
+    if "done" in payload:
+        done_val = bool(payload.get("done"))
+        t["done"] = done_val
+        if done_val:
+            t["status"] = "completed"
+        else:
+            if (t.get("status") or "").lower().strip() in ["completed","done","complete","closed"]:
+                t["status"] = "open"
+
     t["updated_at"] = now_iso()
     tasks[task_id] = t
     crm["tasks"] = tasks
@@ -12510,6 +12042,535 @@ ADD_UI_POLISH_V8 = r'''
 })();
 
 
+
+
+// =========================
+(function initCalendarBoard_v1(){
+  function el(tag, attrs={}, html=""){
+    const n = document.createElement(tag);
+    Object.keys(attrs||{}).forEach(k=>{
+      if(k==="class") n.className = attrs[k];
+      else if(k==="style") n.setAttribute("style", attrs[k]);
+      else n.setAttribute(k, attrs[k]);
+    });
+    if(html) n.innerHTML = html;
+    return n;
+  }
+
+  // 1) Add top Calendar button (without re-laying out the page)
+  try{
+    if(!document.getElementById("calendarTopBtn")){
+      const right = document.querySelector(".topbar .rightmeta");
+      const crmBtn = document.getElementById("crmBtn");
+      if(right){
+        const b = el("button", {class:"btn", id:"calendarTopBtn"}, "Calendar");
+        if(crmBtn && crmBtn.parentNode===right) right.insertBefore(b, crmBtn);
+        else right.appendChild(b);
+      }
+      // mobile drawer mirror
+      const drawerGrid = document.querySelector(".mobileDrawerGrid");
+      if(drawerGrid && !drawerGrid.querySelector('[data-click="calendarTopBtn"]')){
+        const mb = el("button", {class:"btn", "data-click":"calendarTopBtn"}, "Calendar");
+        // place near Client Center if present
+        const cc = drawerGrid.querySelector('[data-click="crmBtn"]');
+        if(cc) drawerGrid.insertBefore(mb, cc);
+        else drawerGrid.appendChild(mb);
+      }
+    }
+  }catch(e){}
+
+  // 2) Create modal form on the fly (no HTML template refactor)
+  const modalScroll = document.getElementById("modalScroll");
+  if(modalScroll && !document.getElementById("calendarForm")){
+    const form = el("div", {id:"calendarForm", class:"modalForm", style:"display:none;"});
+    form.innerHTML = `
+      <div class="calHead">
+        <div>
+          <div class="calTitle" id="calRangeTitle">Calendar</div>
+          <div class="tiny" id="calSubTitle" style="margin-top:4px; opacity:.85;">Drag tasks into the week to schedule them.</div>
+        </div>
+        <div class="calControls">
+          <button class="btn btnMini" id="calPrevBtn">Prev</button>
+          <button class="btn btnMini" id="calTodayBtn">Today</button>
+          <button class="btn btnMini" id="calNextBtn">Next</button>
+          <button class="btn btnMini" id="calRefreshBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="calShell">
+        <div class="calMain">
+          <div class="calBoard">
+            <div class="calBoardHead" id="calHeadRow"></div>
+            <div class="calScroll" id="calScroll">
+              <div class="calGrid" id="calGrid"></div>
+              <div id="calLayer" style="position:absolute; inset: 44px 0 0 0; pointer-events:none;"></div>
+            </div>
+          </div>
+
+          <div class="calQuick" id="calQuick">
+            <div class="tiny" id="calQuickLabel">Click inside a day to pick a time.</div>
+            <div class="grid" style="margin-top:8px;">
+              <div>
+                <label>Task title</label>
+                <input id="calTaskTitle" placeholder="Follow up, send recap, etc." />
+              </div>
+              <div>
+                <label>Call title</label>
+                <input id="calCallTitle" placeholder="Strategy call" />
+              </div>
+            </div>
+            <div class="actions" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-top:10px;">
+              <button class="btn" id="calAddTaskBtn">Add task</button>
+              <button class="btn btnPrimary" id="calAddCallBtn">Schedule call</button>
+              <div class="tiny" id="calQuickTime" style="margin-left:auto; opacity:.85;"></div>
+            </div>
+            <div class="tiny" id="calQuickStatus" style="margin-top:8px;"></div>
+          </div>
+        </div>
+
+        <div class="calSide">
+          <div class="tiny" style="margin-bottom:8px;">Unscheduled tasks</div>
+          <div class="calTaskList" id="calUnscheduled"></div>
+        </div>
+      </div>
+    `;
+    modalScroll.appendChild(form);
+  }
+
+  // ===== helpers =====
+  function pad(n){ return (n<10?'0':'')+n; }
+  function toLocalISO(d){
+    // returns YYYY-MM-DDTHH:MM:SS (no timezone) so server can use it as-is
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":00";
+  }
+  function startOfWeek(dt){
+    const d = new Date(dt);
+    const day = d.getDay(); // 0 Sun
+    const diff = (day===0 ? -6 : 1-day); // Monday as start
+    d.setDate(d.getDate()+diff);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+  function addDays(dt, n){
+    const d = new Date(dt);
+    d.setDate(d.getDate()+n);
+    return d;
+  }
+  function fmtRange(monday){
+    const end = addDays(monday, 6);
+    const mo = monday.toLocaleString(undefined,{month:"short"});
+    const eo = end.toLocaleString(undefined,{month:"short"});
+    const y = monday.getFullYear();
+    if(monday.getMonth()===end.getMonth()){
+      return `${mo} ${monday.getDate()} – ${end.getDate()}, ${y}`;
+    }
+    return `${mo} ${monday.getDate()} – ${eo} ${end.getDate()}, ${y}`;
+  }
+  function hourLabel(h){
+    const ap = h>=12 ? "PM" : "AM";
+    const hh = ((h+11)%12)+1;
+    return hh + " " + ap;
+  }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  let calAnchor = new Date();
+  let calSelected = null; // {dayIndex, minutes}
+  let calCache = { tasks:[], events:[] };
+
+  async function apiJSON(url, opts){
+    const res = await fetch(url, opts||{});
+    let data=null;
+    try{ data = await res.json(); }catch(e){}
+    if(!res.ok) throw new Error((data&&data.error)||("HTTP "+res.status));
+    if(data && data.ok===false) throw new Error(data.error||"Request failed");
+    return data;
+  }
+
+  async function loadWeek(){
+    const monday = startOfWeek(calAnchor);
+    const min = new Date(monday); min.setHours(0,0,0,0);
+    const max = new Date(addDays(monday,7)); max.setHours(0,0,0,0);
+
+    const [tdata, edata] = await Promise.allSettled([
+      apiJSON("/api/crm/tasks"),
+      apiJSON("/api/calendar/events?time_min="+encodeURIComponent(toLocalISO(min))+"&time_max="+encodeURIComponent(toLocalISO(max)))
+    ]);
+
+    calCache.tasks = (tdata.status==="fulfilled" ? (tdata.value.tasks||[]) : []);
+    calCache.events = (edata.status==="fulfilled" ? (edata.value.events||[]) : []);
+  }
+
+  function buildGrid(){
+    const head = document.getElementById("calHeadRow");
+    const grid = document.getElementById("calGrid");
+    const layer = document.getElementById("calLayer");
+    if(!head || !grid || !layer) return;
+
+    const monday = startOfWeek(calAnchor);
+    const title = document.getElementById("calRangeTitle");
+    if(title) title.textContent = fmtRange(monday);
+
+    // header
+    const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+    head.innerHTML = "";
+    head.appendChild(el("div", {class:"cell"}, "")); // time col
+    for(let i=0;i<7;i++){
+      const d = addDays(monday, i);
+      head.appendChild(el("div",{class:"cell"}, `${days[i]} ${d.getDate()}`));
+    }
+
+    // grid rows (6am-6pm for now, can expand later)
+    const startHour = 6;
+    const endHour = 18;
+    const rows = (endHour - startHour);
+    grid.innerHTML = "";
+    layer.innerHTML = "";
+    grid.style.position = "relative";
+
+    for(let r=0;r<rows;r++){
+      const h = startHour + r;
+      grid.appendChild(el("div", {class:"calTimeCell"}, hourLabel(h)));
+      for(let c=0;c<7;c++){
+        const cell = el("div", {class:"calDayCell", "data-day": String(c), "data-hour": String(h)});
+        // click selects a time
+        cell.addEventListener("click", (ev)=>{
+          const rect = cell.getBoundingClientRect();
+          const y = ev.clientY - rect.top;
+          const minutes = (y < 30 ? 0 : 30);
+          calSelected = { dayIndex: c, minutes: ((h*60)+minutes) };
+          const q = document.getElementById("calQuickTime");
+          const dt = addDays(monday, c);
+          const hh = Math.floor(calSelected.minutes/60);
+          const mm = calSelected.minutes%60;
+          if(q) q.textContent = `${dt.toLocaleDateString()} at ${pad(((hh+11)%12)+1)}:${pad(mm)} ${hh>=12?'PM':'AM'}`;
+          const qs = document.getElementById("calQuickStatus"); if(qs) qs.textContent = "";
+        });
+
+        // allow drops
+        cell.addEventListener("dragover", (e)=>{ e.preventDefault(); });
+        cell.addEventListener("drop", async(e)=>{
+          e.preventDefault();
+          const taskId = e.dataTransfer.getData("text/task_id");
+          if(!taskId) return;
+          try{
+            const rect = cell.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const minutes = (y < 30 ? 0 : 30);
+            const dt = addDays(monday, c);
+            const hh = h;
+            dt.setHours(hh, minutes, 0, 0);
+            await apiJSON("/api/crm/tasks/"+encodeURIComponent(taskId), {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ due: toLocalISO(dt) })
+            });
+            await loadWeek();
+            renderAll();
+            showToast("Task scheduled");
+          }catch(err){
+            showToast("Update failed");
+          }
+        });
+
+        grid.appendChild(cell);
+      }
+    }
+
+    // render items
+    renderAll();
+  }
+
+  function renderAll(){
+    renderUnscheduled();
+    renderScheduledTasks();
+    renderEvents();
+  }
+
+  function taskIsDone(t){
+    const st = (t.status||"").toLowerCase().trim();
+    return !!t.done || ["done","completed","complete","closed"].includes(st);
+  }
+
+  function parseISO(s){
+    if(!s) return null;
+    // treat as local
+    const d = new Date(s);
+    if(isNaN(d.getTime())) return null;
+    return d;
+  }
+
+  function inWeek(d){
+    const monday = startOfWeek(calAnchor);
+    const max = addDays(monday,7);
+    return d>=monday && d<max;
+  }
+
+  function renderUnscheduled(){
+    const box = document.getElementById("calUnscheduled");
+    if(!box) return;
+    const list = (calCache.tasks||[]).filter(t=>!t.due);
+    if(!list.length){
+      box.innerHTML = '<div class="tiny" style="opacity:.85;">No unscheduled tasks.</div>';
+      return;
+    }
+    box.innerHTML = "";
+    list.slice(0,80).forEach(t=>{
+      const card = el("div",{class:"calTaskCard", draggable:"true"});
+      card.innerHTML = `<div class="t">${escapeHtml(t.title||"Task")}</div>
+                        <div class="m">${escapeHtml((t.priority||"normal"))}</div>`;
+      card.addEventListener("dragstart",(e)=>{
+        e.dataTransfer.setData("text/task_id", t.id||"");
+      });
+      box.appendChild(card);
+    });
+  }
+
+  function renderScheduledTasks(){
+    const layer = document.getElementById("calLayer");
+    const scroll = document.getElementById("calScroll");
+    const grid = document.getElementById("calGrid");
+    if(!layer || !scroll || !grid) return;
+    // pointer-events none on layer; we will set pointer-events on item itself
+    layer.style.pointerEvents = "none";
+    layer.innerHTML = "";
+
+    const monday = startOfWeek(calAnchor);
+    const startHour = 6;
+    const pxPerMin = 1; // since 60px per hour
+    const colW = (grid.getBoundingClientRect().width - 64) / 7;
+
+    (calCache.tasks||[]).forEach(t=>{
+      const d = parseISO(t.due||"");
+      if(!d || !inWeek(d)) return;
+      const dayIndex = Math.floor((d - monday) / (24*3600*1000));
+      if(dayIndex<0 || dayIndex>6) return;
+      const mins = d.getHours()*60 + d.getMinutes();
+      if(mins < startHour*60 || mins >= 18*60) return;
+
+      const top = 44 + ((mins - startHour*60) * pxPerMin); // below header (approx)
+      const left = 64 + dayIndex * colW;
+      const height = 30; // fixed 30 min block
+
+      const item = el("div", {class:"calItem"+(taskIsDone(t)?" calItemDone":""), draggable:"true"});
+      item.style.top = top+"px";
+      item.style.left = (left+2)+"px";
+      item.style.width = (colW-10)+"px";
+      item.style.height = height+"px";
+      item.style.pointerEvents = "auto";
+
+      const hh = d.getHours(), mm=d.getMinutes();
+      const timeStr = `${pad(((hh+11)%12)+1)}:${pad(mm)} ${hh>=12?'PM':'AM'}`;
+
+      item.innerHTML = `
+        <div class="row">
+          <div class="t">${escapeHtml(t.title||"Task")}</div>
+          <input class="calItemChk" type="checkbox" ${taskIsDone(t)?"checked":""} />
+        </div>
+        <div class="m">${timeStr}</div>
+      `;
+
+      // drag
+      item.addEventListener("dragstart",(e)=>{
+        e.dataTransfer.setData("text/task_id", t.id||"");
+      });
+
+      // complete toggle
+      const chk = item.querySelector("input");
+      if(chk){
+        chk.addEventListener("click", async(ev)=>{
+          ev.stopPropagation();
+          try{
+            await apiJSON("/api/crm/tasks/"+encodeURIComponent(t.id||""), {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ done: !!chk.checked })
+            });
+            await loadWeek();
+            renderAll();
+          }catch(e){
+            showToast("Update failed");
+          }
+        });
+      }
+
+      layer.appendChild(item);
+    });
+  }
+
+  function renderEvents(){
+    const layer = document.getElementById("calLayer");
+    const grid = document.getElementById("calGrid");
+    if(!layer || !grid) return;
+
+    const monday = startOfWeek(calAnchor);
+    const startHour = 6;
+    const pxPerMin = 1;
+    const colW = (grid.getBoundingClientRect().width - 64) / 7;
+
+    (calCache.events||[]).forEach(ev=>{
+      const d0 = parseISO(ev.start||"");
+      const d1 = parseISO(ev.end||"");
+      if(!d0 || !inWeek(d0)) return;
+      const dayIndex = Math.floor((d0 - monday) / (24*3600*1000));
+      if(dayIndex<0 || dayIndex>6) return;
+      const mins = d0.getHours()*60 + d0.getMinutes();
+      if(mins < startHour*60 || mins >= 18*60) return;
+
+      const dur = d1 ? clamp(Math.round((d1-d0)/60000), 15, 180) : 30;
+      const top = 44 + ((mins - startHour*60) * pxPerMin);
+      const left = 64 + dayIndex * colW;
+      const height = clamp(dur, 20, 180);
+
+      const item = el("div", {class:"calItem"});
+      item.style.top = top+"px";
+      item.style.left = (left+2)+"px";
+      item.style.width = (colW-10)+"px";
+      item.style.height = height+"px";
+      item.style.borderColor = "rgba(59,130,246,.30)";
+      item.style.background = "rgba(10,14,30,.76)";
+      item.style.pointerEvents = "auto";
+
+      const title = escapeHtml(ev.summary||"Event");
+      const link = ev.hangoutLink || ev.htmlLink || "";
+      item.innerHTML = `
+        <div class="row">
+          <div class="t">${title}</div>
+          ${link ? `<a class="btn btnTiny" href="${escapeHtml(link)}" target="_blank" rel="noopener" style="text-decoration:none;">Open</a>` : ``}
+        </div>
+        <div class="m">Meeting</div>
+      `;
+      layer.appendChild(item);
+    });
+  }
+
+  async function addTask(){
+    const st = document.getElementById("calQuickStatus");
+    if(!calSelected){ if(st) st.textContent="Pick a time first."; return; }
+    const title = (document.getElementById("calTaskTitle").value||"").trim();
+    if(!title){ if(st) st.textContent="Task title required."; return; }
+    try{
+      const monday = startOfWeek(calAnchor);
+      const dt = addDays(monday, calSelected.dayIndex);
+      const hh = Math.floor(calSelected.minutes/60);
+      const mm = calSelected.minutes%60;
+      dt.setHours(hh, mm, 0, 0);
+      await apiJSON("/api/crm/tasks", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ title, due: toLocalISO(dt) })
+      });
+      if(st) st.textContent="Task added.";
+      document.getElementById("calTaskTitle").value="";
+      await loadWeek(); renderAll();
+    }catch(e){
+      if(st) st.textContent="Failed to add task.";
+    }
+  }
+
+  async function addCall(){
+    const st = document.getElementById("calQuickStatus");
+    if(!calSelected){ if(st) st.textContent="Pick a time first."; return; }
+    const title = (document.getElementById("calCallTitle").value||"").trim() || "Call";
+    try{
+      const monday = startOfWeek(calAnchor);
+      const dt0 = addDays(monday, calSelected.dayIndex);
+      const hh = Math.floor(calSelected.minutes/60);
+      const mm = calSelected.minutes%60;
+      dt0.setHours(hh, mm, 0, 0);
+      const dt1 = new Date(dt0.getTime() + 30*60000);
+      await apiJSON("/api/calendar/create_event", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ title, start: toLocalISO(dt0), end: toLocalISO(dt1), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York" })
+      });
+      if(st) st.textContent="Call scheduled.";
+      document.getElementById("calCallTitle").value="";
+      await loadWeek(); renderAll();
+    }catch(e){
+      if(st) st.textContent="Failed to schedule call (make sure Calendar is connected).";
+    }
+  }
+
+  function showCalendar(){
+    // Use the existing modal system, do not change layout
+    if(typeof window.hideModal === "function"){
+      // ensure overlay visible
+    }
+    // hide other modal forms
+    ["frameworkForm","manageForm","createForm","settingsForm","stackForm","apiKeyHelpForm","crmForm"].forEach(id=>{
+      const n = document.getElementById(id); if(n) n.style.display="none";
+    });
+    const mb = document.getElementById("modalBody"); if(mb) mb.style.display="none";
+    const mi = document.getElementById("modalImg"); if(mi) mi.style.display="none";
+
+    const calForm = document.getElementById("calendarForm");
+    if(calForm) calForm.style.display="block";
+
+    const mt = document.getElementById("modalTitle");
+    if(mt) mt.textContent = "Calendar";
+    const overlay = document.getElementById("overlay");
+    if(overlay) overlay.style.display="flex";
+
+    // bind controls once
+    if(!window.__calBound){
+      window.__calBound = true;
+      const bind=(id,fn)=>{ const b=document.getElementById(id); if(b) b.addEventListener("click", fn); };
+      bind("calPrevBtn", async()=>{ calAnchor = addDays(calAnchor, -7); await refresh(); });
+      bind("calNextBtn", async()=>{ calAnchor = addDays(calAnchor, 7); await refresh(); });
+      bind("calTodayBtn", async()=>{ calAnchor = new Date(); await refresh(); });
+      bind("calRefreshBtn", async()=>{ await refresh(); });
+      bind("calAddTaskBtn", addTask);
+      bind("calAddCallBtn", addCall);
+
+      // re-render on resize so columns align
+      window.addEventListener("resize", ()=>{ try{ renderAll(); }catch(e){} });
+    }
+
+    refresh();
+  }
+
+  async function refresh(){
+    const sub = document.getElementById("calSubTitle");
+    if(sub) sub.textContent = "Loading…";
+    try{
+      await loadWeek();
+      buildGrid();
+      if(sub) sub.textContent = "Drag tasks into the week to schedule them. Click a time to add.";
+    }catch(e){
+      if(sub) sub.textContent = "Load failed. Connect Calendar in Settings if needed.";
+    }
+  }
+
+  // hook top button
+  const topBtn = document.getElementById("calendarTopBtn");
+  if(topBtn) topBtn.addEventListener("click", showCalendar);
+
+  // also allow opening from hash
+  try{
+    if(window.location.hash==="#calendar"){ showCalendar(); }
+  }catch(e){}
+
+  // ===== Client Center tab cleanup + Broadcast SMS (visual only, additive) =====
+  try{
+    // hide the tabs you asked to remove, without ripping out code paths
+    ["crmTabPipeline","crmTabTasks","crmTabSequences","crmTabCalendar"].forEach(id=>{
+      const n=document.getElementById(id); if(n) n.style.display="none";
+    });
+    // update the helper line if present
+    const tip = document.querySelector("#crmForm .tiny");
+    if(tip) tip.textContent = "Client Command Center. Manage clients and send broadcasts without leaving the Round Table.";
+
+    // add Broadcast SMS tab beside Email Broadcast
+    const row = document.querySelector("#crmForm .pillRow");
+    if(row && !document.getElementById("crmTabBroadcastSms")){
+      const btn = el("button",{class:"btn btnMini", id:"crmTabBroadcastSms"},"Broadcast SMS");
+      const emailBtn = document.getElementById("crmTabBroadcast");
+      if(emailBtn && emailBtn.parentNode===row) row.insertBefore(btn, emailBtn.nextSibling);
+      else row.appendChild(btn);
+    }
+  }catch(e){}
+
+})();
 </script>
 '''
 
