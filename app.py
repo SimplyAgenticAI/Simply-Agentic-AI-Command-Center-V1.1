@@ -3424,27 +3424,159 @@ AUTH_BASE_CSS = r"""
     white-space: nowrap !important;
   }
 }
+</style>
 
 /* ===== Login Gate Micro-Animation (grass + dragonfly + mushroom spores) ===== */
-.loginCard{ position: relative; overflow: hidden; }
-.loginDecor{ position:absolute; inset:0; pointer-events:none; }
-.loginGrass{ position:absolute; top:0; left:0; right:0; height:22px; transform-origin: top; animation: grassGrow 12s ease-in-out infinite; }
-.loginGrass::before{ content:""; position:absolute; inset:0; background: repeating-linear-gradient(90deg, rgba(34,197,94,0) 0px, rgba(34,197,94,0) 2px, rgba(34,197,94,.55) 3px, rgba(34,197,94,.2) 6px); filter: blur(.2px); opacity:.9; }
-@keyframes grassGrow{ 0%{ transform: scaleY(0); opacity:0; } 10%{ transform: scaleY(1); opacity:1; } 70%{ transform: scaleY(1); opacity:1; } 100%{ transform: scaleY(0); opacity:0; } }
-.dragonfly{ position:absolute; top:10px; left:-60px; width:56px; height:36px; opacity:0; transform: translate(0,0) scale(.95); animation: dragonflyFlight 12s ease-in-out infinite; }
-@keyframes dragonflyFlight{ 0%{ opacity:0; transform: translate(-80px, 18px) scale(.9) rotate(-6deg);} 18%{ opacity:1; transform: translate(90px, 14px) scale(1) rotate(2deg);} 30%{ opacity:1; transform: translate(150px, 6px) scale(1) rotate(0deg);} 45%{ opacity:1; transform: translate(150px, 6px) scale(1) rotate(0deg);} 62%{ opacity:1; transform: translate(230px, 10px) scale(.98) rotate(4deg);} 74%{ opacity:1; transform: translate(360px, -10px) scale(.92) rotate(10deg);} 82%{ opacity:0; transform: translate(520px, -40px) scale(.85) rotate(14deg);} 100%{ opacity:0; transform: translate(520px, -40px) scale(.85) rotate(14deg);} }
-.wing{ transform-origin:center; animation: wingFlap .18s ease-in-out infinite; }
-.wing2{ animation-delay:.06s; }
-@keyframes wingFlap{ 0%{ transform: rotate(12deg) scaleX(1); opacity:.85;} 50%{ transform: rotate(-12deg) scaleX(.98); opacity:.65;} 100%{ transform: rotate(12deg) scaleX(1); opacity:.85;} }
-.mushroom{ position:absolute; right:16px; top:6px; width:42px; height:52px; opacity:0; transform-origin: bottom center; animation: mushroomGrow 12s ease-in-out infinite; }
-@keyframes mushroomGrow{ 0%,38%{ opacity:0; transform: translateY(16px) scale(.2);} 48%{ opacity:1; transform: translateY(0) scale(1);} 72%{ opacity:1; transform: translateY(0) scale(1);} 100%{ opacity:0; transform: translateY(10px) scale(.6);} }
-.mStem{ position:absolute; bottom:0; left:50%; width:14px; height:30px; transform: translateX(-50%); border-radius:10px; background: rgba(255,255,255,.75); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
-.mCap{ position:absolute; bottom:22px; left:50%; width:38px; height:22px; transform: translateX(-50%); border-radius: 20px 20px 16px 16px; background: rgba(168,85,247,.85); box-shadow: 0 10px 22px rgba(0,0,0,.25); }
-.mCap::after{ content:""; position:absolute; left:6px; top:6px; width:6px; height:6px; border-radius:50%; background: rgba(255,255,255,.7); box-shadow: 10px 2px 0 rgba(255,255,255,.5), 18px 8px 0 rgba(255,255,255,.35); }
-.spores{ position:absolute; right:28px; top:2px; width:8px; height:8px; border-radius:50%; opacity:0; background: rgba(236,253,245,.85); box-shadow: -10px 12px 0 rgba(236,253,245,.65), -18px 20px 0 rgba(236,253,245,.55), -4px 22px 0 rgba(236,253,245,.45), 6px 18px 0 rgba(236,253,245,.55), 10px 26px 0 rgba(236,253,245,.40), -22px 10px 0 rgba(236,253,245,.35); animation: sporesFloat 12s ease-in-out infinite; }
-@keyframes sporesFloat{ 0%,50%{ opacity:0; transform: translateY(14px) scale(.6); filter: blur(0);} 58%{ opacity:.9; transform: translateY(0) scale(1); filter: blur(0);} 70%{ opacity:.75; transform: translate(-10px,-18px) scale(.9); filter: blur(.2px);} 82%{ opacity:0; transform: translate(-20px,-34px) scale(.8); filter: blur(.4px);} 100%{ opacity:0; transform: translate(-20px,-34px) scale(.8); filter: blur(.4px);} }
+.loginCard{
+  position: relative;
+  overflow: hidden;
+}
+.loginDecor{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+.loginGrass{
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  height:22px;
+  transform-origin: top;
+  animation: grassGrow 12s ease-in-out infinite;
+}
+.loginGrass::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(34,197,94,.0) 0px,
+      rgba(34,197,94,.0) 2px,
+      rgba(34,197,94,.55) 3px,
+      rgba(34,197,94,.2) 6px
+    );
+  filter: blur(.2px);
+  opacity:.9;
+}
+@keyframes grassGrow{
+  0%{ transform: scaleY(0); opacity:0; }
+  10%{ transform: scaleY(1); opacity:1; }
+  70%{ transform: scaleY(1); opacity:1; }
+  100%{ transform: scaleY(0); opacity:0; }
+}
 
-</style>
+/* Dragonfly */
+.dragonfly{
+  position:absolute;
+  top:10px;
+  left:-60px;
+  width:56px;
+  height:36px;
+  opacity:0;
+  transform: translate(0,0) scale(.95);
+  animation: dragonflyFlight 12s ease-in-out infinite;
+}
+@keyframes dragonflyFlight{
+  0%{ opacity:0; transform: translate(-80px, 18px) scale(.9) rotate(-6deg); }
+  18%{ opacity:1; transform: translate(90px, 14px) scale(1) rotate(2deg); }
+  30%{ opacity:1; transform: translate(150px, 6px) scale(1) rotate(0deg); } /* land */
+  45%{ opacity:1; transform: translate(150px, 6px) scale(1) rotate(0deg); }
+  62%{ opacity:1; transform: translate(230px, 10px) scale(.98) rotate(4deg); }
+  74%{ opacity:1; transform: translate(360px, -10px) scale(.92) rotate(10deg); }
+  82%{ opacity:0; transform: translate(520px, -40px) scale(.85) rotate(14deg); }
+  100%{ opacity:0; transform: translate(520px, -40px) scale(.85) rotate(14deg); }
+}
+.wing{
+  transform-origin:center;
+  animation: wingFlap .18s ease-in-out infinite;
+}
+.wing2{ animation-delay:.06s; }
+@keyframes wingFlap{
+  0%{ transform: rotate(12deg) scaleX(1); opacity:.85; }
+  50%{ transform: rotate(-12deg) scaleX(.98); opacity:.65; }
+  100%{ transform: rotate(12deg) scaleX(1); opacity:.85; }
+}
+
+/* Mushroom */
+.mushroom{
+  position:absolute;
+  right:16px;
+  top:6px;
+  width:42px;
+  height:52px;
+  opacity:0;
+  transform-origin: bottom center;
+  animation: mushroomGrow 12s ease-in-out infinite;
+}
+@keyframes mushroomGrow{
+  0%, 38%{ opacity:0; transform: translateY(16px) scale(.2); }
+  48%{ opacity:1; transform: translateY(0) scale(1); }
+  72%{ opacity:1; transform: translateY(0) scale(1); }
+  100%{ opacity:0; transform: translateY(10px) scale(.6); }
+}
+.mStem{
+  position:absolute;
+  bottom:0;
+  left:50%;
+  width:14px;
+  height:30px;
+  transform: translateX(-50%);
+  border-radius:10px;
+  background: rgba(255,255,255,.75);
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
+}
+.mCap{
+  position:absolute;
+  bottom:22px;
+  left:50%;
+  width:38px;
+  height:22px;
+  transform: translateX(-50%);
+  border-radius: 20px 20px 16px 16px;
+  background: rgba(168,85,247,.85);
+  box-shadow: 0 10px 22px rgba(0,0,0,.25);
+}
+.mCap::after{
+  content:"";
+  position:absolute;
+  left:6px; top:6px;
+  width:6px; height:6px;
+  border-radius:50%;
+  background: rgba(255,255,255,.7);
+  box-shadow:
+    10px 2px 0 rgba(255,255,255,.5),
+    18px 8px 0 rgba(255,255,255,.35);
+}
+
+/* Spores */
+.spores{
+  position:absolute;
+  right:28px;
+  top:2px;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  opacity:0;
+  background: rgba(236,253,245,.85);
+  box-shadow:
+    -10px 12px 0 rgba(236,253,245,.65),
+    -18px 20px 0 rgba(236,253,245,.55),
+    -4px 22px 0 rgba(236,253,245,.45),
+    6px 18px 0 rgba(236,253,245,.55),
+    10px 26px 0 rgba(236,253,245,.40),
+    -22px 10px 0 rgba(236,253,245,.35);
+  animation: sporesFloat 12s ease-in-out infinite;
+}
+@keyframes sporesFloat{
+  0%, 50%{ opacity:0; transform: translateY(14px) scale(.6); filter: blur(0px); }
+  58%{ opacity:.9; transform: translateY(0px) scale(1); filter: blur(0px); }
+  70%{ opacity:.75; transform: translate(-10px, -18px) scale(.9); filter: blur(.2px); }
+  82%{ opacity:0; transform: translate(-20px, -34px) scale(.8); filter: blur(.4px); }
+  100%{ opacity:0; transform: translate(-20px, -34px) scale(.8); filter: blur(.4px); }
+}
+
 """
 
 LOGIN_HTML = r"""
@@ -3453,25 +3585,7 @@ LOGIN_HTML = r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
-  <div class="card loginCard">
-
-    <div class="loginDecor">
-      <div class="loginGrass"></div>
-
-      <svg class="dragonfly" viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <g>
-          <ellipse cx="62" cy="44" rx="10" ry="6" fill="rgba(59,130,246,.85)"></ellipse>
-          <rect x="52" y="43" width="40" height="4" rx="2" fill="rgba(99,102,241,.75)"></rect>
-          <circle cx="50" cy="45" r="4" fill="rgba(99,102,241,.85)"></circle>
-          <g class="wing"><ellipse cx="60" cy="28" rx="22" ry="10" fill="rgba(236,253,245,.35)"></ellipse></g>
-          <g class="wing wing2"><ellipse cx="70" cy="28" rx="22" ry="10" fill="rgba(236,253,245,.25)"></ellipse></g>
-        </g>
-      </svg>
-
-      <div class="mushroom"><div class="mCap"></div><div class="mStem"></div></div>
-      <div class="spores"></div>
-    </div>
-
+    <div class="card loginCard">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Login to access your command center.</div>
 
