@@ -34,7 +34,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.13")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -580,6 +580,7 @@ def _load_onboarding(username: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
     data.setdefault("dismissed", False)
+    data.setdefault("ui_closed", False)
     data.setdefault("seen_auto", False)
     data.setdefault("steps", {})
     if not isinstance(data.get("steps"), dict):
@@ -685,6 +686,7 @@ def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "ok": True,
         "dismissed": bool(st.get("dismissed")),
+        "ui_closed": bool(st.get("ui_closed")),
         "steps": out_steps,
         "done_count": done_count,
         "total": len(ONBOARDING_STEPS),
@@ -2463,6 +2465,30 @@ def api_onboarding_dismiss():
     _dismiss_onboarding(username, dismissed)
     return jsonify({"ok": True, "dismissed": dismissed})
 
+
+@app.post("/api/onboarding/close")
+def api_onboarding_close():
+    u = current_user()
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
+    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    st = _load_onboarding(username)
+    st["ui_closed"] = True
+    _save_onboarding(username, st)
+    return jsonify({"ok": True})
+
+@app.post("/api/onboarding/reopen")
+def api_onboarding_reopen():
+    u = current_user()
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
+    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    st = _load_onboarding(username)
+    st["ui_closed"] = False
+    _save_onboarding(username, st)
+    return jsonify({"ok": True})
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
@@ -4300,6 +4326,11 @@ HTML = r"""
       padding: 10px;
     }
 
+    /* V1.13 scroll polish: reduce nested scrollbars */
+    .side{ overflow-y:auto; overflow-x:hidden; }
+    .thread{ max-height:none; overflow:visible; }
+    .groupReplies{ max-height:none; overflow:visible; }
+
     .replyItem{
       border:1px solid rgba(42,58,106,.55);
       background: rgba(14,22,48,.55);
@@ -5672,23 +5703,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <label>Client ID (optional)</label>
         <input id="crmTaskClientId" placeholder="client_..." />
       </div>
-
-      <div class="grid" style="margin-top:10px;">
-        <div>
-          <label>Repeat</label>
-          <select id="crmTaskRepeat">
-            <option value="">none</option>
-            <option value="weekdays">weekdays (Mon–Fri)</option>
-          </select>
-        </div>
-        <div></div>
-      </div>
-
-      <div style="margin-top:10px;">
-        <label>Notes</label>
-        <textarea id="crmTaskNotes" placeholder="Add notes, links, context..." style="height:110px"></textarea>
-      </div>
-
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelTask">Cancel</button>
         <button class="btn btnPrimary" id="crmSaveTask">Save</button>
@@ -5839,53 +5853,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
         <div style="height:10px"></div>
 
-        <div class="tiny" style="margin-bottom:6px;">Tasks</div>
-<div id="calDayTasks" style="opacity:.95;"></div>
-
-<div id="calTaskEditor" style="display:none; margin-top:10px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-  <div class="tiny" id="calEditTitle" style="margin-bottom:8px;">Edit task</div>
-  <label>Title</label>
-  <input id="calEditTaskTitle" placeholder="Follow up with..." />
-  <div class="grid" style="margin-top:10px;">
-    <div>
-      <label>Due date</label>
-      <input id="calEditTaskDate" type="date" />
-    </div>
-    <div>
-      <label>Time</label>
-      <input id="calEditTaskTime" type="time" />
-    </div>
-  </div>
-  <div class="grid" style="margin-top:10px;">
-    <div>
-      <label>Repeat</label>
-      <select id="calEditTaskRepeat">
-        <option value="">none</option>
-        <option value="weekdays">weekdays (Mon–Fri)</option>
-      </select>
-    </div>
-    <div>
-      <label>Priority</label>
-      <select id="calEditTaskPriority">
-        <option value="normal">normal</option>
-        <option value="high">high</option>
-        <option value="low">low</option>
-      </select>
-    </div>
-  </div>
-  <div style="margin-top:10px;">
-    <label>Notes</label>
-    <textarea id="calEditTaskNotes" placeholder="Add notes, links, context..." style="height:110px"></textarea>
-  </div>
-  <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-    <button class="btn" id="calCancelEditTask">Close</button>
-    <button class="btn" id="calDeleteEditTask">Delete</button>
-    <button class="btn btnPrimary" id="calSaveEditTask">Save</button>
-  </div>
-  <div class="tiny" id="calEditTaskStatus" style="margin-top:8px;"></div>
-</div>
-
-<div class="tiny" style="margin-bottom:6px;">Events</div>
+        <div class="tiny" style="margin-bottom:6px;">Events</div>
         <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
       </div>
     </div>
@@ -6216,66 +6184,49 @@ if (typeof window.showToast !== "function") {
     }
 
     function applyModalPos(){
-  const win = $("modalWin");
-  if(!win) return;
+      const win = $("modalWin");
+      if(!win) return;
 
-  const saved = loadModalPos();
-  const savedSize = loadModalSize();
+      const saved = loadModalPos();
+      const savedSize = loadModalSize();
 
-  // Preferred "starts big" size (still resizable by you).
-  const vw = Math.max(420, (window.innerWidth || 1200) - 24);
-  const vh = Math.max(360, (window.innerHeight || 800) - 24);
+      if(savedSize){
+        win.style.width = Math.max(360, savedSize.width) + "px";
+        win.style.height = Math.max(260, savedSize.height) + "px";
+      }
 
-  const preferredW = Math.min(vw, 1040);
-  const preferredH = Math.min(vh, 760);
+      // If we have a saved position, clamp it so the modal never renders off-screen.
+      if(saved){
+        win.style.transform = "none";
 
-  let w = preferredW;
-  let h = preferredH;
+        // Use current rendered size (after applying savedSize above) to clamp.
+        const mw = Math.max(360, win.offsetWidth || 520);
+        const mh = Math.max(260, win.offsetHeight || 420);
 
-  // If a saved size exists, keep it ONLY if it isn't smaller than the preferred size.
-  if(savedSize){
-    w = Math.max(preferredW, savedSize.width || 0);
-    h = Math.max(preferredH, savedSize.height || 0);
-  }
+        const margin = 12;
+        const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
+        const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
 
-  // Clamp to viewport so the window never opens off-screen.
-  w = Math.min(w, vw);
-  h = Math.min(h, vh);
+        const left = Math.min(Math.max(saved.left, margin), maxLeft);
+        const top  = Math.min(Math.max(saved.top, margin), maxTop);
 
-  win.style.width = Math.max(420, w) + "px";
-  win.style.height = Math.max(360, h) + "px";
+        win.style.left = left + "px";
+        win.style.top  = top + "px";
 
-  // If we have a saved position, clamp it so the modal never renders off-screen.
-  if(saved){
-    win.style.transform = "none";
+        // If the saved position was out-of-bounds, persist the corrected one.
+        if(left !== saved.left || top !== saved.top){
+          saveModalPos(left, top);
+        }
+        return;
+      }
 
-    const mw = Math.max(420, win.offsetWidth || w || 520);
-    const mh = Math.max(360, win.offsetHeight || h || 420);
-
-    const margin = 12;
-    const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
-    const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
-
-    const left = Math.min(Math.max(saved.left, margin), maxLeft);
-    const top  = Math.min(Math.max(saved.top, margin), maxTop);
-
-    win.style.left = left + "px";
-    win.style.top  = top + "px";
-
-    // If the saved position was out-of-bounds, persist the corrected one.
-    if(left !== saved.left || top !== saved.top){
-      saveModalPos(left, top);
+      // Default centered position
+      win.style.left = "50%";
+      win.style.top = "80px";
+      win.style.transform = "translateX(-50%)";
     }
-    return;
-  }
 
-  // Default centered position
-  win.style.left = "50%";
-  win.style.top = "80px";
-  win.style.transform = "translateX(-50%)";
-}
-
-function hideAllModalForms(){
+    function hideAllModalForms(){
       if($("modalBody")) $("modalBody").style.display = "block";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
@@ -6312,6 +6263,8 @@ function hideAllModalForms(){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6331,6 +6284,8 @@ function hideAllModalForms(){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6351,6 +6306,8 @@ function hideAllModalForms(){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6380,6 +6337,8 @@ function hideAllModalForms(){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6400,6 +6359,8 @@ function hideAllModalForms(){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6407,6 +6368,7 @@ function hideAllModalForms(){
     }
 
     function hideModal(){
+      try{ document.documentElement.style.overflow = ""; }catch(_){ }
       try{ document.body.style.overflow = ""; }catch(_){ }
 
       $("overlay").classList.remove("show");
@@ -6698,6 +6660,8 @@ function showStackTab(title){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("stackForm")) $("stackForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll");
   if(sc) sc.scrollTop = 0;  if($("clientsForm")) $("clientsForm").style.display = "none";
@@ -8995,7 +8959,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async function crmBroadcastSMS(dry_run=false){
+async async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -9083,14 +9047,12 @@ async function crmFetchTasks(){
       const ed = $("crmTaskEditor"); if(!ed) return;
       ed.style.display = 'block';
       crmEditingTaskId = id || null;
-      const t = (crmCache.tasks||[]).find(x=>x.id===id) || {title:'',due:'',priority:'normal',client_id:'', notes:'', repeat_rule:''};
+      const t = (crmCache.tasks||[]).find(x=>x.id===id) || {title:'',due:'',priority:'normal',client_id:''};
       $("crmTaskTitle").innerText = id ? 'Edit task' : 'New task';
       $("crmTaskText").value = t.title || '';
       $("crmTaskDue").value = t.due || '';
       $("crmTaskPriority").value = t.priority || 'normal';
       $("crmTaskClientId").value = t.client_id || '';
-      if($("crmTaskRepeat")) $("crmTaskRepeat").value = (t.repeat_rule || '');
-      if($("crmTaskNotes")) $("crmTaskNotes").value = (t.notes || '');
       $("crmTaskStatus").innerText = '';
     }
 
@@ -9101,8 +9063,6 @@ async function crmFetchTasks(){
         due: ($("crmTaskDue").value||'').trim(),
         priority: ($("crmTaskPriority").value||'normal').trim(),
         client_id: ($("crmTaskClientId").value||'').trim(),
-        notes: ($("crmTaskNotes") ? ($("crmTaskNotes").value||'').trim() : ''),
-        repeat_rule: ($("crmTaskRepeat") ? ($("crmTaskRepeat").value||'').trim() : ''),
       };
       try{
         let url='/api/crm/tasks';
@@ -9267,7 +9227,37 @@ async function crmFetchTasks(){
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
 
     // CRM tab binds (safe if missing)
-    function bindCRM(){
+    
+function applyAntiPasswordManager(){
+  try{
+    // Disable browser password heuristics on non-auth forms
+    const ids = ["crmSearch","crmSmsAudienceValue","crmSmsBody","crmBroadcastAudienceValue","crmBroadcastSubject","crmBroadcastBody",
+                 "crmTaskText","crmTaskDue","crmTaskPriority","crmSeqName","crmSeqSteps","crmEnrollClientId","crmEnrollSeqId",
+                 "clientName","clientCompany","clientEmail","clientPhone","clientTags","clientNotes","clientSummary"];
+    ids.forEach((id)=>{
+      const el = document.getElementById(id);
+      if(el){
+        try{ el.setAttribute("autocomplete","off"); }catch(_){}
+        try{ el.setAttribute("autocapitalize","off"); }catch(_){}
+        try{ el.setAttribute("spellcheck","false"); }catch(_){}
+        try{ el.setAttribute("data-lpignore","true"); }catch(_){}
+        // Rename common credential-like names if present
+        try{
+          const nm = el.getAttribute("name")||"";
+          if(nm && ["password","username","email"].includes(nm.toLowerCase())){
+            el.setAttribute("name", id + "_field");
+          }
+        }catch(_){}
+      }
+    });
+
+    // Also mark all CRM forms as non-auth
+    document.querySelectorAll("#crmPanel form, #clientsForm form, form[data-nonauth='1']").forEach((f)=>{
+      try{ f.setAttribute("autocomplete","off"); }catch(_){}
+    });
+  }catch(e){}
+}
+function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
@@ -9310,6 +9300,7 @@ async function crmFetchTasks(){
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
+    try{ applyAntiPasswordManager(); }catch(e){}
 
 // =========================
 // Calendar modal (month grid + date click actions)
@@ -9413,15 +9404,13 @@ function calRenderMonth(){
 function calRenderDayPanel(){
   const lab = $("calSelectedLabel");
   const sub = $("calSelectedSub");
-  const evList = $("calDayEvents");
-  const taskBox = $("calDayTasks");
+  const list = $("calDayEvents");
   const dt = cal.selected;
 
   if(!dt){
     if(lab) lab.innerText = 'Select a date';
     if(sub) sub.innerText = '';
-    if(taskBox) taskBox.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
-    if(evList) evList.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
+    if(list) list.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
     return;
   }
 
@@ -9429,201 +9418,29 @@ function calRenderDayPanel(){
   if(lab) lab.innerText = pretty;
   if(sub) sub.innerText = cal.tz;
 
-  // ----- Tasks (from CRM tasks) -----
-  const tasks = (crmCache.tasks || []).filter(t=>{
-    const due = (t.due || '').slice(0,10);
-    return due && due === dt;
-  });
-
-  if(taskBox){
-    if(!tasks.length){
-      taskBox.innerHTML = '<div class="tiny" style="opacity:.85;">No tasks for this date.</div>';
-    }else{
-      taskBox.innerHTML = tasks.map(t=>{
-        const id = escapeHtml(t.id||'');
-        const title = escapeHtml(t.title||'');
-        const done = (t.done ? 'checked' : '');
-        const note = (t.notes || '').trim();
-        const noteHint = note ? ' • has notes' : '';
-        return `
-          <div class="diagCard" style="padding:10px; margin-bottom:8px;">
-            <div style="display:flex; gap:10px; align-items:flex-start; justify-content:space-between;">
-              <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;">
-                <input type="checkbox" data-cal-task-done="${id}" ${done} style="margin-top:3px;" />
-                <div>
-                  <div style="font-weight:700; text-decoration:${t.done ? 'line-through' : 'none'};">
-                    <span data-cal-task-open="${id}" style="cursor:pointer;">${title}</span>
-                  </div>
-                  <div class="tiny" style="opacity:.85;">${escapeHtml((t.priority||'normal'))}${noteHint}</div>
-                </div>
-              </label>
-              <button class="btn btnTiny" data-cal-task-edit="${id}">Edit</button>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-      taskBox.querySelectorAll('[data-cal-task-done]').forEach(el=>{
-        el.addEventListener('change', ()=> calToggleTaskDone(el.getAttribute('data-cal-task-done'), !!el.checked));
-      });
-      taskBox.querySelectorAll('[data-cal-task-edit]').forEach(el=>{
-        el.addEventListener('click', ()=> calOpenTaskEditor(el.getAttribute('data-cal-task-edit')));
-      });
-      taskBox.querySelectorAll('[data-cal-task-open]').forEach(el=>{
-        el.addEventListener('click', ()=> calOpenTaskEditor(el.getAttribute('data-cal-task-open')));
-      });
-    }
-  }
-
-  // ----- Events (Google Calendar) -----
   const evs = cal.events[dt] || [];
   if(!evs.length){
-    if(evList) evList.innerHTML = '<div style="opacity:.85;">No events for this date.</div>';
+    if(list) list.innerHTML = '<div style="opacity:.85;">No events.</div>';
   }else{
-    if(evList){
-      evList.innerHTML = evs.map(ev=>{
-        const sum = escapeHtml(ev.summary || ev.title || 'Event');
-        const loc = escapeHtml(ev.location || '');
-        const st = escapeHtml(ev.start || '');
-        const en = escapeHtml(ev.end || '');
-        const d = escapeHtml(ev.description || '');
-        const time = st ? (st.slice(11,16) + (en ? '–'+en.slice(11,16) : '')) : '';
-        const line1 = time ? (time + ' • ' + sum) : sum;
-        const line2 = [loc, d].filter(Boolean).join(' • ');
-        return `
-          <div class="diagCard" style="padding:10px; margin-bottom:8px;">
-            <div style="font-weight:700;">${line1}</div>
-            ${line2 ? `<div class="tiny" style="opacity:.85; margin-top:6px;">${line2}</div>` : ''}
-          </div>
-        `;
-      }).join('');
-    }
+    const rows = evs.slice(0,12).map(ev=>{
+      const t = (ev.start || '').replace('T',' ').slice(0,16);
+      const title = escapeHtml(ev.summary || 'Event');
+      const join = ev.hangoutLink ? `<a href="${ev.hangoutLink}" target="_blank" rel="noopener">Join</a>` : (ev.htmlLink ? `<a href="${ev.htmlLink}" target="_blank" rel="noopener">Open</a>` : '');
+      return `<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08);">
+        <div style="opacity:.95;">${title}<div style="opacity:.8; font-size:11px;">${escapeHtml(t)}</div></div>
+        <div style="white-space:nowrap; opacity:.95;">${join}</div>
+      </div>`;
+    }).join('');
+    if(list) list.innerHTML = `<div>${rows}</div>`;
   }
 }
 
-
 function calSelectDate(dt){
   cal.selected = dt;
-  // Load tasks in the background so the day panel can show checkboxes + edit.
-  calRefreshTasksForDay();
   calRenderDayPanel();
   if($("calTaskStatus")) $("calTaskStatus").innerText = '';
   if($("calCallStatus")) $("calCallStatus").innerText = '';
 }
-
-async function calRefreshTasksForDay(){
-  try{
-    await crmFetchTasks();
-  }catch(e){
-    // ignore if CRM not open yet; tasks list will just be empty
-  }
-  // If a date is selected, re-render panel (tasks + events).
-  try{ calRenderDayPanel(); }catch(e){}
-}
-
-let calEditingTaskId = null;
-
-function calOpenTaskEditor(id){
-  const ed = $("calTaskEditor");
-  if(!ed) return;
-  calEditingTaskId = id || null;
-  const t = (crmCache.tasks||[]).find(x=>x.id===id) || {title:'', due:'', notes:'', priority:'normal', repeat_rule:''};
-
-  $("calEditTitle").innerText = id ? 'Edit task' : 'New task';
-  $("calEditTaskTitle").value = t.title || '';
-
-  const due = (t.due || '').trim();
-  const d = due ? due.slice(0,10) : (cal.selected || '');
-  const tm = (due && due.includes('T')) ? due.slice(11,16) : '';
-  $("calEditTaskDate").value = d || '';
-  $("calEditTaskTime").value = tm || '';
-
-  if($("calEditTaskPriority")) $("calEditTaskPriority").value = (t.priority || 'normal');
-  if($("calEditTaskRepeat")) $("calEditTaskRepeat").value = (t.repeat_rule || '');
-  if($("calEditTaskNotes")) $("calEditTaskNotes").value = (t.notes || '');
-
-  if($("calEditTaskStatus")) $("calEditTaskStatus").innerText = '';
-  ed.style.display = 'block';
-}
-
-function calCloseTaskEditor(){
-  const ed = $("calTaskEditor");
-  if(ed) ed.style.display = 'none';
-  calEditingTaskId = null;
-  if($("calEditTaskStatus")) $("calEditTaskStatus").innerText = '';
-}
-
-async function calSaveTaskEditor(){
-  const st = $("calEditTaskStatus"); if(st) st.innerText='Saving...';
-  const title = ($("calEditTaskTitle").value||'').trim();
-  if(!title){
-    if(st) st.innerText='Title required';
-    return;
-  }
-  const d = ($("calEditTaskDate").value||'').trim();
-  const tm = ($("calEditTaskTime").value||'').trim();
-  const due = d ? (tm ? `${d}T${tm}` : d) : '';
-  const payload = {
-    title,
-    due,
-    notes: ($("calEditTaskNotes") ? ($("calEditTaskNotes").value||'').trim() : ''),
-    priority: ($("calEditTaskPriority") ? ($("calEditTaskPriority").value||'normal').trim() : 'normal'),
-    repeat_rule: ($("calEditTaskRepeat") ? ($("calEditTaskRepeat").value||'').trim() : ''),
-  };
-
-  try{
-    if(!calEditingTaskId){
-      // create new task
-      const res = await fetch('/api/crm/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-      const data = await res.json();
-      if(!data.ok) throw new Error(data.error||'save failed');
-    }else{
-      const res = await fetch('/api/crm/tasks/' + encodeURIComponent(calEditingTaskId), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-      const data = await res.json();
-      if(!data.ok) throw new Error(data.error||'save failed');
-    }
-    if(st) st.innerText='Saved';
-    await calRefreshTasksForDay();
-    calCloseTaskEditor();
-  }catch(e){
-    if(st) st.innerText='Save failed';
-  }
-}
-
-async function calDeleteTaskEditor(){
-  const st = $("calEditTaskStatus"); if(st) st.innerText='Deleting...';
-  if(!calEditingTaskId){
-    calCloseTaskEditor();
-    return;
-  }
-  if(!confirm('Delete this task?')){
-    if(st) st.innerText='';
-    return;
-  }
-  try{
-    const res = await fetch('/api/crm/tasks/' + encodeURIComponent(calEditingTaskId), {method:'DELETE'});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'delete failed');
-    if(st) st.innerText='Deleted';
-    await calRefreshTasksForDay();
-    calCloseTaskEditor();
-  }catch(e){
-    if(st) st.innerText='Delete failed';
-  }
-}
-
-async function calToggleTaskDone(id, done){
-  if(!id) return;
-  try{
-    const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !!done})});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'update failed');
-    await calRefreshTasksForDay();
-  }catch(e){
-    showToast('Update failed');
-  }
-}
-
 
 async function calAddTask(){
   const st = $("calTaskStatus");
@@ -9647,7 +9464,6 @@ async function calAddTask(){
     if(st) st.innerText = 'Added';
     $("calTaskTitle").value = '';
     showToast('Task added');
-    await calRefreshTasksForDay();
   }catch(e){
     if(st) st.innerText = 'Add failed';
   }
@@ -9743,9 +9559,6 @@ try{
   };
   if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
   if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
-  if($("calSaveEditTask")) $("calSaveEditTask").onclick = calSaveTaskEditor;
-  if($("calDeleteEditTask")) $("calDeleteEditTask").onclick = calDeleteTaskEditor;
-  if($("calCancelEditTask")) $("calCancelEditTask").onclick = calCloseTaskEditor;
 }catch(e){}
 
 
@@ -9994,6 +9807,8 @@ function openClientsPanel(){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("clientsForm")) $("clientsForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
   loadClients();
 }
@@ -10104,6 +9919,8 @@ function openApiKeyHelp(){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
+      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
+      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
 }
@@ -10987,9 +10804,13 @@ maybeAutoShowOnboarding();
     }catch(e){}
   }
 
-  async function openOnboarding(){
+  async async function openOnboarding(){
     try{
       // Undismiss (if previously hidden)
+      try{
+        await fetch("/api/onboarding/reopen", {method:"POST"});
+      }catch(e){}
+
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -11003,10 +10824,11 @@ maybeAutoShowOnboarding();
     }catch(e){}
   }
 
-  function closeOnboarding(){
+  async function closeOnboarding(){
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
-    // Do not dismiss. User can reopen via "Next step" button.
+    try{ await fetch("/api/onboarding/close", {method:"POST"}); }catch(e){}
+    // Closed until user reopens via "Next step".
   }
 
 
@@ -11054,7 +10876,7 @@ maybeAutoShowOnboarding();
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
 
-    if(onbData.dismissed || onbData.all_done){
+    if(onbData.dismissed || onbData.all_done || onbData.ui_closed){
       panel.style.display = "none";
       return;
     }
@@ -11201,7 +11023,7 @@ maybeAutoShowOnboarding();
 
   function wireExit(){
     const btn = onb$("onbExit");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
   }
 
   try{
@@ -11410,30 +11232,6 @@ def _crm_new_id(prefix: str) -> str:
     prefix = re.sub(r"[^a-zA-Z0-9_]+", "_", (prefix or "x"))
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
-def _crm_next_weekday_due(due: str) -> str:
-    """Given a due string (YYYY-MM-DD or ISO-ish), return next weekday due preserving time if present."""
-    try:
-        due = (due or "").strip()
-        if not due:
-            return ""
-        has_time = "T" in due
-        base = due.replace("Z", "")
-        if has_time:
-            base = base[:16]  # YYYY-MM-DDTHH:MM
-            dt = datetime.fromisoformat(base)
-        else:
-            dt = datetime.fromisoformat(base[:10])
-
-        dt = dt + timedelta(days=1)
-        while dt.weekday() >= 5:  # Sat/Sun
-            dt = dt + timedelta(days=1)
-
-        if has_time:
-            return dt.strftime("%Y-%m-%dT%H:%M")
-        return dt.strftime("%Y-%m-%d")
-    except Exception:
-        return ""
-
 def _crm_migrate_from_client_memory_if_empty(username: str) -> None:
     """Best-effort migration: if CRM has no clients but legacy client memory has clients, import them."""
     try:
@@ -11533,25 +11331,58 @@ def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str,
         return False, "email", str(e)
 
 def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
-    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
-    # No hard dependency. Only works if configured.
+    """Send an SMS (Twilio) when configured.
+
+    Configuration sources (first match wins):
+      1) Per-user CRM settings: crm['settings']['sms']
+      2) Environment variables
+
+    Supported env var aliases:
+      - TWILIO_SID
+      - TWILIO_TOKEN or TWILIO_AUTH_TOKEN
+      - TWILIO_FROM or TWILIO_FROM_NUMBER
+      - SMS_PROVIDER=twilio (optional; auto-detected if Twilio creds exist)
+    """
     try:
         crm = _crm_load(username)
         sms = ((crm.get("settings") or {}).get("sms") or {})
-        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
+
+        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER", "")).strip().lower()
+
+        # Pull Twilio creds from settings OR env (with aliases)
+        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID", "")).strip()
+        token = (sms.get("twilio_token") or sms.get("twilio_auth_token") or os.getenv("TWILIO_TOKEN", "") or os.getenv("TWILIO_AUTH_TOKEN", "")).strip()
+        from_num = (sms.get("twilio_from") or sms.get("twilio_from_number") or os.getenv("TWILIO_FROM", "") or os.getenv("TWILIO_FROM_NUMBER", "")).strip()
+
+        # Auto-detect Twilio if creds exist (makes Broadcast SMS "just work" when env is set)
+        if not provider and sid and token and from_num:
+            provider = "twilio"
+
         if provider != "twilio":
-            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
-        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
-        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
-        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
+            return False, "Send failed (SMS not configured)"
+
         if not sid or not token or not from_num:
             return False, "Twilio missing SID/TOKEN/FROM."
-        import requests
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
-        if r.status_code >= 400:
-            return False, f"Twilio error: {r.text}"
-        return True, ""
+
+        # Prefer official Twilio SDK if installed; fall back to direct HTTP
+        try:
+            from twilio.rest import Client as TwilioClient  # type: ignore
+            client = TwilioClient(sid, token)
+            client.messages.create(body=body, from_=from_num, to=to_phone)
+            return True, ""
+        except Exception:
+            import requests  # type: ignore
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+            r = requests.post(
+                url,
+                data={"To": to_phone, "From": from_num, "Body": body},
+                auth=(sid, token),
+                timeout=20,
+            )
+            if r.status_code >= 400:
+                return False, f"Twilio error: {r.text}"
+            return True, ""
+
     except Exception as e:
         return False, str(e)
 
@@ -12022,21 +11853,16 @@ def api_crm_task_create():
     if not title:
         return jsonify({"ok": False, "error": "Title is required"}), 400
     due = (payload.get("due") or "").strip()  # ISO string
-    status = (payload.get("status") or "open").strip()
-    done = payload.get("done", None)
-    if isinstance(done, bool):
-        status = "done" if done else "open"
     crm = _crm_load(uname)
     tid = _crm_new_id("t")
     task = {
         "id": tid,
         "title": title,
         "client_id": (payload.get("client_id") or "").strip(),
-        "status": status,
+        "status": (payload.get("status") or "open").strip(),
         "priority": (payload.get("priority") or "normal").strip(),
         "due": due,
         "notes": (payload.get("notes") or "").strip(),
-        "repeat_rule": (payload.get("repeat_rule") or "").strip(),
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
@@ -12055,13 +11881,6 @@ def api_crm_tasks_list():
     status = (request.args.get("status") or "").strip()
     if status:
         tasks = [t for t in tasks if (t.get("status") or "") == status]
-
-    # Frontend convenience fields
-    for t in tasks:
-        if isinstance(t, dict):
-            t["done"] = (t.get("status") == "done")
-            if "repeat_rule" not in t:
-                t["repeat_rule"] = ""
     # sort due asc then created desc
     def _key(t):
         return (t.get("due") or "9999", t.get("created_at") or "")
@@ -12080,34 +11899,9 @@ def api_crm_task_update(task_id: str):
     if task_id not in tasks or not isinstance(tasks[task_id], dict):
         return jsonify({"ok": False, "error": "Task not found"}), 404
     t = tasks[task_id]
-    was_done = (t.get("status") == "done")
-    for k in ["title","client_id","status","priority","due","notes","repeat_rule"]:
+    for k in ["title","client_id","status","priority","due","notes"]:
         if k in payload:
             t[k] = (payload.get(k) or "").strip()
-
-    if "done" in payload and isinstance(payload.get("done"), bool):
-        t["status"] = "done" if payload.get("done") else "open"
-
-    # If this task repeats on weekdays, and we just completed it, auto-create the next one.
-    new_done = (t.get("status") == "done")
-    if (not was_done) and new_done and (t.get("repeat_rule") == "weekdays") and (t.get("due") or ""):
-        next_due = _crm_next_weekday_due(t.get("due") or "")
-        if next_due:
-            nid = _crm_new_id("t")
-            nt = {
-                "id": nid,
-                "title": (t.get("title") or "").strip(),
-                "client_id": (t.get("client_id") or "").strip(),
-                "status": "open",
-                "priority": (t.get("priority") or "normal").strip(),
-                "due": next_due,
-                "notes": (t.get("notes") or "").strip(),
-                "repeat_rule": (t.get("repeat_rule") or "").strip(),
-                "created_at": now_iso(),
-                "updated_at": now_iso(),
-            }
-            tasks[nid] = nt
-
     t["updated_at"] = now_iso()
     tasks[task_id] = t
     crm["tasks"] = tasks
