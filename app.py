@@ -34,7 +34,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.13")
+APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -580,7 +580,6 @@ def _load_onboarding(username: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
     data.setdefault("dismissed", False)
-    data.setdefault("ui_closed", False)
     data.setdefault("seen_auto", False)
     data.setdefault("steps", {})
     if not isinstance(data.get("steps"), dict):
@@ -686,7 +685,6 @@ def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "ok": True,
         "dismissed": bool(st.get("dismissed")),
-        "ui_closed": bool(st.get("ui_closed")),
         "steps": out_steps,
         "done_count": done_count,
         "total": len(ONBOARDING_STEPS),
@@ -2465,30 +2463,6 @@ def api_onboarding_dismiss():
     _dismiss_onboarding(username, dismissed)
     return jsonify({"ok": True, "dismissed": dismissed})
 
-
-@app.post("/api/onboarding/close")
-def api_onboarding_close():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    st = _load_onboarding(username)
-    st["ui_closed"] = True
-    _save_onboarding(username, st)
-    return jsonify({"ok": True})
-
-@app.post("/api/onboarding/reopen")
-def api_onboarding_reopen():
-    u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
-    username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-    st = _load_onboarding(username)
-    st["ui_closed"] = False
-    _save_onboarding(username, st)
-    return jsonify({"ok": True})
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
@@ -4325,11 +4299,6 @@ HTML = r"""
       border-radius: 14px;
       padding: 10px;
     }
-
-    /* V1.13 scroll polish: reduce nested scrollbars */
-    .side{ overflow-y:auto; overflow-x:hidden; }
-    .thread{ max-height:none; overflow:visible; }
-    .groupReplies{ max-height:none; overflow:visible; }
 
     .replyItem{
       border:1px solid rgba(42,58,106,.55);
@@ -6263,8 +6232,6 @@ if (typeof window.showToast !== "function") {
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6284,8 +6251,6 @@ if (typeof window.showToast !== "function") {
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6306,8 +6271,6 @@ if (typeof window.showToast !== "function") {
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6337,8 +6300,6 @@ if (typeof window.showToast !== "function") {
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6359,8 +6320,6 @@ if (typeof window.showToast !== "function") {
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -6368,7 +6327,6 @@ if (typeof window.showToast !== "function") {
     }
 
     function hideModal(){
-      try{ document.documentElement.style.overflow = ""; }catch(_){ }
       try{ document.body.style.overflow = ""; }catch(_){ }
 
       $("overlay").classList.remove("show");
@@ -6660,8 +6618,6 @@ function showStackTab(title){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("stackForm")) $("stackForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll");
   if(sc) sc.scrollTop = 0;  if($("clientsForm")) $("clientsForm").style.display = "none";
@@ -6669,7 +6625,7 @@ function showStackTab(title){
 
 
 
-async function renderRunOutputs(run){
+function renderRunOutputs(run){
   const box = $("stackStatus");
   if(!box || !run) return;
   const outputs = run.outputs || {};
@@ -7415,7 +7371,7 @@ function makeSeat(defn, idx){
       });
       box.scrollTop = box.scrollHeight;
     }
-    async function renderOperatorProfile(p){
+    function renderOperatorProfile(p){
       const box = $("thread");
       box.innerHTML = "";
       const card = document.createElement("div");
@@ -7521,7 +7477,7 @@ function makeSeat(defn, idx){
 
     $("refreshThread").onclick = refreshThread;
 
-    async function renderGroupReplies(outputs, drafts){
+    function renderGroupReplies(outputs, drafts){
       const box = $("groupReplies");
       box.innerHTML = "";
 
@@ -8959,7 +8915,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async async function crmBroadcastSMS(dry_run=false){
+async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -9192,7 +9148,7 @@ async function crmFetchTasks(){
       }
     }
 
-    async function showCRMModal(){
+    function showCRMModal(){
       showModal();
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
@@ -9227,37 +9183,7 @@ async function crmFetchTasks(){
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
 
     // CRM tab binds (safe if missing)
-    
-function applyAntiPasswordManager(){
-  try{
-    // Disable browser password heuristics on non-auth forms
-    const ids = ["crmSearch","crmSmsAudienceValue","crmSmsBody","crmBroadcastAudienceValue","crmBroadcastSubject","crmBroadcastBody",
-                 "crmTaskText","crmTaskDue","crmTaskPriority","crmSeqName","crmSeqSteps","crmEnrollClientId","crmEnrollSeqId",
-                 "clientName","clientCompany","clientEmail","clientPhone","clientTags","clientNotes","clientSummary"];
-    ids.forEach((id)=>{
-      const el = document.getElementById(id);
-      if(el){
-        try{ el.setAttribute("autocomplete","off"); }catch(_){}
-        try{ el.setAttribute("autocapitalize","off"); }catch(_){}
-        try{ el.setAttribute("spellcheck","false"); }catch(_){}
-        try{ el.setAttribute("data-lpignore","true"); }catch(_){}
-        // Rename common credential-like names if present
-        try{
-          const nm = el.getAttribute("name")||"";
-          if(nm && ["password","username","email"].includes(nm.toLowerCase())){
-            el.setAttribute("name", id + "_field");
-          }
-        }catch(_){}
-      }
-    });
-
-    // Also mark all CRM forms as non-auth
-    document.querySelectorAll("#crmPanel form, #clientsForm form, form[data-nonauth='1']").forEach((f)=>{
-      try{ f.setAttribute("autocomplete","off"); }catch(_){}
-    });
-  }catch(e){}
-}
-async function bindCRM(){
+    function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
@@ -9300,7 +9226,6 @@ async function bindCRM(){
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
-    try{ applyAntiPasswordManager(); }catch(e){}
 
 // =========================
 // Calendar modal (month grid + date click actions)
@@ -9507,7 +9432,7 @@ async function calCreateCall(){
   }
 }
 
-async function showCalendarModal(){
+function showCalendarModal(){
   showModal();
   if($("frameworkForm")) $("frameworkForm").style.display = "none";
   if($("modalForm")) $("modalForm").style.display = "none";
@@ -9807,8 +9732,6 @@ function openClientsPanel(){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("clientsForm")) $("clientsForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
   loadClients();
 }
@@ -9919,8 +9842,6 @@ function openApiKeyHelp(){
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "block";
   if($("overlay")) $("overlay").classList.add("show");
-      try{ document.documentElement.style.overflow = "hidden"; }catch(_){ }
-      try{ document.body.style.overflow = "hidden"; }catch(_){ }
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
 }
@@ -10198,7 +10119,7 @@ function initMobileUIv2(){
 
 
 /* NEW: Diagnostics Panel v1 (additive) */
-async function initDiagnosticsPanelV1(){
+function initDiagnosticsPanelV1(){
   const openBtn = document.getElementById("diagOpenBtn");
   const closeBtn = document.getElementById("diagCloseBtn");
   const refreshBtn = document.getElementById("diagRefreshBtn");
@@ -10804,13 +10725,9 @@ maybeAutoShowOnboarding();
     }catch(e){}
   }
 
-  async async function openOnboarding(){
+  async function openOnboarding(){
     try{
       // Undismiss (if previously hidden)
-      try{
-        await fetch("/api/onboarding/reopen", {method:"POST"});
-      }catch(e){}
-
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -10824,11 +10741,10 @@ maybeAutoShowOnboarding();
     }catch(e){}
   }
 
-  async function closeOnboarding(){
+  function closeOnboarding(){
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
-    try{ await fetch("/api/onboarding/close", {method:"POST"}); }catch(e){}
-    // Closed until user reopens via "Next step".
+    // Do not dismiss. User can reopen via "Next step" button.
   }
 
 
@@ -10876,7 +10792,7 @@ maybeAutoShowOnboarding();
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
 
-    if(onbData.dismissed || onbData.all_done || onbData.ui_closed){
+    if(onbData.dismissed || onbData.all_done){
       panel.style.display = "none";
       return;
     }
@@ -11023,7 +10939,7 @@ maybeAutoShowOnboarding();
 
   function wireExit(){
     const btn = onb$("onbExit");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
   }
 
   try{
@@ -11331,58 +11247,25 @@ def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str,
         return False, "email", str(e)
 
 def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
-    """Send an SMS (Twilio) when configured.
-
-    Configuration sources (first match wins):
-      1) Per-user CRM settings: crm['settings']['sms']
-      2) Environment variables
-
-    Supported env var aliases:
-      - TWILIO_SID
-      - TWILIO_TOKEN or TWILIO_AUTH_TOKEN
-      - TWILIO_FROM or TWILIO_FROM_NUMBER
-      - SMS_PROVIDER=twilio (optional; auto-detected if Twilio creds exist)
-    """
+    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
+    # No hard dependency. Only works if configured.
     try:
         crm = _crm_load(username)
         sms = ((crm.get("settings") or {}).get("sms") or {})
-
-        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER", "")).strip().lower()
-
-        # Pull Twilio creds from settings OR env (with aliases)
-        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID", "")).strip()
-        token = (sms.get("twilio_token") or sms.get("twilio_auth_token") or os.getenv("TWILIO_TOKEN", "") or os.getenv("TWILIO_AUTH_TOKEN", "")).strip()
-        from_num = (sms.get("twilio_from") or sms.get("twilio_from_number") or os.getenv("TWILIO_FROM", "") or os.getenv("TWILIO_FROM_NUMBER", "")).strip()
-
-        # Auto-detect Twilio if creds exist (makes Broadcast SMS "just work" when env is set)
-        if not provider and sid and token and from_num:
-            provider = "twilio"
-
+        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
         if provider != "twilio":
-            return False, "Send failed (SMS not configured)"
-
+            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
+        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
+        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
+        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
         if not sid or not token or not from_num:
             return False, "Twilio missing SID/TOKEN/FROM."
-
-        # Prefer official Twilio SDK if installed; fall back to direct HTTP
-        try:
-            from twilio.rest import Client as TwilioClient  # type: ignore
-            client = TwilioClient(sid, token)
-            client.messages.create(body=body, from_=from_num, to=to_phone)
-            return True, ""
-        except Exception:
-            import requests  # type: ignore
-            url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-            r = requests.post(
-                url,
-                data={"To": to_phone, "From": from_num, "Body": body},
-                auth=(sid, token),
-                timeout=20,
-            )
-            if r.status_code >= 400:
-                return False, f"Twilio error: {r.text}"
-            return True, ""
-
+        import requests
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
+        if r.status_code >= 400:
+            return False, f"Twilio error: {r.text}"
+        return True, ""
     except Exception as e:
         return False, str(e)
 
@@ -12332,7 +12215,7 @@ ADD_UI_POLISH_V8 = r'''
   // -----------------------------
   // v8: Remember last selected teammate
   // -----------------------------
-  async function installRememberSeatHooks(){
+  function installRememberSeatHooks(){
     // We wrap selectSeat if it exists
     const fn = window.selectSeat;
     if(typeof fn !== "function") return;
@@ -12458,7 +12341,7 @@ ADD_UI_POLISH_V8 = r'''
     return false;
   }
 
-  async function installVoiceHooks(){
+  function installVoiceHooks(){
     // Wrap startRecognition if present (your code uses a wrapper around SpeechRecognition)
     const startFn = window.startRecognition;
     const stopFn = window.stopRecognition;
