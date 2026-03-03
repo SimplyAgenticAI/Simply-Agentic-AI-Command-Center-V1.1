@@ -6669,7 +6669,7 @@ function showStackTab(title){
 
 
 
-function renderRunOutputs(run){
+async function renderRunOutputs(run){
   const box = $("stackStatus");
   if(!box || !run) return;
   const outputs = run.outputs || {};
@@ -7415,7 +7415,7 @@ function makeSeat(defn, idx){
       });
       box.scrollTop = box.scrollHeight;
     }
-    function renderOperatorProfile(p){
+    async function renderOperatorProfile(p){
       const box = $("thread");
       box.innerHTML = "";
       const card = document.createElement("div");
@@ -7521,7 +7521,7 @@ function makeSeat(defn, idx){
 
     $("refreshThread").onclick = refreshThread;
 
-    function renderGroupReplies(outputs, drafts){
+    async function renderGroupReplies(outputs, drafts){
       const box = $("groupReplies");
       box.innerHTML = "";
 
@@ -9192,7 +9192,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(){
+    async function showCRMModal(){
       showModal();
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
@@ -9257,7 +9257,7 @@ function applyAntiPasswordManager(){
     });
   }catch(e){}
 }
-function bindCRM(){
+async function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
@@ -9507,7 +9507,7 @@ async function calCreateCall(){
   }
 }
 
-function showCalendarModal(){
+async function showCalendarModal(){
   showModal();
   if($("frameworkForm")) $("frameworkForm").style.display = "none";
   if($("modalForm")) $("modalForm").style.display = "none";
@@ -10198,7 +10198,7 @@ function initMobileUIv2(){
 
 
 /* NEW: Diagnostics Panel v1 (additive) */
-function initDiagnosticsPanelV1(){
+async function initDiagnosticsPanelV1(){
   const openBtn = document.getElementById("diagOpenBtn");
   const closeBtn = document.getElementById("diagCloseBtn");
   const refreshBtn = document.getElementById("diagRefreshBtn");
@@ -12332,7 +12332,7 @@ ADD_UI_POLISH_V8 = r'''
   // -----------------------------
   // v8: Remember last selected teammate
   // -----------------------------
-  function installRememberSeatHooks(){
+  async function installRememberSeatHooks(){
     // We wrap selectSeat if it exists
     const fn = window.selectSeat;
     if(typeof fn !== "function") return;
@@ -12458,7 +12458,7 @@ ADD_UI_POLISH_V8 = r'''
     return false;
   }
 
-  function installVoiceHooks(){
+  async function installVoiceHooks(){
     // Wrap startRecognition if present (your code uses a wrapper around SpeechRecognition)
     const startFn = window.startRecognition;
     const stopFn = window.stopRecognition;
