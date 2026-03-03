@@ -5078,6 +5078,121 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 
 /* === Calendar modal (additive, minimal) === */
+/* === Weekly time-grid calendar (modern) === */
+.calWeekWrap{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  background: rgba(0,0,0,.18);
+  overflow:hidden;
+}
+.calWeekTop{
+  display:grid;
+  grid-template-columns: 70px 1fr;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.18);
+}
+.calCorner{ height:38px; }
+.calWeekdaysRow{
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.calWd2{
+  height:38px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:2px;
+  border-left:1px solid rgba(255,255,255,.06);
+  font-size:11px;
+  color: var(--muted);
+}
+.calWd2 b{ font-size:12px; color: var(--text); font-weight:800; }
+.calWeekBody{
+  position:relative;
+  display:grid;
+  grid-template-columns: 70px 1fr;
+  height: 620px;
+}
+.calTimeCol{
+  position:relative;
+  border-right:1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.10);
+}
+.calTimeLabel{
+  position:absolute;
+  left:10px;
+  transform: translateY(-50%);
+  font-size:10px;
+  color: rgba(230,237,255,.75);
+  white-space:nowrap;
+}
+.calDaysGrid{
+  position:relative;
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.calDayCol{
+  position:relative;
+  border-left:1px solid rgba(255,255,255,.06);
+  overflow:hidden;
+}
+.calDayCol:before{
+  content:"";
+  position:absolute; inset:0;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,.06) 0px,
+      rgba(255,255,255,.06) 1px,
+      transparent 1px,
+      transparent var(--slotH, 20px)
+    );
+  pointer-events:none;
+  opacity:.55;
+}
+.calTaskBlock{
+  position:absolute;
+  left:8px;
+  right:8px;
+  border-radius:12px;
+  padding:8px 10px;
+  background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.22));
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow: 0 10px 26px rgba(0,0,0,.35);
+  cursor: grab;
+  user-select:none;
+  transition: transform .08s ease, box-shadow .12s ease, opacity .12s ease;
+}
+.calTaskBlock:hover{ transform: translateY(-1px); box-shadow: 0 14px 34px rgba(0,0,0,.42); }
+.calTaskBlock.dragging{ cursor:grabbing; opacity:.92; transform:none; }
+.calTaskTitle{ font-weight:800; font-size:12px; line-height:1.15; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.calTaskMeta{ font-size:10px; color: rgba(230,237,255,.82); opacity:.95; }
+.calTaskDone{ opacity:.55; text-decoration: line-through; }
+.calResizeHandle{
+  position:absolute;
+  left:10px; right:10px; bottom:4px;
+  height:10px;
+  cursor: ns-resize;
+  border-radius:999px;
+  background: rgba(255,255,255,.10);
+}
+.calNowLine{
+  position:absolute;
+  left:70px;
+  right:0;
+  height:2px;
+  background: rgba(247,211,106,.80);
+  box-shadow: 0 0 16px rgba(247,211,106,.25);
+  pointer-events:none;
+}
+.calSide{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:12px;
+  background: rgba(0,0,0,.18);
+}
+
 .calWeekdays{
   display:grid;
   grid-template-columns: repeat(7, 1fr);
@@ -5766,128 +5881,92 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </div>
 
               <div class="modalForm" id="calendarForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
+  <div class="tiny" style="margin-bottom:10px;">Weekly schedule. Drag tasks to move them. Resize from the bottom to change duration. Click a task to edit.</div>
 
-  <div style="display:flex; gap:12px; flex-wrap:wrap;">
-    <div style="flex: 1 1 360px; min-width: 280px;">
+  <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+    <div style="flex: 1 1 760px; min-width: 320px;">
       <div class="pillRow" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button class="btn btnMini" id="calPrevBtn">Prev</button>
-          <button class="btn btnMini" id="calTodayBtn">Today</button>
-          <button class="btn btnMini" id="calNextBtn">Next</button>
+          <button class="btn btnMini" id="calPrevBtn">Prev week</button>
+          <button class="btn btnMini" id="calTodayBtn">This week</button>
+          <button class="btn btnMini" id="calNextBtn">Next week</button>
         </div>
-        <div class="pill" id="calMonthLabel">Month</div>
+        <div class="pill" id="calMonthLabel">Week</div>
       </div>
 
-      <div class="calWeekdays" id="calWeekdays"></div>
-      <div class="calGrid" id="calGrid"></div>
+      <div class="calWeekWrap" id="calWeekWrap">
+        <div class="calWeekTop">
+          <div class="calCorner"></div>
+          <div class="calWeekdaysRow" id="calWeekdaysRow"></div>
+        </div>
+
+        <div class="calWeekBody" id="calWeekBody">
+          <div class="calTimeCol" id="calTimeCol"></div>
+          <div class="calDaysGrid" id="calDaysGrid"></div>
+          <div class="calNowLine" id="calNowLine" style="display:none;"></div>
+        </div>
+      </div>
+
       <div class="tiny" id="calLoadStatus" style="margin-top:8px; opacity:.85;"></div>
     </div>
 
-    <div style="flex: 1 1 260px; min-width: 260px;">
-      <div class="diagCard" style="padding:10px;">
-        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:800;" id="calSelectedLabel">Select a date</div>
-            <div class="tiny" style="opacity:.85;" id="calSelectedSub"> </div>
-          </div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Add task</div>
-          <label>Title</label>
-          <input id="calTaskTitle" placeholder="Follow up with..." />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Time</label>
-              <input id="calTaskTime" type="time" value="17:00" />
-            </div>
-            <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
-              <button class="btn btnPrimary" id="calAddTaskBtn">Add</button>
-            </div>
-          </div>
-          <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
-          <label>Title</label>
-          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Start</label>
-              <input id="calCallTime" type="time" value="09:00" />
-            </div>
-            <div>
-              <label>Duration</label>
-              <select id="calCallDur">
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </div>
-          </div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnPrimary" id="calCreateCallBtn">Create</button>
-          </div>
-          <div class="tiny" id="calCallStatus" style="margin-top:8px;"></div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div class="tiny" style="margin-bottom:6px;">Tasks</div>
-<div id="calDayTasks" style="opacity:.95;"></div>
-
-<div id="calTaskEditor" style="display:none; margin-top:10px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-  <div class="tiny" id="calEditTitle" style="margin-bottom:8px;">Edit task</div>
-  <label>Title</label>
-  <input id="calEditTaskTitle" placeholder="Follow up with..." />
-  <div class="grid" style="margin-top:10px;">
-    <div>
-      <label>Due date</label>
-      <input id="calEditTaskDate" type="date" />
-    </div>
-    <div>
-      <label>Time</label>
-      <input id="calEditTaskTime" type="time" />
-    </div>
-  </div>
-  <div class="grid" style="margin-top:10px;">
-    <div>
-      <label>Repeat</label>
-      <select id="calEditTaskRepeat">
-        <option value="">none</option>
-        <option value="weekdays">weekdays (Mon–Fri)</option>
-      </select>
-    </div>
-    <div>
-      <label>Priority</label>
-      <select id="calEditTaskPriority">
-        <option value="normal">normal</option>
-        <option value="high">high</option>
-        <option value="low">low</option>
-      </select>
-    </div>
-  </div>
-  <div style="margin-top:10px;">
-    <label>Notes</label>
-    <textarea id="calEditTaskNotes" placeholder="Add notes, links, context..." style="height:110px"></textarea>
-  </div>
-  <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-    <button class="btn" id="calCancelEditTask">Close</button>
-    <button class="btn" id="calDeleteEditTask">Delete</button>
-    <button class="btn btnPrimary" id="calSaveEditTask">Save</button>
-  </div>
-  <div class="tiny" id="calEditTaskStatus" style="margin-top:8px;"></div>
-</div>
-
-<div class="tiny" style="margin-bottom:6px;">Events</div>
-        <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
+    <div class="calSide" id="calSidePanel" style="flex: 0 0 320px; min-width: 280px; display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <div style="font-weight:800;" id="calSideTitle">Task</div>
+        <button class="btn btnMini" id="calSideCloseBtn">Close</button>
       </div>
+
+      <div style="height:10px"></div>
+
+      <label>Title</label>
+      <input id="calEditTitle" placeholder="Task title" />
+
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Date</label>
+          <input id="calEditDate" type="date" />
+        </div>
+        <div>
+          <label>Start</label>
+          <input id="calEditTime" type="time" />
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Duration (min)</label>
+          <input id="calEditDuration" type="number" min="15" step="15" value="30" />
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:10px; justify-content:flex-end;">
+          <label style="display:flex; align-items:center; gap:8px; margin:0;">
+            <input id="calEditDone" type="checkbox" />
+            <span class="tiny" style="opacity:.9;">Complete</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div class="tiny" style="opacity:.9;">Repeat</div>
+        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+          <input id="calEditRepeatWeekdays" type="checkbox" />
+          <span class="tiny" style="opacity:.9;">Weekdays</span>
+        </label>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <label>Notes</label>
+      <textarea id="calEditNotes" placeholder="Notes..." style="min-height:120px;"></textarea>
+
+      <div style="height:10px"></div>
+
+      <div style="display:flex; gap:8px;">
+        <button class="btn btnPrimary" id="calSaveTaskBtn" style="flex:1;">Save</button>
+        <button class="btn" id="calDeleteTaskBtn">Delete</button>
+      </div>
+
+      <div class="tiny" id="calSideStatus" style="margin-top:8px;"></div>
+      <input type="hidden" id="calEditId" />
     </div>
   </div>
 </div>
@@ -9316,11 +9395,20 @@ async function crmFetchTasks(){
 // =========================
 const cal = {
   y: (new Date()).getFullYear(),
-  m: (new Date()).getMonth(), // 0-11
-  selected: null, // 'YYYY-MM-DD'
+  m: (new Date()).getMonth(), // 0-11 (kept for month mode)
+  selected: null, // 'YYYY-MM-DD' (kept)
   events: {}, // date -> [{summary, start, end, link}]
-  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York")
+  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
+
+  // Weekly time-grid state
+  mode: "week",
+  weekStart: null, // Date (Sunday)
+  tasks: [], // CRM tasks (with due + duration_minutes)
+  startHour: 6,
+  endHour: 22,
+  snapMin: 15
 };
+
 
 function pad2(n){ return (n<10?('0'+n):(''+n)); }
 function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
@@ -9332,6 +9420,576 @@ function calWeekdayHeader(){
   if(!box) return;
   const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   box.innerHTML = names.map(n=>`<div class="calWd">${n}</div>`).join('');
+
+/* === Weekly time-grid calendar === */
+function calStartOfWeek(d){
+  const x = new Date(d);
+  x.setHours(0,0,0,0);
+  x.setDate(x.getDate() - x.getDay()); // Sunday
+  return x;
+}
+function calWeekKey(d){ return ymd(d); }
+
+function calMinutesFromTimeStr(t){
+  if(!t) return null;
+  const parts = (t||"").split(":");
+  if(parts.length < 2) return null;
+  const hh = parseInt(parts[0],10); const mm = parseInt(parts[1],10);
+  if(isNaN(hh)||isNaN(mm)) return null;
+  return hh*60 + mm;
+}
+function calTimeStrFromMinutes(mins){
+  mins = Math.max(0, Math.round(mins));
+  const hh = Math.floor(mins/60);
+  const mm = mins%60;
+  return pad2(hh)+":"+pad2(mm);
+}
+function calSnapMinutes(mins){
+  const s = cal.snapMin || 15;
+  return Math.round(mins / s) * s;
+}
+function calClampToDay(mins){
+  const start = (cal.startHour||6)*60;
+  const end = (cal.endHour||22)*60;
+  return Math.max(start, Math.min(end - (cal.snapMin||15), mins));
+}
+function calFormatRange(startMin, durMin){
+  const s = calTimeStrFromMinutes(startMin);
+  const e = calTimeStrFromMinutes(startMin + durMin);
+  return `${s}–${e}`;
+}
+
+async function calFetchTasks(){
+  try{
+    const res = await fetch(`/api/crm/tasks`);
+    const data = await res.json();
+    if(!data.ok){ cal.tasks = []; return; }
+    const tasks = (data.tasks || []).filter(t=> (t && typeof t === "object"));
+    // Ensure duration_minutes default
+    tasks.forEach(t=>{
+      if(typeof t.duration_minutes !== "number" || !isFinite(t.duration_minutes)) t.duration_minutes = 30;
+      // normalize repeat_rule for frontend toggles
+      if(!t.repeat_rule) t.repeat_rule = "";
+    });
+    cal.tasks = tasks;
+  }catch(e){
+    cal.tasks = [];
+  }
+}
+
+function calWeekDates(){
+  const ws = cal.weekStart || calStartOfWeek(new Date());
+  const days=[];
+  for(let i=0;i<7;i++){
+    const d=new Date(ws);
+    d.setDate(ws.getDate()+i);
+    days.push(d);
+  }
+  return days;
+}
+
+function calRenderWeekHeader(){
+  const row = $("calWeekdaysRow");
+  const label = $("calMonthLabel");
+  if(!row) return;
+  const days = calWeekDates();
+  const start = days[0];
+  const end = days[6];
+  if(label){
+    const s = start.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+    const e = end.toLocaleDateString(undefined,{month:"short", day:"numeric", year:"numeric"});
+    label.innerText = `Week of ${s} – ${e}`;
+  }
+  const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  row.innerHTML = days.map((d,i)=>{
+    const dn = names[i];
+    const ds = d.toLocaleDateString(undefined,{month:"short", day:"numeric"});
+    const isToday = (ymd(d) === ymd(new Date()));
+    return `<div class="calWd2 ${isToday?'selected':''}" data-wd="${i}"><div>${dn}</div><b>${ds}</b></div>`;
+  }).join("");
+}
+
+function calRenderTimeCol(){
+  const col = $("calTimeCol");
+  const body = $("calWeekBody");
+  if(!col || !body) return;
+  const start = (cal.startHour||6);
+  const end = (cal.endHour||22);
+  const totalMin = (end-start)*60;
+  // Slot height per 15 minutes
+  const slotH = 20;
+  body.style.setProperty("--slotH", slotH+"px");
+  const pxPerMin = slotH / (cal.snapMin||15);
+
+  col.innerHTML = "";
+  for(let h=start; h<=end; h++){
+    const y = (h-start)*60*pxPerMin;
+    const el = document.createElement("div");
+    el.className="calTimeLabel";
+    const label = (h===0? "12am" : (h<12? h+"am" : (h===12? "12pm" : (h-12)+"pm")));
+    el.style.top = y + "px";
+    el.innerText = label;
+    col.appendChild(el);
+  }
+}
+
+function calTasksForWeek(){
+  const days = calWeekDates();
+  const startKey = ymd(days[0]);
+  const endKey = ymd(days[6]);
+  // inclusive filter by date key
+  return (cal.tasks || []).filter(t=>{
+    const due = (t.due || "");
+    if(!due) return false;
+    const dk = due.slice(0,10);
+    return dk >= startKey && dk <= endKey;
+  });
+}
+
+// overlap helpers (per day)
+function _overlaps(a,b){ return a.start < b.end && b.start < a.end; }
+
+function calLayoutDayTasks(dayTasks){
+  // dayTasks: {id, start, end, ref}
+  const items = dayTasks.slice().sort((x,y)=> x.start - y.start || (x.end - x.start) - (y.end - y.start));
+  // assign columns greedily
+  const colEnds=[];
+  items.forEach(it=>{
+    let col=0;
+    while(col < colEnds.length && colEnds[col] > it.start) col++;
+    if(col === colEnds.length) colEnds.push(it.end);
+    else colEnds[col] = it.end;
+    it.col = col;
+  });
+
+  // union-find components by overlap
+  const parent = {};
+  items.forEach(it=> parent[it.id]=it.id);
+  function find(x){ while(parent[x]!==x){ parent[x]=parent[parent[x]]; x=parent[x]; } return x; }
+  function unite(a,b){ a=find(a); b=find(b); if(a!==b) parent[b]=a; }
+
+  for(let i=0;i<items.length;i++){
+    for(let j=i+1;j<items.length;j++){
+      if(items[j].start >= items[i].end) break;
+      if(_overlaps(items[i], items[j])) unite(items[i].id, items[j].id);
+    }
+  }
+
+  // compute max concurrent per component
+  const comp = {};
+  items.forEach(it=>{
+    const r=find(it.id);
+    comp[r]=comp[r]||[];
+    comp[r].push(it);
+  });
+
+  const compMaxCols = {};
+  Object.keys(comp).forEach(r=>{
+    const arr=comp[r];
+    const events=[];
+    arr.forEach(it=>{
+      events.push({t:it.start, d:+1});
+      events.push({t:it.end, d:-1});
+    });
+    events.sort((a,b)=> a.t-b.t || a.d-b.d);
+    let active=0, mx=0;
+    events.forEach(ev=>{ active += ev.d; if(active>mx) mx=active; });
+    compMaxCols[r]=Math.max(1,mx);
+  });
+
+  items.forEach(it=>{
+    it.comp = find(it.id);
+    it.maxCols = compMaxCols[it.comp] || 1;
+  });
+
+  return items;
+}
+
+function calRenderWeekGrid(){
+  const grid = $("calDaysGrid");
+  const body = $("calWeekBody");
+  if(!grid || !body) return;
+
+  const startH = cal.startHour||6;
+  const endH = cal.endHour||22;
+  const slotH = 20;
+  const pxPerMin = slotH / (cal.snapMin||15);
+  const dayHeight = (endH-startH)*60*pxPerMin;
+
+  // columns
+  const days = calWeekDates();
+  grid.innerHTML = days.map((d,i)=> `<div class="calDayCol" data-day-idx="${i}" data-day="${ymd(d)}" style="height:${dayHeight}px;"></div>`).join("");
+
+  // Build tasks by day
+  const weekTasks = calTasksForWeek();
+  const byDay = {};
+  weekTasks.forEach(t=>{
+    const dk = (t.due||"").slice(0,10);
+    byDay[dk] = byDay[dk] || [];
+    const startMin = calMinutesFromTimeStr((t.due||"").slice(11,16)) ?? ((cal.startHour||6)*60);
+    const dur = (typeof t.duration_minutes === "number" ? t.duration_minutes : 30);
+    const endMin = startMin + dur;
+    byDay[dk].push({ id:t.id, start:startMin, end:endMin, ref:t });
+  });
+
+  // Render per day with overlap layout
+  grid.querySelectorAll(".calDayCol").forEach(col=>{
+    const dk = col.getAttribute("data-day");
+    const list = byDay[dk] || [];
+    const laid = calLayoutDayTasks(list);
+    laid.forEach(it=>{
+      const t = it.ref;
+      const top = (it.start - startH*60) * pxPerMin;
+      const height = Math.max(slotH, (it.end - it.start) * pxPerMin);
+      const block = document.createElement("div");
+      block.className = "calTaskBlock" + ((t.status==="done") ? " calTaskDone" : "");
+      block.setAttribute("data-task-id", t.id);
+      block.setAttribute("data-day", dk);
+
+      // width/left for overlap stacking
+      const padL = 8;
+      const padR = 8;
+      const colW = col.clientWidth || 300;
+      const innerW = colW - padL - padR;
+      const w = innerW / (it.maxCols || 1);
+      const left = padL + (it.col || 0) * w;
+
+      block.style.top = top + "px";
+      block.style.height = height + "px";
+      block.style.left = left + "px";
+      block.style.width = Math.max(80, w - 6) + "px";
+
+      const title = (t.title || "Task").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const meta = calFormatRange(it.start, (it.end-it.start));
+      block.innerHTML = `
+        <div class="calTaskTitle">${title}</div>
+        <div class="calTaskMeta">${meta}</div>
+        <div class="calResizeHandle" data-resize="1" title="Resize"></div>
+      `;
+      col.appendChild(block);
+    });
+  });
+
+  calBindTaskInteractions();
+  calRenderNowLine();
+}
+
+function calRenderNowLine(){
+  const line = $("calNowLine");
+  const body = $("calWeekBody");
+  if(!line || !body) return;
+  const now = new Date();
+  const ws = cal.weekStart || calStartOfWeek(now);
+  const we = new Date(ws); we.setDate(ws.getDate()+7);
+  if(now < ws || now >= we){ line.style.display="none"; return; }
+  const startH = cal.startHour||6;
+  const endH = cal.endHour||22;
+  const mins = now.getHours()*60 + now.getMinutes();
+  if(mins < startH*60 || mins > endH*60){ line.style.display="none"; return; }
+  const slotH = 20;
+  const pxPerMin = slotH / (cal.snapMin||15);
+  const y = (mins - startH*60) * pxPerMin + 38; // header offset is handled by grid; line is inside body so no +38 actually
+  line.style.display="block";
+  line.style.top = y + "px";
+}
+
+function calOpenSidePanel(task){
+  const panel = $("calSidePanel");
+  if(!panel) return;
+  panel.style.display = "block";
+
+  $("calEditId").value = task.id || "";
+  $("calSideTitle").innerText = "Edit task";
+  $("calEditTitle").value = task.title || "";
+  $("calEditNotes").value = task.notes || "";
+  $("calEditDone").checked = (task.status === "done");
+  $("calEditRepeatWeekdays").checked = (task.repeat_rule === "weekdays");
+
+  const due = (task.due || "");
+  const dk = due.slice(0,10) || ymd(new Date());
+  const tm = due.slice(11,16) || "09:00";
+  $("calEditDate").value = dk;
+  $("calEditTime").value = tm;
+  $("calEditDuration").value = (typeof task.duration_minutes === "number" ? task.duration_minutes : 30);
+
+  $("calSideStatus").innerText = "";
+}
+
+async function calSaveSidePanel(){
+  const id = $("calEditId").value;
+  if(!id) return;
+  const title = ($("calEditTitle").value || "").trim();
+  const date = ($("calEditDate").value || "").trim();
+  const time = ($("calEditTime").value || "").trim();
+  let dur = parseInt($("calEditDuration").value || "30", 10);
+  if(!isFinite(dur) || dur < 15) dur = 30;
+  dur = calSnapMinutes(dur);
+  const notes = ($("calEditNotes").value || "").trim();
+  const done = $("calEditDone").checked;
+  const repeat_rule = $("calEditRepeatWeekdays").checked ? "weekdays" : "";
+  const due = (date ? `${date}T${time || "09:00"}:00` : "");
+
+  $("calSideStatus").innerText = "Saving...";
+  try{
+    const res = await fetch(`/api/crm/tasks/${encodeURIComponent(id)}`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ title, due, notes, done, repeat_rule, duration_minutes: dur })
+    });
+    const data = await res.json();
+    if(!data.ok){
+      $("calSideStatus").innerText = data.error || "Save failed";
+      return;
+    }
+    $("calSideStatus").innerText = "Saved";
+    await calRefreshWeek();
+  }catch(e){
+    $("calSideStatus").innerText = "Save failed";
+  }
+}
+
+async function calDeleteSidePanel(){
+  const id = $("calEditId").value;
+  if(!id) return;
+  $("calSideStatus").innerText = "Deleting...";
+  try{
+    const res = await fetch(`/api/crm/tasks/${encodeURIComponent(id)}`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ status:"deleted" })
+    });
+    const data = await res.json();
+    if(!data.ok){
+      $("calSideStatus").innerText = data.error || "Delete failed";
+      return;
+    }
+    $("calSideStatus").innerText = "Deleted";
+    $("calSidePanel").style.display="none";
+    await calRefreshWeek();
+  }catch(e){
+    $("calSideStatus").innerText = "Delete failed";
+  }
+}
+
+async function calUpdateTaskTime(taskId, newDateKey, startMin, durMin){
+  startMin = calSnapMinutes(calClampToDay(startMin));
+  durMin = calSnapMinutes(Math.max(cal.snapMin||15, durMin));
+  const due = `${newDateKey}T${calTimeStrFromMinutes(startMin)}:00`;
+  try{
+    await fetch(`/api/crm/tasks/${encodeURIComponent(taskId)}`,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ due, duration_minutes: durMin })
+    });
+  }catch(e){}
+}
+
+function calBindTaskInteractions(){
+  const blocks = document.querySelectorAll(".calTaskBlock[data-task-id]");
+  const grid = $("calDaysGrid");
+  if(!grid) return;
+
+  const slotH = 20;
+  const pxPerMin = slotH / (cal.snapMin||15);
+  const startH = cal.startHour||6;
+
+  let drag = null;
+  let raf = null;
+
+  function onMove(ev){
+    if(!drag) return;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
+    if(raf) return;
+    raf = requestAnimationFrame(()=>{
+      raf = null;
+      const dx = drag.lastX - drag.startX;
+      const dy = drag.lastY - drag.startY;
+
+      // Determine day index based on pointer X within grid
+      const rect = grid.getBoundingClientRect();
+      const relX = Math.min(Math.max(drag.lastX - rect.left, 0), rect.width-1);
+      const dayW = rect.width / 7;
+      const dayIdx = Math.floor(relX / dayW);
+      const dayCols = grid.querySelectorAll(".calDayCol");
+      const dayCol = dayCols[dayIdx];
+      const dayKey = dayCol ? dayCol.getAttribute("data-day") : drag.origDayKey;
+
+      // minutes from dy
+      const deltaMin = dy / pxPerMin;
+      let newStart = drag.origStartMin + deltaMin;
+      newStart = calSnapMinutes(newStart);
+      newStart = calClampToDay(newStart);
+
+      // Update preview
+      drag.newDayKey = dayKey;
+      drag.newStartMin = newStart;
+
+      const top = (newStart - startH*60) * pxPerMin;
+      drag.el.style.top = top + "px";
+
+      if(dayKey !== drag.currentDayKey){
+        // move element to new day column for preview
+        const targetCol = grid.querySelector(`.calDayCol[data-day="${dayKey}"]`);
+        if(targetCol){
+          targetCol.appendChild(drag.el);
+          drag.currentDayKey = dayKey;
+        }
+      }
+    });
+  }
+
+  function endDrag(){
+    if(!drag) return;
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", endDrag);
+    drag.el.classList.remove("dragging");
+    drag.el.releasePointerCapture?.(drag.pointerId);
+    const id = drag.taskId;
+    const dayKey = drag.newDayKey || drag.origDayKey;
+    const startMin = (typeof drag.newStartMin === "number") ? drag.newStartMin : drag.origStartMin;
+    const dur = drag.origDurMin;
+    const wasResize = drag.mode === "resize";
+    const newDur = wasResize ? drag.newDurMin : dur;
+
+    calUpdateTaskTime(id, dayKey, startMin, newDur).then(()=> calRefreshWeek());
+    drag = null;
+  }
+
+  blocks.forEach(el=>{
+    el.addEventListener("click", (ev)=>{
+      // avoid click after drag/resize
+      if(el.classList.contains("dragging")) return;
+      const id = el.getAttribute("data-task-id");
+      const task = (cal.tasks||[]).find(t=> (t.id===id));
+      if(task) calOpenSidePanel(task);
+    });
+
+    el.addEventListener("pointerdown", (ev)=>{
+      const id = el.getAttribute("data-task-id");
+      if(!id) return;
+
+      const isResize = (ev.target && ev.target.getAttribute && ev.target.getAttribute("data-resize") === "1");
+      const dayKey = (el.parentElement && el.parentElement.getAttribute) ? el.parentElement.getAttribute("data-day") : (el.getAttribute("data-day")||"");
+      const task = (cal.tasks||[]).find(t=> t.id===id);
+      if(!task) return;
+
+      const startMin = calMinutesFromTimeStr((task.due||"").slice(11,16)) ?? ((cal.startHour||6)*60);
+      const durMin = (typeof task.duration_minutes === "number" ? task.duration_minutes : 30);
+
+      drag = {
+        mode: isResize ? "resize" : "move",
+        pointerId: ev.pointerId,
+        el,
+        taskId: id,
+        startX: ev.clientX,
+        startY: ev.clientY,
+        lastX: ev.clientX,
+        lastY: ev.clientY,
+        origDayKey: dayKey,
+        currentDayKey: dayKey,
+        origStartMin: startMin,
+        origDurMin: durMin,
+        newDayKey: dayKey,
+        newStartMin: startMin,
+        newDurMin: durMin
+      };
+
+      el.classList.add("dragging");
+      el.setPointerCapture?.(ev.pointerId);
+
+      if(isResize){
+        // compute new duration from dy, snapped
+        const startTopMin = startMin;
+        function onResizeMove(e2){
+          if(!drag) return;
+          drag.lastY = e2.clientY;
+          if(raf) return;
+          raf = requestAnimationFrame(()=>{
+            raf=null;
+            const dy = drag.lastY - drag.startY;
+            const deltaMin = dy / pxPerMin;
+            let newDur = drag.origDurMin + deltaMin;
+            newDur = calSnapMinutes(Math.max(cal.snapMin||15, newDur));
+            // clamp end within endHour
+            const endClamp = (cal.endHour||22)*60;
+            if(startTopMin + newDur > endClamp) newDur = calSnapMinutes(endClamp - startTopMin);
+            drag.newDurMin = newDur;
+            const height = Math.max(slotH, newDur * pxPerMin);
+            drag.el.style.height = height + "px";
+          });
+        }
+        document.addEventListener("pointermove", onResizeMove);
+        document.addEventListener("pointerup", ()=>{
+          document.removeEventListener("pointermove", onResizeMove);
+          endDrag();
+        }, {once:true});
+      }else{
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", endDrag);
+      }
+    });
+  });
+}
+
+async function calRefreshWeek(){
+  calSetStatus("Loading tasks...");
+  await calFetchTasks();
+  calSetStatus("");
+  calRenderWeekHeader();
+  calRenderTimeCol();
+  calRenderWeekGrid();
+}
+
+function calInitWeekView(){
+  const today = new Date();
+  if(!cal.weekStart) cal.weekStart = calStartOfWeek(today);
+
+  // Wire buttons once
+  const prev = $("calPrevBtn"), next = $("calNextBtn"), todayBtn = $("calTodayBtn");
+  if(prev && !prev._wired){
+    prev._wired=true;
+    prev.addEventListener("click", ()=>{
+      cal.weekStart = new Date(cal.weekStart);
+      cal.weekStart.setDate(cal.weekStart.getDate() - 7);
+      calRefreshWeek();
+    });
+  }
+  if(next && !next._wired){
+    next._wired=true;
+    next.addEventListener("click", ()=>{
+      cal.weekStart = new Date(cal.weekStart);
+      cal.weekStart.setDate(cal.weekStart.getDate() + 7);
+      calRefreshWeek();
+    });
+  }
+  if(todayBtn && !todayBtn._wired){
+    todayBtn._wired=true;
+    todayBtn.addEventListener("click", ()=>{
+      cal.weekStart = calStartOfWeek(new Date());
+      calRefreshWeek();
+    });
+  }
+
+  const close = $("calSideCloseBtn");
+  if(close && !close._wired){
+    close._wired=true;
+    close.addEventListener("click", ()=>{ $("calSidePanel").style.display="none"; });
+  }
+  const save = $("calSaveTaskBtn");
+  if(save && !save._wired){
+    save._wired=true;
+    save.addEventListener("click", calSaveSidePanel);
+  }
+  const del = $("calDeleteTaskBtn");
+  if(del && !del._wired){
+    del._wired=true;
+    del.addEventListener("click", calDeleteSidePanel);
+  }
+
+  calRefreshWeek();
+}
+
 }
 
 async function calFetchEventsForVisibleRange(){
@@ -12022,6 +12680,18 @@ def api_crm_task_create():
     if not title:
         return jsonify({"ok": False, "error": "Title is required"}), 400
     due = (payload.get("due") or "").strip()  # ISO string
+    duration_minutes = payload.get("duration_minutes", 30)
+    try:
+        duration_minutes = int(duration_minutes)
+    except Exception:
+        duration_minutes = 30
+    if duration_minutes < 15:
+        duration_minutes = 15
+    # snap to 15-min increments
+    duration_minutes = int(round(duration_minutes / 15.0) * 15)
+    if duration_minutes > 24*60:
+        duration_minutes = 24*60
+
     status = (payload.get("status") or "open").strip()
     done = payload.get("done", None)
     if isinstance(done, bool):
@@ -12035,6 +12705,7 @@ def api_crm_task_create():
         "status": status,
         "priority": (payload.get("priority") or "normal").strip(),
         "due": due,
+        "duration_minutes": duration_minutes,
         "notes": (payload.get("notes") or "").strip(),
         "repeat_rule": (payload.get("repeat_rule") or "").strip(),
         "created_at": now_iso(),
@@ -12062,6 +12733,13 @@ def api_crm_tasks_list():
             t["done"] = (t.get("status") == "done")
             if "repeat_rule" not in t:
                 t["repeat_rule"] = ""
+            if "duration_minutes" not in t:
+                t["duration_minutes"] = 30
+            else:
+                try:
+                    t["duration_minutes"] = int(t.get("duration_minutes") or 30)
+                except Exception:
+                    t["duration_minutes"] = 30
     # sort due asc then created desc
     def _key(t):
         return (t.get("due") or "9999", t.get("created_at") or "")
@@ -12088,6 +12766,19 @@ def api_crm_task_update(task_id: str):
     if "done" in payload and isinstance(payload.get("done"), bool):
         t["status"] = "done" if payload.get("done") else "open"
 
+    if "duration_minutes" in payload:
+        try:
+            dm = int(payload.get("duration_minutes"))
+        except Exception:
+            dm = None
+        if dm is not None:
+            if dm < 15:
+                dm = 15
+            dm = int(round(dm / 15.0) * 15)
+            if dm > 24*60:
+                dm = 24*60
+            t["duration_minutes"] = dm
+
     # If this task repeats on weekdays, and we just completed it, auto-create the next one.
     new_done = (t.get("status") == "done")
     if (not was_done) and new_done and (t.get("repeat_rule") == "weekdays") and (t.get("due") or ""):
@@ -12101,6 +12792,7 @@ def api_crm_task_update(task_id: str):
                 "status": "open",
                 "priority": (t.get("priority") or "normal").strip(),
                 "due": next_due,
+                "duration_minutes": (t.get("duration_minutes") or 30),
                 "notes": (t.get("notes") or "").strip(),
                 "repeat_rule": (t.get("repeat_rule") or "").strip(),
                 "created_at": now_iso(),
