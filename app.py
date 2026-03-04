@@ -2705,6 +2705,7 @@ def api_upload():
         "mimetype": mimetype,
         "size_bytes": size_bytes,
         "uploaded_at": now_iso(),
+        "user": _get_session_username(),
     }
     add_upload_record(file_id, rec)
 
@@ -5150,6 +5151,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="settingsBtn">Settings</button>
             <button class="btn" id="calendarBtn">Calendar</button>
 <button class="btn" id="crmBtn">Client Center</button>
+<button class="btn" id="imagesBtn">Images</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5634,6 +5636,37 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <label style="margin-top:10px;">Message</label>
   <textarea id="crmSmsBody" rows="6" placeholder="Write your text message..."></textarea>
 
+  <div class="card" style="margin-top:10px; padding:12px;">
+    <div class="tiny" style="opacity:.9; margin-bottom:8px;">Twilio Settings (required to send)</div>
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap:10px;">
+      <div>
+        <label>Provider</label>
+        <select id="crmSmsProvider">
+          <option value="">Not configured</option>
+          <option value="twilio">Twilio</option>
+        </select>
+      </div>
+      <div>
+        <label>From Number</label>
+        <input id="crmTwilioFrom" placeholder="+15551234567" />
+      </div>
+      <div>
+        <label>Account SID</label>
+        <input id="crmTwilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+      </div>
+      <div>
+        <label>Auth Token</label>
+        <input id="crmTwilioToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+      </div>
+    </div>
+    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
+      <button class="btn" id="crmLoadSmsSettings">Load</button>
+      <button class="btn btnPrimary" id="crmSaveSmsSettings">Save</button>
+      <button class="btn" id="crmTestSmsSettings">Test (send to active client)</button>
+    </div>
+    <div id="crmSmsSettingsStatus" class="tiny" style="margin-top:8px;"></div>
+  </div>
+
   <div class="actions" style="justify-content:flex-start; margin-top:10px;">
     <button class="btn" id="crmSmsDryRun">Dry run</button>
     <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
@@ -5748,7 +5781,43 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;">
+              <div class="modalForm" id="imagesForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Image Library. Generate and reuse images across teammates.</div>
+
+  <div class="grid" style="grid-template-columns: 1fr 1fr; gap:12px;">
+    <div>
+      <label>Prompt</label>
+      <textarea id="imgPrompt" rows="5" placeholder="Describe the image you want..."></textarea>
+      <div class="grid" style="grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+        <div>
+          <label>Size</label>
+          <select id="imgSize">
+            <option value="1024x1024">1024x1024</option>
+            <option value="1024x1536">1024x1536</option>
+            <option value="1536x1024">1536x1024</option>
+          </select>
+        </div>
+        <div>
+          <label>Teammate</label>
+          <select id="imgTeammate"></select>
+        </div>
+      </div>
+      <div class="actions" style="justify-content:flex-start; margin-top:10px;">
+        <button class="btn btnPrimary" id="imgGenerateBtn">Generate</button>
+        <button class="btn" id="imgRefreshBtn">Refresh</button>
+      </div>
+      <div id="imgStatus" class="tiny" style="margin-top:8px;"></div>
+    </div>
+
+    <div>
+      <label>Library</label>
+      <div class="tiny" style="opacity:.9; margin-bottom:8px;">Click an image to copy its URL.</div>
+      <div id="imgGrid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modalForm" id="calendarForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
 
   <div style="display:flex; gap:12px; flex-wrap:wrap;">
@@ -6205,6 +6274,7 @@ if (typeof window.showToast !== "function") {
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
+      if($("imagesForm")) $("imagesForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -8951,6 +9021,63 @@ async function crmBroadcastSMS(dry_run=false){
   }catch(e){
     if(st) st.innerText = 'Send failed (SMS not configured)';
   }
+
+async function crmLoadSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = 'Loading...';
+  try{
+    const res = await fetch('/api/crm/settings/sms');
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'load failed');
+    const s = data.sms || {};
+    if($("crmSmsProvider")) $("crmSmsProvider").value = s.provider || '';
+    if($("crmTwilioSid")) $("crmTwilioSid").value = s.twilio_sid || '';
+    if($("crmTwilioToken")) $("crmTwilioToken").value = s.twilio_token || '';
+    if($("crmTwilioFrom")) $("crmTwilioFrom").value = s.twilio_from || '';
+    if(st) st.innerText = 'Loaded.';
+  }catch(e){
+    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'load failed');
+  }
+}
+
+async function crmSaveSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = 'Saving...';
+  const payload = {
+    provider: ($("crmSmsProvider") ? $("crmSmsProvider").value : ''),
+    twilio_sid: ($("crmTwilioSid") ? $("crmTwilioSid").value.trim() : ''),
+    twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value.trim() : ''),
+    twilio_from: ($("crmTwilioFrom") ? $("crmTwilioFrom").value.trim() : ''),
+  };
+  try{
+    const res = await fetch('/api/crm/settings/sms', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'save failed');
+    if(st) st.innerText = 'Saved.';
+    showToast('SMS settings saved');
+  }catch(e){
+    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'save failed');
+  }
+}
+
+async function crmTestSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = 'Testing...';
+  try{
+    const res = await fetch('/api/crm/settings/sms/test', {method:'POST'});
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'test failed');
+    if(st) st.innerText = 'Test sent.';
+    showToast('Test SMS sent');
+  }catch(e){
+    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'test failed');
+  }
+}
+
 }
 
 async function crmFetchTasks(){
@@ -9221,8 +9348,120 @@ async function crmFetchTasks(){
       b('crmSaveSeq', crmSaveSequence);
       b('crmEnrollBtn', crmEnroll);
 
+      b('crmLoadSmsSettings', crmLoadSmsSettings);
+      b('crmSaveSmsSettings', crmSaveSmsSettings);
+      b('crmTestSmsSettings', crmTestSmsSettings);
+
       b('crmCreateEventBtn', crmCreateCalendarEvent);
     }
+
+
+    // =========================
+    // IMAGE LIBRARY (additive)
+    // =========================
+    async function imagesFetch(){
+      const res = await fetch('/api/images/list');
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error||'images load failed');
+      return data.images || [];
+    }
+
+    function imagesRender(list){
+      const grid = $("imgGrid");
+      if(!grid) return;
+      const imgs = list || [];
+      if(!imgs.length){
+        grid.innerHTML = '<div class="tiny" style="opacity:.85;">No images yet.</div>';
+        return;
+      }
+      grid.innerHTML = imgs.map(it=>{
+        const url = escapeHtml(it.url||'');
+        const id = escapeHtml(it.id||'');
+        const title = escapeHtml(it.filename||it.id||'');
+        return `<div class="card" style="padding:6px; cursor:pointer;" title="Click to copy URL" data-imgurl="${url}">
+                  <img src="${url}" alt="${title}" style="width:100%; height:90px; object-fit:cover; border-radius:10px; display:block;" />
+                  <div class="tiny" style="margin-top:6px; opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${id.slice(0,8)}</div>
+                </div>`;
+      }).join('');
+      Array.from(grid.querySelectorAll('[data-imgurl]')).forEach(el=>{
+        el.onclick = async ()=>{
+          const u = el.getAttribute('data-imgurl') || '';
+          try{
+            await navigator.clipboard.writeText(u);
+            showToast('Image URL copied');
+          }catch(e){
+            const ta = document.createElement('textarea');
+            ta.value = u; document.body.appendChild(ta); ta.select();
+            try{ document.execCommand('copy'); showToast('Image URL copied'); }catch(_){}
+            document.body.removeChild(ta);
+          }
+        };
+      });
+    }
+
+    async function imagesRefresh(){
+      const st = $("imgStatus");
+      if(st) st.innerText = 'Loading...';
+      try{
+        const list = await imagesFetch();
+        imagesRender(list);
+        if(st) st.innerText = '';
+      }catch(e){
+        if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'load failed');
+      }
+    }
+
+    async function imagesGenerate(){
+      const st = $("imgStatus");
+      const prompt = ($("imgPrompt") ? $("imgPrompt").value : '').trim();
+      const size = ($("imgSize") ? $("imgSize").value : '1024x1024');
+      const teammate = ($("imgTeammate") ? $("imgTeammate").value : '');
+      if(!prompt){
+        if(st) st.innerText = 'Prompt is required';
+        return;
+      }
+      if(st) st.innerText = 'Generating...';
+      try{
+        const res = await fetch('/api/images/generate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({prompt, size, teammate})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'generate failed');
+        if(st) st.innerText = 'Done. Added to library.';
+        await imagesRefresh();
+      }catch(e){
+        if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'generate failed');
+      }
+    }
+
+    function showImagesModal(){
+      $("modalTitle").innerText = "Images";
+      $("modalBody").innerText = "";
+      hideAllModalForms();
+      $("modalBody").style.display = "none";
+      const form = $("imagesForm");
+      if(form) form.style.display = "block";
+      const sel = $("imgTeammate");
+      if(sel){
+        const names = (typeof activeOrder === 'function') ? activeOrder() : [];
+        const opts = ['Operator'].concat(names || []);
+        sel.innerHTML = opts.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+      }
+      const gb = $("imgGenerateBtn"); if(gb) gb.onclick = imagesGenerate;
+      const rb = $("imgRefreshBtn"); if(rb) rb.onclick = imagesRefresh;
+
+      modalMinimized = false;
+      $("modalWin").classList.remove("minimized");
+      $("minModal").style.display = "inline-block";
+      $("restoreModal").style.display = "none";
+      $("overlay").classList.add("show");
+      applyModalPos();
+      imagesRefresh();
+    }
+
+    if($("imagesBtn")) $("imagesBtn").onclick = ()=> showImagesModal();
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
@@ -12047,6 +12286,220 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
+# =========================
+# ADDITIVE: CRM SMS SETTINGS (Twilio)
+# =========================
+
+def _crm_save_sms_settings(username: str, sms: Dict[str, Any]) -> None:
+    try:
+        crm = _crm_load(username)
+        crm.setdefault("settings", {})
+        crm["settings"].setdefault("sms", {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""})
+        cur = crm["settings"]["sms"]
+        for k in ["provider", "twilio_sid", "twilio_token", "twilio_from"]:
+            if k in sms:
+                cur[k] = str(sms.get(k) or "").strip()
+        crm["updated_at"] = now_iso()
+        _crm_save(username, crm)
+    except Exception:
+        pass
+
+@app.get("/api/crm/settings/sms")
+def api_crm_sms_settings_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    sms = ((crm.get("settings") or {}).get("sms") or {})
+    return jsonify({"ok": True, "sms": {
+        "provider": (sms.get("provider") or ""),
+        "twilio_sid": (sms.get("twilio_sid") or ""),
+        "twilio_token": (sms.get("twilio_token") or ""),
+        "twilio_from": (sms.get("twilio_from") or ""),
+    }})
+
+@app.post("/api/crm/settings/sms")
+def api_crm_sms_settings_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    sms = {
+        "provider": (payload.get("provider") or "").strip(),
+        "twilio_sid": (payload.get("twilio_sid") or "").strip(),
+        "twilio_token": (payload.get("twilio_token") or "").strip(),
+        "twilio_from": (payload.get("twilio_from") or "").strip(),
+    }
+    if sms["provider"] and sms["provider"].lower() != "twilio":
+        return jsonify({"ok": False, "error": "Only Twilio is supported right now."}), 400
+    _crm_save_sms_settings(uname, sms)
+    return jsonify({"ok": True})
+
+@app.post("/api/crm/settings/sms/test")
+def api_crm_sms_settings_test():
+    """Send a short test SMS to the active client's phone number."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    active_id = (crm.get("active_client_id") or "").strip()
+    clients = (crm.get("clients") or {})
+    c = clients.get(active_id) if active_id else None
+    if not isinstance(c, dict):
+        return jsonify({"ok": False, "error": "No active client selected for test."}), 400
+    phone = (c.get("phone") or "").strip()
+    if not phone:
+        return jsonify({"ok": False, "error": "Active client has no phone number."}), 400
+    ok, err = _crm_try_send_sms(uname, phone, "✅ Simply Agentic AI: Twilio test message.")
+    if not ok:
+        return jsonify({"ok": False, "error": err or "Test failed"}), 400
+    return jsonify({"ok": True})
+
+# =========================
+# ADDITIVE: Upload serving + Image generation + Image library
+# =========================
+
+def _uploads_abs_path_from_rec(rec: Dict[str, Any]) -> Optional[Path]:
+    try:
+        rel = (rec.get("relpath") or "").strip()
+        if not rel:
+            return None
+        pth = (UPLOADS_DIR / rel).resolve()
+        if str(pth).startswith(str(UPLOADS_DIR.resolve())) and pth.exists():
+            return pth
+    except Exception:
+        return None
+    return None
+
+@app.get("/api/uploads/<file_id>")
+def api_uploads_get(file_id: str):
+    rec = get_upload_record(file_id)
+    if not rec:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    pth = _uploads_abs_path_from_rec(rec)
+    if not pth:
+        return jsonify({"ok": False, "error": "Missing file"}), 404
+    try:
+        from flask import send_file
+        mimetype = (rec.get("mimetype") or "") or None
+        return send_file(str(pth), mimetype=mimetype, as_attachment=False, download_name=rec.get("filename") or None)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "Serve failed"}), 500
+
+@app.get("/api/images/list")
+def api_images_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    idx = load_upload_index()
+    files = (idx.get("files") or {})
+    out = []
+    for fid, rec in files.items():
+        if not isinstance(rec, dict):
+            continue
+        mt = (rec.get("mimetype") or "")
+        if not mt.startswith("image/"):
+            continue
+        owner = (rec.get("user") or "")
+        if owner and owner != uname:
+            continue
+        out.append({
+            "id": rec.get("id") or fid,
+            "filename": rec.get("filename") or "",
+            "mimetype": mt,
+            "uploaded_at": rec.get("uploaded_at") or "",
+            "kind": rec.get("kind") or "",
+            "teammate": rec.get("teammate") or "",
+            "url": f"/api/uploads/{fid}",
+        })
+    out.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
+    out = out[:120]
+    return jsonify({"ok": True, "images": out})
+
+def _b64_to_png_bytes(b64str: str) -> bytes:
+    return base64.b64decode(b64str.encode("utf-8"))
+
+@app.post("/api/images/generate")
+def api_images_generate():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get("prompt") or "").strip()
+    size = (payload.get("size") or "1024x1024").strip()
+    teammate = (payload.get("teammate") or "").strip()
+
+    if not prompt:
+        return jsonify({"ok": False, "error": "Missing prompt"}), 400
+    if size not in ("1024x1024","1024x1536","1536x1024"):
+        size = "1024x1024"
+
+    final_prompt = prompt
+    if teammate and teammate.lower() != "operator":
+        try:
+            reg = load_registry()
+            defn = (reg.get("installed") or {}).get(teammate)
+            if isinstance(defn, dict):
+                style = (defn.get("style") or defn.get("role") or "").strip()
+                if style:
+                    final_prompt = f"{prompt}\n\nStyle notes: {style}"
+        except Exception:
+            pass
+
+    try:
+        c = get_openai_client()
+        img_b64 = None
+        try:
+            res = c.images.generate(
+                model=os.getenv("IMAGE_MODEL", "gpt-image-1"),
+                prompt=final_prompt,
+                size=size
+            )
+            if hasattr(res, "data") and res.data and hasattr(res.data[0], "b64_json"):
+                img_b64 = res.data[0].b64_json
+            elif isinstance(res, dict):
+                d = (res.get("data") or [])
+                if d and isinstance(d[0], dict):
+                    img_b64 = d[0].get("b64_json")
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Image generate failed: {e}"}), 400
+
+        if not img_b64:
+            return jsonify({"ok": False, "error": "Image generate returned empty data"}), 400
+
+        png_bytes = _b64_to_png_bytes(img_b64)
+        file_id = uuid.uuid4().hex
+        subdir = datetime.utcnow().strftime("%Y%m%d")
+        (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
+        filename = f"generated_{file_id}.png"
+        out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
+        with open(out_path, "wb") as f:
+            f.write(png_bytes)
+
+        rec = {
+            "id": file_id,
+            "filename": filename,
+            "relpath": str(Path(subdir) / f"{file_id}_{filename}"),
+            "mimetype": "image/png",
+            "size_bytes": int(out_path.stat().st_size if out_path.exists() else 0),
+            "uploaded_at": now_iso(),
+            "user": uname,
+            "kind": "generated_image",
+            "teammate": teammate,
+            "prompt": prompt[:2000],
+            "size": size,
+        }
+        add_upload_record(file_id, rec)
+        append_log("image_generate", {"file_id": file_id, "user": uname, "teammate": teammate, "size": size})
+        return jsonify({"ok": True, "file_id": file_id, "url": f"/api/uploads/{file_id}"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "Generate failed"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
