@@ -2135,6 +2135,138 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
 
 
+# =========================
+# IMAGE GENERATION (additive)
+# =========================
+# Enables teammates to return real images (stored in Uploads) when the user asks for a graphic/image.
+# Uses OpenAI Images API via the installed OpenAI python client.
+#
+# Front-end expects optional fields returned by /api/followup:
+#   { image_url: "/uploads/<relpath>", image_file: {upload record} }
+
+IMAGE_MODELS_FALLBACK = ["gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini"]
+
+_IMAGE_TRIGGERS = [
+    "generate an image", "generate image", "create an image", "create image",
+    "make an image", "make image",
+    "create a graphic", "make a graphic", "generate a graphic",
+    "give me the graphic", "give me a graphic",
+    "render", "illustration", "logo", "poster",
+    "image of", "picture of",
+]
+
+def is_image_request(prompt: str) -> bool:
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+    # Strong triggers
+    for t in _IMAGE_TRIGGERS:
+        if t in p:
+            return True
+    # Heuristic: user explicitly asks for a "graphic" or "image"
+    if ("graphic" in p or "image" in p or "picture" in p) and ("prompt" not in p):
+        return True
+    return False
+
+def _pick_image_model() -> str:
+    # Allow override via env, otherwise pick a safe default.
+    m = (os.getenv("IMAGE_MODEL") or "").strip()
+    if m:
+        return m
+    return "gpt-image-1"
+
+def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
+    # Refine prompt using the text model for better image outputs.
+    # Keep it short, tool-friendly.
+    sys = (
+        "You are an expert image prompt engineer. "
+        "Rewrite the user's request into a single, concise image prompt. "
+        "Include composition, subject, style, and any key text (if requested). "
+        "Do NOT mention policies, limitations, or tools. "
+        "Output ONLY the rewritten image prompt."
+    )
+    user = (raw or "").strip()
+    if not user:
+        return ""
+    # Lighting mode can bias toward higher contrast / cinematic looks.
+    if lighting_mode:
+        user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
+    try:
+        refined = call_llm(sys, [{"role": "user", "content": user}], temperature=0.25)
+        refined = (refined or "").strip()
+        # guard against multi-line chatter
+        refined = refined.split("\n\n")[0].strip()
+        return refined or user
+    except Exception:
+        return user
+
+def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
+    # Save into uploads like any other file and index it.
+    file_id = uuid.uuid4().hex
+    subdir = datetime.utcnow().strftime("%Y%m%d")
+    (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
+    filename = f"{_safe_name(teammate or 'teammate')}_image.png"
+    out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
+    with open(out_path, "wb") as f:
+        f.write(image_bytes or b"")
+    size_bytes = out_path.stat().st_size if out_path.exists() else 0
+    rec = {
+        "id": file_id,
+        "filename": filename,
+        "relpath": str(Path(subdir) / f"{file_id}_{filename}"),
+        "mimetype": "image/png",
+        "size_bytes": size_bytes,
+        "uploaded_at": now_iso(),
+        # additive metadata for image library
+        "kind": "ai_image",
+        "teammate": teammate,
+        "owner": username,
+    }
+    add_upload_record(file_id, rec)
+    append_log("ai_image", {"teammate": teammate, "owner": username, "file": rec})
+    return rec
+
+def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+    """
+    Returns (upload_record, image_url, error_message)
+    """
+    prompt = (raw_prompt or "").strip()
+    if not prompt:
+        return None, None, "Missing image prompt"
+
+    # Refine prompt for better images
+    prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
+
+    model = _pick_image_model()
+    client = get_openai_client()
+
+    # Try a couple known models if the configured one fails.
+    tried = []
+    for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
+        tried.append(m)
+        try:
+            # openai python client returns base64 in b64_json for each image
+            resp = client.images.generate(
+                model=m,
+                prompt=prompt2,
+                size=os.getenv("IMAGE_SIZE", "1024x1024"),
+            )
+            # Compatible with OpenAI python (v1+) response format.
+            b64 = None
+            if hasattr(resp, "data") and resp.data:
+                b64 = getattr(resp.data[0], "b64_json", None) or (resp.data[0].get("b64_json") if isinstance(resp.data[0], dict) else None)
+            if not b64:
+                return None, None, "Image generation returned no data"
+            image_bytes = base64.b64decode(b64)
+            rec = _save_generated_image_bytes(image_bytes, teammate=teammate, username=username)
+            url = f"/uploads/{rec['relpath']}"
+            return rec, url, None
+        except Exception as e:
+            last_err = str(e) or "Image generation failed"
+            continue
+
+    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
+
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
     triggers = [
@@ -2705,12 +2837,54 @@ def api_upload():
         "mimetype": mimetype,
         "size_bytes": size_bytes,
         "uploaded_at": now_iso(),
-        "user": _get_session_username(),
     }
     add_upload_record(file_id, rec)
 
     append_log("upload", rec)
     return jsonify({"ok": True, "file": rec})
+
+@app.get("/api/images")
+def api_images_list():
+    """List stored images (includes AI-generated images and uploaded images)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    only_ai = (request.args.get("only_ai") or "").strip().lower() in ("1","true","yes","y","on")
+
+    idx = load_upload_index()
+    files = list((idx.get("files") or {}).values())
+
+    def _is_image(rec: Dict[str, Any]) -> bool:
+        mt = (rec.get("mimetype") or "").lower()
+        fn = (rec.get("filename") or "").lower()
+        if mt.startswith("image/"):
+            return True
+        if fn.endswith((".png",".jpg",".jpeg",".webp",".gif",".svg")):
+            return True
+        return False
+
+    out = []
+    for rec in files:
+        if not isinstance(rec, dict):
+            continue
+        if not _is_image(rec):
+            continue
+        if only_ai and (rec.get("kind") != "ai_image"):
+            continue
+        # If record has owner, enforce per-user privacy; otherwise show.
+        owner = (rec.get("owner") or "").strip()
+        if owner and owner != uname:
+            continue
+        r = dict(rec)
+        r["url"] = f"/uploads/{r.get('relpath','')}"
+        out.append(r)
+
+    # newest first
+    out.sort(key=lambda r: (r.get("uploaded_at") or ""), reverse=True)
+    return jsonify({"ok": True, "images": out})
+
 
 
 @app.post("/api/convene")
@@ -2873,6 +3047,29 @@ def api_followup():
 
     thread = load_thread(name)
     thread = thread[-14:] if len(thread) > 14 else thread
+
+    # IMAGE MODE: if user asked for a graphic/image, generate it and return a real image URL (stored in Uploads).
+    try:
+        uname = _get_session_username()
+    except Exception:
+        uname = "anon"
+
+    if is_image_request(msg2) and (len(vision_images) == 0):
+        rec, url, err = generate_image_for_teammate(msg2, teammate=name, username=uname, lighting_mode=lighting_mode)
+        if err:
+            return jsonify({"ok": False, "error": err}), 500
+
+        # Keep the chat thread consistent: store a short note plus the URL.
+        note = f"[Image generated] {url}"
+        thread = load_thread(name)
+        thread = thread[-14:] if len(thread) > 14 else thread
+        new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": note}]
+        save_thread(name, new_thread)
+
+        append_log("followup_image", {"name": name, "prompt": msg2, "image": rec})
+        append_task_log("teammate_followup_image", {"name": name, "prompt": msg2, "image": rec}, teammate=name, status="success")
+
+        return jsonify({"ok": True, "name": name, "response": note, "image_url": url, "image_file": rec, "email_draft": None, "attachment_meta": attach_meta})
 
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
@@ -5151,7 +5348,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="settingsBtn">Settings</button>
             <button class="btn" id="calendarBtn">Calendar</button>
 <button class="btn" id="crmBtn">Client Center</button>
-<button class="btn" id="imagesBtn">Images</button>
+<button class="btn" id="imageLibBtn">Image Library</button>
       <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
             <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
       <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
@@ -5636,37 +5833,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <label style="margin-top:10px;">Message</label>
   <textarea id="crmSmsBody" rows="6" placeholder="Write your text message..."></textarea>
 
-  <div class="card" style="margin-top:10px; padding:12px;">
-    <div class="tiny" style="opacity:.9; margin-bottom:8px;">Twilio Settings (required to send)</div>
-    <div class="grid" style="grid-template-columns: 1fr 1fr; gap:10px;">
-      <div>
-        <label>Provider</label>
-        <select id="crmSmsProvider">
-          <option value="">Not configured</option>
-          <option value="twilio">Twilio</option>
-        </select>
-      </div>
-      <div>
-        <label>From Number</label>
-        <input id="crmTwilioFrom" placeholder="+15551234567" />
-      </div>
-      <div>
-        <label>Account SID</label>
-        <input id="crmTwilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-      </div>
-      <div>
-        <label>Auth Token</label>
-        <input id="crmTwilioToken" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-      </div>
-    </div>
-    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
-      <button class="btn" id="crmLoadSmsSettings">Load</button>
-      <button class="btn btnPrimary" id="crmSaveSmsSettings">Save</button>
-      <button class="btn" id="crmTestSmsSettings">Test (send to active client)</button>
-    </div>
-    <div id="crmSmsSettingsStatus" class="tiny" style="margin-top:8px;"></div>
-  </div>
-
   <div class="actions" style="justify-content:flex-start; margin-top:10px;">
     <button class="btn" id="crmSmsDryRun">Dry run</button>
     <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
@@ -5781,43 +5947,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="imagesForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Image Library. Generate and reuse images across teammates.</div>
-
-  <div class="grid" style="grid-template-columns: 1fr 1fr; gap:12px;">
-    <div>
-      <label>Prompt</label>
-      <textarea id="imgPrompt" rows="5" placeholder="Describe the image you want..."></textarea>
-      <div class="grid" style="grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
-        <div>
-          <label>Size</label>
-          <select id="imgSize">
-            <option value="1024x1024">1024x1024</option>
-            <option value="1024x1536">1024x1536</option>
-            <option value="1536x1024">1536x1024</option>
-          </select>
-        </div>
-        <div>
-          <label>Teammate</label>
-          <select id="imgTeammate"></select>
-        </div>
-      </div>
-      <div class="actions" style="justify-content:flex-start; margin-top:10px;">
-        <button class="btn btnPrimary" id="imgGenerateBtn">Generate</button>
-        <button class="btn" id="imgRefreshBtn">Refresh</button>
-      </div>
-      <div id="imgStatus" class="tiny" style="margin-top:8px;"></div>
-    </div>
-
-    <div>
-      <label>Library</label>
-      <div class="tiny" style="opacity:.9; margin-bottom:8px;">Click an image to copy its URL.</div>
-      <div id="imgGrid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;"></div>
-    </div>
-  </div>
-</div>
-
-<div class="modalForm" id="calendarForm" style="display:none;">
+              <div class="modalForm" id="calendarForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
 
   <div style="display:flex; gap:12px; flex-wrap:wrap;">
@@ -6274,7 +6404,6 @@ if (typeof window.showToast !== "function") {
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
-      if($("imagesForm")) $("imagesForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -7547,7 +7676,7 @@ function makeSeat(defn, idx){
 
     $("refreshThread").onclick = refreshThread;
 
-    function renderGroupReplies(outputs, drafts){
+    function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
       box.innerHTML = "";
 
@@ -7577,7 +7706,7 @@ function makeSeat(defn, idx){
         const openBtn = document.createElement("button");
         openBtn.className = "btn";
         openBtn.innerText = "Open";
-        openBtn.onclick = () => showModal(name, outputs[name]);
+        openBtn.onclick = () => showModal(name, outputs[name], (images && images[name]) ? images[name] : null);
 
         const selectBtn = document.createElement("button");
         selectBtn.className = "btn";
@@ -7609,7 +7738,18 @@ function makeSeat(defn, idx){
 
         const body = document.createElement("div");
         body.className = "replyBody";
-        body.innerText = outputs[name];
+        if(images && images[name]){
+          const im = document.createElement('img');
+          im.src = images[name];
+          im.style.maxWidth = '100%';
+          im.style.borderRadius = '12px';
+          im.style.marginBottom = '8px';
+          body.appendChild(im);
+        }
+        const tx = document.createElement('div');
+        tx.style.whiteSpace = 'pre-wrap';
+        tx.innerText = outputs[name];
+        body.appendChild(tx);
 
         item.appendChild(top);
         item.appendChild(body);
@@ -8238,6 +8378,7 @@ function makeSeat(defn, idx){
       // each teammate completes (or fails) independently without freezing the UI.
       const outputs = {};
       const drafts = {};
+      const images = {};
 
       for(const n of order){
         try{
@@ -8270,9 +8411,12 @@ function makeSeat(defn, idx){
           if(data.email_draft){
             drafts[n] = data.email_draft;
           }
+          if(data.image_url){
+            images[n] = data.image_url;
+          }
 
           // Update the group panel incrementally
-          renderGroupReplies(outputs, drafts);
+          renderGroupReplies(outputs, drafts, images);
           setSeatLive(n, "done");
         }catch(e){
           setSeatLive(n, "waiting");
@@ -8280,7 +8424,7 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
-      renderGroupReplies(outputs, drafts);
+      renderGroupReplies(outputs, drafts, images);
 
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
@@ -8460,7 +8604,7 @@ $("draftWithSelected").onclick = async () => {
       if(data.email_draft){
         applyEmailDraft(data.email_draft, selectedSeat);
       }else{
-        showModal("Draft returned", data.response || "No content");
+        showModal("Draft returned", data.response || "No content", data.image_url || null);
       }
 
       await refreshThread();
@@ -9021,63 +9165,6 @@ async function crmBroadcastSMS(dry_run=false){
   }catch(e){
     if(st) st.innerText = 'Send failed (SMS not configured)';
   }
-
-async function crmLoadSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = 'Loading...';
-  try{
-    const res = await fetch('/api/crm/settings/sms');
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'load failed');
-    const s = data.sms || {};
-    if($("crmSmsProvider")) $("crmSmsProvider").value = s.provider || '';
-    if($("crmTwilioSid")) $("crmTwilioSid").value = s.twilio_sid || '';
-    if($("crmTwilioToken")) $("crmTwilioToken").value = s.twilio_token || '';
-    if($("crmTwilioFrom")) $("crmTwilioFrom").value = s.twilio_from || '';
-    if(st) st.innerText = 'Loaded.';
-  }catch(e){
-    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'load failed');
-  }
-}
-
-async function crmSaveSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = 'Saving...';
-  const payload = {
-    provider: ($("crmSmsProvider") ? $("crmSmsProvider").value : ''),
-    twilio_sid: ($("crmTwilioSid") ? $("crmTwilioSid").value.trim() : ''),
-    twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value.trim() : ''),
-    twilio_from: ($("crmTwilioFrom") ? $("crmTwilioFrom").value.trim() : ''),
-  };
-  try{
-    const res = await fetch('/api/crm/settings/sms', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'save failed');
-    if(st) st.innerText = 'Saved.';
-    showToast('SMS settings saved');
-  }catch(e){
-    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'save failed');
-  }
-}
-
-async function crmTestSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = 'Testing...';
-  try{
-    const res = await fetch('/api/crm/settings/sms/test', {method:'POST'});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'test failed');
-    if(st) st.innerText = 'Test sent.';
-    showToast('Test SMS sent');
-  }catch(e){
-    if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'test failed');
-  }
-}
-
 }
 
 async function crmFetchTasks(){
@@ -9348,120 +9435,8 @@ async function crmFetchTasks(){
       b('crmSaveSeq', crmSaveSequence);
       b('crmEnrollBtn', crmEnroll);
 
-      b('crmLoadSmsSettings', crmLoadSmsSettings);
-      b('crmSaveSmsSettings', crmSaveSmsSettings);
-      b('crmTestSmsSettings', crmTestSmsSettings);
-
       b('crmCreateEventBtn', crmCreateCalendarEvent);
     }
-
-
-    // =========================
-    // IMAGE LIBRARY (additive)
-    // =========================
-    async function imagesFetch(){
-      const res = await fetch('/api/images/list');
-      const data = await res.json();
-      if(!data.ok) throw new Error(data.error||'images load failed');
-      return data.images || [];
-    }
-
-    function imagesRender(list){
-      const grid = $("imgGrid");
-      if(!grid) return;
-      const imgs = list || [];
-      if(!imgs.length){
-        grid.innerHTML = '<div class="tiny" style="opacity:.85;">No images yet.</div>';
-        return;
-      }
-      grid.innerHTML = imgs.map(it=>{
-        const url = escapeHtml(it.url||'');
-        const id = escapeHtml(it.id||'');
-        const title = escapeHtml(it.filename||it.id||'');
-        return `<div class="card" style="padding:6px; cursor:pointer;" title="Click to copy URL" data-imgurl="${url}">
-                  <img src="${url}" alt="${title}" style="width:100%; height:90px; object-fit:cover; border-radius:10px; display:block;" />
-                  <div class="tiny" style="margin-top:6px; opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${id.slice(0,8)}</div>
-                </div>`;
-      }).join('');
-      Array.from(grid.querySelectorAll('[data-imgurl]')).forEach(el=>{
-        el.onclick = async ()=>{
-          const u = el.getAttribute('data-imgurl') || '';
-          try{
-            await navigator.clipboard.writeText(u);
-            showToast('Image URL copied');
-          }catch(e){
-            const ta = document.createElement('textarea');
-            ta.value = u; document.body.appendChild(ta); ta.select();
-            try{ document.execCommand('copy'); showToast('Image URL copied'); }catch(_){}
-            document.body.removeChild(ta);
-          }
-        };
-      });
-    }
-
-    async function imagesRefresh(){
-      const st = $("imgStatus");
-      if(st) st.innerText = 'Loading...';
-      try{
-        const list = await imagesFetch();
-        imagesRender(list);
-        if(st) st.innerText = '';
-      }catch(e){
-        if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'load failed');
-      }
-    }
-
-    async function imagesGenerate(){
-      const st = $("imgStatus");
-      const prompt = ($("imgPrompt") ? $("imgPrompt").value : '').trim();
-      const size = ($("imgSize") ? $("imgSize").value : '1024x1024');
-      const teammate = ($("imgTeammate") ? $("imgTeammate").value : '');
-      if(!prompt){
-        if(st) st.innerText = 'Prompt is required';
-        return;
-      }
-      if(st) st.innerText = 'Generating...';
-      try{
-        const res = await fetch('/api/images/generate', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({prompt, size, teammate})
-        });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'generate failed');
-        if(st) st.innerText = 'Done. Added to library.';
-        await imagesRefresh();
-      }catch(e){
-        if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'generate failed');
-      }
-    }
-
-    function showImagesModal(){
-      $("modalTitle").innerText = "Images";
-      $("modalBody").innerText = "";
-      hideAllModalForms();
-      $("modalBody").style.display = "none";
-      const form = $("imagesForm");
-      if(form) form.style.display = "block";
-      const sel = $("imgTeammate");
-      if(sel){
-        const names = (typeof activeOrder === 'function') ? activeOrder() : [];
-        const opts = ['Operator'].concat(names || []);
-        sel.innerHTML = opts.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-      }
-      const gb = $("imgGenerateBtn"); if(gb) gb.onclick = imagesGenerate;
-      const rb = $("imgRefreshBtn"); if(rb) rb.onclick = imagesRefresh;
-
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-      $("overlay").classList.add("show");
-      applyModalPos();
-      imagesRefresh();
-    }
-
-    if($("imagesBtn")) $("imagesBtn").onclick = ()=> showImagesModal();
 
     // run once (safe)
     try{ bindCRM(); }catch(e){}
@@ -9699,6 +9674,28 @@ function showCalendarModal(){
 }
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
+
+async function showImageLibraryModal(){
+  try{
+    const res = await fetch("/api/images?only_ai=1");
+    const data = await res.json();
+    if(!data.ok){
+      showModal("Image Library", data.error || "Failed to load images");
+      return;
+    }
+    const imgs = data.images || [];
+    if(imgs.length === 0){
+      showModal("Image Library", "No images yet. Ask a teammate for a graphic to generate one.");
+      return;
+    }
+    const lines = imgs.slice(0, 50).map((r, i)=> `${i+1}. ${r.filename} • ${r.uploaded_at}\n${r.url}`).join("\n\n");
+    showModal("Image Library (latest first)", lines, imgs[0].url || null);
+  }catch(e){
+    showModal("Image Library", String(e || "Failed to load images"));
+  }
+}
+
+if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
   if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
@@ -12287,220 +12284,6 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-# =========================
-# ADDITIVE: CRM SMS SETTINGS (Twilio)
-# =========================
-
-def _crm_save_sms_settings(username: str, sms: Dict[str, Any]) -> None:
-    try:
-        crm = _crm_load(username)
-        crm.setdefault("settings", {})
-        crm["settings"].setdefault("sms", {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""})
-        cur = crm["settings"]["sms"]
-        for k in ["provider", "twilio_sid", "twilio_token", "twilio_from"]:
-            if k in sms:
-                cur[k] = str(sms.get(k) or "").strip()
-        crm["updated_at"] = now_iso()
-        _crm_save(username, crm)
-    except Exception:
-        pass
-
-@app.get("/api/crm/settings/sms")
-def api_crm_sms_settings_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    crm = _crm_load(uname)
-    sms = ((crm.get("settings") or {}).get("sms") or {})
-    return jsonify({"ok": True, "sms": {
-        "provider": (sms.get("provider") or ""),
-        "twilio_sid": (sms.get("twilio_sid") or ""),
-        "twilio_token": (sms.get("twilio_token") or ""),
-        "twilio_from": (sms.get("twilio_from") or ""),
-    }})
-
-@app.post("/api/crm/settings/sms")
-def api_crm_sms_settings_save():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
-    sms = {
-        "provider": (payload.get("provider") or "").strip(),
-        "twilio_sid": (payload.get("twilio_sid") or "").strip(),
-        "twilio_token": (payload.get("twilio_token") or "").strip(),
-        "twilio_from": (payload.get("twilio_from") or "").strip(),
-    }
-    if sms["provider"] and sms["provider"].lower() != "twilio":
-        return jsonify({"ok": False, "error": "Only Twilio is supported right now."}), 400
-    _crm_save_sms_settings(uname, sms)
-    return jsonify({"ok": True})
-
-@app.post("/api/crm/settings/sms/test")
-def api_crm_sms_settings_test():
-    """Send a short test SMS to the active client's phone number."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    crm = _crm_load(uname)
-    active_id = (crm.get("active_client_id") or "").strip()
-    clients = (crm.get("clients") or {})
-    c = clients.get(active_id) if active_id else None
-    if not isinstance(c, dict):
-        return jsonify({"ok": False, "error": "No active client selected for test."}), 400
-    phone = (c.get("phone") or "").strip()
-    if not phone:
-        return jsonify({"ok": False, "error": "Active client has no phone number."}), 400
-    ok, err = _crm_try_send_sms(uname, phone, "✅ Simply Agentic AI: Twilio test message.")
-    if not ok:
-        return jsonify({"ok": False, "error": err or "Test failed"}), 400
-    return jsonify({"ok": True})
-
-# =========================
-# ADDITIVE: Upload serving + Image generation + Image library
-# =========================
-
-def _uploads_abs_path_from_rec(rec: Dict[str, Any]) -> Optional[Path]:
-    try:
-        rel = (rec.get("relpath") or "").strip()
-        if not rel:
-            return None
-        pth = (UPLOADS_DIR / rel).resolve()
-        if str(pth).startswith(str(UPLOADS_DIR.resolve())) and pth.exists():
-            return pth
-    except Exception:
-        return None
-    return None
-
-@app.get("/api/uploads/<file_id>")
-def api_uploads_get(file_id: str):
-    rec = get_upload_record(file_id)
-    if not rec:
-        return jsonify({"ok": False, "error": "Not found"}), 404
-    pth = _uploads_abs_path_from_rec(rec)
-    if not pth:
-        return jsonify({"ok": False, "error": "Missing file"}), 404
-    try:
-        from flask import send_file
-        mimetype = (rec.get("mimetype") or "") or None
-        return send_file(str(pth), mimetype=mimetype, as_attachment=False, download_name=rec.get("filename") or None)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e) or "Serve failed"}), 500
-
-@app.get("/api/images/list")
-def api_images_list():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    idx = load_upload_index()
-    files = (idx.get("files") or {})
-    out = []
-    for fid, rec in files.items():
-        if not isinstance(rec, dict):
-            continue
-        mt = (rec.get("mimetype") or "")
-        if not mt.startswith("image/"):
-            continue
-        owner = (rec.get("user") or "")
-        if owner and owner != uname:
-            continue
-        out.append({
-            "id": rec.get("id") or fid,
-            "filename": rec.get("filename") or "",
-            "mimetype": mt,
-            "uploaded_at": rec.get("uploaded_at") or "",
-            "kind": rec.get("kind") or "",
-            "teammate": rec.get("teammate") or "",
-            "url": f"/api/uploads/{fid}",
-        })
-    out.sort(key=lambda x: x.get("uploaded_at") or "", reverse=True)
-    out = out[:120]
-    return jsonify({"ok": True, "images": out})
-
-def _b64_to_png_bytes(b64str: str) -> bytes:
-    return base64.b64decode(b64str.encode("utf-8"))
-
-@app.post("/api/images/generate")
-def api_images_generate():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
-    prompt = (payload.get("prompt") or "").strip()
-    size = (payload.get("size") or "1024x1024").strip()
-    teammate = (payload.get("teammate") or "").strip()
-
-    if not prompt:
-        return jsonify({"ok": False, "error": "Missing prompt"}), 400
-    if size not in ("1024x1024","1024x1536","1536x1024"):
-        size = "1024x1024"
-
-    final_prompt = prompt
-    if teammate and teammate.lower() != "operator":
-        try:
-            reg = load_registry()
-            defn = (reg.get("installed") or {}).get(teammate)
-            if isinstance(defn, dict):
-                style = (defn.get("style") or defn.get("role") or "").strip()
-                if style:
-                    final_prompt = f"{prompt}\n\nStyle notes: {style}"
-        except Exception:
-            pass
-
-    try:
-        c = get_openai_client()
-        img_b64 = None
-        try:
-            res = c.images.generate(
-                model=os.getenv("IMAGE_MODEL", "gpt-image-1"),
-                prompt=final_prompt,
-                size=size
-            )
-            if hasattr(res, "data") and res.data and hasattr(res.data[0], "b64_json"):
-                img_b64 = res.data[0].b64_json
-            elif isinstance(res, dict):
-                d = (res.get("data") or [])
-                if d and isinstance(d[0], dict):
-                    img_b64 = d[0].get("b64_json")
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"Image generate failed: {e}"}), 400
-
-        if not img_b64:
-            return jsonify({"ok": False, "error": "Image generate returned empty data"}), 400
-
-        png_bytes = _b64_to_png_bytes(img_b64)
-        file_id = uuid.uuid4().hex
-        subdir = datetime.utcnow().strftime("%Y%m%d")
-        (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
-        filename = f"generated_{file_id}.png"
-        out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
-        with open(out_path, "wb") as f:
-            f.write(png_bytes)
-
-        rec = {
-            "id": file_id,
-            "filename": filename,
-            "relpath": str(Path(subdir) / f"{file_id}_{filename}"),
-            "mimetype": "image/png",
-            "size_bytes": int(out_path.stat().st_size if out_path.exists() else 0),
-            "uploaded_at": now_iso(),
-            "user": uname,
-            "kind": "generated_image",
-            "teammate": teammate,
-            "prompt": prompt[:2000],
-            "size": size,
-        }
-        add_upload_record(file_id, rec)
-        append_log("image_generate", {"file_id": file_id, "user": uname, "teammate": teammate, "size": size})
-        return jsonify({"ok": True, "file_id": file_id, "url": f"/api/uploads/{file_id}"})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e) or "Generate failed"}), 500
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
 
@@ -12990,4 +12773,3 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
-
