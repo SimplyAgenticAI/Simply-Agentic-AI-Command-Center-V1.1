@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 
-from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g
+from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
 from email.mime.text import MIMEText
@@ -184,6 +184,25 @@ def _get_global_openai_client():
     return client
 
 app = Flask(__name__)
+
+# -----------------------------
+# Uploads static serving (additive)
+# -----------------------------
+@app.get("/uploads/<path:relpath>")
+def serve_upload(relpath):
+    """Serve files saved under DATA/uploads. Required for teammate image links."""
+    try:
+        # Prevent path traversal
+        relpath = relpath.replace("\\", "/")
+        if relpath.startswith("../") or "/../" in relpath:
+            return abort(400)
+        fp = UPLOADS_DIR / relpath
+        if not fp.exists():
+            return abort(404)
+        return send_from_directory(str(UPLOADS_DIR), relpath)
+    except Exception:
+        return abort(404)
+
 
 # =========================
 # OAuth state helpers (additive)
@@ -7562,7 +7581,39 @@ function makeSeat(defn, idx){
         who.className = "who";
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
-        content.innerText = m.content;
+                const raw = (m.content || "");
+        // v9 additive: Render image links inline (ChatGPT-like)
+        // If the assistant returns a /uploads/... path, show it as a clickable link + preview.
+        const imgMatch = raw.match(/\/uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i) || raw.match(/\/api\/uploads\/[^\s]+/i);
+        if(imgMatch){
+          const url = imgMatch[0];
+          const cap = document.createElement("div");
+          cap.className = "tiny";
+          cap.style.opacity = ".9";
+          cap.style.marginBottom = "6px";
+          cap.innerText = raw.replace(url, "").trim() || "Image generated";
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.innerText = url;
+          a.style.display = "inline-block";
+          a.style.marginBottom = "8px";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "Generated image";
+          img.style.maxWidth = "100%";
+          img.style.borderRadius = "12px";
+          img.style.display = "block";
+          img.style.marginTop = "8px";
+          content.appendChild(cap);
+          content.appendChild(a);
+          content.appendChild(img);
+        }else{
+          // Default safe render as text
+          content.innerText = raw;
+        }
+
         if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
