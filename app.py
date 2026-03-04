@@ -2798,22 +2798,8 @@ def api_convene():
         msgs.append({"role": "user", "content": user_content})
 
         try:
-            if _is_image_request(prompt):
-                uname = _get_session_username() or "anon"
-                size_hint = _infer_image_size(prompt)
-                img_sys = (
-                    "You are an expert prompt engineer for image generation. "
-                    "Given the user's request, write a single detailed image prompt. "
-                    "Do not include quotes, code fences, or extra commentary. Output ONLY the prompt."
-                )
-                img_prompt = call_llm(img_sys, [{"role": "user", "content": prompt2}], temperature=0.4)
-                _, url = _generate_image_and_store(uname=uname, prompt=img_prompt, size=size_hint, teammate=name)
-                text = f"Here you go:
-{url}"
-            else:
-                text = call_llm(sys, msgs, temperature=0.65)
+            text = call_llm(sys, msgs, temperature=0.65)
         except Exception as e:
-
             status, msg = _classify_openai_error(e)
             append_log("convene_error", {"where": name, "error": str(e)})
             return jsonify({"ok": False, "error": msg}), status
@@ -2892,25 +2878,7 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    # If the user is explicitly asking for an image/graphic, generate it and reply with an image link
-    if _is_image_request(msg):
-        try:
-            uname = _get_session_username() or "anon"
-            size_hint = _infer_image_size(msg)
-            img_sys = (
-                "You are an expert prompt engineer for image generation. "
-                "Given the user's request, write a single detailed image prompt. "
-                "Do not include quotes, code fences, or extra commentary. Output ONLY the prompt."
-            )
-            img_prompt = call_llm(img_sys, [{"role": "user", "content": msg2}], temperature=0.4)
-            _, url = _generate_image_and_store(uname=uname, prompt=img_prompt, size=size_hint, teammate=name)
-            text = f"Here you go:
-{url}"
-        except Exception as e:
-            text = f"Image generation failed: {e}"
-    else:
-        text = call_llm(sys, msgs, temperature=0.65)
-
+    text = call_llm(sys, msgs, temperature=0.65)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -7447,27 +7415,7 @@ function makeSeat(defn, idx){
       await refreshThread();
     }
 
-    
-    function renderRichContent(text){
-      const raw = (text || "");
-      const esc = escapeHtml(raw);
-      // linkify
-      const linked = esc.replace(/(https?:\/\/[^\s<]+)|((?:\/api\/uploads\/)[a-f0-9]+)/gi, function(m){
-        if(m.startsWith("/api/uploads/")){
-          return `<a href="${m}" target="_blank" rel="noopener">${m}</a>`;
-        }
-        return `<a href="${m}" target="_blank" rel="noopener">${m}</a>`;
-      });
-
-      // image previews for uploads links (best effort)
-      const withImgs = linked.replace(/(\/api\/uploads\/[a-f0-9]+)/gi, function(m){
-        return `<div style="margin-top:8px;"><a href="${m}" target="_blank" rel="noopener">${m}</a><div style="height:6px"></div><img src="${m}" alt="generated" style="max-width:100%; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.35);" /></div>`;
-      });
-
-      return withImgs;
-    }
-
-function renderThread(msgs){
+    function renderThread(msgs){
       lastSeatAssistantText = "";
       const box = $("thread");
       box.innerHTML = "";
@@ -7485,12 +7433,8 @@ function renderThread(msgs){
         who.className = "who";
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
-        if(m.role === "user"){
-          content.innerText = m.content;
-        }else{
-          content.innerHTML = renderRichContent(m.content);
-          lastSeatAssistantText = (m.content || "");
-        }
+        content.innerText = m.content;
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -12481,94 +12425,6 @@ def _b64_to_png_bytes(b64str: str) -> bytes:
     return base64.b64decode(b64str.encode("utf-8"))
 
 @app.post("/api/images/generate")
-
-def _is_image_request(text: str) -> bool:
-    if not text:
-        return False
-    t = text.lower()
-    # common intent words (keep broad but safe)
-    return any(k in t for k in [
-        "generate an image", "generate image", "make a graphic", "make a logo",
-        "create an image", "create a graphic", "give me a graphic", "give me the graphic",
-        "give me an image", "make me a graphic", "make me an image", "render an image",
-        "create a banner", "generate a graphic", "design a graphic"
-    ]) or (("graphic" in t or "image" in t) and ("make" in t or "create" in t or "generate" in t or "give" in t))
-
-
-def _infer_image_size(text: str) -> str:
-    if not text:
-        return "1024x1024"
-    t = text.lower().replace(" ", "")
-    if "1024x1536" in t or "portrait" in t:
-        return "1024x1536"
-    if "1536x1024" in t or "landscape" in t:
-        return "1536x1024"
-    return "1024x1024"
-
-
-def _generate_image_and_store(uname: str, prompt: str, size: str = "1024x1024", teammate: str = "") -> Tuple[str, str]:
-    """
-    Returns (file_id, url). Raises Exception on failure.
-    """
-    if size not in ("1024x1024", "1024x1536", "1536x1024"):
-        size = "1024x1024"
-
-    final_prompt = prompt
-    if teammate and teammate.lower() != "operator":
-        try:
-            reg = load_registry()
-            defn = (reg.get("installed") or {}).get(teammate)
-            if isinstance(defn, dict):
-                style = (defn.get("style") or defn.get("role") or "").strip()
-                if style:
-                    final_prompt = f"{prompt}\n\nStyle notes: {style}"
-        except Exception:
-            pass
-
-    c = get_openai_client()
-    img_b64 = None
-    res = c.images.generate(
-        model=os.getenv("IMAGE_MODEL", "gpt-image-1"),
-        prompt=final_prompt,
-        size=size
-    )
-    if hasattr(res, "data") and res.data and hasattr(res.data[0], "b64_json"):
-        img_b64 = res.data[0].b64_json
-    elif isinstance(res, dict):
-        d = (res.get("data") or [])
-        if d and isinstance(d[0], dict):
-            img_b64 = d[0].get("b64_json")
-
-    if not img_b64:
-        raise Exception("Image generate returned empty data")
-
-    png_bytes = _b64_to_png_bytes(img_b64)
-    file_id = uuid.uuid4().hex
-    subdir = datetime.utcnow().strftime("%Y%m%d")
-    (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
-    filename = f"generated_{file_id}.png"
-    out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
-    with open(out_path, "wb") as f:
-        f.write(png_bytes)
-
-    rec = {
-        "id": file_id,
-        "filename": filename,
-        "relpath": str(Path(subdir) / f"{file_id}_{filename}"),
-        "mimetype": "image/png",
-        "size_bytes": int(out_path.stat().st_size if out_path.exists() else 0),
-        "uploaded_at": now_iso(),
-        "user": uname,
-        "kind": "generated_image",
-        "teammate": teammate,
-        "prompt": (prompt or "")[:2000],
-        "size": size,
-    }
-    add_upload_record(file_id, rec)
-    append_log("image_generate", {"file_id": file_id, "user": uname, "teammate": teammate, "size": size})
-    return file_id, f"/api/uploads/{file_id}"
-
-
 def api_images_generate():
     u = current_user()
     if not u:
