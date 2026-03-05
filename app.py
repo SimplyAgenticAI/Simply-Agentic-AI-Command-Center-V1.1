@@ -9234,7 +9234,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async async function crmBroadcastSMS(dry_run=false){
+async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
