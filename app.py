@@ -4564,12 +4564,12 @@ HTML = r"""
     .modal{
       position: fixed;
       left: 50%;
-      top: 80px;
+      top: 64px;
       transform: translateX(-50%);
-      width: 680px;
+      width: 860px;
       max-width: calc(100vw - 22px);
-      height: 560px;
-      max-height: calc(100vh - 100px);
+      height: 680px;
+      max-height: calc(100vh - 90px);
       background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.9);
       border-radius: 18px;
@@ -4577,10 +4577,10 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: both;
+      resize: none;
       overflow: hidden;
-      min-width: 360px;
-      min-height: 260px;
+      min-width: 560px;
+      min-height: 420px;
       z-index: 90;
     }
 
@@ -5832,6 +5832,49 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div id="crmViewBroadcastSMS" style="display:none;">
   <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
 
+  <details style="margin:10px 0; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
+    <summary style="cursor:pointer; font-weight:700;">Twilio Connection</summary>
+    <div class="tiny" style="margin-top:6px;">Set this once. Then Broadcast SMS can send real texts.</div>
+
+    <div class="grid" style="margin-top:10px;">
+      <div>
+        <label>Provider</label>
+        <select id="crmSmsProvider">
+          <option value="twilio">Twilio</option>
+        </select>
+      </div>
+      <div></div>
+      <div>
+        <label>Twilio Account SID</label>
+        <input id="crmTwilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+      </div>
+      <div>
+        <label>Twilio From Number</label>
+        <input id="crmTwilioFrom" placeholder="+1XXXXXXXXXX" />
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label>Twilio Auth Token</label>
+        <input id="crmTwilioToken" placeholder="(enter to set or update)" />
+      </div>
+      <div>
+        <label>Test To Number</label>
+        <input id="crmTwilioTestTo" placeholder="+1XXXXXXXXXX" />
+      </div>
+      <div>
+        <label>Test Message</label>
+        <input id="crmTwilioTestBody" value="Test message from Simply Agentic AI" />
+      </div>
+    </div>
+
+    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
+      <button class="btn" id="crmSmsLoadSettings">Load</button>
+      <button class="btn" id="crmSmsSaveSettings">Save</button>
+      <button class="btn btnPrimary" id="crmSmsTestSend">Send Test</button>
+      <div class="tiny" id="crmSmsSettingsStatus" style="margin-left:10px;"></div>
+    </div>
+  </details>
+
+
   <div class="grid">
     <div>
       <label>Audience</label>
@@ -6378,8 +6421,19 @@ if (typeof window.showToast !== "function") {
       const savedSize = loadModalSize();
 
       if(savedSize){
-        win.style.width = Math.max(360, savedSize.width) + "px";
-        win.style.height = Math.max(260, savedSize.height) + "px";
+        // Clamp saved size so windows never reopen tiny.
+        const maxW = Math.max(620, (window.innerWidth || 1200) - 24);
+        const maxH = Math.max(520, (window.innerHeight || 800) - 120);
+        const w = Math.min(Math.max(760, savedSize.width), maxW);
+        const h = Math.min(Math.max(560, savedSize.height), maxH);
+        win.style.width = w + "px";
+        win.style.height = h + "px";
+      } else {
+        // Sensible defaults (no manual resizing needed)
+        const w = Math.min(860, Math.max(760, (window.innerWidth || 1200) - 24));
+        const h = Math.min(680, Math.max(560, (window.innerHeight || 800) - 120));
+        win.style.width = w + "px";
+        win.style.height = h + "px";
       }
 
       // If we have a saved position, clamp it so the modal never renders off-screen.
@@ -9180,7 +9234,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async function crmBroadcastSMS(dry_run=false){
+async async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -9217,6 +9271,83 @@ async function crmBroadcastSMS(dry_run=false){
     if(st) st.innerText = 'Send failed (SMS not configured)';
   }
 }
+
+
+
+async function crmLoadSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = "Loading...";
+  try{
+    const res = await fetch("/api/crm/settings/sms");
+    const data = await res.json();
+    if(!data.ok){
+      if(st) st.innerText = "Error: " + (data.error || "Could not load");
+      return;
+    }
+    const sms = data.sms || {};
+    if($("crmSmsProvider")) $("crmSmsProvider").value = (sms.provider || "twilio");
+    if($("crmTwilioSid")) $("crmTwilioSid").value = (sms.twilio_sid || "");
+    if($("crmTwilioFrom")) $("crmTwilioFrom").value = (sms.twilio_from || "");
+    if($("crmTwilioToken")) $("crmTwilioToken").value = ""; // do not prefill token
+    if(st) st.innerText = "Loaded.";
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function crmSaveSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = "Saving...";
+  const payload = {
+    provider: ($("crmSmsProvider") ? $("crmSmsProvider").value : "twilio"),
+    twilio_sid: ($("crmTwilioSid") ? $("crmTwilioSid").value : ""),
+    twilio_from: ($("crmTwilioFrom") ? $("crmTwilioFrom").value : ""),
+    twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value : "")
+  };
+  try{
+    const res = await fetch("/api/crm/settings/sms", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!data.ok){
+      if(st) st.innerText = "Error: " + (data.error || "Could not save");
+      return;
+    }
+    if($("crmTwilioToken")) $("crmTwilioToken").value = "";
+    if(st) st.innerText = "Saved.";
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function crmTestSmsSettings(){
+  const st = $("crmSmsSettingsStatus");
+  if(st) st.innerText = "Sending test...";
+  const to = ($("crmTwilioTestTo") ? $("crmTwilioTestTo").value : "").trim();
+  const body = ($("crmTwilioTestBody") ? $("crmTwilioTestBody").value : "").trim() || "Test message from Simply Agentic AI";
+  if(!to){
+    if(st) st.innerText = "Enter a test To number.";
+    return;
+  }
+  try{
+    const res = await fetch("/api/crm/settings/sms/test", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({to, body})
+    });
+    const data = await res.json();
+    if(data.ok){
+      if(st) st.innerText = "Test sent.";
+    }else{
+      if(st) st.innerText = "Failed: " + (data.error || "Unknown error");
+    }
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
+
 
 async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
@@ -9453,7 +9584,7 @@ async function crmFetchTasks(){
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
-      b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; });
+      b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; crmLoadSmsSettings(); });
       b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
@@ -9474,6 +9605,9 @@ async function crmFetchTasks(){
 
       b('crmSmsDryRun', ()=>crmBroadcastSMS(true));
       b('crmSmsSend', ()=>crmBroadcastSMS(false));
+    b('crmSmsLoadSettings', ()=>crmLoadSmsSettings());
+    b('crmSmsSaveSettings', ()=>crmSaveSmsSettings());
+    b('crmSmsTestSend', ()=>crmTestSmsSettings());
 
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
@@ -11555,6 +11689,68 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         return True, ""
     except Exception as e:
         return False, str(e)
+
+
+
+@app.get("/api/crm/settings/sms")
+def api_crm_sms_settings_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    sms = ((crm.get("settings") or {}).get("sms") or {})
+    safe = {
+        "provider": sms.get("provider", "twilio"),
+        "twilio_sid": sms.get("twilio_sid", ""),
+        "twilio_from": sms.get("twilio_from", ""),
+        "twilio_token": ""  # user can re-enter to update
+    }
+    return jsonify({"ok": True, "sms": safe})
+
+@app.post("/api/crm/settings/sms")
+def api_crm_sms_settings_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    provider = (payload.get("provider") or "twilio").strip().lower()
+    sid = (payload.get("twilio_sid") or "").strip()
+    token = (payload.get("twilio_token") or "").strip()
+    from_num = (payload.get("twilio_from") or "").strip()
+
+    crm = _crm_load(uname)
+    crm.setdefault("settings", {})
+    crm["settings"].setdefault("sms", {})
+    sms = crm["settings"]["sms"]
+    sms["provider"] = provider
+
+    if sid:
+        sms["twilio_sid"] = sid
+    if from_num:
+        sms["twilio_from"] = from_num
+    if token:
+        sms["twilio_token"] = token
+
+    _crm_save(uname, crm)
+    return jsonify({"ok": True})
+
+@app.post("/api/crm/settings/sms/test")
+def api_crm_sms_settings_test():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    to_phone = (payload.get("to") or "").strip()
+    body = (payload.get("body") or "Test message from Simply Agentic AI").strip()
+    if not to_phone:
+        return jsonify({"ok": False, "error": "Missing 'to' phone"}), 400
+    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
+    return jsonify({"ok": bool(ok_send), "error": err})
+
+
 
 def _crm_tick_once() -> None:
     """Run due CRM automations (tasks reminders, sequences enrollments). Safe, bounded work."""
