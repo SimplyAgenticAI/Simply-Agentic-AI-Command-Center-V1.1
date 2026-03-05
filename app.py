@@ -7,6 +7,7 @@ import base64
 import secrets
 import hashlib
 import hmac
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -278,6 +279,61 @@ DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
+
+# =========================
+# IMAGE JOBS (non-blocking)
+# =========================
+# Hosting platforms often kill long-running requests. Image generation can exceed request timeouts.
+# So we run image generation in a background thread and let the UI poll for completion.
+IMAGE_JOBS: Dict[str, Dict[str, Any]] = {}
+IMAGE_JOBS_LOCK = threading.Lock()
+
+def _image_job_set(job_id: str, patch: Dict[str, Any]) -> None:
+    with IMAGE_JOBS_LOCK:
+        cur = IMAGE_JOBS.get(job_id) or {}
+        cur.update(patch or {})
+        IMAGE_JOBS[job_id] = cur
+
+def _image_job_get(job_id: str) -> Dict[str, Any]:
+    with IMAGE_JOBS_LOCK:
+        return dict(IMAGE_JOBS.get(job_id) or {})
+
+def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str) -> None:
+    try:
+        thread = load_thread(teammate)
+        replaced = False
+        for i in range(len(thread)-1, -1, -1):
+            msg = thread[i] or {}
+            if (msg.get("role") == "assistant") and (f"job:{job_id}" in (msg.get("content") or "")):
+                thread[i] = {"role": "assistant", "content": final_note}
+                replaced = True
+                break
+        if not replaced:
+            thread.append({"role": "assistant", "content": final_note})
+        save_thread(teammate, thread)
+    except Exception:
+        pass
+
+def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool) -> None:
+    _image_job_set(job_id, {"status": "running"})
+    try:
+        rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode)
+        if err or not url:
+            _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
+            _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}")
+            return
+        _image_job_set(job_id, {"status": "done", "url": url, "image": rec})
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}")
+    except Exception as e:
+        _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}")
+
+def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool) -> str:
+    job_id = uuid.uuid4().hex
+    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate})
+    t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode), daemon=True)
+    t.start()
+    return job_id
 
 # =========================
 # AUTH + PER-USER SETTINGS
@@ -2905,6 +2961,16 @@ def api_images_list():
     return jsonify({"ok": True, "images": out})
 
 
+@app.get("/api/images/job/<job_id>")
+def api_image_job_status(job_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    st = _image_job_get(job_id)
+    if not st:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    return jsonify({"ok": True, "job": st})
+
 
 @app.post("/api/convene")
 def api_convene():
@@ -3072,23 +3138,22 @@ def api_followup():
         uname = _get_session_username()
     except Exception:
         uname = "anon"
-
     if is_image_request(msg2) and (len(vision_images) == 0):
-        rec, url, err = generate_image_for_teammate(msg2, teammate=name, username=uname, lighting_mode=lighting_mode)
-        if err:
-            return jsonify({"ok": False, "error": err}), 500
+        # Non-blocking image generation: create a background job so the UI never gets stuck "thinking".
+        job_id = create_image_job(msg2, teammate=name, username=uname, lighting_mode=lighting_mode)
 
-        # Keep the chat thread consistent: store a short note plus the URL.
-        note = f"[Image generated] {url}"
-        thread = load_thread(name)
-        thread = thread[-14:] if len(thread) > 14 else thread
-        new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": note}]
+        placeholder = f"[Generating image] job:{job_id}"
+        thread2 = load_thread(name)
+        thread2 = thread2[-14:] if len(thread2) > 14 else thread2
+        new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread)
 
-        append_log("followup_image", {"name": name, "prompt": msg2, "image": rec})
-        append_task_log("teammate_followup_image", {"name": name, "prompt": msg2, "image": rec}, teammate=name, status="success")
+        append_log("followup_image_job", {"name": name, "prompt": msg2, "job_id": job_id})
+        append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_id": job_id}, teammate=name, status="queued")
 
-        return jsonify({"ok": True, "name": name, "response": note, "image_url": url, "image_file": rec, "email_draft": None, "attachment_meta": attach_meta})
+        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "email_draft": None, "attachment_meta": attach_meta})
+
+
 
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
@@ -5677,6 +5742,41 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <label>From Name</label>
                 <input id="smtpFromName" placeholder="Your Name" />
 
+
+                <details style="margin-top:12px;">
+                  <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
+                  <div class="tiny" style="margin-top:8px; opacity:.9;">
+                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
+                  </div>
+
+                  <label>Twilio Account SID</label>
+                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+
+                  <label>Twilio Auth Token</label>
+                  <input id="twilioToken" type="password" placeholder="••••••••" />
+
+                  <label>Twilio From Number</label>
+                  <input id="twilioFrom" placeholder="+15551234567" />
+
+                  <div class="row2" style="margin-top:8px;">
+                    <div>
+                      <label>Test To</label>
+                      <input id="twilioTestTo" placeholder="+15551234567" />
+                    </div>
+                    <div>
+                      <label>Test Message</label>
+                      <input id="twilioTestBody" placeholder="Test SMS from Simply Agentic" />
+                    </div>
+                  </div>
+
+                  <div class="actions" style="justify-content:flex-start; gap:8px;">
+                    <button class="btn btnMini" id="twilioLoadBtn">Load</button>
+                    <button class="btn btnMini" id="twilioSaveBtn">Save</button>
+                    <button class="btn btnMini" id="twilioTestBtn">Send test</button>
+                  </div>
+                  <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
+                </details>
+
                 <div class="actions">
                   <button class="btn" id="cancelSettings">Cancel</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
@@ -5832,47 +5932,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div id="crmViewBroadcastSMS" style="display:none;">
   <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
 
-  <details style="margin:10px 0; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-    <summary style="cursor:pointer; font-weight:700;">Twilio Connection</summary>
-    <div class="tiny" style="margin-top:6px;">Set this once. Then Broadcast SMS can send real texts.</div>
-
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Provider</label>
-        <select id="crmSmsProvider">
-          <option value="twilio">Twilio</option>
-        </select>
-      </div>
-      <div></div>
-      <div>
-        <label>Twilio Account SID</label>
-        <input id="crmTwilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-      </div>
-      <div>
-        <label>Twilio From Number</label>
-        <input id="crmTwilioFrom" placeholder="+1XXXXXXXXXX" />
-      </div>
-      <div style="grid-column: 1 / -1;">
-        <label>Twilio Auth Token</label>
-        <input id="crmTwilioToken" placeholder="(enter to set or update)" />
-      </div>
-      <div>
-        <label>Test To Number</label>
-        <input id="crmTwilioTestTo" placeholder="+1XXXXXXXXXX" />
-      </div>
-      <div>
-        <label>Test Message</label>
-        <input id="crmTwilioTestBody" value="Test message from Simply Agentic AI" />
-      </div>
-    </div>
-
-    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
-      <button class="btn" id="crmSmsLoadSettings">Load</button>
-      <button class="btn" id="crmSmsSaveSettings">Save</button>
-      <button class="btn btnPrimary" id="crmSmsTestSend">Send Test</button>
-      <div class="tiny" id="crmSmsSettingsStatus" style="margin-left:10px;"></div>
-    </div>
-  </details>
+  
 
 
   <div class="grid">
@@ -6271,7 +6331,16 @@ id="diagOverlay"></div>
   </div>
 
 
-  <script>
+  
+  <!-- Fullscreen image viewer (additive) -->
+  <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
+    <div style="position:absolute; top:14px; right:14px;">
+      <button class="btn" id="lightboxCloseBtn">Close</button>
+    </div>
+    <img id="lightboxImg" src="" alt="Full screen" style="max-width:96vw; max-height:92vh; border-radius:16px; box-shadow:0 20px 80px rgba(0,0,0,.6);" />
+  </div>
+
+<script>
 
 if (typeof window.showToast !== "function") {
   window.showToast = function(msg, type) {
@@ -6413,7 +6482,20 @@ if (typeof window.showToast !== "function") {
       }catch(e){}
     }
 
-    function applyModalPos(){
+    
+    function ensureModalMinSize(minW, minH){
+      const win = $("modalWin");
+      if(!win) return;
+      const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
+      const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
+      const w = Math.max(curW, minW || 0);
+      const h = Math.max(curH, minH || 0);
+      win.style.width = w + "px";
+      win.style.height = h + "px";
+      try{ saveModalSize({width:w, height:h}); }catch(e){}
+    }
+
+function applyModalPos(){
       const win = $("modalWin");
       if(!win) return;
 
@@ -6480,7 +6562,23 @@ if (typeof window.showToast !== "function") {
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
-    function showModal(title, body, imgUrl){
+    
+    // Fullscreen image viewer (additive)
+    function openLightbox(url){
+      const lb = $("lightbox");
+      const im = $("lightboxImg");
+      if(!lb || !im) return;
+      im.src = url;
+      lb.style.display = "flex";
+    }
+    function closeLightbox(){
+      const lb = $("lightbox");
+      const im = $("lightboxImg");
+      if(im) im.src = "";
+      if(lb) lb.style.display = "none";
+    }
+
+function showModal(title, body, imgUrl){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
@@ -6493,6 +6591,8 @@ if (typeof window.showToast !== "function") {
       if(imgUrl){
         img.src = imgUrl;
         img.style.display = "block";
+        img.style.cursor = "zoom-in";
+        img.onclick = ()=> openLightbox(imgUrl);
       }else{
         img.src = "";
         img.style.display = "none";
@@ -7659,6 +7759,8 @@ function makeSeat(defn, idx){
           img.style.maxWidth = "100%";
           img.style.borderRadius = "12px";
           img.style.display = "block";
+          img.style.cursor = "zoom-in";
+          img.onclick = ()=> openLightbox(url);
           img.style.marginTop = "8px";
           content.appendChild(cap);
           content.appendChild(a);
@@ -8554,7 +8656,35 @@ function makeSeat(defn, idx){
     $("assembleBtn").onclick = assembleAll;
     $("assembleBtn2").onclick = assembleAll;
 
-    async function sendFollow(){
+    
+async function pollImageJob(jobId, seatName){
+  const maxMs = 120000;
+  const start = Date.now();
+  while(true){
+    if(Date.now() - start > maxMs){
+      setOpStatus("Queued");
+      setSeatLive(seatName || selectedSeat, "waiting");
+      return;
+    }
+    try{
+      const res = await fetch("/api/images/job/" + encodeURIComponent(jobId));
+      const data = await res.json();
+      if(data && data.ok && data.job){
+        const st = data.job.status;
+        if(st === "done" || st === "error"){
+          // thread will have been updated server-side
+          await refreshThread();
+          setSeatLive(seatName || selectedSeat, (st==="done") ? "done" : "waiting");
+          setOpStatus((st==="done") ? "Complete" : "Error");
+          return;
+        }
+      }
+    }catch(e){}
+    await new Promise(r=> setTimeout(r, 2000));
+  }
+}
+
+async function sendFollow(){
       if(!selectedSeat){
         showModal("No seat selected", "Click a teammate card first.");
         return;
@@ -8582,8 +8712,19 @@ function makeSeat(defn, idx){
         return;
       }
 
-      setSeatLive(selectedSeat, "done");
-      setOpStatus("Complete");
+      if(data.job_id){
+        // Image generation runs in background to avoid request timeouts.
+        setSeatLive(selectedSeat, "thinking");
+        setOpStatus("Generating image");
+        $("followMsg").value = "";
+        await refreshThread();
+        pollImageJob(data.job_id, selectedSeat);
+      }else{
+        setSeatLive(selectedSeat, "done");
+        setOpStatus("Complete");
+        $("followMsg").value = "";
+        await refreshThread();
+      }
       $("followMsg").value = "";
       await refreshThread();
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
@@ -8965,6 +9106,7 @@ $("draftWithSelected").onclick = async () => {
 
     function showSettingsModal(auto=false){
       showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
       // ensure all other forms are hidden (avoid null errors that can break the Settings button)
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
@@ -8974,6 +9116,7 @@ $("draftWithSelected").onclick = async () => {
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
+      try{ settingsLoadSmsSettings(); }catch(e){}
       if(auto){
         // slight UI nudge so first-time users know what to do
         $("modalTitle").innerText = "Settings: connect your key + email";
@@ -9234,7 +9377,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async function crmBroadcastSMS(dry_run=false){
+async async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -9273,6 +9416,72 @@ async function crmBroadcastSMS(dry_run=false){
 }
 
 
+
+
+async function settingsLoadSmsSettings(){
+  const st = $("twilioStatus");
+  if(st) st.innerText = "Loading...";
+  try{
+    const res = await fetch("/api/settings/sms");
+    const data = await res.json();
+    if(!data.ok){
+      if(st) st.innerText = "Error: " + (data.error || "Could not load");
+      return;
+    }
+    const sms = data.sms || {};
+    if($("twilioSid")) $("twilioSid").value = (sms.twilio_sid || "");
+    if($("twilioFrom")) $("twilioFrom").value = (sms.twilio_from || "");
+    if($("twilioToken")) $("twilioToken").value = ""; // never prefill
+    if(st) st.innerText = "Loaded.";
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function settingsSaveSmsSettings(){
+  const st = $("twilioStatus");
+  if(st) st.innerText = "Saving...";
+  const payload = {
+    provider: "twilio",
+    twilio_sid: ($("twilioSid") ? $("twilioSid").value : "").trim(),
+    twilio_from: ($("twilioFrom") ? $("twilioFrom").value : "").trim(),
+    twilio_token: ($("twilioToken") ? $("twilioToken").value : "").trim(),
+  };
+  try{
+    const res = await fetch("/api/settings/sms", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error || "Save failed");
+    if($("twilioToken")) $("twilioToken").value = "";
+    if(st) st.innerText = "Saved.";
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
+
+async function settingsTestSms(){
+  const st = $("twilioStatus");
+  if(st) st.innerText = "Sending test...";
+  const payload = {
+    to: ($("twilioTestTo") ? $("twilioTestTo").value : "").trim(),
+    body: ($("twilioTestBody") ? $("twilioTestBody").value : "").trim() || "Test SMS from Simply Agentic"
+  };
+  try{
+    const res = await fetch("/api/settings/sms/test", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error || "Test failed");
+    if(st) st.innerText = "Test sent.";
+  }catch(e){
+    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
+  }
+}
 
 async function crmLoadSmsSettings(){
   const st = $("crmSmsSettingsStatus");
@@ -9546,6 +9755,7 @@ async function crmFetchTasks(){
 
     function showCRMModal(){
       showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
@@ -9860,7 +10070,7 @@ function showCalendarModal(){
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
-async function showImageLibraryModal(){
+async async function showImageLibraryModal(){
   try{
     const res = await fetch("/api/images?only_ai=1");
     const data = await res.json();
@@ -9869,18 +10079,68 @@ async function showImageLibraryModal(){
       return;
     }
     const imgs = data.images || [];
+    showModal("Image Library", "");
+    const body = $("modalBody");
+    if(!body) return;
+
     if(imgs.length === 0){
-      showModal("Image Library", "No images yet. Ask a teammate for a graphic to generate one.");
+      body.innerText = "No images yet. Ask a teammate for a graphic to generate one.";
       return;
     }
-    const lines = imgs.slice(0, 50).map((r, i)=> `${i+1}. ${r.filename} • ${r.uploaded_at}\n${r.url}`).join("\n\n");
-    showModal("Image Library (latest first)", lines, imgs[0].url || null);
+
+    // Render a simple thumbnail grid. Click any thumbnail to open full screen.
+    body.innerHTML = "";
+    const grid = document.createElement("div");
+    grid.style.display = "grid";
+    grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(160px, 1fr))";
+    grid.style.gap = "10px";
+
+    imgs.slice(0, 80).forEach((r)=>{
+      const card = document.createElement("div");
+      card.style.border = "1px solid rgba(255,255,255,.10)";
+      card.style.borderRadius = "12px";
+      card.style.padding = "8px";
+      card.style.background = "rgba(0,0,0,.18)";
+
+      const im = document.createElement("img");
+      im.src = r.url;
+      im.alt = r.filename || "image";
+      im.style.width = "100%";
+      im.style.height = "140px";
+      im.style.objectFit = "cover";
+      im.style.borderRadius = "10px";
+      im.style.cursor = "zoom-in";
+      im.onclick = ()=> openLightbox(r.url);
+
+      const meta = document.createElement("div");
+      meta.className = "tiny";
+      meta.style.marginTop = "6px";
+      meta.style.opacity = ".9";
+      meta.style.wordBreak = "break-word";
+      meta.innerText = (r.teammate ? (r.teammate + " • ") : "") + (r.uploaded_at || "");
+
+      card.appendChild(im);
+      card.appendChild(meta);
+      grid.appendChild(card);
+    });
+
+    body.appendChild(grid);
   }catch(e){
     showModal("Image Library", String(e || "Failed to load images"));
   }
 }
 
+
+if($("lightboxCloseBtn")) $("lightboxCloseBtn").onclick = ()=> closeLightbox();
+if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id==="lightbox") closeLightbox(); };
+
+
+if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
+if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
+if($("twilioTestBtn")) $("twilioTestBtn").onclick = ()=> settingsTestSms();
+
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
+ $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
   if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
@@ -11707,6 +11967,10 @@ def api_crm_sms_settings_get():
         "twilio_token": ""  # user can re-enter to update
     }
     return jsonify({"ok": True, "sms": safe})
+@app.get("/api/settings/sms")
+def api_settings_sms_get():
+    return api_crm_sms_settings_get()
+
 
 @app.post("/api/crm/settings/sms")
 def api_crm_sms_settings_set():
@@ -11735,6 +11999,10 @@ def api_crm_sms_settings_set():
 
     _crm_save(uname, crm)
     return jsonify({"ok": True})
+@app.post("/api/settings/sms")
+def api_settings_sms_set():
+    return api_crm_sms_settings_set()
+
 
 @app.post("/api/crm/settings/sms/test")
 def api_crm_sms_settings_test():
@@ -11906,6 +12174,10 @@ def _crm_tick_once() -> None:
             continue
 
 # ---- CRM APIs ----
+@app.post("/api/settings/sms/test")
+def api_settings_sms_test():
+    return api_crm_sms_settings_test()
+
 
 @app.get("/api/crm/state")
 def api_crm_state():
