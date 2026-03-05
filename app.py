@@ -9377,7 +9377,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async async function crmBroadcastSMS(dry_run=false){
+async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -10070,7 +10070,7 @@ function showCalendarModal(){
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
-async async function showImageLibraryModal(){
+async function showImageLibraryModal(){
   try{
     const res = await fetch("/api/images?only_ai=1");
     const data = await res.json();
