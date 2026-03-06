@@ -317,7 +317,9 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
 def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool) -> None:
     _image_job_set(job_id, {"status": "running"})
     try:
-        rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode)
+        # Background thread needs an application context for any Flask helpers used during image creation
+        with app.app_context():
+            rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode)
         if err or not url:
             _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}")
@@ -2301,6 +2303,25 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
     append_log("ai_image", {"teammate": teammate, "owner": username, "file": rec})
     return rec
 
+
+def _get_openai_client_for_username(username: str):
+    """
+    Background jobs cannot rely on Flask request/g context.
+    Build an OpenAI client directly from the user's saved settings, with a global-key fallback.
+    """
+    key = ""
+    try:
+        users = load_users()
+        rec = ((users.get("users") or {}).get((username or "").strip().lower()) or {})
+        settings = rec.get("settings") or {}
+        key = (settings.get("openai_key") or "").strip()
+    except Exception:
+        key = ""
+    key = key or (OPENAI_API_KEY or "")
+    if not key:
+        raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
+    return OpenAI(api_key=key)
+
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -2313,10 +2334,14 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
 
     model = _pick_image_model()
-    client = get_openai_client()
+    try:
+        client = _get_openai_client_for_username(username)
+    except Exception as e:
+        return None, None, str(e)
 
     # Try a couple known models if the configured one fails.
     tried = []
+    last_err = ""
     for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
         tried.append(m)
         try:
@@ -2340,6 +2365,9 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             last_err = str(e) or "Image generation failed"
             continue
 
+    detail = (last_err or "").strip()
+    if detail:
+        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
     return None, None, f"Image generation failed (tried: {', '.join(tried)})."
 
 def is_assembly(prompt: str) -> bool:
@@ -5758,21 +5786,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   <label>Twilio From Number</label>
                   <input id="twilioFrom" placeholder="+15551234567" />
 
-                  <div class="row2" style="margin-top:8px;">
-                    <div>
-                      <label>Test To</label>
-                      <input id="twilioTestTo" placeholder="+15551234567" />
-                    </div>
-                    <div>
-                      <label>Test Message</label>
-                      <input id="twilioTestBody" placeholder="Test SMS from Simply Agentic" />
-                    </div>
-                  </div>
-
                   <div class="actions" style="justify-content:flex-start; gap:8px;">
                     <button class="btn btnMini" id="twilioLoadBtn">Load</button>
                     <button class="btn btnMini" id="twilioSaveBtn">Save</button>
-                    <button class="btn btnMini" id="twilioTestBtn">Send test</button>
                   </div>
                   <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
                 </details>
@@ -7745,7 +7761,7 @@ function makeSeat(defn, idx){
           cap.className = "tiny";
           cap.style.opacity = ".9";
           cap.style.marginBottom = "6px";
-          cap.innerText = raw.replace(url, "").trim() || "Image generated";
+          cap.innerText = raw.replace(url, "").replace("[Image generated]", "").trim() || "Image generated";
           const a = document.createElement("a");
           a.href = url;
           a.target = "_blank";
@@ -8676,6 +8692,12 @@ async function pollImageJob(jobId, seatName){
           await refreshThread();
           setSeatLive(seatName || selectedSeat, (st==="done") ? "done" : "waiting");
           setOpStatus((st==="done") ? "Complete" : "Error");
+          if(st === "error"){
+            try{
+              const msg = ((data.job && data.job.error) ? String(data.job.error) : "Image generation failed");
+              if(window.showToast) window.showToast(msg, "error");
+            }catch(e){}
+          }
           return;
         }
       }
