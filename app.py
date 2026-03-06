@@ -6839,6 +6839,7 @@ function applyModalPos(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
+      if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -6862,6 +6863,7 @@ function showModal(title, body, imgUrl){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
+      if($("calendarForm")) $("calendarForm").style.display = "none";
       $("modalBody").style.display = "block";
 
       $("editStatus").innerText = "";
@@ -10145,6 +10147,7 @@ async function crmFetchTasks(){
       if($("settingsForm")) $("settingsForm").style.display = "none";
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10462,6 +10465,7 @@ async function showImageLibraryModal(){
     }
     const imgs = data.images || [];
     showModal("Image Library", "");
+    if($("calendarForm")) $("calendarForm").style.display = "none";
     const body = $("modalBody");
     if(!body) return;
 
