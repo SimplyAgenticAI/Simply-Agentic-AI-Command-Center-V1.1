@@ -8,6 +8,7 @@ import secrets
 import hashlib
 import hmac
 import threading
+import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -273,12 +274,14 @@ THREADS_DIR = DATA / "threads"
 LOGS_DIR = DATA / "logs"
 UPLOADS_DIR = DATA / "uploads"
 UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
+IMAGE_STATE_DIR = DATA / "image_state"
 FRAMEWORK_PATH = DATA / "core_framework.txt"
 
 DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
+IMAGE_STATE_DIR.mkdir(exist_ok=True)
 
 # =========================
 # IMAGE JOBS (non-blocking)
@@ -314,12 +317,12 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
     except Exception:
         pass
 
-def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool) -> None:
+def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> None:
     _image_job_set(job_id, {"status": "running"})
     try:
         # Background thread needs an application context for any Flask helpers used during image creation
         with app.app_context():
-            rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode)
+            rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
         if err or not url:
             _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}")
@@ -330,10 +333,10 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
         _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}")
 
-def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool) -> str:
+def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
     job_id = uuid.uuid4().hex
-    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate})
-    t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode), daemon=True)
+    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
+    t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
     t.start()
     return job_id
 
@@ -1687,6 +1690,186 @@ def get_upload_record(file_id: str) -> Optional[Dict[str, Any]]:
     return rec if isinstance(rec, dict) else None
 
 
+def image_state_path(teammate_name: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
+    return IMAGE_STATE_DIR / f"{safe}.json"
+
+def load_image_state(teammate_name: str) -> Dict[str, Any]:
+    data = load_json(image_state_path(teammate_name), {
+        "current_image_id": "",
+        "current_image_url": "",
+        "approved_image_id": "",
+        "approved_image_url": "",
+        "last_uploaded_image_id": "",
+        "last_uploaded_image_url": "",
+        "last_prompt": "",
+        "last_mode": "",
+        "history": [],
+        "updated_at": None,
+    })
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("current_image_id", "")
+    data.setdefault("current_image_url", "")
+    data.setdefault("approved_image_id", "")
+    data.setdefault("approved_image_url", "")
+    data.setdefault("last_uploaded_image_id", "")
+    data.setdefault("last_uploaded_image_url", "")
+    data.setdefault("last_prompt", "")
+    data.setdefault("last_mode", "")
+    data.setdefault("history", [])
+    return data
+
+def save_image_state(teammate_name: str, payload: Dict[str, Any]) -> None:
+    payload = dict(payload or {})
+    payload["updated_at"] = now_iso()
+    save_json(image_state_path(teammate_name), payload)
+
+def _image_url_for_record(rec: Optional[Dict[str, Any]]) -> str:
+    if not rec:
+        return ""
+    relpath = (rec.get("relpath") or "").strip()
+    if not relpath:
+        return ""
+    return f"/uploads/{relpath}"
+
+def _is_image_record(rec: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(rec, dict):
+        return False
+    mt = (rec.get("mimetype") or "").lower()
+    fn = (rec.get("filename") or "").lower()
+    return mt.startswith("image/") or fn.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+
+def _append_image_history(state: Dict[str, Any], rec: Dict[str, Any], mode: str, prompt: str, source: str = "generated") -> Dict[str, Any]:
+    state = dict(state or {})
+    hist = list(state.get("history") or [])
+    item = {
+        "id": rec.get("id", ""),
+        "url": _image_url_for_record(rec),
+        "filename": rec.get("filename", ""),
+        "uploaded_at": rec.get("uploaded_at") or now_iso(),
+        "mode": mode or "",
+        "source": source or "generated",
+        "prompt": (prompt or "")[:2000],
+        "teammate": rec.get("teammate") or "",
+    }
+    hist = [x for x in hist if isinstance(x, dict) and x.get("id") != item["id"]]
+    hist.insert(0, item)
+    state["history"] = hist[:50]
+    return state
+
+def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], source: str = "generated", prompt: str = "", mode: str = "") -> Dict[str, Any]:
+    state = load_image_state(teammate_name)
+    url = _image_url_for_record(rec)
+    state["current_image_id"] = rec.get("id", "")
+    state["current_image_url"] = url
+    if source == "uploaded":
+        state["last_uploaded_image_id"] = rec.get("id", "")
+        state["last_uploaded_image_url"] = url
+    if prompt:
+        state["last_prompt"] = (prompt or "")[:4000]
+    if mode:
+        state["last_mode"] = mode
+    state = _append_image_history(state, rec, mode=mode, prompt=prompt, source=source)
+    save_image_state(teammate_name, state)
+    return state
+
+def approve_current_image_for_teammate(teammate_name: str) -> Dict[str, Any]:
+    state = load_image_state(teammate_name)
+    state["approved_image_id"] = state.get("current_image_id", "")
+    state["approved_image_url"] = state.get("current_image_url", "")
+    save_image_state(teammate_name, state)
+    return state
+
+def _latest_image_record_from_state(teammate_name: str) -> Optional[Dict[str, Any]]:
+    state = load_image_state(teammate_name)
+    fid = (state.get("current_image_id") or state.get("approved_image_id") or state.get("last_uploaded_image_id") or "").strip()
+    return get_upload_record(fid) if fid else None
+
+def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str]) -> Optional[Dict[str, Any]]:
+    latest = None
+    for fid in file_ids or []:
+        rec = get_upload_record(fid)
+        if _is_image_record(rec):
+            latest = rec
+            set_current_image_for_teammate(teammate_name, rec, source="uploaded", prompt="", mode="reference")
+    return latest
+
+_EDIT_HINTS = [
+    "edit", "change", "revise", "adjust", "tweak", "make it", "make the", "move", "replace",
+    "add", "remove", "fix", "clean up", "enhance", "use this", "try again", "based on this",
+    "same graphic", "same image", "this one", "that one", "keep", "preserve", "redo", "update"
+]
+
+_VARIATION_HINTS = [
+    "variation", "alternate", "another version", "different version", "same idea", "similar", "remix", "branch"
+]
+
+_START_OVER_HINTS = [
+    "start over", "from scratch", "completely different", "brand new", "new graphic", "new image"
+]
+
+def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False) -> str:
+    p = (prompt or "").strip().lower()
+    state = load_image_state(teammate_name)
+    has_current = bool((state.get("current_image_id") or "").strip())
+    has_context = has_reference_image or has_current
+    if any(x in p for x in _START_OVER_HINTS):
+        return "new"
+    if any(x in p for x in _VARIATION_HINTS):
+        return "variation"
+    if has_context and any(x in p for x in _EDIT_HINTS):
+        return "edit"
+    if has_reference_image:
+        return "edit"
+    if has_current and not any(x in p for x in ["create", "generate", "new", "from scratch"]):
+        return "edit"
+    return "new"
+
+def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, source_rec: Optional[Dict[str, Any]] = None) -> str:
+    state = load_image_state(teammate_name)
+    current_url = (state.get("current_image_url") or "").strip()
+    approved_url = (state.get("approved_image_url") or "").strip()
+    base = (raw_prompt or "").strip()
+    extras: List[str] = []
+    if mode == "edit":
+        extras.append("Edit the existing image instead of inventing a new concept.")
+        extras.append("Preserve the main subject, composition, identity, and overall layout unless the user clearly asks to change them.")
+        extras.append("Only apply the requested changes.")
+    elif mode == "variation":
+        extras.append("Create a close variation of the current image, not a completely different concept.")
+        extras.append("Keep the same subject and core visual identity while changing only the requested elements.")
+    else:
+        extras.append("Create a fresh image that directly follows the user's request.")
+    if current_url:
+        extras.append(f"Current thread image reference: {current_url}")
+    if approved_url:
+        extras.append(f"Approved reference image: {approved_url}")
+    if source_rec and _is_image_record(source_rec):
+        extras.append(f"Uploaded image reference: {_image_url_for_record(source_rec)}")
+        extras.append("Use the uploaded image as the primary visual reference.")
+    return (base + "\n\n" + "\n".join(extras)).strip()
+
+def _read_upload_bytes(rec: Optional[Dict[str, Any]]) -> Tuple[Optional[bytes], str]:
+    if not _is_image_record(rec):
+        return None, ""
+    relpath = (rec.get("relpath") or "").strip()
+    if not relpath:
+        return None, ""
+    path = UPLOADS_DIR / relpath
+    raw = safe_read_binary_file(path, max_bytes=20 * 1024 * 1024)
+    return raw, (rec.get("mimetype") or "image/png")
+
+def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
+    try:
+        if hasattr(resp, "data") and resp.data:
+            first = resp.data[0]
+            return getattr(first, "b64_json", None) or (first.get("b64_json") if isinstance(first, dict) else None)
+    except Exception:
+        return None
+    return None
+
+
 def safe_read_text_file(path: Path, max_bytes: int = MAX_INLINE_TEXT_BYTES) -> Optional[str]:
     try:
         if not path.exists():
@@ -2322,7 +2505,7 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
-def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
     """
@@ -2330,7 +2513,8 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     if not prompt:
         return None, None, "Missing image prompt"
 
-    # Refine prompt for better images
+    source_rec = get_upload_record(source_file_id) if source_file_id else None
+
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
 
     model = _pick_image_model()
@@ -2339,27 +2523,52 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     except Exception as e:
         return None, None, str(e)
 
-    # Try a couple known models if the configured one fails.
     tried = []
     last_err = ""
+    ref_bytes, ref_mimetype = _read_upload_bytes(source_rec)
+    can_edit = bool(ref_bytes) and mode in ("edit", "variation")
+
     for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
         tried.append(m)
         try:
-            # openai python client returns base64 in b64_json for each image
-            resp = client.images.generate(
-                model=m,
-                prompt=prompt2,
-                size=os.getenv("IMAGE_SIZE", "1024x1024"),
-            )
-            # Compatible with OpenAI python (v1+) response format.
-            b64 = None
-            if hasattr(resp, "data") and resp.data:
-                b64 = getattr(resp.data[0], "b64_json", None) or (resp.data[0].get("b64_json") if isinstance(resp.data[0], dict) else None)
+            resp = None
+            if can_edit and hasattr(client.images, "edit"):
+                suffix = ".png"
+                if "jpeg" in (ref_mimetype or "") or "jpg" in (ref_mimetype or ""):
+                    suffix = ".jpg"
+                tmp_name = ""
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(ref_bytes or b"")
+                        tmp.flush()
+                        tmp_name = tmp.name
+                    with open(tmp_name, "rb") as imgf:
+                        resp = client.images.edit(
+                            model=m,
+                            image=imgf,
+                            prompt=prompt2,
+                            size=os.getenv("IMAGE_SIZE", "1024x1024"),
+                        )
+                finally:
+                    try:
+                        if tmp_name and os.path.exists(tmp_name):
+                            os.unlink(tmp_name)
+                    except Exception:
+                        pass
+            if resp is None:
+                resp = client.images.generate(
+                    model=m,
+                    prompt=prompt2,
+                    size=os.getenv("IMAGE_SIZE", "1024x1024"),
+                )
+            b64 = _extract_b64_from_image_resp(resp)
             if not b64:
-                return None, None, "Image generation returned no data"
+                last_err = "Image generation returned no data"
+                continue
             image_bytes = base64.b64decode(b64)
             rec = _save_generated_image_bytes(image_bytes, teammate=teammate, username=username)
             url = f"/uploads/{rec['relpath']}"
+            set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode)
             return rec, url, None
         except Exception as e:
             last_err = str(e) or "Image generation failed"
@@ -2933,6 +3142,12 @@ def api_upload():
     size_bytes = out_path.stat().st_size if out_path.exists() else 0
     mimetype = (f.mimetype or "").strip()
 
+    owner = ""
+    try:
+        u = current_user()
+        owner = (u.get("username") if isinstance(u, dict) else None) or ""
+    except Exception:
+        owner = ""
     rec = {
         "id": file_id,
         "filename": filename,
@@ -2940,6 +3155,7 @@ def api_upload():
         "mimetype": mimetype,
         "size_bytes": size_bytes,
         "uploaded_at": now_iso(),
+        "owner": owner,
     }
     add_upload_record(file_id, rec)
 
@@ -3161,25 +3377,35 @@ def api_followup():
     thread = load_thread(name)
     thread = thread[-14:] if len(thread) > 14 else thread
 
-    # IMAGE MODE: if user asked for a graphic/image, generate it and return a real image URL (stored in Uploads).
+    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
+
     try:
         uname = _get_session_username()
     except Exception:
         uname = "anon"
-    if is_image_request(msg2) and (len(vision_images) == 0):
-        # Non-blocking image generation: create a background job so the UI never gets stuck "thinking".
-        job_id = create_image_job(msg2, teammate=name, username=uname, lighting_mode=lighting_mode)
+    if is_image_request(msg2):
+        source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
+        source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
+        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
+        job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
 
-        placeholder = f"[Generating image] job:{job_id}"
+        mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
+        placeholder = f"[{mode_label}] job:{job_id}"
         thread2 = load_thread(name)
         thread2 = thread2[-14:] if len(thread2) > 14 else thread2
         new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread)
 
-        append_log("followup_image_job", {"name": name, "prompt": msg2, "job_id": job_id})
-        append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_id": job_id}, teammate=name, status="queued")
+        st0 = load_image_state(name)
+        st0["last_prompt"] = msg
+        st0["last_mode"] = mode
+        save_image_state(name, st0)
 
-        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "email_draft": None, "attachment_meta": attach_meta})
+        append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
+        append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
+
+        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
 
 
 
@@ -3239,7 +3465,43 @@ def api_thread(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "thread": load_thread(name)})
+    return jsonify({"ok": True, "thread": load_thread(name), "image_state": load_image_state(name)})
+
+@app.get("/api/teammates/<name>/image_state")
+def api_teammate_image_state(name: str):
+    reg = load_registry()
+    installed = reg["installed"]
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    return jsonify({"ok": True, "image_state": load_image_state(name)})
+
+@app.post("/api/teammates/<name>/current_image")
+def api_teammate_set_current_image(name: str):
+    reg = load_registry()
+    installed = reg["installed"]
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    data = request.get_json(force=True) or {}
+    file_id = (data.get("file_id") or "").strip()
+    approve = bool(data.get("approve"))
+    if not file_id:
+        return jsonify({"ok": False, "error": "Missing file_id"}), 400
+    rec = get_upload_record(file_id)
+    if not _is_image_record(rec):
+        return jsonify({"ok": False, "error": "Image not found"}), 404
+    st = set_current_image_for_teammate(name, rec, source="selected", prompt="", mode="selected")
+    if approve:
+        st = approve_current_image_for_teammate(name)
+    return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
+
+@app.post("/api/teammates/<name>/approve_current_image")
+def api_teammate_approve_current_image(name: str):
+    reg = load_registry()
+    installed = reg["installed"]
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    st = approve_current_image_for_teammate(name)
+    return jsonify({"ok": True, "image_state": st})
 
 
 @app.post("/api/send_email")
@@ -5494,6 +5756,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="imageLibBtn">Image Library</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -6414,6 +6677,7 @@ if (typeof window.showToast !== "function") {
     let lastGroupOutputs = {};
     let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
+    let lastImageState = {};
 
     let groupFileIds = [];
     let dmFileIds = [];
@@ -7733,10 +7997,73 @@ function makeSeat(defn, idx){
       await refreshThread();
     }
 
-    function renderThread(msgs){
+    function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
+      lastImageState = imageState || lastImageState || {};
       const box = $("thread");
       box.innerHTML = "";
+      if(selectedSeat && selectedSeat !== "Operator" && lastImageState && (lastImageState.current_image_url || lastImageState.approved_image_url)) {
+        const stateCard = document.createElement("div");
+        stateCard.className = "msg assistant";
+        const who = document.createElement("div");
+        who.className = "who";
+        who.innerText = selectedSeat + " image context";
+        const body = document.createElement("div");
+        const currentUrl = lastImageState.current_image_url || lastImageState.approved_image_url || "";
+        const note = document.createElement("div");
+        note.className = "tiny";
+        note.style.marginBottom = "8px";
+        note.style.opacity = ".95";
+        note.innerText = lastImageState.approved_image_id ? "Current graphic ready. Revisions will use this unless you say start over." : "Current graphic context loaded for smoother revisions.";
+        body.appendChild(note);
+        if(currentUrl){
+          const img = document.createElement("img");
+          img.src = currentUrl;
+          img.alt = "Current graphic";
+          img.style.maxWidth = "100%";
+          img.style.maxHeight = "220px";
+          img.style.borderRadius = "12px";
+          img.style.cursor = "zoom-in";
+          img.onclick = ()=> openLightbox(currentUrl);
+          body.appendChild(img);
+
+          const row = document.createElement("div");
+          row.className = "actions";
+          row.style.justifyContent = "flex-start";
+          row.style.marginTop = "8px";
+
+          const openBtn = document.createElement("button");
+          openBtn.className = "btn btnMini";
+          openBtn.innerText = "Open full screen";
+          openBtn.onclick = ()=> openLightbox(currentUrl);
+
+          const keepBtn = document.createElement("button");
+          keepBtn.className = "btn btnMini";
+          keepBtn.innerText = "Approve current";
+          keepBtn.onclick = async ()=>{
+            try{
+              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/approve_current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+              const d = await r.json();
+              if(!d.ok) throw new Error(d.error || 'Could not approve image');
+              lastImageState = d.image_state || lastImageState || {};
+              await refreshThread();
+            }catch(e){ showModal('Image approval failed', String(e && e.message ? e.message : e)); }
+          };
+
+          const varyBtn = document.createElement("button");
+          varyBtn.className = "btn btnMini";
+          varyBtn.innerText = "Make variation";
+          varyBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.'; el.focus(); } };
+
+          row.appendChild(openBtn);
+          row.appendChild(keepBtn);
+          row.appendChild(varyBtn);
+          body.appendChild(row);
+        }
+        stateCard.appendChild(who);
+        stateCard.appendChild(body);
+        box.appendChild(stateCard);
+      }
       if(!msgs || msgs.length === 0){
         const empty = document.createElement("div");
         empty.className = "msg assistant";
@@ -7751,9 +8078,7 @@ function makeSeat(defn, idx){
         who.className = "who";
         who.innerText = (m.role === "user") ? "You" : selectedSeat;
         const content = document.createElement("div");
-                const raw = (m.content || "");
-        // v9 additive: Render image links inline (ChatGPT-like)
-        // If the assistant returns a /uploads/... path, show it as a clickable link + preview.
+        const raw = (m.content || "");
         const imgMatch = raw.match(/\/uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i) || raw.match(/\/api\/uploads\/[^\s]+/i);
         if(imgMatch){
           const url = imgMatch[0];
@@ -7781,8 +8106,43 @@ function makeSeat(defn, idx){
           content.appendChild(cap);
           content.appendChild(a);
           content.appendChild(img);
+
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          actions.style.justifyContent = "flex-start";
+          actions.style.marginTop = "8px";
+
+          const openBtn = document.createElement("button");
+          openBtn.className = "btn btnMini";
+          openBtn.innerText = "Open";
+          openBtn.onclick = ()=> openLightbox(url);
+
+          const useBtn = document.createElement("button");
+          useBtn.className = "btn btnMini";
+          useBtn.innerText = "Use for revisions";
+          useBtn.onclick = async ()=>{
+            try{
+              const imgs = await fetch('/api/images').then(r=>r.json());
+              const match = (imgs.images || []).find(x => x.url === url);
+              if(!match || !match.id) throw new Error('Could not find this image in the library');
+              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
+              const d = await r.json();
+              if(!d.ok) throw new Error(d.error || 'Could not set current image');
+              lastImageState = d.image_state || {};
+              await refreshThread();
+            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
+          };
+
+          const editBtn = document.createElement("button");
+          editBtn.className = "btn btnMini";
+          editBtn.innerText = "Edit this";
+          editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
+
+          actions.appendChild(openBtn);
+          actions.appendChild(useBtn);
+          actions.appendChild(editBtn);
+          content.appendChild(actions);
         }else{
-          // Default safe render as text
           content.innerText = raw;
         }
 
@@ -7877,7 +8237,7 @@ function makeSeat(defn, idx){
 
 
 
-    async function refreshThread(){
+    async async function refreshThread(){
       if(!selectedSeat) return;
 
       if(selectedSeat === "Operator"){
@@ -7894,7 +8254,7 @@ function makeSeat(defn, idx){
         renderThread([]);
         return;
       }
-      renderThread(data.thread);
+      renderThread(data.thread, data.image_state || {});
     }
 
     $("refreshThread").onclick = refreshThread;
@@ -9399,7 +9759,7 @@ $("draftWithSelected").onclick = async () => {
     }
 
     
-async function crmBroadcastSMS(dry_run=false){
+async async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
 
@@ -10094,7 +10454,7 @@ if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
 async function showImageLibraryModal(){
   try{
-    const res = await fetch("/api/images?only_ai=1");
+    const res = await fetch("/api/images");
     const data = await res.json();
     if(!data.ok){
       showModal("Image Library", data.error || "Failed to load images");
@@ -10110,14 +10470,13 @@ async function showImageLibraryModal(){
       return;
     }
 
-    // Render a simple thumbnail grid. Click any thumbnail to open full screen.
     body.innerHTML = "";
     const grid = document.createElement("div");
     grid.style.display = "grid";
-    grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(160px, 1fr))";
+    grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(180px, 1fr))";
     grid.style.gap = "10px";
 
-    imgs.slice(0, 80).forEach((r)=>{
+    imgs.slice(0, 120).forEach((r)=>{
       const card = document.createElement("div");
       card.style.border = "1px solid rgba(255,255,255,.10)";
       card.style.borderRadius = "12px";
@@ -10141,8 +10500,37 @@ async function showImageLibraryModal(){
       meta.style.wordBreak = "break-word";
       meta.innerText = (r.teammate ? (r.teammate + " • ") : "") + (r.uploaded_at || "");
 
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.style.justifyContent = "flex-start";
+      actions.style.marginTop = "8px";
+
+      const openBtn = document.createElement("button");
+      openBtn.className = "btn btnMini";
+      openBtn.innerText = "Open";
+      openBtn.onclick = ()=> openLightbox(r.url);
+
+      const useBtn = document.createElement("button");
+      useBtn.className = "btn btnMini";
+      useBtn.innerText = "Use";
+      useBtn.onclick = async ()=>{
+        const seat = selectedSeat || "";
+        if(!seat || seat === "Operator"){ showModal("Select a teammate first", "Choose a teammate, then click Use."); return; }
+        try{
+          const rr = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
+          const dd = await rr.json();
+          if(!dd.ok) throw new Error(dd.error || 'Could not set current image');
+          lastImageState = dd.image_state || {};
+          await refreshThread();
+        }catch(e){ showModal('Could not use image', String(e && e.message ? e.message : e)); }
+      };
+
+      actions.appendChild(openBtn);
+      actions.appendChild(useBtn);
+
       card.appendChild(im);
       card.appendChild(meta);
+      card.appendChild(actions);
       grid.appendChild(card);
     });
 
@@ -10159,10 +10547,7 @@ if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id
 
 if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
 if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
-if($("twilioTestBtn")) $("twilioTestBtn").onclick = ()=> settingsTestSms();
-
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
- $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
   if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
