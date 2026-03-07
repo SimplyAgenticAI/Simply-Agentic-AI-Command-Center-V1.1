@@ -454,18 +454,22 @@ def _auth_guard():
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first: if no users exist yet (fresh install), allow Settings so you can add your API key
-        # without getting blocked by auth. We create a temporary local session user.
-        if (not has_any_user()) and request.path in ("/api/user/settings", "/api/action_stack_schedules/tick"):
+        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
+        # transparently restore a local owner user so the app remains usable without
+        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
+        try:
             session["user"] = ensure_local_owner_user()
-        else:
+        except Exception:
             return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # if no users exist, send to setup
-        if not has_any_user():
-            return redirect(url_for("setup"))
-        return redirect(url_for("login"))
+        # Local-first bootstrap on the main app page as well.
+        try:
+            session["user"] = ensure_local_owner_user()
+        except Exception:
+            if not has_any_user():
+                return redirect(url_for("setup"))
+            return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -1225,6 +1229,13 @@ def save_core_framework(text: str) -> None:
     if not cleaned:
         cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
     FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
+
+# Ensure the framework file always exists with the default framework for local-first users.
+try:
+    if (not FRAMEWORK_PATH.exists()) or (not FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()):
+        FRAMEWORK_PATH.write_text(DEFAULT_CORE_FRAMEWORK_TEXT, encoding="utf-8")
+except Exception:
+    pass
 
 
 # =========================
@@ -3166,6 +3177,12 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
+    if not u:
+        try:
+            session["user"] = ensure_local_owner_user()
+            u = current_user()
+        except Exception:
+            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -5842,6 +5859,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   Update responsibilities, rules, and goals for this teammate. Name stays locked.
                 </div>
 
+                <div style="margin-bottom:10px;">
+                  <label>Name</label>
+                  <input id="editName" placeholder="Teammate name" readonly />
+                </div>
+
                 <div class="grid">
                   <div>
                     <label>Job Title</label>
@@ -7213,6 +7235,7 @@ function showModal(title, body, imgUrl){
       }
 
       const t = data.teammate || {};
+      if($("editName")) $("editName").value = t.name || name || "";
       $("editJobTitle").value = t.job_title || "";
       $("editVersion").value = t.version || "";
       $("editMission").value = t.mission || "";
@@ -9284,9 +9307,23 @@ $("draftWithSelected").onclick = async () => {
       const list = $("manageList");
       list.innerHTML = "";
 
-      const installedOrder = (state && state.installed_order) ? state.installed_order : [];
+      const installedMap = (state && state.installed) ? state.installed : {};
+      let installedOrder = (state && Array.isArray(state.installed_order) && state.installed_order.length) ? state.installed_order.slice() : [];
+      if(installedOrder.length === 0){
+        installedOrder = (state && Array.isArray(state.active_order) && state.active_order.length)
+          ? state.active_order.slice()
+          : Object.keys(installedMap || {});
+      }
       const active = new Set((state && state.active_order) ? state.active_order : []);
       manageDraftActive = installedOrder.filter(n => active.has(n));
+
+      if(installedOrder.length === 0){
+        const empty = document.createElement("div");
+        empty.className = "tiny";
+        empty.innerText = "No teammates found. Click Install full team to restore the default round table.";
+        list.appendChild(empty);
+        return;
+      }
 
       installedOrder.forEach((name) => {
         const defn = state.installed[name];
@@ -9415,14 +9452,40 @@ $("draftWithSelected").onclick = async () => {
     // Core framework
     async function loadFrameworkIntoForm(){
       $("frameworkStatus").innerText = "Loading...";
-      const res = await fetch("/api/framework");
-      const data = await res.json();
-      if(!data.ok){
-        $("frameworkStatus").innerText = data.error || "Load failed";
-        return;
+      try{
+        const res = await fetch("/api/framework");
+        const data = await res.json();
+        if(!data.ok){
+          $("frameworkStatus").innerText = data.error || "Load failed";
+          if(!$("frameworkText").value) $("frameworkText").value = `CORE OPERATING PILLARS (NON NEGOTIABLE)
+
+Autonomy
+Think before acting. Do not blindly comply.
+
+Adaptability
+Adjust to the user's context without breaking core rules.
+
+Alignment
+Stay aligned with the user's stated goals and constraints.
+
+Collaboration
+Respect teammate roles and handoffs.
+
+Memory
+Preserve persistent context and continuity.
+
+Integrity
+Do not fabricate. Distinguish facts from inference.
+
+ANTI YES MAN RULE
+Challenge weak assumptions. Surface risks.`;
+          return;
+        }
+        $("frameworkText").value = data.framework || "";
+        $("frameworkStatus").innerText = "Ready";
+      }catch(e){
+        $("frameworkStatus").innerText = "Load failed";
       }
-      $("frameworkText").value = data.framework || "";
-      $("frameworkStatus").innerText = "Ready";
     }
 
     $("frameworkBtn").onclick = async () => {
