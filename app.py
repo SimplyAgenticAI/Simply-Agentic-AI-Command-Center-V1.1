@@ -596,7 +596,7 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -608,23 +608,14 @@ def _auth_guard():
     if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
         return None
 
-    if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
-        # transparently restore a local owner user so the app remains usable without
-        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
+    if not session.get("user"):
+        if not has_any_user():
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Setup required"}), 401
+            return redirect(url_for("setup"))
+        if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    if request.path == "/" and not session.get("user"):
-        # Local-first bootstrap on the main app page as well.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            if not has_any_user():
-                return redirect(url_for("setup"))
-            return redirect(url_for("login"))
+        return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -4703,7 +4694,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 56px);
       display:grid;
-      grid-template-columns: 1fr 420px;
+      grid-template-columns: minmax(0, 1fr) 400px;
       align-items:start;
     }
 
@@ -4717,9 +4708,9 @@ HTML = r"""
 
     .tableWrap{
       position:relative;
-      width:min(860px, 92vw);
-      height:min(860px, 92vw);
-      min-height: 860px;
+      width:min(820px, calc(100vw - 440px));
+      height:min(820px, calc(100vw - 440px));
+      min-height: min(820px, calc(100vw - 440px));
       margin-bottom: 0;
     }
 
@@ -4760,9 +4751,9 @@ HTML = r"""
       position:absolute;
       left:50%; top:50%;
       transform: translate(-50%,-50%);
-      width: 44%;
-      min-width: 340px;
-      max-width: 520px;
+      width: min(44%, 500px);
+      min-width: 300px;
+      max-width: 500px;
       background: rgba(14,22,48,.82);
       border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
@@ -5063,7 +5054,7 @@ HTML = r"""
     .followBox{ height: 92px; }
 
     .underTable{
-      width: min(860px, 92vw);
+      width: min(820px, calc(100vw - 440px));
       margin: 0 auto 42px auto;
       padding: 0 0 18px 0;
     }
@@ -5135,9 +5126,9 @@ HTML = r"""
       left: 50%;
       top: 64px;
       transform: translateX(-50%);
-      width: 860px;
+      width: min(860px, calc(100vw - 32px));
       max-width: calc(100vw - 22px);
-      height: 680px;
+      height: min(680px, calc(100vh - 96px));
       max-height: calc(100vh - 90px);
       background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.9);
@@ -5238,6 +5229,40 @@ HTML = r"""
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
 
+    .resizeHandle{
+      position:absolute;
+      z-index: 95;
+      user-select:none;
+      touch-action:none;
+      background: transparent;
+    }
+    .resizeHandle::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      opacity:.0;
+    }
+    .resizeHandle.n, .resizeHandle.s{
+      left: 12px; right: 12px; height: 10px;
+      cursor: ns-resize;
+    }
+    .resizeHandle.n{ top: -5px; }
+    .resizeHandle.s{ bottom: -5px; }
+    .resizeHandle.e, .resizeHandle.w{
+      top: 12px; bottom: 12px; width: 10px;
+      cursor: ew-resize;
+    }
+    .resizeHandle.e{ right: -5px; }
+    .resizeHandle.w{ left: -5px; }
+    .resizeHandle.ne, .resizeHandle.sw,
+    .resizeHandle.nw, .resizeHandle.se{
+      width: 16px; height: 16px;
+    }
+    .resizeHandle.ne{ top: -6px; right: -6px; cursor: nesw-resize; }
+    .resizeHandle.nw{ top: -6px; left: -6px; cursor: nwse-resize; }
+    .resizeHandle.se{ right: -6px; bottom: -6px; cursor: nwse-resize; }
+    .resizeHandle.sw{ left: -6px; bottom: -6px; cursor: nesw-resize; }
+
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 
     .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
@@ -5263,10 +5288,63 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
+    @media (max-width: 1500px){
+      .stage{ grid-template-columns: minmax(0, 1fr) 360px; }
+      .tableWrap{
+        width:min(760px, calc(100vw - 396px));
+        height:min(760px, calc(100vw - 396px));
+        min-height:min(760px, calc(100vw - 396px));
+      }
+      .underTable{ width:min(760px, calc(100vw - 396px)); }
+      .operator{ min-width: 280px; width:min(46%, 460px); }
+      .rightmeta{ gap:8px; }
+      .btn{ padding:9px 11px; }
+    }
+
+    @media (max-width: 1280px){
+      .topbar{
+        height:auto;
+        min-height:56px;
+        padding:8px 12px;
+        flex-wrap:wrap;
+        gap:10px;
+      }
+      .rightmeta{ width:100%; justify-content:flex-start; }
+      .stage{ grid-template-columns: 1fr 340px; }
+      .tableWrap{
+        width:min(700px, calc(100vw - 372px));
+        height:min(700px, calc(100vw - 372px));
+        min-height:min(700px, calc(100vw - 372px));
+      }
+      .underTable{ width:min(700px, calc(100vw - 372px)); }
+      .thread{ height: 34vh; }
+    }
+
+    @media (max-width: 1120px){
+      .stage{ grid-template-columns: 1fr; }
+      .side{
+        position:relative;
+        top:0;
+        height:auto;
+        overflow:visible;
+        border-left:0;
+      }
+      .tableWrap{
+        width:min(760px, calc(100vw - 28px));
+        height:min(760px, calc(100vw - 28px));
+        min-height:min(760px, calc(100vw - 28px));
+      }
+      .underTable{ width:min(760px, calc(100vw - 28px)); }
+    }
+
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
-      .tableWrap{ min-height: 860px; }
+      .tableWrap{
+        width:min(760px, calc(100vw - 28px));
+        height:min(760px, calc(100vw - 28px));
+        min-height:min(760px, calc(100vw - 28px));
+      }
       .row2{ grid-template-columns: 1fr; }
       .underTable{ width: min(860px, 92vw); }
       .modalForm .grid{ grid-template-columns: 1fr; }
@@ -7067,7 +7145,7 @@ if (typeof window.showToast !== "function") {
       const h = Math.min(Math.max(curH, minH || 0), maxH);
       win.style.width = w + "px";
       win.style.height = h + "px";
-      win.style.resize = "both";
+      win.style.resize = "none";
       try{ saveModalSize(w, h); }catch(e){}
     }
 
@@ -7086,8 +7164,8 @@ function applyModalPos(){
         const h = Math.min(Math.max(560, savedSize.height), maxH);
         win.style.width = w + "px";
         win.style.height = h + "px";
-        win.style.resize = (window.innerWidth <= 640) ? "none" : "both";
-        win.style.resize = (window.innerWidth <= 640) ? "none" : "both";
+        win.style.resize = "none";
+        win.style.resize = "none";
       } else {
         // Sensible defaults (no manual resizing needed)
         const w = Math.min(860, Math.max(760, (window.innerWidth || 1200) - 24));
@@ -7405,9 +7483,129 @@ function showModal(title, body, imgUrl){
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
 
+    function addResizeHandles(el){
+      if(!el || el.__resizeHandlesReady) return;
+      el.__resizeHandlesReady = true;
+      const dirs = ["n","s","e","w","ne","nw","se","sw"];
+      dirs.forEach(dir=>{
+        const h = document.createElement("div");
+        h.className = "resizeHandle " + dir;
+        h.dataset.dir = dir;
+        el.appendChild(h);
+      });
+    }
+
+    function initResizableWindow(el, opts){
+      if(!el || el.__resizableWindowReady) return;
+      el.__resizableWindowReady = true;
+      const cfg = Object.assign({
+        minWidth: 320,
+        minHeight: 220,
+        margin: 8,
+        onResize: null,
+        allowResize: null
+      }, opts || {});
+
+      addResizeHandles(el);
+
+      let activeDir = "";
+      let startX = 0, startY = 0;
+      let startLeft = 0, startTop = 0, startWidth = 0, startHeight = 0;
+
+      function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+      function isAllowed(){
+        try{
+          if(typeof cfg.allowResize === "function") return !!cfg.allowResize();
+        }catch(e){}
+        return true;
+      }
+
+      el.querySelectorAll(".resizeHandle").forEach(handle=>{
+        handle.addEventListener("pointerdown", (e)=>{
+          if(!isAllowed()) return;
+          e.preventDefault();
+          e.stopPropagation();
+          activeDir = handle.dataset.dir || "";
+          const r = el.getBoundingClientRect();
+          startX = e.clientX;
+          startY = e.clientY;
+          startLeft = r.left;
+          startTop = r.top;
+          startWidth = r.width;
+          startHeight = r.height;
+          try{ handle.setPointerCapture(e.pointerId); }catch(_){}
+        }, {passive:false});
+
+        handle.addEventListener("pointermove", (e)=>{
+          if(!activeDir) return;
+          e.preventDefault();
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          let left = startLeft;
+          let top = startTop;
+          let width = startWidth;
+          let height = startHeight;
+
+          if(activeDir.includes("e")) width = startWidth + dx;
+          if(activeDir.includes("s")) height = startHeight + dy;
+          if(activeDir.includes("w")){
+            width = startWidth - dx;
+            left = startLeft + dx;
+          }
+          if(activeDir.includes("n")){
+            height = startHeight - dy;
+            top = startTop + dy;
+          }
+
+          const maxWidth = Math.max(cfg.minWidth, window.innerWidth - cfg.margin * 2);
+          const maxHeight = Math.max(cfg.minHeight, window.innerHeight - cfg.margin * 2);
+
+          width = clamp(width, cfg.minWidth, maxWidth);
+          height = clamp(height, cfg.minHeight, maxHeight);
+          left = clamp(left, cfg.margin, Math.max(cfg.margin, window.innerWidth - width - cfg.margin));
+          top = clamp(top, cfg.margin, Math.max(cfg.margin, window.innerHeight - height - cfg.margin));
+
+          if(activeDir.includes("w")) left = clamp(startLeft + (startWidth - width), cfg.margin, Math.max(cfg.margin, window.innerWidth - width - cfg.margin));
+          if(activeDir.includes("n")) top = clamp(startTop + (startHeight - height), cfg.margin, Math.max(cfg.margin, window.innerHeight - height - cfg.margin));
+
+          el.style.left = left + "px";
+          el.style.top = top + "px";
+          el.style.width = width + "px";
+          el.style.height = height + "px";
+          el.style.maxWidth = "calc(100vw - " + (cfg.margin * 2) + "px)";
+          el.style.maxHeight = "calc(100vh - " + (cfg.margin * 2) + "px)";
+          el.style.transform = "none";
+          if(typeof cfg.onResize === "function"){
+            try{ cfg.onResize({left, top, width, height}); }catch(_){}
+          }
+        }, {passive:false});
+
+        function endResize(e){
+          if(!activeDir) return;
+          activeDir = "";
+          try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
+        }
+        handle.addEventListener("pointerup", endResize);
+        handle.addEventListener("pointercancel", endResize);
+      });
+    }
+
     (function initModalResizePersist(){
       const win = $("modalWin");
       if(!win) return;
+
+      initResizableWindow(win, {
+        minWidth: 560,
+        minHeight: 420,
+        margin: 8,
+        allowResize: ()=> window.innerWidth > 640 && !modalMinimized,
+        onResize: ({left, top, width, height})=>{
+          try{ saveModalPos(left, top); }catch(e){}
+          try{ saveModalSize(width, height); }catch(e){}
+        }
+      });
+
       try{
         const ro = new ResizeObserver((entries)=>{
           for(const ent of entries){
@@ -7419,6 +7617,16 @@ function showModal(title, body, imgUrl){
         });
         ro.observe(win);
       }catch(e){}
+    })();
+
+    (function initOnboardingResize(){
+      const panel = $("onboardingPanel");
+      if(!panel) return;
+      initResizableWindow(panel, {
+        minWidth: 260,
+        minHeight: 220,
+        margin: 8
+      });
     })();
 
     function setOpStatus(text){
