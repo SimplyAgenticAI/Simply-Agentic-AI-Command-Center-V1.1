@@ -16,7 +16,10 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
-from urllib.parse import urlencode
+try:
+    import anthropic
+except Exception:
+    anthropic = None
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
@@ -38,10 +41,12 @@ except Exception:
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
-DEFAULT_OPENAI_MODEL = os.getenv("MODEL", "gpt-5.2")
-DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
-MODEL = DEFAULT_OPENAI_MODEL
+MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AI_PROVIDER = (os.getenv("AI_PROVIDER", "openai") or "openai").strip().lower()
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", MODEL if 'MODEL' in globals() else os.getenv("MODEL", "gpt-5.2"))
 PORT = int(os.getenv("PORT", "5000"))
 
 # Uploads
@@ -399,9 +404,9 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "settings": {
             "provider": "openai",
             "openai_key": "",
-            "openai_model": DEFAULT_OPENAI_MODEL,
-            "anthropic_key": "",
-            "anthropic_model": DEFAULT_CLAUDE_MODEL,
+            "openai_model": "",
+            "claude_key": "",
+            "claude_model": "",
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -412,154 +417,6 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         },
         "reset": {"token_hash": "", "created_at": None}
     }
-
-def _ensure_user_settings_shape(settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    s = settings if isinstance(settings, dict) else {}
-    s.setdefault("provider", "openai")
-    s.setdefault("openai_key", "")
-    s.setdefault("openai_model", DEFAULT_OPENAI_MODEL)
-    s.setdefault("anthropic_key", "")
-    s.setdefault("anthropic_model", DEFAULT_CLAUDE_MODEL)
-    s.setdefault("smtp", {})
-    smtp = s.get("smtp") or {}
-    if not isinstance(smtp, dict):
-        smtp = {}
-    smtp.setdefault("host", "")
-    smtp.setdefault("port", 587)
-    smtp.setdefault("user", "")
-    smtp.setdefault("pass", "")
-    smtp.setdefault("from_name", "")
-    s["smtp"] = smtp
-    return s
-
-def _mask_api_key_hint(key: str) -> str:
-    key = (key or "").strip()
-    if not key:
-        return ""
-    return "••••" + key[-4:] if len(key) >= 4 else "••••"
-
-def _provider_label(provider: str) -> str:
-    return "Claude" if (provider or "").strip().lower() == "claude" else "GPT"
-
-def _provider_bundle_from_settings(settings: Optional[Dict[str, Any]]) -> Dict[str, str]:
-    s = _ensure_user_settings_shape(settings)
-    provider = (s.get("provider") or "openai").strip().lower()
-    if provider not in ("openai", "claude"):
-        provider = "openai"
-    openai_key = (s.get("openai_key") or "").strip()
-    openai_model = (s.get("openai_model") or DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
-    anthropic_key = (s.get("anthropic_key") or "").strip()
-    anthropic_model = (s.get("anthropic_model") or DEFAULT_CLAUDE_MODEL).strip() or DEFAULT_CLAUDE_MODEL
-    if provider == "claude":
-        key = anthropic_key
-        model = anthropic_model
-    else:
-        key = openai_key
-        model = openai_model
-    return {
-        "provider": provider,
-        "provider_label": _provider_label(provider),
-        "key": key,
-        "model": model,
-        "openai_key": openai_key,
-        "openai_model": openai_model,
-        "anthropic_key": anthropic_key,
-        "anthropic_model": anthropic_model,
-    }
-
-def _provider_bundle_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, str]:
-    settings = ((u or {}).get("settings") or {}) if isinstance(u, dict) else {}
-    return _provider_bundle_from_settings(settings)
-
-def _text_only_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-    safe_msgs: List[Dict[str, str]] = []
-    for m in messages or []:
-        c = m.get("content", "")
-        if isinstance(c, list):
-            texts = []
-            for part in c:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    txt = (part.get("text") or "").strip()
-                    if txt:
-                        texts.append(txt)
-                elif isinstance(part, dict) and part.get("type") == "image_url":
-                    texts.append("[Image attached]")
-            c2 = "\n".join([t for t in texts if t]).strip()
-            safe_msgs.append({"role": m.get("role", "user"), "content": c2})
-        else:
-            safe_msgs.append({"role": m.get("role", "user"), "content": str(c or "")})
-    return safe_msgs
-
-def _messages_to_claude(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for m in messages or []:
-        role = "assistant" if (m.get("role") == "assistant") else "user"
-        content = m.get("content", "")
-        parts: List[Dict[str, Any]] = []
-        if isinstance(content, list):
-            for part in content:
-                if not isinstance(part, dict):
-                    continue
-                ptype = part.get("type")
-                if ptype == "text":
-                    txt = str(part.get("text") or "")
-                    if txt:
-                        parts.append({"type": "text", "text": txt})
-                elif ptype == "image_url":
-                    url = (((part.get("image_url") or {}).get("url")) or "").strip()
-                    if url.startswith("data:") and ";base64," in url:
-                        header, b64 = url.split(",", 1)
-                        media_type = header.split(";")[0].split(":", 1)[1]
-                        parts.append({
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": b64}
-                        })
-                    else:
-                        parts.append({"type": "text", "text": "[Image attached]"})
-        else:
-            parts.append({"type": "text", "text": str(content or "")})
-        if not parts:
-            parts = [{"type": "text", "text": ""}]
-        if out and out[-1].get("role") == role:
-            prev = out[-1].get("content") or []
-            if isinstance(prev, list):
-                prev.extend(parts)
-                out[-1]["content"] = prev
-            else:
-                out.append({"role": role, "content": parts})
-        else:
-            out.append({"role": role, "content": parts})
-    return out
-
-def _call_claude(system: str, messages: List[Dict[str, Any]], api_key: str, model: str, temperature: float = 0.6) -> str:
-    if not api_key:
-        raise RuntimeError("No Claude API key found. Add your Claude key in Settings.")
-    try:
-        import requests
-    except Exception as e:
-        raise RuntimeError(f"Claude support requires requests: {e}")
-    payload = {
-        "model": model or DEFAULT_CLAUDE_MODEL,
-        "system": system or "",
-        "messages": _messages_to_claude(messages),
-        "max_tokens": 4096,
-        "temperature": max(0.0, min(1.0, float(temperature or 0.6))),
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=90)
-    data = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise RuntimeError(str(data or r.text or "Claude request failed"))
-    content = data.get("content") or []
-    chunks = []
-    for part in content:
-        if isinstance(part, dict) and part.get("type") == "text":
-            chunks.append(part.get("text") or "")
-    return "".join(chunks).strip()
 
 def current_user() -> Optional[Dict[str, Any]]:
     uname = session.get("user")
@@ -596,34 +453,33 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static", "/register"):
         return None
     if request.path.startswith("/static/"):
         return None
 
-    # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"):
         return None
 
-    if not session.get("user"):
+    if request.path.startswith("/api/") and not session.get("user"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    if request.path == "/" and not session.get("user"):
         if not has_any_user():
-            if request.path.startswith("/api/"):
-                return jsonify({"ok": False, "error": "Setup required"}), 401
             return redirect(url_for("setup"))
-        if request.path.startswith("/api/"):
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
         return redirect(url_for("login"))
 
-    # attach per-user OpenAI client for this request
     u = current_user()
-    provider_bundle = _provider_bundle_for_user(u)
-    user_key = (provider_bundle.get("openai_key") or "").strip()
-    g.ai_provider = provider_bundle.get("provider") or "openai"
-    g.ai_model = provider_bundle.get("model") or MODEL
-    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
+    user_key = ""
+    if u:
+        user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
+    try:
+        g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY or ""))
+    except Exception:
+        g.openai_client = None
 
     return None
 
@@ -849,10 +705,12 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: OpenAI key
+    # Step 1: AI key (OpenAI or Claude)
     try:
-        key = (((u or {}).get("settings") or {}).get("openai_key") or "").strip()
-        if key:
+        stg = ((u or {}).get("settings") or {})
+        key_openai = (stg.get("openai_key") or "").strip()
+        key_claude = (stg.get("claude_key") or "").strip()
+        if key_openai or key_claude:
             _mark_onboarding_step(username, "openai_key", True)
     except Exception:
         pass
@@ -2502,61 +2360,119 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 
+
+def _current_ai_settings() -> Dict[str, str]:
+    u = current_user() or {}
+    s = (u.get("settings") or {}) if isinstance(u, dict) else {}
+    provider = (s.get("provider") or AI_PROVIDER or "openai").strip().lower()
+    if provider not in ("openai", "claude"):
+        provider = "openai"
+    return {
+        "provider": provider,
+        "openai_key": (s.get("openai_key") or OPENAI_API_KEY or "").strip(),
+        "openai_model": (s.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2").strip(),
+        "claude_key": (s.get("claude_key") or CLAUDE_API_KEY or "").strip(),
+        "claude_model": (s.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest").strip(),
+    }
+
+def _flatten_message_content_for_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif isinstance(part, dict) and part.get("type") == "image_url":
+                parts.append("[Image attached]")
+            elif isinstance(part, str):
+                parts.append(part)
+        return "\n".join([p for p in parts if p]).strip()
+    return str(content or "")
+
+def _call_claude_chat(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
+    cfg = _current_ai_settings()
+    if anthropic is None:
+        raise RuntimeError("Claude support requires the anthropic package to be installed.")
+    api_key = cfg.get("claude_key") or ""
+    if not api_key:
+        raise RuntimeError("Claude is selected but no Claude API key is saved in Settings.")
+    model_name = cfg.get("claude_model") or "claude-3-5-sonnet-latest"
+    client = anthropic.Anthropic(api_key=api_key)
+
+    msg_list = []
+    for m in messages:
+        role = (m.get("role") or "user").strip().lower()
+        if role not in ("user", "assistant"):
+            role = "user"
+        msg_list.append({
+            "role": role,
+            "content": _flatten_message_content_for_text(m.get("content", ""))
+        })
+
+    resp = client.messages.create(
+        model=model_name,
+        max_tokens=2048,
+        temperature=temperature,
+        system=system,
+        messages=msg_list,
+    )
+    chunks = []
+    for item in getattr(resp, "content", []) or []:
+        t = getattr(item, "text", None)
+        if t:
+            chunks.append(t)
+    return "\n".join(chunks).strip()
+
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     Returns (http_status, user_message)
     """
     s = (str(e) or "").lower()
-    provider = getattr(g, "ai_provider", "openai") if hasattr(g, "ai_provider") else "openai"
-    provider_label = _provider_label(provider)
-    if provider == "claude":
-        if "api key" in s or "authentication" in s or "invalid x-api-key" in s or ("401" in s and "key" in s):
-            return 401, "Invalid Claude API key. Open Settings and paste a valid Claude key."
-        if "model" in s and ("not found" in s or "does not exist" in s or "invalid_request_error" in s):
-            return 400, "Claude model error. Open Settings and choose a valid Claude model."
-    else:
-        if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-            return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
-        if "model" in s and ("not found" in s or "does not exist" in s):
-            return 400, f"Model error. Your OpenAI model may be invalid. Current model='{getattr(g, 'ai_model', MODEL)}'."
+    if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
+        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+    if "model" in s and ("not found" in s or "does not exist" in s):
+        return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
-        return 429, f"{provider_label} rate limit hit. Try again in a moment."
-    return 500, f"{provider_label} request failed. Check the selected provider, model, and API key in Settings."
+        return 429, "Rate limit hit. Try again in a moment."
+    return 500, "AI request failed. Check server logs for details."
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    u = current_user()
-    bundle = _provider_bundle_for_user(u)
-    provider = bundle.get("provider") or "openai"
-    model = bundle.get("model") or MODEL
+    cfg = _current_ai_settings()
+    provider = cfg.get("provider") or "openai"
+
     if provider == "claude":
-        try:
-            return _call_claude(system, messages, api_key=bundle.get("key") or "", model=model, temperature=temperature)
-        except Exception as e:
-            safe_msgs = _text_only_messages(messages)
-            try:
-                out = _call_claude(system, safe_msgs, api_key=bundle.get("key") or "", model=model, temperature=temperature)
-                return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
-            except Exception as e2:
-                raise e2
+        return _call_claude_chat(system, messages, temperature=temperature)
+
     try:
         resp = get_openai_client().chat.completions.create(
-            model=model,
+            model=(cfg.get("openai_model") or MODEL),
             messages=[{"role": "system", "content": system}] + messages,
             temperature=temperature,
             timeout=60,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        safe_msgs = _text_only_messages(messages)
-        try:
-            resp2 = get_openai_client().chat.completions.create(
-                model=model,
-                messages=[{"role": "system", "content": system}] + safe_msgs,
-                temperature=temperature,
-                timeout=60,
-            )
-        except Exception as e2:
-            raise e2
+        safe_msgs: List[Dict[str, Any]] = []
+        for m in messages:
+            c = m.get("content", "")
+            if isinstance(c, list):
+                texts = []
+                for part in c:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        texts.append(part.get("text", ""))
+                    elif isinstance(part, dict) and part.get("type") == "image_url":
+                        texts.append("[Image attached but model did not accept image input]")
+                c2 = "\n".join([t for t in texts if t]).strip()
+                safe_msgs.append({"role": m.get("role", "user"), "content": c2})
+            else:
+                safe_msgs.append({"role": m.get("role", "user"), "content": c})
+        resp2 = get_openai_client().chat.completions.create(
+            model=(cfg.get("openai_model") or MODEL),
+            messages=[{"role": "system", "content": system}] + safe_msgs,
+            temperature=temperature,
+            timeout=60,
+        )
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
 
@@ -2662,7 +2578,7 @@ def _get_openai_client_for_username(username: str):
     try:
         users = load_users()
         rec = ((users.get("users") or {}).get((username or "").strip().lower()) or {})
-        settings = _ensure_user_settings_shape(rec.get("settings") or {})
+        settings = rec.get("settings") or {}
         key = (settings.get("openai_key") or "").strip()
     except Exception:
         key = ""
@@ -2780,8 +2696,7 @@ def api_state():
     return jsonify({
         "ok": True,
         "app_title": APP_TITLE,
-        "model": getattr(g, "ai_model", MODEL),
-        "provider": getattr(g, "ai_provider", "openai"),
+        "model": MODEL,
         "installed_order": installed_order,
         "active_order": active_order,
         "installed": {k: {
@@ -3057,17 +2972,15 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -3077,16 +2990,16 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    settings = _ensure_user_settings_shape(u.get("settings") or {})
+    settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
-    bundle = _provider_bundle_from_settings(settings)
+
+    openai_key = (settings.get("openai_key") or "").strip()
+    claude_key = (settings.get("claude_key") or "").strip()
+
+    def _hint(val: str) -> str:
+        return ("••••" + val[-4:]) if val else ""
 
     safe_smtp = {
         "host": smtp.get("host", ""),
@@ -3097,15 +3010,13 @@ def api_get_user_settings():
     return jsonify({
         "ok": True,
         "settings": {
-            "provider": bundle.get("provider") or "openai",
-            "provider_label": bundle.get("provider_label") or "GPT",
-            "model": bundle.get("model") or MODEL,
-            "has_openai_key": bool(bundle.get("openai_key")),
-            "openai_key_hint": _mask_api_key_hint(bundle.get("openai_key") or ""),
-            "openai_model": bundle.get("openai_model") or DEFAULT_OPENAI_MODEL,
-            "has_anthropic_key": bool(bundle.get("anthropic_key")),
-            "anthropic_key_hint": _mask_api_key_hint(bundle.get("anthropic_key") or ""),
-            "anthropic_model": bundle.get("anthropic_model") or DEFAULT_CLAUDE_MODEL,
+            "provider": (settings.get("provider") or AI_PROVIDER or "openai"),
+            "has_openai_key": bool(openai_key),
+            "openai_key_hint": _hint(openai_key),
+            "openai_model": (settings.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2"),
+            "has_claude_key": bool(claude_key),
+            "claude_key_hint": _hint(claude_key),
+            "claude_model": (settings.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest"),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -3116,34 +3027,18 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
-    except Exception:
-        pass
-
 
     data = request.get_json(force=True) or {}
     provider = (data.get("provider") or "openai").strip().lower()
     if provider not in ("openai", "claude"):
         provider = "openai"
-    openai_key_in = (data.get("openai_key") or "")
-    openai_key = openai_key_in.strip()
-    openai_model = (data.get("openai_model") or DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
-    anthropic_key_in = (data.get("anthropic_key") or "")
-    anthropic_key = anthropic_key_in.strip()
-    anthropic_model = (data.get("anthropic_model") or DEFAULT_CLAUDE_MODEL).strip() or DEFAULT_CLAUDE_MODEL
+
+    openai_key = (data.get("openai_key") or "").strip()
+    openai_model = (data.get("openai_model") or "").strip()
+    claude_key = (data.get("claude_key") or "").strip()
+    claude_model = (data.get("claude_model") or "").strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -3159,14 +3054,18 @@ def api_set_user_settings():
     uname = u.get("username")
     rec = (users.get("users") or {}).get(uname) or u
 
-    rec["settings"] = _ensure_user_settings_shape(rec.get("settings") or {})
+    rec.setdefault("settings", {})
     rec["settings"]["provider"] = provider
-    rec["settings"]["openai_model"] = openai_model
-    rec["settings"]["anthropic_model"] = anthropic_model
+
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
-    if anthropic_key and len(anthropic_key) >= 20:
-        rec["settings"]["anthropic_key"] = anthropic_key
+    if openai_model:
+        rec["settings"]["openai_model"] = openai_model
+
+    if claude_key and len(claude_key) >= 20:
+        rec["settings"]["claude_key"] = claude_key
+    if claude_model:
+        rec["settings"]["claude_model"] = claude_model
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -3179,12 +3078,18 @@ def api_set_user_settings():
     if smtp_from_name != "":
         rec["settings"]["smtp"]["from_name"] = smtp_from_name
 
+    try:
+        if (rec.get("settings") or {}).get("openai_key") or (rec.get("settings") or {}).get("claude_key"):
+            _mark_onboarding_step(uname, "openai_key", True)
+    except Exception:
+        pass
+
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
 
-    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys()), "provider": provider})
-    return jsonify({"ok": True, "provider": provider, "model": (anthropic_model if provider == "claude" else openai_model)})
+    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
+    return jsonify({"ok": True})
 
 
 @app.get("/api/framework")
@@ -4002,14 +3907,14 @@ AUTH_BASE_CSS = r"""
     padding: 26px 14px;
   }
   .card{
-    width: 560px;
+    width: 520px;
     max-width: calc(100vw - 22px);
-    background: linear-gradient(180deg, rgba(14,22,48,.88), rgba(10,16,35,.92));
-    border:1px solid rgba(78,98,167,.72);
-    border-radius: 24px;
-    padding: 18px;
-    box-shadow: 0 28px 90px rgba(0,0,0,.52), 0 0 60px rgba(124,58,237,.12);
-    backdrop-filter: blur(14px);
+    background: rgba(14,22,48,.82);
+    border:1px solid rgba(42,58,106,.9);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
     position: relative;
     overflow: hidden;
   }
@@ -4064,21 +3969,6 @@ AUTH_BASE_CSS = r"""
   a:hover{ text-decoration: underline; }
   .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
   .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
-  .authCard{ padding-top: 20px; }
-  .authAura{
-    position:absolute; inset:-30% -10% auto -10%; height:220px;
-    background: radial-gradient(circle at 50% 50%, rgba(124,58,237,.35), rgba(59,130,246,.16) 42%, transparent 70%);
-    filter: blur(10px); pointer-events:none;
-  }
-  .authHero{ position:relative; margin: 8px 0 14px 0; }
-  .authBadge{
-    display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
-    border:1px solid rgba(247,211,106,.28); background: rgba(255,255,255,.04);
-    color:#f8e7aa; font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase;
-  }
-  .authTitle{ margin:10px 0 8px 0; font-size:30px; line-height:1.05; letter-spacing:-.03em; }
-  .authCopy{ max-width: 460px; font-size:13px; line-height:1.5; }
-  input:focus{ border-color: rgba(124,58,237,.9); box-shadow: 0 0 0 3px rgba(124,58,237,.16), 0 0 24px rgba(59,130,246,.12); }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -4258,14 +4148,9 @@ LOGIN_HTML = r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
-  <div class="card authCard">
-    <div class="authAura"></div>
+  <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="authHero">
-      <div class="authBadge">Round Table Access</div>
-      <h1 class="authTitle">Enter the command center</h1>
-      <div class="muted authCopy">Switch between GPT and Claude, manage teammates, and run the round table from one cleaner control surface.</div>
-    </div>
+    <div class="muted">Login to access your command center.</div>
 
     <form method="post" action="/login">
       <label>Username</label>
@@ -4694,7 +4579,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 56px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 400px;
+      grid-template-columns: 1fr 420px;
       align-items:start;
     }
 
@@ -4708,9 +4593,9 @@ HTML = r"""
 
     .tableWrap{
       position:relative;
-      width:min(820px, calc(100vw - 440px));
-      height:min(820px, calc(100vw - 440px));
-      min-height: min(820px, calc(100vw - 440px));
+      width:min(860px, 92vw);
+      height:min(860px, 92vw);
+      min-height: 860px;
       margin-bottom: 0;
     }
 
@@ -4751,9 +4636,9 @@ HTML = r"""
       position:absolute;
       left:50%; top:50%;
       transform: translate(-50%,-50%);
-      width: min(44%, 500px);
-      min-width: 300px;
-      max-width: 500px;
+      width: 44%;
+      min-width: 340px;
+      max-width: 520px;
       background: rgba(14,22,48,.82);
       border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
@@ -5054,7 +4939,7 @@ HTML = r"""
     .followBox{ height: 92px; }
 
     .underTable{
-      width: min(820px, calc(100vw - 440px));
+      width: min(860px, 92vw);
       margin: 0 auto 42px auto;
       padding: 0 0 18px 0;
     }
@@ -5126,9 +5011,9 @@ HTML = r"""
       left: 50%;
       top: 64px;
       transform: translateX(-50%);
-      width: min(860px, calc(100vw - 32px));
+      width: 860px;
       max-width: calc(100vw - 22px);
-      height: min(680px, calc(100vh - 96px));
+      height: 680px;
       max-height: calc(100vh - 90px);
       background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.9);
@@ -5137,7 +5022,7 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: both;
+      resize: none;
       overflow: hidden;
       min-width: 560px;
       min-height: 420px;
@@ -5229,40 +5114,6 @@ HTML = r"""
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
 
-    .resizeHandle{
-      position:absolute;
-      z-index: 95;
-      user-select:none;
-      touch-action:none;
-      background: transparent;
-    }
-    .resizeHandle::after{
-      content:"";
-      position:absolute;
-      inset:0;
-      opacity:.0;
-    }
-    .resizeHandle.n, .resizeHandle.s{
-      left: 12px; right: 12px; height: 10px;
-      cursor: ns-resize;
-    }
-    .resizeHandle.n{ top: -5px; }
-    .resizeHandle.s{ bottom: -5px; }
-    .resizeHandle.e, .resizeHandle.w{
-      top: 12px; bottom: 12px; width: 10px;
-      cursor: ew-resize;
-    }
-    .resizeHandle.e{ right: -5px; }
-    .resizeHandle.w{ left: -5px; }
-    .resizeHandle.ne, .resizeHandle.sw,
-    .resizeHandle.nw, .resizeHandle.se{
-      width: 16px; height: 16px;
-    }
-    .resizeHandle.ne{ top: -6px; right: -6px; cursor: nesw-resize; }
-    .resizeHandle.nw{ top: -6px; left: -6px; cursor: nwse-resize; }
-    .resizeHandle.se{ right: -6px; bottom: -6px; cursor: nwse-resize; }
-    .resizeHandle.sw{ left: -6px; bottom: -6px; cursor: nesw-resize; }
-
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 
     .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
@@ -5288,63 +5139,10 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
-    @media (max-width: 1500px){
-      .stage{ grid-template-columns: minmax(0, 1fr) 360px; }
-      .tableWrap{
-        width:min(760px, calc(100vw - 396px));
-        height:min(760px, calc(100vw - 396px));
-        min-height:min(760px, calc(100vw - 396px));
-      }
-      .underTable{ width:min(760px, calc(100vw - 396px)); }
-      .operator{ min-width: 280px; width:min(46%, 460px); }
-      .rightmeta{ gap:8px; }
-      .btn{ padding:9px 11px; }
-    }
-
-    @media (max-width: 1280px){
-      .topbar{
-        height:auto;
-        min-height:56px;
-        padding:8px 12px;
-        flex-wrap:wrap;
-        gap:10px;
-      }
-      .rightmeta{ width:100%; justify-content:flex-start; }
-      .stage{ grid-template-columns: 1fr 340px; }
-      .tableWrap{
-        width:min(700px, calc(100vw - 372px));
-        height:min(700px, calc(100vw - 372px));
-        min-height:min(700px, calc(100vw - 372px));
-      }
-      .underTable{ width:min(700px, calc(100vw - 372px)); }
-      .thread{ height: 34vh; }
-    }
-
-    @media (max-width: 1120px){
-      .stage{ grid-template-columns: 1fr; }
-      .side{
-        position:relative;
-        top:0;
-        height:auto;
-        overflow:visible;
-        border-left:0;
-      }
-      .tableWrap{
-        width:min(760px, calc(100vw - 28px));
-        height:min(760px, calc(100vw - 28px));
-        min-height:min(760px, calc(100vw - 28px));
-      }
-      .underTable{ width:min(760px, calc(100vw - 28px)); }
-    }
-
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
-      .tableWrap{
-        width:min(760px, calc(100vw - 28px));
-        height:min(760px, calc(100vw - 28px));
-        min-height:min(760px, calc(100vw - 28px));
-      }
+      .tableWrap{ min-height: 860px; }
       .row2{ grid-template-columns: 1fr; }
       .underTable{ width: min(860px, 92vw); }
       .modalForm .grid{ grid-template-columns: 1fr; }
@@ -5996,27 +5794,106 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   box-shadow: 0 0 10px rgba(59,130,246,.22);
 }
 
-
-.settingsHero{ display:flex; gap:12px; justify-content:space-between; align-items:flex-start; padding:14px; border-radius:18px; border:1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(124,58,237,.14), rgba(59,130,246,.08)); margin-bottom:14px; }
-.settingsHeroKicker{ font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:#f8e7aa; font-weight:800; }
-.settingsHeroTitle{ font-size:20px; font-weight:800; margin-top:4px; }
-.settingsProviderPill{ padding:8px 10px; border-radius:999px; border:1px solid rgba(247,211,106,.28); background: rgba(255,255,255,.04); font-size:12px; white-space:nowrap; }
-.providerCard{ margin-top:12px; padding:14px; border-radius:18px; border:1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,.02); }
-.providerHead{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:6px; }
-.providerTitle{ font-weight:800; font-size:14px; }
-#providerSelect{ width:100%; }
-#activeModelDisplay{ opacity:.9; }
-
-/* === Cosmic UI refresh (additive) === */
-.topbar, .card, .sideCard, .modalWin{ backdrop-filter: blur(14px); }
-.topbar{ background: linear-gradient(180deg, rgba(10,16,34,.86), rgba(8,12,26,.92)) !important; border:1px solid rgba(89,103,176,.34) !important; box-shadow: 0 18px 50px rgba(0,0,0,.35), 0 0 26px rgba(124,58,237,.08) !important; }
-.card, .sideCard{ box-shadow: 0 20px 50px rgba(0,0,0,.26), 0 0 24px rgba(59,130,246,.05) !important; }
-.seat{ background: linear-gradient(180deg, rgba(18,26,54,.88), rgba(10,14,31,.94)) !important; border-color: rgba(104,123,208,.28) !important; }
-.btn{ transition: transform .14s ease, box-shadow .18s ease, border-color .18s ease; }
-.btn:hover{ transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgba(247,211,106,.28), 0 0 22px rgba(124,58,237,.10); }
-.modalWin{ border-color: rgba(89,103,176,.34) !important; background: linear-gradient(180deg, rgba(13,20,43,.94), rgba(8,12,26,.97)) !important; }
-
 </style>
+
+<style id="claudeAndMobileFixPatch">
+@media (max-width: 720px){
+  html, body{
+    width:100%;
+    max-width:100%;
+    overflow-x:hidden !important;
+  }
+  *, *::before, *::after{
+    box-sizing:border-box;
+  }
+  .stage{
+    grid-template-columns: 1fr !important;
+    width:100% !important;
+    max-width:100% !important;
+  }
+  .arena,
+  .side,
+  .underTable,
+  .groupCard,
+  .sideCard,
+  .tableWrap,
+  .operator,
+  .topbar,
+  .mobileBar,
+  .mobileDrawer,
+  .passRow,
+  .pillRow{
+    width:100% !important;
+    max-width:100% !important;
+  }
+  .arena,
+  .side{
+    min-width:0 !important;
+    padding-left:12px !important;
+    padding-right:12px !important;
+    margin-left:auto !important;
+    margin-right:auto !important;
+  }
+  .side{
+    border-left:0 !important;
+    overflow:visible !important;
+  }
+  .sideCard,
+  .groupCard,
+  .operator{
+    overflow:hidden !important;
+  }
+  .sideHead,
+  .opHead{
+    display:flex !important;
+    flex-wrap:wrap !important;
+    align-items:flex-start !important;
+    justify-content:space-between !important;
+    gap:10px !important;
+  }
+  .sideTitle,
+  .opTitle{
+    min-width:0 !important;
+    flex:1 1 220px !important;
+  }
+  .sideTitle .h1,
+  .opTitle .t1{
+    white-space:normal !important;
+    word-break:break-word !important;
+  }
+  .sideTitle .h2,
+  .opTitle .t2{
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:unset !important;
+  }
+  #refreshThread{
+    flex:0 0 auto !important;
+    margin-left:auto !important;
+    align-self:flex-start !important;
+  }
+  .passRow,
+  .pillRow{
+    flex-wrap:wrap !important;
+  }
+  .btn,
+  .btnMini,
+  .btnTiny{
+    max-width:100% !important;
+  }
+  .thread,
+  .followBox,
+  .field,
+  textarea,
+  input,
+  select{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+  }
+}
+</style>
+
 </head>
 <body>
   <div class="topbar">
@@ -6305,53 +6182,26 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               <div class="modalForm" id="settingsForm">
                 <div class="tiny" style="margin-bottom:10px;">
-                  Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
+                  Personal settings for this account. Choose your AI provider here. OpenAI image generation stays unchanged, and text replies can use either OpenAI or Claude.
                 </div>
 
-                <div class="settingsHero">
-                  <div>
-                    <div class="settingsHeroKicker">AI Engine</div>
-                    <div class="settingsHeroTitle">Pick your provider and model</div>
-                    <div class="tiny" style="margin-top:6px;">GPT handles OpenAI chat and images. Claude handles text chat. You can save both keys and switch any time.</div>
-                  </div>
-                  <div class="settingsProviderPill" id="settingsProviderPill">Provider: GPT</div>
-                </div>
+                <label>AI Provider</label>
+                <select id="aiProvider">
+                  <option value="openai">ChatGPT / OpenAI</option>
+                  <option value="claude">Claude / Anthropic</option>
+                </select>
 
-                <div class="grid">
-                  <div>
-                    <label>Active Provider</label>
-                    <select id="providerSelect">
-                      <option value="openai">GPT / OpenAI</option>
-                      <option value="claude">Claude / Anthropic</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label>Active Model</label>
-                    <input id="activeModelDisplay" type="text" placeholder="Model" readonly />
-                  </div>
-                </div>
+                <label>OpenAI API Key</label>
+                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
 
-                <div class="providerCard providerOpenAI">
-                  <div class="providerHead">
-                    <div class="providerTitle">GPT / OpenAI</div>
-                    <div class="tiny" id="openaiKeyState">No key saved</div>
-                  </div>
-                  <label>OpenAI API Key</label>
-                  <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
-                  <label>OpenAI Model</label>
-                  <input id="openaiModel" type="text" placeholder="gpt-5.2" autocomplete="off" spellcheck="false" />
-                </div>
+                <label>OpenAI Model</label>
+                <input id="openaiModel" type="text" placeholder="gpt-5.2" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
 
-                <div class="providerCard providerClaude">
-                  <div class="providerHead">
-                    <div class="providerTitle">Claude / Anthropic</div>
-                    <div class="tiny" id="anthropicKeyState">No key saved</div>
-                  </div>
-                  <label>Claude API Key</label>
-                  <input id="anthropicKey" type="text" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" data-lpignore="true" data-1p-ignore="true" />
-                  <label>Claude Model</label>
-                  <input id="anthropicModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" spellcheck="false" />
-                </div>
+                <label>Claude API Key</label>
+                <input id="claudeKey" type="text" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
+
+                <label>Claude Model</label>
+                <input id="claudeModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -7066,18 +6916,6 @@ if (typeof window.showToast !== "function") {
 
     const $ = (id) => document.getElementById(id);
 
-    const VOICE_NAME_ALIASES = {
-      "atlas": "Atlis",
-      "atlis": "Atlis"
-    };
-
-    function normalizeVoiceSeatName(raw){
-      const s = String(raw || "").trim().toLowerCase();
-      return VOICE_NAME_ALIASES[s] || "";
-    }
-
-    window.VOICE_NAME_ALIASES = VOICE_NAME_ALIASES;
-
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -7139,14 +6977,11 @@ if (typeof window.showToast !== "function") {
       if(!win) return;
       const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
       const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
-      const maxW = Math.max(620, (window.innerWidth || 1200) - 24);
-      const maxH = Math.max(520, (window.innerHeight || 800) - 120);
-      const w = Math.min(Math.max(curW, minW || 0), maxW);
-      const h = Math.min(Math.max(curH, minH || 0), maxH);
+      const w = Math.max(curW, minW || 0);
+      const h = Math.max(curH, minH || 0);
       win.style.width = w + "px";
       win.style.height = h + "px";
-      win.style.resize = "none";
-      try{ saveModalSize(w, h); }catch(e){}
+      try{ saveModalSize({width:w, height:h}); }catch(e){}
     }
 
 function applyModalPos(){
@@ -7164,8 +6999,6 @@ function applyModalPos(){
         const h = Math.min(Math.max(560, savedSize.height), maxH);
         win.style.width = w + "px";
         win.style.height = h + "px";
-        win.style.resize = "none";
-        win.style.resize = "none";
       } else {
         // Sensible defaults (no manual resizing needed)
         const w = Math.min(860, Math.max(760, (window.innerWidth || 1200) - 24));
@@ -7233,49 +7066,6 @@ function applyModalPos(){
       const im = $("lightboxImg");
       if(im) im.src = "";
       if(lb) lb.style.display = "none";
-    }
-
-
-    function fillImageRevisionPrompt(message, options){
-      const opts = options || {};
-      const el = $(opts.targetId || 'followMsg');
-      if(!el) return;
-      const text = (message || '').trim();
-      el.value = text;
-      try{ el.focus(); }catch(e){}
-      try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
-      if(opts.selectSeat && selectedSeat !== 'Operator' && selectedSeat){
-        try{ forceSeatSelectUI(selectedSeat); }catch(e){}
-      }
-    }
-
-    async function setSeatCurrentImageByUrl(url){
-      const seat = selectedSeat || '';
-      if(!seat || seat === 'Operator') throw new Error('Choose a teammate first.');
-      const imgs = await fetch('/api/images').then(r=>r.json());
-      const match = (imgs.images || []).find(x => x.url === url);
-      if(!match || !match.id) throw new Error('Could not find this image in the library');
-      const r = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({file_id: match.id, approve: true})
-      });
-      const d = await r.json();
-      if(!d.ok) throw new Error(d.error || 'Could not set current image');
-      lastImageState = d.image_state || lastImageState || {};
-      return d;
-    }
-
-    async function optimizeImageFromUrl(url){
-      try{
-        if(!url) throw new Error('Missing image URL');
-        await setSeatCurrentImageByUrl(url);
-        fillImageRevisionPrompt('Optimize the current graphic. Keep the same overall image, subject, and composition. Improve clarity, realism, lighting, detail, depth, text sharpness, and overall polish without changing the core design unless I ask.', {selectSeat:true});
-        try{ await refreshThread(); }catch(e){}
-        showToast('Current graphic loaded for optimization');
-      }catch(e){
-        showModal('Image optimization setup failed', String(e && e.message ? e.message : e));
-      }
     }
 
 function showModal(title, body, imgUrl){
@@ -7483,129 +7273,9 @@ function showModal(title, body, imgUrl){
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
 
-    function addResizeHandles(el){
-      if(!el || el.__resizeHandlesReady) return;
-      el.__resizeHandlesReady = true;
-      const dirs = ["n","s","e","w","ne","nw","se","sw"];
-      dirs.forEach(dir=>{
-        const h = document.createElement("div");
-        h.className = "resizeHandle " + dir;
-        h.dataset.dir = dir;
-        el.appendChild(h);
-      });
-    }
-
-    function initResizableWindow(el, opts){
-      if(!el || el.__resizableWindowReady) return;
-      el.__resizableWindowReady = true;
-      const cfg = Object.assign({
-        minWidth: 320,
-        minHeight: 220,
-        margin: 8,
-        onResize: null,
-        allowResize: null
-      }, opts || {});
-
-      addResizeHandles(el);
-
-      let activeDir = "";
-      let startX = 0, startY = 0;
-      let startLeft = 0, startTop = 0, startWidth = 0, startHeight = 0;
-
-      function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-
-      function isAllowed(){
-        try{
-          if(typeof cfg.allowResize === "function") return !!cfg.allowResize();
-        }catch(e){}
-        return true;
-      }
-
-      el.querySelectorAll(".resizeHandle").forEach(handle=>{
-        handle.addEventListener("pointerdown", (e)=>{
-          if(!isAllowed()) return;
-          e.preventDefault();
-          e.stopPropagation();
-          activeDir = handle.dataset.dir || "";
-          const r = el.getBoundingClientRect();
-          startX = e.clientX;
-          startY = e.clientY;
-          startLeft = r.left;
-          startTop = r.top;
-          startWidth = r.width;
-          startHeight = r.height;
-          try{ handle.setPointerCapture(e.pointerId); }catch(_){}
-        }, {passive:false});
-
-        handle.addEventListener("pointermove", (e)=>{
-          if(!activeDir) return;
-          e.preventDefault();
-          const dx = e.clientX - startX;
-          const dy = e.clientY - startY;
-          let left = startLeft;
-          let top = startTop;
-          let width = startWidth;
-          let height = startHeight;
-
-          if(activeDir.includes("e")) width = startWidth + dx;
-          if(activeDir.includes("s")) height = startHeight + dy;
-          if(activeDir.includes("w")){
-            width = startWidth - dx;
-            left = startLeft + dx;
-          }
-          if(activeDir.includes("n")){
-            height = startHeight - dy;
-            top = startTop + dy;
-          }
-
-          const maxWidth = Math.max(cfg.minWidth, window.innerWidth - cfg.margin * 2);
-          const maxHeight = Math.max(cfg.minHeight, window.innerHeight - cfg.margin * 2);
-
-          width = clamp(width, cfg.minWidth, maxWidth);
-          height = clamp(height, cfg.minHeight, maxHeight);
-          left = clamp(left, cfg.margin, Math.max(cfg.margin, window.innerWidth - width - cfg.margin));
-          top = clamp(top, cfg.margin, Math.max(cfg.margin, window.innerHeight - height - cfg.margin));
-
-          if(activeDir.includes("w")) left = clamp(startLeft + (startWidth - width), cfg.margin, Math.max(cfg.margin, window.innerWidth - width - cfg.margin));
-          if(activeDir.includes("n")) top = clamp(startTop + (startHeight - height), cfg.margin, Math.max(cfg.margin, window.innerHeight - height - cfg.margin));
-
-          el.style.left = left + "px";
-          el.style.top = top + "px";
-          el.style.width = width + "px";
-          el.style.height = height + "px";
-          el.style.maxWidth = "calc(100vw - " + (cfg.margin * 2) + "px)";
-          el.style.maxHeight = "calc(100vh - " + (cfg.margin * 2) + "px)";
-          el.style.transform = "none";
-          if(typeof cfg.onResize === "function"){
-            try{ cfg.onResize({left, top, width, height}); }catch(_){}
-          }
-        }, {passive:false});
-
-        function endResize(e){
-          if(!activeDir) return;
-          activeDir = "";
-          try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
-        }
-        handle.addEventListener("pointerup", endResize);
-        handle.addEventListener("pointercancel", endResize);
-      });
-    }
-
     (function initModalResizePersist(){
       const win = $("modalWin");
       if(!win) return;
-
-      initResizableWindow(win, {
-        minWidth: 560,
-        minHeight: 420,
-        margin: 8,
-        allowResize: ()=> window.innerWidth > 640 && !modalMinimized,
-        onResize: ({left, top, width, height})=>{
-          try{ saveModalPos(left, top); }catch(e){}
-          try{ saveModalSize(width, height); }catch(e){}
-        }
-      });
-
       try{
         const ro = new ResizeObserver((entries)=>{
           for(const ent of entries){
@@ -7617,16 +7287,6 @@ function showModal(title, body, imgUrl){
         });
         ro.observe(win);
       }catch(e){}
-    })();
-
-    (function initOnboardingResize(){
-      const panel = $("onboardingPanel");
-      if(!panel) return;
-      initResizableWindow(panel, {
-        minWidth: 260,
-        minHeight: 220,
-        margin: 8
-      });
     })();
 
     function setOpStatus(text){
@@ -8605,17 +8265,11 @@ function makeSeat(defn, idx){
           const varyBtn = document.createElement("button");
           varyBtn.className = "btn btnMini";
           varyBtn.innerText = "Make variation";
-          varyBtn.onclick = ()=> fillImageRevisionPrompt('Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.', {selectSeat:true});
-
-          const optimizeBtn = document.createElement("button");
-          optimizeBtn.className = "btn btnMini";
-          optimizeBtn.innerText = "Optimize current";
-          optimizeBtn.onclick = ()=> optimizeImageFromUrl(currentUrl);
+          varyBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.'; el.focus(); } };
 
           row.appendChild(openBtn);
           row.appendChild(keepBtn);
           row.appendChild(varyBtn);
-          row.appendChild(optimizeBtn);
           body.appendChild(row);
         }
         stateCard.appendChild(who);
@@ -8694,23 +8348,11 @@ function makeSeat(defn, idx){
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
           editBtn.innerText = "Edit this";
-          editBtn.onclick = async ()=>{
-            try{
-              await setSeatCurrentImageByUrl(url);
-              fillImageRevisionPrompt('Edit the current graphic. Keep the same overall image, but ', {selectSeat:true});
-              try{ await refreshThread(); }catch(e){}
-            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
-          };
-
-          const optimizeBtn = document.createElement("button");
-          optimizeBtn.className = "btn btnMini";
-          optimizeBtn.innerText = "Optimize";
-          optimizeBtn.onclick = ()=> optimizeImageFromUrl(url);
+          editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
 
           actions.appendChild(openBtn);
           actions.appendChild(useBtn);
           actions.appendChild(editBtn);
-          actions.appendChild(optimizeBtn);
           content.appendChild(actions);
         }else{
           content.innerText = raw;
@@ -9384,9 +9026,8 @@ function makeSeat(defn, idx){
           if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            const spokenHit = hit.spoken || hit.name;
-            const cleanedFinal = removeNameOnce(removeNameOnce(allFinal, spokenHit), hit.name);
-            const cleanedInterim = removeNameOnce(removeNameOnce(interimRaw, spokenHit), hit.name);
+            const cleanedFinal = removeNameOnce(allFinal, hit.name);
+            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
 
             const targetBefore = currentAlwaysTarget();
             if(targetBefore){
@@ -10080,24 +9721,21 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         const s = data.settings || {};
+        $("aiProvider").value = (s.provider || "openai");
         const hint = s.openai_key_hint || "";
-        const aHint = s.anthropic_key_hint || "";
-        $("providerSelect").value = s.provider || "openai";
         $("openaiKey").value = "";
         $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
         $("openaiModel").value = s.openai_model || "";
-        $("anthropicKey").value = "";
-        $("anthropicKey").placeholder = aHint ? ("Saved (" + aHint + ") paste new to replace") : "sk-ant-...";
-        $("anthropicModel").value = s.anthropic_model || "";
-        if($("openaiKeyState")) $("openaiKeyState").innerText = s.has_openai_key ? ("Saved " + (hint || "key")) : "No key saved";
-        if($("anthropicKeyState")) $("anthropicKeyState").innerText = s.has_anthropic_key ? ("Saved " + (aHint || "key")) : "No key saved";
+        const cHint = s.claude_key_hint || "";
+        $("claudeKey").value = "";
+        $("claudeKey").placeholder = cHint ? ("Saved (" + cHint + ") paste new to replace") : "sk-ant-...";
+        $("claudeModel").value = s.claude_model || "";
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
-        if(typeof syncProviderUi === "function") syncProviderUi();
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
@@ -10119,23 +9757,9 @@ Challenge weak assumptions. Surface risks.`;
       loadSettings();
       try{ settingsLoadSmsSettings(); }catch(e){}
       if(auto){
-        $("modalTitle").innerText = "Settings: choose your AI engine + connect your tools";
-      } else {
-        $("modalTitle").innerText = "Settings";
+        // slight UI nudge so first-time users know what to do
+        $("modalTitle").innerText = "Settings: connect your key + email";
       }
-    }
-
-    function syncProviderUi(){
-      const provider = (($("providerSelect") && $("providerSelect").value) || "openai");
-      const isClaude = provider === "claude";
-      if($("settingsProviderPill")) $("settingsProviderPill").innerText = isClaude ? "Provider: Claude" : "Provider: GPT";
-      if($("activeModelDisplay")) $("activeModelDisplay").value = isClaude ? (($("anthropicModel").value || "").trim()) : (($("openaiModel").value || "").trim());
-      const oc = document.querySelector('.providerOpenAI');
-      const cc = document.querySelector('.providerClaude');
-      if(oc) oc.style.borderColor = isClaude ? 'rgba(255,255,255,.08)' : 'rgba(247,211,106,.34)';
-      if(cc) cc.style.borderColor = isClaude ? 'rgba(247,211,106,.34)' : 'rgba(255,255,255,.08)';
-      if(oc) oc.style.boxShadow = isClaude ? 'inset 0 0 0 1px rgba(255,255,255,.02)' : '0 0 28px rgba(124,58,237,.10), inset 0 0 0 1px rgba(247,211,106,.10)';
-      if(cc) cc.style.boxShadow = isClaude ? '0 0 28px rgba(59,130,246,.10), inset 0 0 0 1px rgba(247,211,106,.10)' : 'inset 0 0 0 1px rgba(255,255,255,.02)';
     }
 
     
@@ -11160,21 +10784,8 @@ async function showImageLibraryModal(){
         }catch(e){ showModal('Could not use image', String(e && e.message ? e.message : e)); }
       };
 
-      const optimizeBtn = document.createElement("button");
-      optimizeBtn.className = "btn btnMini";
-      optimizeBtn.innerText = "Optimize";
-      optimizeBtn.onclick = async ()=>{
-        try{
-          await setSeatCurrentImageByUrl(r.url);
-          fillImageRevisionPrompt('Optimize the current graphic. Keep the same overall image, subject, and composition. Improve clarity, realism, lighting, detail, depth, text sharpness, and overall polish without changing the core design unless I ask.', {selectSeat:true});
-          await refreshThread();
-          showToast('Current graphic loaded for optimization');
-        }catch(e){ showModal('Could not prepare image optimization', String(e && e.message ? e.message : e)); }
-      };
-
       actions.appendChild(openBtn);
       actions.appendChild(useBtn);
-      actions.appendChild(optimizeBtn);
 
       card.appendChild(im);
       card.appendChild(meta);
@@ -11195,9 +10806,6 @@ if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id
 
 if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
 if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
-if($("providerSelect")) $("providerSelect").onchange = ()=> syncProviderUi();
-if($("openaiModel")) $("openaiModel").oninput = ()=> syncProviderUi();
-if($("anthropicModel")) $("anthropicModel").oninput = ()=> syncProviderUi();
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
@@ -11231,13 +10839,12 @@ $("settingsBtn").onclick = () => showSettingsModal();
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
-      const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
-        provider: ($("providerSelect").value || "openai"),
-        openai_key: keyVal,
+        provider: ($("aiProvider").value || "openai").trim(),
+        openai_key: ($("openaiKey").value || "").trim(),
         openai_model: ($("openaiModel").value || "").trim(),
-        anthropic_key: ($("anthropicKey").value || "").trim(),
-        anthropic_model: ($("anthropicModel").value || "").trim(),
+        claude_key: ($("claudeKey").value || "").trim(),
+        claude_model: ($("claudeModel").value || "").trim(),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -11258,8 +10865,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
           return;
         }
         $("settingsStatus").innerText = "Saved";
-        try{ if(typeof syncProviderUi === "function") syncProviderUi(); }catch(e){}
-        try{ const mt = $("modelTag"); if(mt) mt.innerText = `Model: ${data.model || (($("activeModelDisplay") && $("activeModelDisplay").value) || "")}`; }catch(e){}
           try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
@@ -14129,34 +13734,29 @@ ADD_UI_POLISH_V8 = r'''
   }
 
   function trySelectByNameSpoken(transcript){
+    // If user says a teammate name, switch seats
     const s = (transcript || "").toLowerCase().trim();
     if(!s) return false;
 
+    // Collect known seat names
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    const candidates = [];
-    seats.forEach(name => {
-      const n = String(name || '').trim();
-      if(!n) return;
-      candidates.push({canonical: n, spoken: n});
-    });
-    Object.entries((window.VOICE_NAME_ALIASES || VOICE_NAME_ALIASES || {})).forEach(([spoken, canonical])=>{
-      if(canonical && seats.includes(canonical)) candidates.push({canonical, spoken});
-    });
-
-    for(const item of candidates){
-      const spoken = String(item.spoken || '').toLowerCase().trim();
-      if(!spoken) continue;
-      if(s === spoken || s.includes(" " + spoken + " ") || s.startsWith(spoken + " ") || s.endsWith(" " + spoken) || s.includes(spoken)){
+    // Basic match: if transcript contains the seat name as a whole word-ish
+    for(const name of seats){
+      const n = (name || "").toLowerCase();
+      if(!n) continue;
+      // Allow "hey alex" or "alex"
+      if(s === n || s.includes(" " + n + " ") || s.startsWith(n + " ") || s.endsWith(" " + n) || s.includes(n)){
+        // Switch seat + force glow pulse if available
         try{
           if(typeof window.selectSeat === "function"){
-            window.selectSeat(item.canonical);
+            window.selectSeat(name);
           }else if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(item.canonical);
+            window.forceSeatSelectUI(name);
           }
           if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(item.canonical);
+            window.forceSeatSelectUI(name);
           }
         }catch(_){}
         return true;
