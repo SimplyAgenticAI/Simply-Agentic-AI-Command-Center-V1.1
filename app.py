@@ -16,31 +16,7 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
-
-# --- Claude / Anthropic Support (Additive, does not break OpenAI path) ---
-AI_PROVIDER = os.getenv("AI_PROVIDER", "openai")  # openai or claude
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
-
-try:
-    import anthropic
-except Exception:
-    anthropic = None
-
-def call_claude(prompt: str):
-    if anthropic is None:
-        raise RuntimeError("anthropic package not installed. Run: pip install anthropic")
-    if not CLAUDE_API_KEY:
-        raise RuntimeError("CLAUDE_API_KEY is not configured")
-
-    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-    response = client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text
-
+from urllib.parse import urlencode
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
@@ -62,7 +38,9 @@ except Exception:
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
-MODEL = os.getenv("MODEL", "gpt-5.2")
+DEFAULT_OPENAI_MODEL = os.getenv("MODEL", "gpt-5.2")
+DEFAULT_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+MODEL = DEFAULT_OPENAI_MODEL
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
 
@@ -419,7 +397,11 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "settings": {
+            "provider": "openai",
             "openai_key": "",
+            "openai_model": DEFAULT_OPENAI_MODEL,
+            "anthropic_key": "",
+            "anthropic_model": DEFAULT_CLAUDE_MODEL,
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -430,6 +412,154 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         },
         "reset": {"token_hash": "", "created_at": None}
     }
+
+def _ensure_user_settings_shape(settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    s = settings if isinstance(settings, dict) else {}
+    s.setdefault("provider", "openai")
+    s.setdefault("openai_key", "")
+    s.setdefault("openai_model", DEFAULT_OPENAI_MODEL)
+    s.setdefault("anthropic_key", "")
+    s.setdefault("anthropic_model", DEFAULT_CLAUDE_MODEL)
+    s.setdefault("smtp", {})
+    smtp = s.get("smtp") or {}
+    if not isinstance(smtp, dict):
+        smtp = {}
+    smtp.setdefault("host", "")
+    smtp.setdefault("port", 587)
+    smtp.setdefault("user", "")
+    smtp.setdefault("pass", "")
+    smtp.setdefault("from_name", "")
+    s["smtp"] = smtp
+    return s
+
+def _mask_api_key_hint(key: str) -> str:
+    key = (key or "").strip()
+    if not key:
+        return ""
+    return "••••" + key[-4:] if len(key) >= 4 else "••••"
+
+def _provider_label(provider: str) -> str:
+    return "Claude" if (provider or "").strip().lower() == "claude" else "GPT"
+
+def _provider_bundle_from_settings(settings: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    s = _ensure_user_settings_shape(settings)
+    provider = (s.get("provider") or "openai").strip().lower()
+    if provider not in ("openai", "claude"):
+        provider = "openai"
+    openai_key = (s.get("openai_key") or "").strip()
+    openai_model = (s.get("openai_model") or DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
+    anthropic_key = (s.get("anthropic_key") or "").strip()
+    anthropic_model = (s.get("anthropic_model") or DEFAULT_CLAUDE_MODEL).strip() or DEFAULT_CLAUDE_MODEL
+    if provider == "claude":
+        key = anthropic_key
+        model = anthropic_model
+    else:
+        key = openai_key
+        model = openai_model
+    return {
+        "provider": provider,
+        "provider_label": _provider_label(provider),
+        "key": key,
+        "model": model,
+        "openai_key": openai_key,
+        "openai_model": openai_model,
+        "anthropic_key": anthropic_key,
+        "anthropic_model": anthropic_model,
+    }
+
+def _provider_bundle_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    settings = ((u or {}).get("settings") or {}) if isinstance(u, dict) else {}
+    return _provider_bundle_from_settings(settings)
+
+def _text_only_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    safe_msgs: List[Dict[str, str]] = []
+    for m in messages or []:
+        c = m.get("content", "")
+        if isinstance(c, list):
+            texts = []
+            for part in c:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    txt = (part.get("text") or "").strip()
+                    if txt:
+                        texts.append(txt)
+                elif isinstance(part, dict) and part.get("type") == "image_url":
+                    texts.append("[Image attached]")
+            c2 = "\n".join([t for t in texts if t]).strip()
+            safe_msgs.append({"role": m.get("role", "user"), "content": c2})
+        else:
+            safe_msgs.append({"role": m.get("role", "user"), "content": str(c or "")})
+    return safe_msgs
+
+def _messages_to_claude(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for m in messages or []:
+        role = "assistant" if (m.get("role") == "assistant") else "user"
+        content = m.get("content", "")
+        parts: List[Dict[str, Any]] = []
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                ptype = part.get("type")
+                if ptype == "text":
+                    txt = str(part.get("text") or "")
+                    if txt:
+                        parts.append({"type": "text", "text": txt})
+                elif ptype == "image_url":
+                    url = (((part.get("image_url") or {}).get("url")) or "").strip()
+                    if url.startswith("data:") and ";base64," in url:
+                        header, b64 = url.split(",", 1)
+                        media_type = header.split(";")[0].split(":", 1)[1]
+                        parts.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": media_type, "data": b64}
+                        })
+                    else:
+                        parts.append({"type": "text", "text": "[Image attached]"})
+        else:
+            parts.append({"type": "text", "text": str(content or "")})
+        if not parts:
+            parts = [{"type": "text", "text": ""}]
+        if out and out[-1].get("role") == role:
+            prev = out[-1].get("content") or []
+            if isinstance(prev, list):
+                prev.extend(parts)
+                out[-1]["content"] = prev
+            else:
+                out.append({"role": role, "content": parts})
+        else:
+            out.append({"role": role, "content": parts})
+    return out
+
+def _call_claude(system: str, messages: List[Dict[str, Any]], api_key: str, model: str, temperature: float = 0.6) -> str:
+    if not api_key:
+        raise RuntimeError("No Claude API key found. Add your Claude key in Settings.")
+    try:
+        import requests
+    except Exception as e:
+        raise RuntimeError(f"Claude support requires requests: {e}")
+    payload = {
+        "model": model or DEFAULT_CLAUDE_MODEL,
+        "system": system or "",
+        "messages": _messages_to_claude(messages),
+        "max_tokens": 4096,
+        "temperature": max(0.0, min(1.0, float(temperature or 0.6))),
+    }
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload, timeout=90)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise RuntimeError(str(data or r.text or "Claude request failed"))
+    content = data.get("content") or []
+    chunks = []
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "text":
+            chunks.append(part.get("text") or "")
+    return "".join(chunks).strip()
 
 def current_user() -> Optional[Dict[str, Any]]:
     uname = session.get("user")
@@ -498,9 +628,10 @@ def _auth_guard():
 
     # attach per-user OpenAI client for this request
     u = current_user()
-    user_key = ""
-    if u:
-        user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
+    provider_bundle = _provider_bundle_for_user(u)
+    user_key = (provider_bundle.get("openai_key") or "").strip()
+    g.ai_provider = provider_bundle.get("provider") or "openai"
+    g.ai_model = provider_bundle.get("model") or MODEL
     g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
 
     return None
@@ -2385,47 +2516,55 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     Returns (http_status, user_message)
     """
     s = (str(e) or "").lower()
-    if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
-    if "model" in s and ("not found" in s or "does not exist" in s):
-        return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
+    provider = getattr(g, "ai_provider", "openai") if hasattr(g, "ai_provider") else "openai"
+    provider_label = _provider_label(provider)
+    if provider == "claude":
+        if "api key" in s or "authentication" in s or "invalid x-api-key" in s or ("401" in s and "key" in s):
+            return 401, "Invalid Claude API key. Open Settings and paste a valid Claude key."
+        if "model" in s and ("not found" in s or "does not exist" in s or "invalid_request_error" in s):
+            return 400, "Claude model error. Open Settings and choose a valid Claude model."
+    else:
+        if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
+            return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+        if "model" in s and ("not found" in s or "does not exist" in s):
+            return 400, f"Model error. Your OpenAI model may be invalid. Current model='{getattr(g, 'ai_model', MODEL)}'."
     if "rate limit" in s or "429" in s:
-        return 429, "Rate limit hit. Try again in a moment."
-    return 500, "AI request failed. Check server logs for details."
+        return 429, f"{provider_label} rate limit hit. Try again in a moment."
+    return 500, f"{provider_label} request failed. Check the selected provider, model, and API key in Settings."
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
+    u = current_user()
+    bundle = _provider_bundle_for_user(u)
+    provider = bundle.get("provider") or "openai"
+    model = bundle.get("model") or MODEL
+    if provider == "claude":
+        try:
+            return _call_claude(system, messages, api_key=bundle.get("key") or "", model=model, temperature=temperature)
+        except Exception as e:
+            safe_msgs = _text_only_messages(messages)
+            try:
+                out = _call_claude(system, safe_msgs, api_key=bundle.get("key") or "", model=model, temperature=temperature)
+                return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+            except Exception as e2:
+                raise e2
     try:
         resp = get_openai_client().chat.completions.create(
-            model=MODEL,
+            model=model,
             messages=[{"role": "system", "content": system}] + messages,
-            temperature=temperature,
-                    timeout=60,
-        )
-        return (resp.choices[0].message.content or "").strip()
-    except Exception as e:
-        safe_msgs: List[Dict[str, Any]] = []
-        for m in messages:
-            c = m.get("content", "")
-            if isinstance(c, list):
-                texts = []
-                for part in c:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        texts.append(part.get("text", ""))
-                    elif isinstance(part, dict) and part.get("type") == "image_url":
-                        texts.append("[Image attached but model did not accept image input]")
-                c2 = "\n".join([t for t in texts if t]).strip()
-                safe_msgs.append({"role": m.get("role", "user"), "content": c2})
-            else:
-                safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        try:
-            resp2 = get_openai_client().chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "system", "content": system}] + safe_msgs,
             temperature=temperature,
             timeout=60,
         )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        safe_msgs = _text_only_messages(messages)
+        try:
+            resp2 = get_openai_client().chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system}] + safe_msgs,
+                temperature=temperature,
+                timeout=60,
+            )
         except Exception as e2:
-            # bubble up for route handlers to return a clean JSON error
             raise e2
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
@@ -2532,7 +2671,7 @@ def _get_openai_client_for_username(username: str):
     try:
         users = load_users()
         rec = ((users.get("users") or {}).get((username or "").strip().lower()) or {})
-        settings = rec.get("settings") or {}
+        settings = _ensure_user_settings_shape(rec.get("settings") or {})
         key = (settings.get("openai_key") or "").strip()
     except Exception:
         key = ""
@@ -2650,7 +2789,8 @@ def api_state():
     return jsonify({
         "ok": True,
         "app_title": APP_TITLE,
-        "model": MODEL,
+        "model": getattr(g, "ai_model", MODEL),
+        "provider": getattr(g, "ai_provider", "openai"),
         "installed_order": installed_order,
         "active_order": active_order,
         "installed": {k: {
@@ -2953,16 +3093,10 @@ def api_get_user_settings():
         u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    settings = (u.get("settings") or {})
+    settings = _ensure_user_settings_shape(u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
+    bundle = _provider_bundle_from_settings(settings)
 
-    key = (settings.get("openai_key") or "").strip()
-    key_hint = ""
-    if key:
-        # show only last 4 chars to confirm something is saved, never return the key
-        key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
-
-    # do not leak password
     safe_smtp = {
         "host": smtp.get("host", ""),
         "port": smtp.get("port", 587),
@@ -2972,8 +3106,15 @@ def api_get_user_settings():
     return jsonify({
         "ok": True,
         "settings": {
-            "has_openai_key": bool(key),
-            "openai_key_hint": key_hint,
+            "provider": bundle.get("provider") or "openai",
+            "provider_label": bundle.get("provider_label") or "GPT",
+            "model": bundle.get("model") or MODEL,
+            "has_openai_key": bool(bundle.get("openai_key")),
+            "openai_key_hint": _mask_api_key_hint(bundle.get("openai_key") or ""),
+            "openai_model": bundle.get("openai_model") or DEFAULT_OPENAI_MODEL,
+            "has_anthropic_key": bool(bundle.get("anthropic_key")),
+            "anthropic_key_hint": _mask_api_key_hint(bundle.get("anthropic_key") or ""),
+            "anthropic_model": bundle.get("anthropic_model") or DEFAULT_CLAUDE_MODEL,
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -3003,8 +3144,15 @@ def api_set_user_settings():
 
 
     data = request.get_json(force=True) or {}
+    provider = (data.get("provider") or "openai").strip().lower()
+    if provider not in ("openai", "claude"):
+        provider = "openai"
     openai_key_in = (data.get("openai_key") or "")
     openai_key = openai_key_in.strip()
+    openai_model = (data.get("openai_model") or DEFAULT_OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL
+    anthropic_key_in = (data.get("anthropic_key") or "")
+    anthropic_key = anthropic_key_in.strip()
+    anthropic_model = (data.get("anthropic_model") or DEFAULT_CLAUDE_MODEL).strip() or DEFAULT_CLAUDE_MODEL
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -3020,10 +3168,14 @@ def api_set_user_settings():
     uname = u.get("username")
     rec = (users.get("users") or {}).get(uname) or u
 
-    rec.setdefault("settings", {})
+    rec["settings"] = _ensure_user_settings_shape(rec.get("settings") or {})
+    rec["settings"]["provider"] = provider
+    rec["settings"]["openai_model"] = openai_model
+    rec["settings"]["anthropic_model"] = anthropic_model
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
-    # if user leaves it blank, do NOT overwrite the saved key
+    if anthropic_key and len(anthropic_key) >= 20:
+        rec["settings"]["anthropic_key"] = anthropic_key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -3040,8 +3192,8 @@ def api_set_user_settings():
     users["users"][uname] = rec
     save_users(users)
 
-    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
-    return jsonify({"ok": True})
+    append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys()), "provider": provider})
+    return jsonify({"ok": True, "provider": provider, "model": (anthropic_model if provider == "claude" else openai_model)})
 
 
 @app.get("/api/framework")
@@ -3859,14 +4011,14 @@ AUTH_BASE_CSS = r"""
     padding: 26px 14px;
   }
   .card{
-    width: 520px;
+    width: 560px;
     max-width: calc(100vw - 22px);
-    background: rgba(14,22,48,.82);
-    border:1px solid rgba(42,58,106,.9);
-    border-radius: 18px;
-    padding: 16px;
-    box-shadow: 0 0 60px rgba(0,0,0,.45);
-    backdrop-filter: blur(10px);
+    background: linear-gradient(180deg, rgba(14,22,48,.88), rgba(10,16,35,.92));
+    border:1px solid rgba(78,98,167,.72);
+    border-radius: 24px;
+    padding: 18px;
+    box-shadow: 0 28px 90px rgba(0,0,0,.52), 0 0 60px rgba(124,58,237,.12);
+    backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
   }
@@ -3921,6 +4073,21 @@ AUTH_BASE_CSS = r"""
   a:hover{ text-decoration: underline; }
   .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
   .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
+  .authCard{ padding-top: 20px; }
+  .authAura{
+    position:absolute; inset:-30% -10% auto -10%; height:220px;
+    background: radial-gradient(circle at 50% 50%, rgba(124,58,237,.35), rgba(59,130,246,.16) 42%, transparent 70%);
+    filter: blur(10px); pointer-events:none;
+  }
+  .authHero{ position:relative; margin: 8px 0 14px 0; }
+  .authBadge{
+    display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
+    border:1px solid rgba(247,211,106,.28); background: rgba(255,255,255,.04);
+    color:#f8e7aa; font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase;
+  }
+  .authTitle{ margin:10px 0 8px 0; font-size:30px; line-height:1.05; letter-spacing:-.03em; }
+  .authCopy{ max-width: 460px; font-size:13px; line-height:1.5; }
+  input:focus{ border-color: rgba(124,58,237,.9); box-shadow: 0 0 0 3px rgba(124,58,237,.16), 0 0 24px rgba(59,130,246,.12); }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -4100,9 +4267,14 @@ LOGIN_HTML = r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 </head><body>
-  <div class="card">
+  <div class="card authCard">
+    <div class="authAura"></div>
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="muted">Login to access your command center.</div>
+    <div class="authHero">
+      <div class="authBadge">Round Table Access</div>
+      <h1 class="authTitle">Enter the command center</h1>
+      <div class="muted authCopy">Switch between GPT and Claude, manage teammates, and run the round table from one cleaner control surface.</div>
+    </div>
 
     <form method="post" action="/login">
       <label>Username</label>
@@ -5746,6 +5918,26 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   box-shadow: 0 0 10px rgba(59,130,246,.22);
 }
 
+
+.settingsHero{ display:flex; gap:12px; justify-content:space-between; align-items:flex-start; padding:14px; border-radius:18px; border:1px solid rgba(255,255,255,.08); background: linear-gradient(135deg, rgba(124,58,237,.14), rgba(59,130,246,.08)); margin-bottom:14px; }
+.settingsHeroKicker{ font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:#f8e7aa; font-weight:800; }
+.settingsHeroTitle{ font-size:20px; font-weight:800; margin-top:4px; }
+.settingsProviderPill{ padding:8px 10px; border-radius:999px; border:1px solid rgba(247,211,106,.28); background: rgba(255,255,255,.04); font-size:12px; white-space:nowrap; }
+.providerCard{ margin-top:12px; padding:14px; border-radius:18px; border:1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); box-shadow: inset 0 0 0 1px rgba(255,255,255,.02); }
+.providerHead{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:6px; }
+.providerTitle{ font-weight:800; font-size:14px; }
+#providerSelect{ width:100%; }
+#activeModelDisplay{ opacity:.9; }
+
+/* === Cosmic UI refresh (additive) === */
+.topbar, .card, .sideCard, .modalWin{ backdrop-filter: blur(14px); }
+.topbar{ background: linear-gradient(180deg, rgba(10,16,34,.86), rgba(8,12,26,.92)) !important; border:1px solid rgba(89,103,176,.34) !important; box-shadow: 0 18px 50px rgba(0,0,0,.35), 0 0 26px rgba(124,58,237,.08) !important; }
+.card, .sideCard{ box-shadow: 0 20px 50px rgba(0,0,0,.26), 0 0 24px rgba(59,130,246,.05) !important; }
+.seat{ background: linear-gradient(180deg, rgba(18,26,54,.88), rgba(10,14,31,.94)) !important; border-color: rgba(104,123,208,.28) !important; }
+.btn{ transition: transform .14s ease, box-shadow .18s ease, border-color .18s ease; }
+.btn:hover{ transform: translateY(-1px); box-shadow: inset 0 0 0 1px rgba(247,211,106,.28), 0 0 22px rgba(124,58,237,.10); }
+.modalWin{ border-color: rgba(89,103,176,.34) !important; background: linear-gradient(180deg, rgba(13,20,43,.94), rgba(8,12,26,.97)) !important; }
+
 </style>
 </head>
 <body>
@@ -6038,8 +6230,50 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
 
-                <label>OpenAI API Key</label>
-                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <div class="settingsHero">
+                  <div>
+                    <div class="settingsHeroKicker">AI Engine</div>
+                    <div class="settingsHeroTitle">Pick your provider and model</div>
+                    <div class="tiny" style="margin-top:6px;">GPT handles OpenAI chat and images. Claude handles text chat. You can save both keys and switch any time.</div>
+                  </div>
+                  <div class="settingsProviderPill" id="settingsProviderPill">Provider: GPT</div>
+                </div>
+
+                <div class="grid">
+                  <div>
+                    <label>Active Provider</label>
+                    <select id="providerSelect">
+                      <option value="openai">GPT / OpenAI</option>
+                      <option value="claude">Claude / Anthropic</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Active Model</label>
+                    <input id="activeModelDisplay" type="text" placeholder="Model" readonly />
+                  </div>
+                </div>
+
+                <div class="providerCard providerOpenAI">
+                  <div class="providerHead">
+                    <div class="providerTitle">GPT / OpenAI</div>
+                    <div class="tiny" id="openaiKeyState">No key saved</div>
+                  </div>
+                  <label>OpenAI API Key</label>
+                  <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                  <label>OpenAI Model</label>
+                  <input id="openaiModel" type="text" placeholder="gpt-5.2" autocomplete="off" spellcheck="false" />
+                </div>
+
+                <div class="providerCard providerClaude">
+                  <div class="providerHead">
+                    <div class="providerTitle">Claude / Anthropic</div>
+                    <div class="tiny" id="anthropicKeyState">No key saved</div>
+                  </div>
+                  <label>Claude API Key</label>
+                  <input id="anthropicKey" type="text" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" data-lpignore="true" data-1p-ignore="true" />
+                  <label>Claude Model</label>
+                  <input id="anthropicModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" spellcheck="false" />
+                </div>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -9559,16 +9793,24 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         const s = data.settings || {};
-        // Never auto-fill the key. Show a hint only.
         const hint = s.openai_key_hint || "";
+        const aHint = s.anthropic_key_hint || "";
+        $("providerSelect").value = s.provider || "openai";
         $("openaiKey").value = "";
         $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
+        $("openaiModel").value = s.openai_model || "";
+        $("anthropicKey").value = "";
+        $("anthropicKey").placeholder = aHint ? ("Saved (" + aHint + ") paste new to replace") : "sk-ant-...";
+        $("anthropicModel").value = s.anthropic_model || "";
+        if($("openaiKeyState")) $("openaiKeyState").innerText = s.has_openai_key ? ("Saved " + (hint || "key")) : "No key saved";
+        if($("anthropicKeyState")) $("anthropicKeyState").innerText = s.has_anthropic_key ? ("Saved " + (aHint || "key")) : "No key saved";
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
+        if(typeof syncProviderUi === "function") syncProviderUi();
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
@@ -9590,9 +9832,23 @@ Challenge weak assumptions. Surface risks.`;
       loadSettings();
       try{ settingsLoadSmsSettings(); }catch(e){}
       if(auto){
-        // slight UI nudge so first-time users know what to do
-        $("modalTitle").innerText = "Settings: connect your key + email";
+        $("modalTitle").innerText = "Settings: choose your AI engine + connect your tools";
+      } else {
+        $("modalTitle").innerText = "Settings";
       }
+    }
+
+    function syncProviderUi(){
+      const provider = (($("providerSelect") && $("providerSelect").value) || "openai");
+      const isClaude = provider === "claude";
+      if($("settingsProviderPill")) $("settingsProviderPill").innerText = isClaude ? "Provider: Claude" : "Provider: GPT";
+      if($("activeModelDisplay")) $("activeModelDisplay").value = isClaude ? (($("anthropicModel").value || "").trim()) : (($("openaiModel").value || "").trim());
+      const oc = document.querySelector('.providerOpenAI');
+      const cc = document.querySelector('.providerClaude');
+      if(oc) oc.style.borderColor = isClaude ? 'rgba(255,255,255,.08)' : 'rgba(247,211,106,.34)';
+      if(cc) cc.style.borderColor = isClaude ? 'rgba(247,211,106,.34)' : 'rgba(255,255,255,.08)';
+      if(oc) oc.style.boxShadow = isClaude ? 'inset 0 0 0 1px rgba(255,255,255,.02)' : '0 0 28px rgba(124,58,237,.10), inset 0 0 0 1px rgba(247,211,106,.10)';
+      if(cc) cc.style.boxShadow = isClaude ? '0 0 28px rgba(59,130,246,.10), inset 0 0 0 1px rgba(247,211,106,.10)' : 'inset 0 0 0 1px rgba(255,255,255,.02)';
     }
 
     
@@ -10639,6 +10895,9 @@ if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id
 
 if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
 if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
+if($("providerSelect")) $("providerSelect").onchange = ()=> syncProviderUi();
+if($("openaiModel")) $("openaiModel").oninput = ()=> syncProviderUi();
+if($("anthropicModel")) $("anthropicModel").oninput = ()=> syncProviderUi();
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
@@ -10674,7 +10933,11 @@ $("settingsBtn").onclick = () => showSettingsModal();
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
+        provider: ($("providerSelect").value || "openai"),
         openai_key: keyVal,
+        openai_model: ($("openaiModel").value || "").trim(),
+        anthropic_key: ($("anthropicKey").value || "").trim(),
+        anthropic_model: ($("anthropicModel").value || "").trim(),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -10695,6 +10958,8 @@ $("settingsBtn").onclick = () => showSettingsModal();
           return;
         }
         $("settingsStatus").innerText = "Saved";
+        try{ if(typeof syncProviderUi === "function") syncProviderUi(); }catch(e){}
+        try{ const mt = $("modelTag"); if(mt) mt.innerText = `Model: ${data.model || (($("activeModelDisplay") && $("activeModelDisplay").value) || "")}`; }catch(e){}
           try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
