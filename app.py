@@ -5146,7 +5146,7 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: none;
+      resize: both;
       overflow: hidden;
       min-width: 560px;
       min-height: 420px;
@@ -6988,6 +6988,18 @@ if (typeof window.showToast !== "function") {
 
     const $ = (id) => document.getElementById(id);
 
+    const VOICE_NAME_ALIASES = {
+      "atlas": "Atlis",
+      "atlis": "Atlis"
+    };
+
+    function normalizeVoiceSeatName(raw){
+      const s = String(raw || "").trim().toLowerCase();
+      return VOICE_NAME_ALIASES[s] || "";
+    }
+
+    window.VOICE_NAME_ALIASES = VOICE_NAME_ALIASES;
+
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -7049,11 +7061,14 @@ if (typeof window.showToast !== "function") {
       if(!win) return;
       const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
       const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
-      const w = Math.max(curW, minW || 0);
-      const h = Math.max(curH, minH || 0);
+      const maxW = Math.max(620, (window.innerWidth || 1200) - 24);
+      const maxH = Math.max(520, (window.innerHeight || 800) - 120);
+      const w = Math.min(Math.max(curW, minW || 0), maxW);
+      const h = Math.min(Math.max(curH, minH || 0), maxH);
       win.style.width = w + "px";
       win.style.height = h + "px";
-      try{ saveModalSize({width:w, height:h}); }catch(e){}
+      win.style.resize = "both";
+      try{ saveModalSize(w, h); }catch(e){}
     }
 
 function applyModalPos(){
@@ -7071,6 +7086,8 @@ function applyModalPos(){
         const h = Math.min(Math.max(560, savedSize.height), maxH);
         win.style.width = w + "px";
         win.style.height = h + "px";
+        win.style.resize = (window.innerWidth <= 640) ? "none" : "both";
+        win.style.resize = (window.innerWidth <= 640) ? "none" : "both";
       } else {
         // Sensible defaults (no manual resizing needed)
         const w = Math.min(860, Math.max(760, (window.innerWidth || 1200) - 24));
@@ -7138,6 +7155,49 @@ function applyModalPos(){
       const im = $("lightboxImg");
       if(im) im.src = "";
       if(lb) lb.style.display = "none";
+    }
+
+
+    function fillImageRevisionPrompt(message, options){
+      const opts = options || {};
+      const el = $(opts.targetId || 'followMsg');
+      if(!el) return;
+      const text = (message || '').trim();
+      el.value = text;
+      try{ el.focus(); }catch(e){}
+      try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
+      if(opts.selectSeat && selectedSeat !== 'Operator' && selectedSeat){
+        try{ forceSeatSelectUI(selectedSeat); }catch(e){}
+      }
+    }
+
+    async function setSeatCurrentImageByUrl(url){
+      const seat = selectedSeat || '';
+      if(!seat || seat === 'Operator') throw new Error('Choose a teammate first.');
+      const imgs = await fetch('/api/images').then(r=>r.json());
+      const match = (imgs.images || []).find(x => x.url === url);
+      if(!match || !match.id) throw new Error('Could not find this image in the library');
+      const r = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({file_id: match.id, approve: true})
+      });
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error || 'Could not set current image');
+      lastImageState = d.image_state || lastImageState || {};
+      return d;
+    }
+
+    async function optimizeImageFromUrl(url){
+      try{
+        if(!url) throw new Error('Missing image URL');
+        await setSeatCurrentImageByUrl(url);
+        fillImageRevisionPrompt('Optimize the current graphic. Keep the same overall image, subject, and composition. Improve clarity, realism, lighting, detail, depth, text sharpness, and overall polish without changing the core design unless I ask.', {selectSeat:true});
+        try{ await refreshThread(); }catch(e){}
+        showToast('Current graphic loaded for optimization');
+      }catch(e){
+        showModal('Image optimization setup failed', String(e && e.message ? e.message : e));
+      }
     }
 
 function showModal(title, body, imgUrl){
@@ -8337,11 +8397,17 @@ function makeSeat(defn, idx){
           const varyBtn = document.createElement("button");
           varyBtn.className = "btn btnMini";
           varyBtn.innerText = "Make variation";
-          varyBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.'; el.focus(); } };
+          varyBtn.onclick = ()=> fillImageRevisionPrompt('Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.', {selectSeat:true});
+
+          const optimizeBtn = document.createElement("button");
+          optimizeBtn.className = "btn btnMini";
+          optimizeBtn.innerText = "Optimize current";
+          optimizeBtn.onclick = ()=> optimizeImageFromUrl(currentUrl);
 
           row.appendChild(openBtn);
           row.appendChild(keepBtn);
           row.appendChild(varyBtn);
+          row.appendChild(optimizeBtn);
           body.appendChild(row);
         }
         stateCard.appendChild(who);
@@ -8420,11 +8486,23 @@ function makeSeat(defn, idx){
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
           editBtn.innerText = "Edit this";
-          editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
+          editBtn.onclick = async ()=>{
+            try{
+              await setSeatCurrentImageByUrl(url);
+              fillImageRevisionPrompt('Edit the current graphic. Keep the same overall image, but ', {selectSeat:true});
+              try{ await refreshThread(); }catch(e){}
+            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
+          };
+
+          const optimizeBtn = document.createElement("button");
+          optimizeBtn.className = "btn btnMini";
+          optimizeBtn.innerText = "Optimize";
+          optimizeBtn.onclick = ()=> optimizeImageFromUrl(url);
 
           actions.appendChild(openBtn);
           actions.appendChild(useBtn);
           actions.appendChild(editBtn);
+          actions.appendChild(optimizeBtn);
           content.appendChild(actions);
         }else{
           content.innerText = raw;
@@ -9098,8 +9176,9 @@ function makeSeat(defn, idx){
           if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
+            const spokenHit = hit.spoken || hit.name;
+            const cleanedFinal = removeNameOnce(removeNameOnce(allFinal, spokenHit), hit.name);
+            const cleanedInterim = removeNameOnce(removeNameOnce(interimRaw, spokenHit), hit.name);
 
             const targetBefore = currentAlwaysTarget();
             if(targetBefore){
@@ -10873,8 +10952,21 @@ async function showImageLibraryModal(){
         }catch(e){ showModal('Could not use image', String(e && e.message ? e.message : e)); }
       };
 
+      const optimizeBtn = document.createElement("button");
+      optimizeBtn.className = "btn btnMini";
+      optimizeBtn.innerText = "Optimize";
+      optimizeBtn.onclick = async ()=>{
+        try{
+          await setSeatCurrentImageByUrl(r.url);
+          fillImageRevisionPrompt('Optimize the current graphic. Keep the same overall image, subject, and composition. Improve clarity, realism, lighting, detail, depth, text sharpness, and overall polish without changing the core design unless I ask.', {selectSeat:true});
+          await refreshThread();
+          showToast('Current graphic loaded for optimization');
+        }catch(e){ showModal('Could not prepare image optimization', String(e && e.message ? e.message : e)); }
+      };
+
       actions.appendChild(openBtn);
       actions.appendChild(useBtn);
+      actions.appendChild(optimizeBtn);
 
       card.appendChild(im);
       card.appendChild(meta);
@@ -13829,29 +13921,34 @@ ADD_UI_POLISH_V8 = r'''
   }
 
   function trySelectByNameSpoken(transcript){
-    // If user says a teammate name, switch seats
     const s = (transcript || "").toLowerCase().trim();
     if(!s) return false;
 
-    // Collect known seat names
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    // Basic match: if transcript contains the seat name as a whole word-ish
-    for(const name of seats){
-      const n = (name || "").toLowerCase();
-      if(!n) continue;
-      // Allow "hey alex" or "alex"
-      if(s === n || s.includes(" " + n + " ") || s.startsWith(n + " ") || s.endsWith(" " + n) || s.includes(n)){
-        // Switch seat + force glow pulse if available
+    const candidates = [];
+    seats.forEach(name => {
+      const n = String(name || '').trim();
+      if(!n) return;
+      candidates.push({canonical: n, spoken: n});
+    });
+    Object.entries((window.VOICE_NAME_ALIASES || VOICE_NAME_ALIASES || {})).forEach(([spoken, canonical])=>{
+      if(canonical && seats.includes(canonical)) candidates.push({canonical, spoken});
+    });
+
+    for(const item of candidates){
+      const spoken = String(item.spoken || '').toLowerCase().trim();
+      if(!spoken) continue;
+      if(s === spoken || s.includes(" " + spoken + " ") || s.startsWith(spoken + " ") || s.endsWith(" " + spoken) || s.includes(spoken)){
         try{
           if(typeof window.selectSeat === "function"){
-            window.selectSeat(name);
+            window.selectSeat(item.canonical);
           }else if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(name);
+            window.forceSeatSelectUI(item.canonical);
           }
           if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(name);
+            window.forceSeatSelectUI(item.canonical);
           }
         }catch(_){}
         return true;
