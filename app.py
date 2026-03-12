@@ -16,6 +16,31 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
+
+# --- Claude / Anthropic Support (Additive, does not break OpenAI path) ---
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openai")  # openai or claude
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+
+try:
+    import anthropic
+except Exception:
+    anthropic = None
+
+def call_claude(prompt: str):
+    if anthropic is None:
+        raise RuntimeError("anthropic package not installed. Run: pip install anthropic")
+    if not CLAUDE_API_KEY:
+        raise RuntimeError("CLAUDE_API_KEY is not configured")
+
+    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    response = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.content[0].text
+
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
