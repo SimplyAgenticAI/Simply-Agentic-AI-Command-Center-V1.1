@@ -2431,18 +2431,93 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+    if "billing hard limit" in s or "billing_hard_limit_reached" in s:
+        return 402, "OpenAI billing hard limit reached for the API project tied to this key. ChatGPT usage and API billing are separate. Update the API project budget or replace the key."
+    if "insufficient_quota" in s or ("quota" in s and "insufficient" in s):
+        return 402, "OpenAI API quota is exhausted for this key or project. Update billing or switch keys in Settings."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
+
+def _friendly_provider_error_message(e: Exception, provider: str) -> str:
+    msg = (str(e) or "").strip()
+    low = msg.lower()
+    if provider == "claude":
+        if "api key" in low or "authentication" in low or "unauthorized" in low:
+            return "Claude is selected, but the Claude API key appears invalid or missing. Open Settings and update the Claude key."
+        if "rate limit" in low or "429" in low:
+            return "Claude rate limit hit. Try again in a moment."
+        if "credit" in low or "billing" in low or "quota" in low:
+            return "Claude billing or quota issue detected. Check the Anthropic account tied to this key."
+        return msg or "Claude request failed."
+    _status, friendly = _classify_openai_error(e)
+    return friendly or msg or "OpenAI request failed."
+
+
+def _friendly_image_error_message(detail: str, tried: List[str]) -> str:
+    low = (detail or "").lower()
+    lead = f"Image generation failed (tried: {', '.join(tried)})."
+    if "billing_hard_limit_reached" in low or "billing hard limit" in low:
+        return lead + " OpenAI API billing hard limit has been reached for the project tied to this key. ChatGPT usage does not raise API image limits. Update the API project budget or replace the API key in Settings."
+    if "insufficient_quota" in low or ("quota" in low and "insufficient" in low):
+        return lead + " OpenAI API quota is exhausted for the project tied to this key."
+    if "incorrect api key" in low or "authentication" in low or "invalid api key" in low:
+        return lead + " The OpenAI API key used for images is invalid or missing."
+    if "rate limit" in low or "429" in low:
+        return lead + " OpenAI rate limit hit. Try again in a moment."
+    if "content_policy_violation" in low:
+        return lead + " The prompt was blocked by the image safety system. Try changing the wording."
+    if detail:
+        return lead + " " + detail.strip()
+    return lead
+
+
+def _run_system_self_test_for_user(u: Dict[str, Any]) -> Dict[str, Any]:
+    settings = (u.get("settings") or {}) if isinstance(u, dict) else {}
+    provider = (settings.get("provider") or AI_PROVIDER or "openai").strip().lower()
+    openai_key = (settings.get("openai_key") or OPENAI_API_KEY or "").strip()
+    claude_key = (settings.get("claude_key") or CLAUDE_API_KEY or "").strip()
+    smtp = (settings.get("smtp") or {}) if isinstance(settings.get("smtp"), dict) else {}
+
+    checks = []
+    def add(name: str, ok: bool, detail: str, severity: str = "error"):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
+
+    add("Login session", True, f"Signed in as {(u.get('username') or 'unknown')}", "info")
+    add("Uploads directory", UPLOADS_DIR.exists(), f"Uploads path: {UPLOADS_DIR}")
+    add("Data directory", DATA_DIR.exists(), f"Data path: {DATA_DIR}")
+    add("OpenAI package", True, "openai package imported", "info")
+    add("Anthropic package", anthropic is not None, "anthropic package installed" if anthropic is not None else "anthropic package missing. Claude text replies will fail until installed.")
+    add("Selected AI provider", provider in ("openai", "claude"), f"Provider: {provider}")
+    add("OpenAI key", bool(openai_key), "OpenAI key available" if openai_key else "OpenAI key missing. Image generation and audio transcription need OpenAI.")
+    add("Claude key", bool(claude_key), "Claude key available" if claude_key else "Claude key missing.", "warning")
+    add("Text provider readiness", bool(openai_key) if provider == "openai" else bool(claude_key),
+        "Selected provider is configured." if ((provider == "openai" and openai_key) or (provider == "claude" and claude_key)) else "Selected text provider is missing its API key.")
+    add("Image generation readiness", bool(openai_key), "OpenAI key available for images." if openai_key else "OpenAI image generation is unavailable until an OpenAI key is saved.")
+    add("Audio transcription readiness", bool(openai_key), "OpenAI key available for speech-to-text fallback." if openai_key else "Mobile mic fallback transcription requires an OpenAI key.")
+    smtp_ok = bool((smtp.get('host') or '').strip() and (smtp.get('user') or '').strip() and ((smtp.get('pass') or '').strip()))
+    add("SMTP readiness", smtp_ok, "SMTP looks configured." if smtp_ok else "SMTP is not fully configured yet.", "warning")
+
+    ok = all(c["ok"] or c.get("severity") in ("warning", "info") for c in checks)
+    return {
+        "ok": ok,
+        "provider": provider,
+        "checks": checks,
+        "summary": "System checks passed." if ok else "Some important items still need attention."
+    }
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     cfg = _current_ai_settings()
     provider = cfg.get("provider") or "openai"
 
     if provider == "claude":
-        return _call_claude_chat(system, messages, temperature=temperature)
+        try:
+            return _call_claude_chat(system, messages, temperature=temperature)
+        except Exception as e:
+            raise RuntimeError(_friendly_provider_error_message(e, "claude"))
 
     try:
         resp = get_openai_client().chat.completions.create(
@@ -2467,15 +2542,17 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c2})
             else:
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        resp2 = get_openai_client().chat.completions.create(
-            model=(cfg.get("openai_model") or MODEL),
-            messages=[{"role": "system", "content": system}] + safe_msgs,
-            temperature=temperature,
-            timeout=60,
-        )
-        out = (resp2.choices[0].message.content or "").strip()
-        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
-
+        try:
+            resp2 = get_openai_client().chat.completions.create(
+                model=(cfg.get("openai_model") or MODEL),
+                messages=[{"role": "system", "content": system}] + safe_msgs,
+                temperature=temperature,
+                timeout=60,
+            )
+            out = (resp2.choices[0].message.content or "").strip()
+            return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+        except Exception as e2:
+            raise RuntimeError(_friendly_provider_error_message(e2, "openai"))
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -2587,6 +2664,80 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
+
+
+def _extract_transcription_text(resp: Any) -> str:
+    try:
+        if resp is None:
+            return ""
+        if isinstance(resp, str):
+            return resp.strip()
+        txt = getattr(resp, "text", None)
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+        if isinstance(resp, dict):
+            for k in ("text", "transcript", "content"):
+                v = resp.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        return str(resp).strip()
+    except Exception:
+        return ""
+
+@app.post("/api/transcribe_audio")
+def api_transcribe_audio():
+    if not session.get("user"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    up = request.files.get("audio")
+    if not up:
+        return jsonify({"ok": False, "error": "Missing audio file"}), 400
+
+    username = session.get("user") or "anon"
+    try:
+        client = _get_openai_client_for_username(username)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Transcription needs an OpenAI key in Settings. {e}"}), 400
+
+    filename = secure_filename(up.filename or "speech.webm") or "speech.webm"
+    suffix = Path(filename).suffix or ".webm"
+    preferred_model = (os.getenv("AUDIO_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
+    fallback_models = [preferred_model]
+    for m in ("gpt-4o-mini-transcribe", "whisper-1"):
+        if m not in fallback_models:
+            fallback_models.append(m)
+
+    last_err = ""
+    for model_name in fallback_models:
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                up.stream.seek(0)
+                tmp.write(up.read())
+                tmp.flush()
+                tmp_path = tmp.name
+
+            with open(tmp_path, "rb") as audio_f:
+                resp = client.audio.transcriptions.create(
+                    model=model_name,
+                    file=audio_f,
+                )
+            text = _extract_transcription_text(resp)
+            if not text:
+                text = ""
+            append_log("audio_transcribed", {"user": username, "model": model_name, "filename": filename, "chars": len(text)})
+            return jsonify({"ok": True, "text": text, "model": model_name})
+        except Exception as e:
+            last_err = str(e)
+        finally:
+            try:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    return jsonify({"ok": False, "error": last_err or "Transcription failed"}), 500
+
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -2657,9 +2808,7 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             continue
 
     detail = (last_err or "").strip()
-    if detail:
-        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
-    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
+    return None, None, _friendly_image_error_message(detail, tried)
 
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
@@ -3092,6 +3241,39 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
+@app.get("/api/system/self_test")
+def api_system_self_test():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = _run_system_self_test_for_user(u)
+    return jsonify(payload)
+
+
+@app.post("/api/system/test_text")
+def api_system_test_text():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    try:
+        out = call_llm("Reply with exactly: OK", [{"role": "user", "content": "Say OK"}], temperature=0)
+        return jsonify({"ok": True, "reply": (out or "").strip()[:200]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/system/test_image")
+def api_system_test_image():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    rec, url, err = generate_image_for_teammate("simple abstract blue square icon", teammate="system", username=uname, lighting_mode=False)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "image_url": url, "file": rec})
+
+
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -3250,12 +3432,6 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
-    if not u:
-        try:
-            session["user"] = ensure_local_owner_user()
-            u = current_user()
-        except Exception:
-            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3503,7 +3679,10 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    text = call_llm(sys, msgs, temperature=0.65)
+    try:
+        text = call_llm(sys, msgs, temperature=0.65)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "Teammate request failed"}), 502
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -5894,6 +6073,134 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 </style>
 
+<style>
+  /* Visual polish upgrade: sharper contrast, richer depth, safer mobile glow */
+  :root{
+    --glass-bg: linear-gradient(180deg, rgba(14,22,48,.88), rgba(8,12,28,.92));
+    --glass-border: rgba(96,124,255,.24);
+    --glow-violet: rgba(124,58,237,.22);
+    --glow-blue: rgba(59,130,246,.18);
+    --soft-text-glow: 0 0 18px rgba(148,163,255,.10);
+  }
+
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    background:
+      radial-gradient(680px 420px at 18% 12%, rgba(124,58,237,.10), transparent 62%),
+      radial-gradient(760px 460px at 82% 18%, rgba(59,130,246,.10), transparent 62%),
+      radial-gradient(520px 320px at 50% 78%, rgba(168,85,247,.08), transparent 70%);
+    mix-blend-mode: screen;
+    opacity:.9;
+    z-index:0;
+  }
+
+  .topbar,
+  .sideCard,
+  .operator,
+  .seat,
+  .modalCard,
+  .table,
+  .thread,
+  .opText,
+  .msgInput,
+  textarea,
+  input,
+  select{
+    backdrop-filter: blur(16px) saturate(130%);
+  }
+
+  .topbar,
+  .sideCard,
+  .operator,
+  .seat,
+  .modalCard{
+    background: var(--glass-bg) !important;
+    border-color: var(--glass-border) !important;
+    box-shadow:
+      0 12px 34px rgba(0,0,0,.26),
+      0 0 0 1px rgba(255,255,255,.03) inset,
+      0 0 28px rgba(59,130,246,.08),
+      0 0 46px rgba(124,58,237,.08) !important;
+  }
+
+  .table{
+    box-shadow:
+      0 0 0 1px rgba(17,24,39,.35) inset,
+      0 0 86px rgba(124,58,237,.24),
+      0 0 150px rgba(59,130,246,.14) !important;
+  }
+
+  .btn{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.04) inset,
+      0 10px 24px rgba(0,0,0,.22),
+      0 0 18px rgba(59,130,246,.08);
+    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
+  }
+
+  .btn:hover{
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 14px 28px rgba(0,0,0,.26),
+      0 0 24px rgba(124,58,237,.14);
+  }
+
+  .btnPrimary{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.06) inset,
+      0 12px 28px rgba(0,0,0,.26),
+      0 0 22px rgba(124,58,237,.18),
+      0 0 34px rgba(59,130,246,.12) !important;
+  }
+
+  .brand,
+  .sideTitle .h1,
+  .seatName,
+  .opTitle .t1,
+  .modalTitle,
+  h1, h2, h3{
+    text-shadow: var(--soft-text-glow);
+    letter-spacing:.15px;
+  }
+
+  .tiny,
+  .seatRole,
+  .seatStatus,
+  .opTitle .t2{
+    color: rgba(210,220,255,.82) !important;
+  }
+
+  textarea,
+  input,
+  select,
+  .opText{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.03) inset,
+      0 0 0 1px rgba(255,255,255,.02),
+      0 0 18px rgba(59,130,246,.05);
+  }
+
+  .seat:hover{
+    box-shadow:
+      0 14px 30px rgba(0,0,0,.30),
+      0 0 28px rgba(124,58,237,.16),
+      0 0 36px rgba(59,130,246,.10) !important;
+  }
+
+  @media (max-width: 900px){
+    body::before{ opacity:.72; }
+    .btn{
+      box-shadow:
+        0 8px 20px rgba(0,0,0,.24),
+        0 0 16px rgba(124,58,237,.08);
+    }
+  }
+</style>
+
 </head>
 <body>
   <div class="topbar">
@@ -6202,6 +6509,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <label>Claude Model</label>
                 <input id="claudeModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
+
+                <div style="height:10px"></div>
+                <div class="tiny" style="margin-bottom:6px;">System checks</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                  <button class="btn btnMini" id="runSelfTestBtn">Run system check</button>
+                  <button class="btn btnMini" id="testTextProviderBtn">Test text provider</button>
+                  <button class="btn btnMini" id="testImageProviderBtn">Test image generation</button>
+                </div>
+                <div class="tiny" id="systemCheckStatus">Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.</div>
+                <pre id="systemCheckOutput" style="white-space:pre-wrap; margin-top:8px; max-height:180px; overflow:auto; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; background:rgba(4,8,24,.72);"></pre>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -8718,14 +9035,35 @@ function makeSeat(defn, idx){
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
 
+    async function getMicPermissionState(){
+      try{
+        if(!navigator.permissions || !navigator.permissions.query) return "unknown";
+        const result = await navigator.permissions.query({ name: "microphone" });
+        return (result && result.state) ? result.state : "unknown";
+      }catch(_){
+        return "unknown";
+      }
+    }
+
     async function ensureMicPermission(){
-      // No-op if media devices are not available.
       try{
         if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
-        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-        // Immediately stop tracks; we just want to prompt permission.
+
+        const before = await getMicPermissionState();
+        if(before === "granted") return true;
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
         try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
-        return true;
+
+        const after = await getMicPermissionState();
+        return after === "granted" || before === "prompt" || after === "prompt" || true;
       }catch(e){
         return false;
       }
@@ -8733,19 +9071,255 @@ function makeSeat(defn, idx){
 
     function micHelpText(){
       if(isInAppBrowser()){
-        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
+        return "Microphone access is often blocked inside Messenger, Facebook, and Instagram in-app browsers. If the permission prompt does not appear or the mic still will not start, open this page in Chrome or Safari, allow microphone access for this site, then try Talk or Always listen again.";
       }
-      return "If the mic won't start, check site permissions for microphone access and try again.";
+      return "Microphone access is blocked for this site. When prompted, tap Allow. If you already blocked it, use your browser's site settings or the lock icon to allow microphone access, then try again.";
+    }
+
+    async function preflightMicOrExplain(statusId){
+      const status = $(statusId);
+      if(status) status.innerText = "Mic: requesting permission";
+
+      const okPerm = await ensureMicPermission();
+      if(okPerm){
+        if(status) status.innerText = "Mic: ready";
+        return true;
+      }
+
+      if(status) status.innerText = "Mic: blocked";
+      showModal("Allow microphone", micHelpText());
+      return false;
     }
     // --- end voice patch ---
+
+    let sharedMicStream = null;
+    let activeTalkRecorder = null;
+    let talkMonitorTimer = null;
+    let talkRecorderMime = "";
+    let alwaysRecorderTimer = null;
 
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
+    function mediaRecorderSupported(){
+      return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function preferRecorderMic(){
+      const ua = (navigator.userAgent || "").toLowerCase();
+      return isInAppBrowser() || /iphone|ipad|ipod|android/i.test(ua);
+    }
+
+    function pickRecorderMimeType(){
+      if(!window.MediaRecorder || !window.MediaRecorder.isTypeSupported) return "";
+      const types = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/ogg;codecs=opus",
+      ];
+      for(const t of types){
+        try{
+          if(MediaRecorder.isTypeSupported(t)) return t;
+        }catch(_){}
+      }
+      return "";
+    }
+
+    async function getSharedMicStream(){
+      if(sharedMicStream){
+        const live = sharedMicStream.getTracks().some(t => t.readyState === "live");
+        if(live) return sharedMicStream;
+      }
+      sharedMicStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      return sharedMicStream;
+    }
+
+    function stopSharedMicStream(){
+      try{
+        if(sharedMicStream){
+          sharedMicStream.getTracks().forEach(t => t.stop());
+        }
+      }catch(_){}
+      sharedMicStream = null;
+    }
+
+    async function transcribeAudioBlob(blob){
+      const fileExt = (blob && blob.type && blob.type.includes("mp4")) ? "m4a" : "webm";
+      const file = new File([blob], "speech." + fileExt, { type: (blob && blob.type) || "audio/webm" });
+      const fd = new FormData();
+      fd.append("audio", file);
+      const res = await fetch("/api/transcribe_audio", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok){
+        throw new Error((data && data.error) ? data.error : "Transcription failed");
+      }
+      return (data.text || "").trim();
+    }
+
+    function scheduleVoiceAutoSend(targetId, snapshot){
+      try{
+        const snap = (snapshot || "").trim();
+        if(!snap) return;
+        setTimeout(() => {
+          try{
+            const t = $(targetId);
+            const current = ((t && t.value) ? t.value : "").trim();
+            if(current !== snap) return;
+            if(targetId === "opPrompt"){
+              conveneAll();
+            }else if(targetId === "followMsg"){
+              sendFollow();
+            }
+          }catch(_){}
+        }, 2000);
+      }catch(_){}
+    }
+
+    async function finalizeRecorderTalk(blob, targetId, statusId, baseText){
+      const target = $(targetId);
+      const status = $(statusId);
+      try{
+        if(status) status.innerText = "Mic: transcribing";
+        const spoken = await transcribeAudioBlob(blob);
+        const combined = (baseText + " " + spoken).replace(/\s+/g, " ").trim();
+        if(target) target.value = combined;
+        if(status) status.innerText = spoken ? "Mic: idle" : "Mic: no speech";
+        if(spoken){
+          scheduleVoiceAutoSend(targetId, combined);
+        }
+      }catch(e){
+        if(status) status.innerText = "Mic: error";
+        showModal("Mic error", String(e && e.message ? e.message : e));
+      }finally{
+        activeTalkRecorder = null;
+        if(talkMonitorTimer){
+          clearInterval(talkMonitorTimer);
+          talkMonitorTimer = null;
+        }
+        stopSharedMicStream();
+      }
+    }
+
+    async function startRecorderDictation(targetId, statusId){
+      const target = $(targetId);
+      const status = $(statusId);
+      if(!target || !status){
+        showModal("Mic error", "Voice target is unavailable right now.");
+        return;
+      }
+
+      if(activeTalkRecorder){
+        try{
+          if(activeTalkRecorder.state === "recording"){
+            activeTalkRecorder.stop();
+            return;
+          }
+        }catch(_){}
+      }
+
+      let stream = null;
+      try{
+        stream = await getSharedMicStream();
+      }catch(e){
+        if(status) status.innerText = "Mic: blocked";
+        showModal("Allow microphone", micHelpText());
+        return;
+      }
+
+      const mime = pickRecorderMimeType();
+      talkRecorderMime = mime || "audio/webm";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      activeTalkRecorder = rec;
+
+      const baseText = (target.value || "").trim();
+      const chunks = [];
+      let speechDetected = false;
+      let lastLoudAt = Date.now();
+      const startedAt = Date.now();
+
+      rec.ondataavailable = (event) => {
+        if(event.data && event.data.size > 0){
+          chunks.push(event.data);
+        }
+      };
+
+      rec.onerror = () => {
+        if(status) status.innerText = "Mic: error";
+      };
+
+      rec.onstop = async () => {
+        const blob = new Blob(chunks, { type: talkRecorderMime || "audio/webm" });
+        await finalizeRecorderTalk(blob, targetId, statusId, baseText);
+      };
+
+      if(status) status.innerText = "Mic: listening";
+      rec.start(250);
+
+      try{
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if(AudioCtx){
+          const audioCtx = new AudioCtx();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 1024;
+          const source = audioCtx.createMediaStreamSource(stream);
+          source.connect(analyser);
+          const data = new Uint8Array(analyser.frequencyBinCount);
+
+          talkMonitorTimer = setInterval(() => {
+            if(!activeTalkRecorder || activeTalkRecorder.state !== "recording") return;
+            analyser.getByteFrequencyData(data);
+            let sum = 0;
+            for(let i = 0; i < data.length; i++) sum += data[i];
+            const avg = sum / (data.length || 1);
+
+            if(avg > 10){
+              speechDetected = true;
+              lastLoudAt = Date.now();
+            }
+
+            const now = Date.now();
+            const maxed = (now - startedAt) > 15000;
+            const silentEnough = speechDetected && (now - lastLoudAt) > 1200;
+
+            if(maxed || silentEnough){
+              try{
+                if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
+                  activeTalkRecorder.stop();
+                }
+              }catch(_){}
+              try{ source.disconnect(); }catch(_){}
+              try{ analyser.disconnect(); }catch(_){}
+              try{ audioCtx.close(); }catch(_){}
+            }
+          }, 140);
+        }
+      }catch(_){
+        setTimeout(() => {
+          try{
+            if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
+              activeTalkRecorder.stop();
+            }
+          }catch(_){}
+        }, 9000);
+      }
+    }
+
     async function startDictation(targetId, statusId){
-      if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+      if((!speechSupported()) || preferRecorderMic()){
+        if(!mediaRecorderSupported()){
+          showModal("Mic not supported", micHelpText());
+          return;
+        }
+        await startRecorderDictation(targetId, statusId);
         return;
       }
 
@@ -8791,8 +9365,9 @@ function makeSeat(defn, idx){
         target.value = combined;
       };
 
-      rec.onerror = () => {
-        status.innerText = "Mic: error";
+      rec.onerror = async () => {
+        status.innerText = "Mic: recorder fallback";
+        await startRecorderDictation(targetId, statusId);
       };
 
       rec.onend = () => {
@@ -8801,37 +9376,29 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-
-        // AUTO SEND AFTER TALKING STOPS (ADD v1)
-        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
-        try{
-          const snapshot = (combined || "").trim();
-          if(snapshot){
-            setTimeout(() => {
-              try{
-                const t = $(targetId);
-                const current = ((t && t.value) ? t.value : "").trim();
-                if(current !== snapshot) return; // user edited; do not auto send
-                if(targetId === "opPrompt"){
-                  conveneAll();
-                }else if(targetId === "followMsg"){
-                  sendFollow();
-                }
-              }catch(_){}
-            }, 2000);
-          }
-        }catch(_){}
+        scheduleVoiceAutoSend(targetId, combined);
       };
 
       try{
         rec.start();
       }catch(e){
-        status.innerText = "Mic: error";
+        status.innerText = "Mic: recorder fallback";
+        await startRecorderDictation(targetId, statusId);
       }
     }
 
-    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
-    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+    $("talkGroupBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      await startDictation("opPrompt", "micStatusGroup");
+    };
+
+    $("talkDmBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      await startDictation("followMsg", "micStatusDm");
+    };
+
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -8933,16 +9500,145 @@ function makeSeat(defn, idx){
       if(st2) st2.innerText = "Mic: idle";
 
       try{
+        if(alwaysRecorderTimer){
+          clearTimeout(alwaysRecorderTimer);
+        }
+      }catch(_){}
+      alwaysRecorderTimer = null;
+
+      try{
         if(alwaysRec){
           alwaysRec.onresult = null;
           alwaysRec.onerror = null;
           alwaysRec.onend = null;
-          alwaysRec.stop();
+          if(alwaysRec.state === "recording"){
+            alwaysRec.stop();
+          }
         }
       }catch(e){}
       alwaysRec = null;
 
+      stopSharedMicStream();
       updateAlwaysButtons();
+    }
+
+    async function applyAlwaysTranscriptText(rawText){
+      let spoken = (rawText || "").replace(/\s+/g, " ").trim();
+      if(!spoken) return;
+
+      const hit = findFirstNameMention(spoken);
+      if(hit){
+        spoken = removeNameOnce(spoken, hit.name).replace(/\s+/g, " ").trim();
+        await selectSeat(hit.name);
+        forceSeatSelectUI(hit.name);
+      }
+
+      const target = currentAlwaysTarget();
+      if(!target) return;
+
+      alwaysBaseText = (target.value || "").trim();
+      target.value = (alwaysBaseText + " " + spoken).replace(/\s+/g, " ").trim();
+      alwaysBaseText = (target.value || "").trim();
+      alwaysFinalText = "";
+      alwaysInterimText = "";
+      alwaysFinalBaseline = "";
+    }
+
+    async function startAlwaysListeningRecorder(mode){
+      if(!mediaRecorderSupported()){
+        showModal("Mic not supported", micHelpText());
+        return;
+      }
+
+      alwaysMode = mode || "dm";
+      alwaysOn = true;
+      updateAlwaysButtons();
+      resetAlwaysBuffers();
+
+      const okPerm = await ensureMicPermission();
+      if(!okPerm){
+        alwaysOn = false;
+        updateAlwaysButtons();
+        showModal("Microphone blocked", micHelpText());
+        return;
+      }
+
+      const status = currentAlwaysStatusEl();
+      if(status) status.innerText = "Mic: always listening";
+
+      const runChunk = async () => {
+        if(!alwaysOn) return;
+
+        let stream = null;
+        try{
+          stream = await getSharedMicStream();
+        }catch(e){
+          stopAlwaysListening();
+          showModal("Allow microphone", micHelpText());
+          return;
+        }
+
+        const mime = pickRecorderMimeType();
+        const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        alwaysRec = rec;
+        const chunks = [];
+
+        rec.ondataavailable = (event) => {
+          if(event.data && event.data.size > 0){
+            chunks.push(event.data);
+          }
+        };
+
+        rec.onerror = (e) => {
+          const s = currentAlwaysStatusEl();
+          if(s) s.innerText = "Mic: error";
+          try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){}
+          stopAlwaysListening();
+        };
+
+        rec.onstop = async () => {
+          if(!alwaysOn){
+            stopSharedMicStream();
+            return;
+          }
+
+          try{
+            const s = currentAlwaysStatusEl();
+            if(s) s.innerText = "Mic: transcribing";
+            const blob = new Blob(chunks, { type: mime || "audio/webm" });
+            const spoken = await transcribeAudioBlob(blob);
+            if(spoken){
+              await applyAlwaysTranscriptText(spoken);
+            }
+            if(alwaysOn){
+              const s2 = currentAlwaysStatusEl();
+              if(s2) s2.innerText = "Mic: always listening";
+              alwaysRecorderTimer = setTimeout(runChunk, 160);
+            }
+          }catch(e){
+            const s3 = currentAlwaysStatusEl();
+            if(s3) s3.innerText = "Mic: error";
+            showModal("Mic error", String(e && e.message ? e.message : e));
+            stopAlwaysListening();
+          }
+        };
+
+        try{
+          rec.start();
+          alwaysRecorderTimer = setTimeout(() => {
+            try{
+              if(alwaysRec && alwaysRec.state === "recording"){
+                alwaysRec.stop();
+              }
+            }catch(_){}
+          }, 4200);
+        }catch(e){
+          stopAlwaysListening();
+          showModal("Mic error", "Could not start always listening. Check permissions and try again.");
+        }
+      };
+
+      await runChunk();
     }
 
     // UPDATE: Build canonical final + interim from the full results list.
@@ -8983,8 +9679,8 @@ function makeSeat(defn, idx){
 
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
-      if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+      if((!speechSupported()) || preferRecorderMic()){
+        await startAlwaysListeningRecorder(mode);
         return;
       }
 
@@ -9036,14 +9732,11 @@ function makeSeat(defn, idx){
                 .trim();
             }
 
-            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
 
-            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             alwaysFinalText = "";
@@ -9052,7 +9745,6 @@ function makeSeat(defn, idx){
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
         alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
@@ -9064,12 +9756,11 @@ function makeSeat(defn, idx){
         }
       };
 
-      rec.onerror = (e) => {
+      rec.onerror = async (e) => {
         const s = currentAlwaysStatusEl();
-        if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
-        try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        if(s) s.innerText = "Mic: recorder fallback";
+        try{ stopAlwaysListening(); }catch(_){}
+        await startAlwaysListeningRecorder(mode);
       };
 
       rec.onend = () => {
@@ -9087,26 +9778,30 @@ function makeSeat(defn, idx){
         rec.start();
       }catch(e){
         stopAlwaysListening();
-        showModal("Mic error", "Could not start always listening. Check permissions and try again.");
+        await startAlwaysListeningRecorder(mode);
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = () => {
+    $("alwaysListenGroupBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("group");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("group");
     };
 
-    $("alwaysListenDmBtn").onclick = () => {
+    $("alwaysListenDmBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("dm");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("dm");
     };
 
     async function conveneAll(){
@@ -9292,42 +9987,66 @@ async function sendFollow(){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
-      });
-      const data = await res.json();
+      try{
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 120000);
 
-      if(!data.ok){
+        const res = await fetch("/api/followup", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn}),
+          signal: controller.signal
+        });
+        clearTimeout(t);
+
+        let data = null;
+        try{
+          data = await res.json();
+        }catch(_){
+          setSeatLive(selectedSeat, "waiting");
+          setOpStatus("Error");
+          showModal("Error", "The server returned an invalid response. The teammate request did not complete cleanly.");
+          return;
+        }
+
+        if(!data.ok){
+          setSeatLive(selectedSeat, "waiting");
+          setOpStatus("Error");
+          showModal("Error", data.error || "Send failed");
+          return;
+        }
+
+        if(data.job_id){
+          // Image generation runs in background to avoid request timeouts.
+          setSeatLive(selectedSeat, "thinking");
+          setOpStatus("Generating image");
+          $("followMsg").value = "";
+          await refreshThread();
+          pollImageJob(data.job_id, selectedSeat);
+        }else{
+          setSeatLive(selectedSeat, "done");
+          setOpStatus("Complete");
+          $("followMsg").value = "";
+          await refreshThread();
+        }
+
+        $("followMsg").value = "";
+        await refreshThread();
+        try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+
+        dmFileIds = [];
+        renderAttachList("dmAttachList", dmFileIds);
+
+        if(data.email_draft){
+          applyEmailDraft(data.email_draft, selectedSeat);
+        }
+      }catch(e){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
-        showModal("Error", data.error || "Send failed");
-        return;
-      }
-
-      if(data.job_id){
-        // Image generation runs in background to avoid request timeouts.
-        setSeatLive(selectedSeat, "thinking");
-        setOpStatus("Generating image");
-        $("followMsg").value = "";
-        await refreshThread();
-        pollImageJob(data.job_id, selectedSeat);
-      }else{
-        setSeatLive(selectedSeat, "done");
-        setOpStatus("Complete");
-        $("followMsg").value = "";
-        await refreshThread();
-      }
-      $("followMsg").value = "";
-      await refreshThread();
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
-      dmFileIds = [];
-      renderAttachList("dmAttachList", dmFileIds);
-
-      if(data.email_draft){
-        applyEmailDraft(data.email_draft, selectedSeat);
+        const msg = (e && e.name === "AbortError")
+          ? "The teammate request timed out. The app recovered cleanly instead of staying stuck on thinking."
+          : String(e || "Send failed");
+        showModal("Error", msg);
       }
     }
 
@@ -9736,10 +10455,82 @@ Challenge weak assumptions. Surface risks.`;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
+        if($("systemCheckStatus")) $("systemCheckStatus").innerText = "Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.";
+        if($("systemCheckOutput")) $("systemCheckOutput").textContent = "";
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
+      }
+    }
+
+    function formatSelfTestResults(data){
+      if(!data) return "No data.";
+      const lines = [];
+      if(data.summary) lines.push(data.summary);
+      const checks = data.checks || [];
+      checks.forEach(c => {
+        const sev = c.severity || "error";
+        const icon = c.ok ? "✅" : (sev === "warning" ? "⚠️" : (sev === "info" ? "ℹ️" : "❌"));
+        lines.push(icon + " " + (c.name || "Check") + ": " + (c.detail || ""));
+      });
+      lines.push("");
+      lines.push("Browser checks:");
+      lines.push((window.isSecureContext ? "✅" : "❌") + " Secure context: " + (window.isSecureContext ? "yes" : "no"));
+      lines.push((speechSupported() ? "✅" : "⚠️") + " SpeechRecognition API: " + (speechSupported() ? "available" : "missing"));
+      lines.push((recorderMicSupported() ? "✅" : "⚠️") + " MediaRecorder mic fallback: " + (recorderMicSupported() ? "available" : "missing"));
+      lines.push((isInAppBrowser() ? "⚠️" : "✅") + " In-app browser detected: " + (isInAppBrowser() ? "yes" : "no"));
+      return lines.join("
+");
+    }
+
+    async function runSystemSelfTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = "Running system check...";
+      if(out) out.textContent = "Running system check...";
+      try{
+        const res = await fetch('/api/system/self_test');
+        const data = await res.json();
+        if(st) st.innerText = data.summary || (data.ok ? 'System checks passed.' : 'System checks found issues.');
+        if(out) out.textContent = formatSelfTestResults(data);
+      }catch(e){
+        if(st) st.innerText = 'System check failed';
+        if(out) out.textContent = 'System check failed.';
+      }
+    }
+
+    async function runTextProviderTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = 'Testing text provider...';
+      if(out) out.textContent = 'Testing text provider...';
+      try{
+        const res = await fetch('/api/system/test_text', {method:'POST'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Text provider test failed');
+        if(st) st.innerText = 'Text provider test passed';
+        if(out) out.textContent = '✅ Text provider replied: ' + (data.reply || 'OK');
+      }catch(e){
+        if(st) st.innerText = 'Text provider test failed';
+        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Text provider test failed');
+      }
+    }
+
+    async function runImageProviderTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = 'Testing image generation...';
+      if(out) out.textContent = 'Testing image generation...';
+      try{
+        const res = await fetch('/api/system/test_image', {method:'POST'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Image generation test failed');
+        if(st) st.innerText = 'Image generation test passed';
+        if(out) out.textContent = '✅ Image generation test passed. Generated file: ' + ((data.file && data.file.filename) || 'image');
+      }catch(e){
+        if(st) st.innerText = 'Image generation test failed';
+        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Image generation test failed');
       }
     }
 
@@ -10836,6 +11627,9 @@ try{
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
+    if($("runSelfTestBtn")) $("runSelfTestBtn").onclick = async () => { await runSystemSelfTest(); };
+    if($("testTextProviderBtn")) $("testTextProviderBtn").onclick = async () => { await runTextProviderTest(); };
+    if($("testImageProviderBtn")) $("testImageProviderBtn").onclick = async () => { await runImageProviderTest(); };
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
@@ -10866,6 +11660,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
         $("settingsStatus").innerText = "Saved";
           try{ await afterSettingsSaved(); }catch(e){}
+          try{ await runSystemSelfTest(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
