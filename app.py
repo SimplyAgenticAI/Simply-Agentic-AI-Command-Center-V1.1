@@ -2587,80 +2587,6 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
-
-
-def _extract_transcription_text(resp: Any) -> str:
-    try:
-        if resp is None:
-            return ""
-        if isinstance(resp, str):
-            return resp.strip()
-        txt = getattr(resp, "text", None)
-        if isinstance(txt, str) and txt.strip():
-            return txt.strip()
-        if isinstance(resp, dict):
-            for k in ("text", "transcript", "content"):
-                v = resp.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        return str(resp).strip()
-    except Exception:
-        return ""
-
-@app.post("/api/transcribe_audio")
-def api_transcribe_audio():
-    if not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    up = request.files.get("audio")
-    if not up:
-        return jsonify({"ok": False, "error": "Missing audio file"}), 400
-
-    username = session.get("user") or "anon"
-    try:
-        client = _get_openai_client_for_username(username)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Transcription needs an OpenAI key in Settings. {e}"}), 400
-
-    filename = secure_filename(up.filename or "speech.webm") or "speech.webm"
-    suffix = Path(filename).suffix or ".webm"
-    preferred_model = (os.getenv("AUDIO_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
-    fallback_models = [preferred_model]
-    for m in ("gpt-4o-mini-transcribe", "whisper-1"):
-        if m not in fallback_models:
-            fallback_models.append(m)
-
-    last_err = ""
-    for model_name in fallback_models:
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                up.stream.seek(0)
-                tmp.write(up.read())
-                tmp.flush()
-                tmp_path = tmp.name
-
-            with open(tmp_path, "rb") as audio_f:
-                resp = client.audio.transcriptions.create(
-                    model=model_name,
-                    file=audio_f,
-                )
-            text = _extract_transcription_text(resp)
-            if not text:
-                text = ""
-            append_log("audio_transcribed", {"user": username, "model": model_name, "filename": filename, "chars": len(text)})
-            return jsonify({"ok": True, "text": text, "model": model_name})
-        except Exception as e:
-            last_err = str(e)
-        finally:
-            try:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-
-    return jsonify({"ok": False, "error": last_err or "Transcription failed"}), 500
-
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -5968,134 +5894,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 </style>
 
-<style>
-  /* Visual polish upgrade: sharper contrast, richer depth, safer mobile glow */
-  :root{
-    --glass-bg: linear-gradient(180deg, rgba(14,22,48,.88), rgba(8,12,28,.92));
-    --glass-border: rgba(96,124,255,.24);
-    --glow-violet: rgba(124,58,237,.22);
-    --glow-blue: rgba(59,130,246,.18);
-    --soft-text-glow: 0 0 18px rgba(148,163,255,.10);
-  }
-
-  body::before{
-    content:"";
-    position:fixed;
-    inset:0;
-    pointer-events:none;
-    background:
-      radial-gradient(680px 420px at 18% 12%, rgba(124,58,237,.10), transparent 62%),
-      radial-gradient(760px 460px at 82% 18%, rgba(59,130,246,.10), transparent 62%),
-      radial-gradient(520px 320px at 50% 78%, rgba(168,85,247,.08), transparent 70%);
-    mix-blend-mode: screen;
-    opacity:.9;
-    z-index:0;
-  }
-
-  .topbar,
-  .sideCard,
-  .operator,
-  .seat,
-  .modalCard,
-  .table,
-  .thread,
-  .opText,
-  .msgInput,
-  textarea,
-  input,
-  select{
-    backdrop-filter: blur(16px) saturate(130%);
-  }
-
-  .topbar,
-  .sideCard,
-  .operator,
-  .seat,
-  .modalCard{
-    background: var(--glass-bg) !important;
-    border-color: var(--glass-border) !important;
-    box-shadow:
-      0 12px 34px rgba(0,0,0,.26),
-      0 0 0 1px rgba(255,255,255,.03) inset,
-      0 0 28px rgba(59,130,246,.08),
-      0 0 46px rgba(124,58,237,.08) !important;
-  }
-
-  .table{
-    box-shadow:
-      0 0 0 1px rgba(17,24,39,.35) inset,
-      0 0 86px rgba(124,58,237,.24),
-      0 0 150px rgba(59,130,246,.14) !important;
-  }
-
-  .btn{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.04) inset,
-      0 10px 24px rgba(0,0,0,.22),
-      0 0 18px rgba(59,130,246,.08);
-    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
-  }
-
-  .btn:hover{
-    transform: translateY(-1px);
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.05) inset,
-      0 14px 28px rgba(0,0,0,.26),
-      0 0 24px rgba(124,58,237,.14);
-  }
-
-  .btnPrimary{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.06) inset,
-      0 12px 28px rgba(0,0,0,.26),
-      0 0 22px rgba(124,58,237,.18),
-      0 0 34px rgba(59,130,246,.12) !important;
-  }
-
-  .brand,
-  .sideTitle .h1,
-  .seatName,
-  .opTitle .t1,
-  .modalTitle,
-  h1, h2, h3{
-    text-shadow: var(--soft-text-glow);
-    letter-spacing:.15px;
-  }
-
-  .tiny,
-  .seatRole,
-  .seatStatus,
-  .opTitle .t2{
-    color: rgba(210,220,255,.82) !important;
-  }
-
-  textarea,
-  input,
-  select,
-  .opText{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.03) inset,
-      0 0 0 1px rgba(255,255,255,.02),
-      0 0 18px rgba(59,130,246,.05);
-  }
-
-  .seat:hover{
-    box-shadow:
-      0 14px 30px rgba(0,0,0,.30),
-      0 0 28px rgba(124,58,237,.16),
-      0 0 36px rgba(59,130,246,.10) !important;
-  }
-
-  @media (max-width: 900px){
-    body::before{ opacity:.72; }
-    .btn{
-      box-shadow:
-        0 8px 20px rgba(0,0,0,.24),
-        0 0 16px rgba(124,58,237,.08);
-    }
-  }
-</style>
-
 </head>
 <body>
   <div class="topbar">
@@ -8920,35 +8718,14 @@ function makeSeat(defn, idx){
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
 
-    async function getMicPermissionState(){
-      try{
-        if(!navigator.permissions || !navigator.permissions.query) return "unknown";
-        const result = await navigator.permissions.query({ name: "microphone" });
-        return (result && result.state) ? result.state : "unknown";
-      }catch(_){
-        return "unknown";
-      }
-    }
-
     async function ensureMicPermission(){
+      // No-op if media devices are not available.
       try{
         if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
-
-        const before = await getMicPermissionState();
-        if(before === "granted") return true;
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        // Immediately stop tracks; we just want to prompt permission.
         try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
-
-        const after = await getMicPermissionState();
-        return after === "granted" || before === "prompt" || after === "prompt" || true;
+        return true;
       }catch(e){
         return false;
       }
@@ -8956,255 +8733,19 @@ function makeSeat(defn, idx){
 
     function micHelpText(){
       if(isInAppBrowser()){
-        return "Microphone access is often blocked inside Messenger, Facebook, and Instagram in-app browsers. If the permission prompt does not appear or the mic still will not start, open this page in Chrome or Safari, allow microphone access for this site, then try Talk or Always listen again.";
+        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
       }
-      return "Microphone access is blocked for this site. When prompted, tap Allow. If you already blocked it, use your browser's site settings or the lock icon to allow microphone access, then try again.";
-    }
-
-    async function preflightMicOrExplain(statusId){
-      const status = $(statusId);
-      if(status) status.innerText = "Mic: requesting permission";
-
-      const okPerm = await ensureMicPermission();
-      if(okPerm){
-        if(status) status.innerText = "Mic: ready";
-        return true;
-      }
-
-      if(status) status.innerText = "Mic: blocked";
-      showModal("Allow microphone", micHelpText());
-      return false;
+      return "If the mic won't start, check site permissions for microphone access and try again.";
     }
     // --- end voice patch ---
-
-    let sharedMicStream = null;
-    let activeTalkRecorder = null;
-    let talkMonitorTimer = null;
-    let talkRecorderMime = "";
-    let alwaysRecorderTimer = null;
 
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
-    function mediaRecorderSupported(){
-      return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    }
-
-    function preferRecorderMic(){
-      const ua = (navigator.userAgent || "").toLowerCase();
-      return isInAppBrowser() || /iphone|ipad|ipod|android/i.test(ua);
-    }
-
-    function pickRecorderMimeType(){
-      if(!window.MediaRecorder || !window.MediaRecorder.isTypeSupported) return "";
-      const types = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-        "audio/mp4;codecs=mp4a.40.2",
-        "audio/ogg;codecs=opus",
-      ];
-      for(const t of types){
-        try{
-          if(MediaRecorder.isTypeSupported(t)) return t;
-        }catch(_){}
-      }
-      return "";
-    }
-
-    async function getSharedMicStream(){
-      if(sharedMicStream){
-        const live = sharedMicStream.getTracks().some(t => t.readyState === "live");
-        if(live) return sharedMicStream;
-      }
-      sharedMicStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-      return sharedMicStream;
-    }
-
-    function stopSharedMicStream(){
-      try{
-        if(sharedMicStream){
-          sharedMicStream.getTracks().forEach(t => t.stop());
-        }
-      }catch(_){}
-      sharedMicStream = null;
-    }
-
-    async function transcribeAudioBlob(blob){
-      const fileExt = (blob && blob.type && blob.type.includes("mp4")) ? "m4a" : "webm";
-      const file = new File([blob], "speech." + fileExt, { type: (blob && blob.type) || "audio/webm" });
-      const fd = new FormData();
-      fd.append("audio", file);
-      const res = await fetch("/api/transcribe_audio", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if(!res.ok || !data.ok){
-        throw new Error((data && data.error) ? data.error : "Transcription failed");
-      }
-      return (data.text || "").trim();
-    }
-
-    function scheduleVoiceAutoSend(targetId, snapshot){
-      try{
-        const snap = (snapshot || "").trim();
-        if(!snap) return;
-        setTimeout(() => {
-          try{
-            const t = $(targetId);
-            const current = ((t && t.value) ? t.value : "").trim();
-            if(current !== snap) return;
-            if(targetId === "opPrompt"){
-              conveneAll();
-            }else if(targetId === "followMsg"){
-              sendFollow();
-            }
-          }catch(_){}
-        }, 2000);
-      }catch(_){}
-    }
-
-    async function finalizeRecorderTalk(blob, targetId, statusId, baseText){
-      const target = $(targetId);
-      const status = $(statusId);
-      try{
-        if(status) status.innerText = "Mic: transcribing";
-        const spoken = await transcribeAudioBlob(blob);
-        const combined = (baseText + " " + spoken).replace(/\s+/g, " ").trim();
-        if(target) target.value = combined;
-        if(status) status.innerText = spoken ? "Mic: idle" : "Mic: no speech";
-        if(spoken){
-          scheduleVoiceAutoSend(targetId, combined);
-        }
-      }catch(e){
-        if(status) status.innerText = "Mic: error";
-        showModal("Mic error", String(e && e.message ? e.message : e));
-      }finally{
-        activeTalkRecorder = null;
-        if(talkMonitorTimer){
-          clearInterval(talkMonitorTimer);
-          talkMonitorTimer = null;
-        }
-        stopSharedMicStream();
-      }
-    }
-
-    async function startRecorderDictation(targetId, statusId){
-      const target = $(targetId);
-      const status = $(statusId);
-      if(!target || !status){
-        showModal("Mic error", "Voice target is unavailable right now.");
-        return;
-      }
-
-      if(activeTalkRecorder){
-        try{
-          if(activeTalkRecorder.state === "recording"){
-            activeTalkRecorder.stop();
-            return;
-          }
-        }catch(_){}
-      }
-
-      let stream = null;
-      try{
-        stream = await getSharedMicStream();
-      }catch(e){
-        if(status) status.innerText = "Mic: blocked";
-        showModal("Allow microphone", micHelpText());
-        return;
-      }
-
-      const mime = pickRecorderMimeType();
-      talkRecorderMime = mime || "audio/webm";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      activeTalkRecorder = rec;
-
-      const baseText = (target.value || "").trim();
-      const chunks = [];
-      let speechDetected = false;
-      let lastLoudAt = Date.now();
-      const startedAt = Date.now();
-
-      rec.ondataavailable = (event) => {
-        if(event.data && event.data.size > 0){
-          chunks.push(event.data);
-        }
-      };
-
-      rec.onerror = () => {
-        if(status) status.innerText = "Mic: error";
-      };
-
-      rec.onstop = async () => {
-        const blob = new Blob(chunks, { type: talkRecorderMime || "audio/webm" });
-        await finalizeRecorderTalk(blob, targetId, statusId, baseText);
-      };
-
-      if(status) status.innerText = "Mic: listening";
-      rec.start(250);
-
-      try{
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if(AudioCtx){
-          const audioCtx = new AudioCtx();
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 1024;
-          const source = audioCtx.createMediaStreamSource(stream);
-          source.connect(analyser);
-          const data = new Uint8Array(analyser.frequencyBinCount);
-
-          talkMonitorTimer = setInterval(() => {
-            if(!activeTalkRecorder || activeTalkRecorder.state !== "recording") return;
-            analyser.getByteFrequencyData(data);
-            let sum = 0;
-            for(let i = 0; i < data.length; i++) sum += data[i];
-            const avg = sum / (data.length || 1);
-
-            if(avg > 10){
-              speechDetected = true;
-              lastLoudAt = Date.now();
-            }
-
-            const now = Date.now();
-            const maxed = (now - startedAt) > 15000;
-            const silentEnough = speechDetected && (now - lastLoudAt) > 1200;
-
-            if(maxed || silentEnough){
-              try{
-                if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
-                  activeTalkRecorder.stop();
-                }
-              }catch(_){}
-              try{ source.disconnect(); }catch(_){}
-              try{ analyser.disconnect(); }catch(_){}
-              try{ audioCtx.close(); }catch(_){}
-            }
-          }, 140);
-        }
-      }catch(_){
-        setTimeout(() => {
-          try{
-            if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
-              activeTalkRecorder.stop();
-            }
-          }catch(_){}
-        }, 9000);
-      }
-    }
-
     async function startDictation(targetId, statusId){
-      if((!speechSupported()) || preferRecorderMic()){
-        if(!mediaRecorderSupported()){
-          showModal("Mic not supported", micHelpText());
-          return;
-        }
-        await startRecorderDictation(targetId, statusId);
+      if(!speechSupported()){
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -9250,9 +8791,8 @@ function makeSeat(defn, idx){
         target.value = combined;
       };
 
-      rec.onerror = async () => {
-        status.innerText = "Mic: recorder fallback";
-        await startRecorderDictation(targetId, statusId);
+      rec.onerror = () => {
+        status.innerText = "Mic: error";
       };
 
       rec.onend = () => {
@@ -9261,29 +8801,37 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-        scheduleVoiceAutoSend(targetId, combined);
+
+        // AUTO SEND AFTER TALKING STOPS (ADD v1)
+        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
+        try{
+          const snapshot = (combined || "").trim();
+          if(snapshot){
+            setTimeout(() => {
+              try{
+                const t = $(targetId);
+                const current = ((t && t.value) ? t.value : "").trim();
+                if(current !== snapshot) return; // user edited; do not auto send
+                if(targetId === "opPrompt"){
+                  conveneAll();
+                }else if(targetId === "followMsg"){
+                  sendFollow();
+                }
+              }catch(_){}
+            }, 2000);
+          }
+        }catch(_){}
       };
 
       try{
         rec.start();
       }catch(e){
-        status.innerText = "Mic: recorder fallback";
-        await startRecorderDictation(targetId, statusId);
+        status.innerText = "Mic: error";
       }
     }
 
-    $("talkGroupBtn").onclick = async () => {
-      const ok = await preflightMicOrExplain("micStatusGroup");
-      if(!ok) return;
-      await startDictation("opPrompt", "micStatusGroup");
-    };
-
-    $("talkDmBtn").onclick = async () => {
-      const ok = await preflightMicOrExplain("micStatusDm");
-      if(!ok) return;
-      await startDictation("followMsg", "micStatusDm");
-    };
-
+    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
+    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -9385,145 +8933,16 @@ function makeSeat(defn, idx){
       if(st2) st2.innerText = "Mic: idle";
 
       try{
-        if(alwaysRecorderTimer){
-          clearTimeout(alwaysRecorderTimer);
-        }
-      }catch(_){}
-      alwaysRecorderTimer = null;
-
-      try{
         if(alwaysRec){
           alwaysRec.onresult = null;
           alwaysRec.onerror = null;
           alwaysRec.onend = null;
-          if(alwaysRec.state === "recording"){
-            alwaysRec.stop();
-          }
+          alwaysRec.stop();
         }
       }catch(e){}
       alwaysRec = null;
 
-      stopSharedMicStream();
       updateAlwaysButtons();
-    }
-
-    async function applyAlwaysTranscriptText(rawText){
-      let spoken = (rawText || "").replace(/\s+/g, " ").trim();
-      if(!spoken) return;
-
-      const hit = findFirstNameMention(spoken);
-      if(hit){
-        spoken = removeNameOnce(spoken, hit.name).replace(/\s+/g, " ").trim();
-        await selectSeat(hit.name);
-        forceSeatSelectUI(hit.name);
-      }
-
-      const target = currentAlwaysTarget();
-      if(!target) return;
-
-      alwaysBaseText = (target.value || "").trim();
-      target.value = (alwaysBaseText + " " + spoken).replace(/\s+/g, " ").trim();
-      alwaysBaseText = (target.value || "").trim();
-      alwaysFinalText = "";
-      alwaysInterimText = "";
-      alwaysFinalBaseline = "";
-    }
-
-    async function startAlwaysListeningRecorder(mode){
-      if(!mediaRecorderSupported()){
-        showModal("Mic not supported", micHelpText());
-        return;
-      }
-
-      alwaysMode = mode || "dm";
-      alwaysOn = true;
-      updateAlwaysButtons();
-      resetAlwaysBuffers();
-
-      const okPerm = await ensureMicPermission();
-      if(!okPerm){
-        alwaysOn = false;
-        updateAlwaysButtons();
-        showModal("Microphone blocked", micHelpText());
-        return;
-      }
-
-      const status = currentAlwaysStatusEl();
-      if(status) status.innerText = "Mic: always listening";
-
-      const runChunk = async () => {
-        if(!alwaysOn) return;
-
-        let stream = null;
-        try{
-          stream = await getSharedMicStream();
-        }catch(e){
-          stopAlwaysListening();
-          showModal("Allow microphone", micHelpText());
-          return;
-        }
-
-        const mime = pickRecorderMimeType();
-        const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-        alwaysRec = rec;
-        const chunks = [];
-
-        rec.ondataavailable = (event) => {
-          if(event.data && event.data.size > 0){
-            chunks.push(event.data);
-          }
-        };
-
-        rec.onerror = (e) => {
-          const s = currentAlwaysStatusEl();
-          if(s) s.innerText = "Mic: error";
-          try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){}
-          stopAlwaysListening();
-        };
-
-        rec.onstop = async () => {
-          if(!alwaysOn){
-            stopSharedMicStream();
-            return;
-          }
-
-          try{
-            const s = currentAlwaysStatusEl();
-            if(s) s.innerText = "Mic: transcribing";
-            const blob = new Blob(chunks, { type: mime || "audio/webm" });
-            const spoken = await transcribeAudioBlob(blob);
-            if(spoken){
-              await applyAlwaysTranscriptText(spoken);
-            }
-            if(alwaysOn){
-              const s2 = currentAlwaysStatusEl();
-              if(s2) s2.innerText = "Mic: always listening";
-              alwaysRecorderTimer = setTimeout(runChunk, 160);
-            }
-          }catch(e){
-            const s3 = currentAlwaysStatusEl();
-            if(s3) s3.innerText = "Mic: error";
-            showModal("Mic error", String(e && e.message ? e.message : e));
-            stopAlwaysListening();
-          }
-        };
-
-        try{
-          rec.start();
-          alwaysRecorderTimer = setTimeout(() => {
-            try{
-              if(alwaysRec && alwaysRec.state === "recording"){
-                alwaysRec.stop();
-              }
-            }catch(_){}
-          }, 4200);
-        }catch(e){
-          stopAlwaysListening();
-          showModal("Mic error", "Could not start always listening. Check permissions and try again.");
-        }
-      };
-
-      await runChunk();
     }
 
     // UPDATE: Build canonical final + interim from the full results list.
@@ -9564,8 +8983,8 @@ function makeSeat(defn, idx){
 
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
-      if((!speechSupported()) || preferRecorderMic()){
-        await startAlwaysListeningRecorder(mode);
+      if(!speechSupported()){
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -9617,11 +9036,14 @@ function makeSeat(defn, idx){
                 .trim();
             }
 
+            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
+            // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
 
+            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             alwaysFinalText = "";
@@ -9630,6 +9052,7 @@ function makeSeat(defn, idx){
           }
         }
 
+        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
         alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
@@ -9641,11 +9064,12 @@ function makeSeat(defn, idx){
         }
       };
 
-      rec.onerror = async (e) => {
+      rec.onerror = (e) => {
         const s = currentAlwaysStatusEl();
-        if(s) s.innerText = "Mic: recorder fallback";
-        try{ stopAlwaysListening(); }catch(_){}
-        await startAlwaysListeningRecorder(mode);
+        if(s) s.innerText = "Mic: error";
+        // In many webviews, errors persist; stop to avoid a dead loop.
+        try{ stopAlwaysListening(); }catch(_){ }
+        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -9663,30 +9087,26 @@ function makeSeat(defn, idx){
         rec.start();
       }catch(e){
         stopAlwaysListening();
-        await startAlwaysListeningRecorder(mode);
+        showModal("Mic error", "Could not start always listening. Check permissions and try again.");
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = async () => {
+    $("alwaysListenGroupBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
-        return;
+      }else{
+        stopAlwaysListening();
+        startAlwaysListening("group");
       }
-      const ok = await preflightMicOrExplain("micStatusGroup");
-      if(!ok) return;
-      stopAlwaysListening();
-      startAlwaysListening("group");
     };
 
-    $("alwaysListenDmBtn").onclick = async () => {
+    $("alwaysListenDmBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
-        return;
+      }else{
+        stopAlwaysListening();
+        startAlwaysListening("dm");
       }
-      const ok = await preflightMicOrExplain("micStatusDm");
-      if(!ok) return;
-      stopAlwaysListening();
-      startAlwaysListening("dm");
     };
 
     async function conveneAll(){
