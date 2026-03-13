@@ -2431,93 +2431,18 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
-    if "billing hard limit" in s or "billing_hard_limit_reached" in s:
-        return 402, "OpenAI billing hard limit reached for the API project tied to this key. ChatGPT usage and API billing are separate. Update the API project budget or replace the key."
-    if "insufficient_quota" in s or ("quota" in s and "insufficient" in s):
-        return 402, "OpenAI API quota is exhausted for this key or project. Update billing or switch keys in Settings."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
-
-def _friendly_provider_error_message(e: Exception, provider: str) -> str:
-    msg = (str(e) or "").strip()
-    low = msg.lower()
-    if provider == "claude":
-        if "api key" in low or "authentication" in low or "unauthorized" in low:
-            return "Claude is selected, but the Claude API key appears invalid or missing. Open Settings and update the Claude key."
-        if "rate limit" in low or "429" in low:
-            return "Claude rate limit hit. Try again in a moment."
-        if "credit" in low or "billing" in low or "quota" in low:
-            return "Claude billing or quota issue detected. Check the Anthropic account tied to this key."
-        return msg or "Claude request failed."
-    _status, friendly = _classify_openai_error(e)
-    return friendly or msg or "OpenAI request failed."
-
-
-def _friendly_image_error_message(detail: str, tried: List[str]) -> str:
-    low = (detail or "").lower()
-    lead = f"Image generation failed (tried: {', '.join(tried)})."
-    if "billing_hard_limit_reached" in low or "billing hard limit" in low:
-        return lead + " OpenAI API billing hard limit has been reached for the project tied to this key. ChatGPT usage does not raise API image limits. Update the API project budget or replace the API key in Settings."
-    if "insufficient_quota" in low or ("quota" in low and "insufficient" in low):
-        return lead + " OpenAI API quota is exhausted for the project tied to this key."
-    if "incorrect api key" in low or "authentication" in low or "invalid api key" in low:
-        return lead + " The OpenAI API key used for images is invalid or missing."
-    if "rate limit" in low or "429" in low:
-        return lead + " OpenAI rate limit hit. Try again in a moment."
-    if "content_policy_violation" in low:
-        return lead + " The prompt was blocked by the image safety system. Try changing the wording."
-    if detail:
-        return lead + " " + detail.strip()
-    return lead
-
-
-def _run_system_self_test_for_user(u: Dict[str, Any]) -> Dict[str, Any]:
-    settings = (u.get("settings") or {}) if isinstance(u, dict) else {}
-    provider = (settings.get("provider") or AI_PROVIDER or "openai").strip().lower()
-    openai_key = (settings.get("openai_key") or OPENAI_API_KEY or "").strip()
-    claude_key = (settings.get("claude_key") or CLAUDE_API_KEY or "").strip()
-    smtp = (settings.get("smtp") or {}) if isinstance(settings.get("smtp"), dict) else {}
-
-    checks = []
-    def add(name: str, ok: bool, detail: str, severity: str = "error"):
-        checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
-
-    add("Login session", True, f"Signed in as {(u.get('username') or 'unknown')}", "info")
-    add("Uploads directory", UPLOADS_DIR.exists(), f"Uploads path: {UPLOADS_DIR}")
-    add("Data directory", DATA_DIR.exists(), f"Data path: {DATA_DIR}")
-    add("OpenAI package", True, "openai package imported", "info")
-    add("Anthropic package", anthropic is not None, "anthropic package installed" if anthropic is not None else "anthropic package missing. Claude text replies will fail until installed.")
-    add("Selected AI provider", provider in ("openai", "claude"), f"Provider: {provider}")
-    add("OpenAI key", bool(openai_key), "OpenAI key available" if openai_key else "OpenAI key missing. Image generation and audio transcription need OpenAI.")
-    add("Claude key", bool(claude_key), "Claude key available" if claude_key else "Claude key missing.", "warning")
-    add("Text provider readiness", bool(openai_key) if provider == "openai" else bool(claude_key),
-        "Selected provider is configured." if ((provider == "openai" and openai_key) or (provider == "claude" and claude_key)) else "Selected text provider is missing its API key.")
-    add("Image generation readiness", bool(openai_key), "OpenAI key available for images." if openai_key else "OpenAI image generation is unavailable until an OpenAI key is saved.")
-    add("Audio transcription readiness", bool(openai_key), "OpenAI key available for speech-to-text fallback." if openai_key else "Mobile mic fallback transcription requires an OpenAI key.")
-    smtp_ok = bool((smtp.get('host') or '').strip() and (smtp.get('user') or '').strip() and ((smtp.get('pass') or '').strip()))
-    add("SMTP readiness", smtp_ok, "SMTP looks configured." if smtp_ok else "SMTP is not fully configured yet.", "warning")
-
-    ok = all(c["ok"] or c.get("severity") in ("warning", "info") for c in checks)
-    return {
-        "ok": ok,
-        "provider": provider,
-        "checks": checks,
-        "summary": "System checks passed." if ok else "Some important items still need attention."
-    }
-
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     cfg = _current_ai_settings()
     provider = cfg.get("provider") or "openai"
 
     if provider == "claude":
-        try:
-            return _call_claude_chat(system, messages, temperature=temperature)
-        except Exception as e:
-            raise RuntimeError(_friendly_provider_error_message(e, "claude"))
+        return _call_claude_chat(system, messages, temperature=temperature)
 
     try:
         resp = get_openai_client().chat.completions.create(
@@ -2542,17 +2467,15 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c2})
             else:
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        try:
-            resp2 = get_openai_client().chat.completions.create(
-                model=(cfg.get("openai_model") or MODEL),
-                messages=[{"role": "system", "content": system}] + safe_msgs,
-                temperature=temperature,
-                timeout=60,
-            )
-            out = (resp2.choices[0].message.content or "").strip()
-            return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
-        except Exception as e2:
-            raise RuntimeError(_friendly_provider_error_message(e2, "openai"))
+        resp2 = get_openai_client().chat.completions.create(
+            model=(cfg.get("openai_model") or MODEL),
+            messages=[{"role": "system", "content": system}] + safe_msgs,
+            temperature=temperature,
+            timeout=60,
+        )
+        out = (resp2.choices[0].message.content or "").strip()
+        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -2808,7 +2731,9 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             continue
 
     detail = (last_err or "").strip()
-    return None, None, _friendly_image_error_message(detail, tried)
+    if detail:
+        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
+    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
 
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
@@ -3241,39 +3166,6 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
-@app.get("/api/system/self_test")
-def api_system_self_test():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = _run_system_self_test_for_user(u)
-    return jsonify(payload)
-
-
-@app.post("/api/system/test_text")
-def api_system_test_text():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        out = call_llm("Reply with exactly: OK", [{"role": "user", "content": "Say OK"}], temperature=0)
-        return jsonify({"ok": True, "reply": (out or "").strip()[:200]})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-
-
-@app.post("/api/system/test_image")
-def api_system_test_image():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    rec, url, err = generate_image_for_teammate("simple abstract blue square icon", teammate="system", username=uname, lighting_mode=False)
-    if err:
-        return jsonify({"ok": False, "error": err}), 400
-    return jsonify({"ok": True, "image_url": url, "file": rec})
-
-
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -3432,6 +3324,12 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
+    if not u:
+        try:
+            session["user"] = ensure_local_owner_user()
+            u = current_user()
+        except Exception:
+            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -6506,16 +6404,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <label>Claude Model</label>
                 <input id="claudeModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
-
-                <div style="height:10px"></div>
-                <div class="tiny" style="margin-bottom:6px;">System checks</div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                  <button class="btn btnMini" id="runSelfTestBtn">Run system check</button>
-                  <button class="btn btnMini" id="testTextProviderBtn">Test text provider</button>
-                  <button class="btn btnMini" id="testImageProviderBtn">Test image generation</button>
-                </div>
-                <div class="tiny" id="systemCheckStatus">Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.</div>
-                <pre id="systemCheckOutput" style="white-space:pre-wrap; margin-top:8px; max-height:180px; overflow:auto; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; background:rgba(4,8,24,.72);"></pre>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -10428,82 +10316,10 @@ Challenge weak assumptions. Surface risks.`;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
-        if($("systemCheckStatus")) $("systemCheckStatus").innerText = "Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.";
-        if($("systemCheckOutput")) $("systemCheckOutput").textContent = "";
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
-      }
-    }
-
-    function formatSelfTestResults(data){
-      if(!data) return "No data.";
-      const lines = [];
-      if(data.summary) lines.push(data.summary);
-      const checks = data.checks || [];
-      checks.forEach(c => {
-        const sev = c.severity || "error";
-        const icon = c.ok ? "✅" : (sev === "warning" ? "⚠️" : (sev === "info" ? "ℹ️" : "❌"));
-        lines.push(icon + " " + (c.name || "Check") + ": " + (c.detail || ""));
-      });
-      lines.push("");
-      lines.push("Browser checks:");
-      lines.push((window.isSecureContext ? "✅" : "❌") + " Secure context: " + (window.isSecureContext ? "yes" : "no"));
-      lines.push((speechSupported() ? "✅" : "⚠️") + " SpeechRecognition API: " + (speechSupported() ? "available" : "missing"));
-      lines.push((recorderMicSupported() ? "✅" : "⚠️") + " MediaRecorder mic fallback: " + (recorderMicSupported() ? "available" : "missing"));
-      lines.push((isInAppBrowser() ? "⚠️" : "✅") + " In-app browser detected: " + (isInAppBrowser() ? "yes" : "no"));
-      return lines.join("
-");
-    }
-
-    async function runSystemSelfTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = "Running system check...";
-      if(out) out.textContent = "Running system check...";
-      try{
-        const res = await fetch('/api/system/self_test');
-        const data = await res.json();
-        if(st) st.innerText = data.summary || (data.ok ? 'System checks passed.' : 'System checks found issues.');
-        if(out) out.textContent = formatSelfTestResults(data);
-      }catch(e){
-        if(st) st.innerText = 'System check failed';
-        if(out) out.textContent = 'System check failed.';
-      }
-    }
-
-    async function runTextProviderTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = 'Testing text provider...';
-      if(out) out.textContent = 'Testing text provider...';
-      try{
-        const res = await fetch('/api/system/test_text', {method:'POST'});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Text provider test failed');
-        if(st) st.innerText = 'Text provider test passed';
-        if(out) out.textContent = '✅ Text provider replied: ' + (data.reply || 'OK');
-      }catch(e){
-        if(st) st.innerText = 'Text provider test failed';
-        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Text provider test failed');
-      }
-    }
-
-    async function runImageProviderTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = 'Testing image generation...';
-      if(out) out.textContent = 'Testing image generation...';
-      try{
-        const res = await fetch('/api/system/test_image', {method:'POST'});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Image generation test failed');
-        if(st) st.innerText = 'Image generation test passed';
-        if(out) out.textContent = '✅ Image generation test passed. Generated file: ' + ((data.file && data.file.filename) || 'image');
-      }catch(e){
-        if(st) st.innerText = 'Image generation test failed';
-        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Image generation test failed');
       }
     }
 
@@ -11600,9 +11416,6 @@ try{
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
-    if($("runSelfTestBtn")) $("runSelfTestBtn").onclick = async () => { await runSystemSelfTest(); };
-    if($("testTextProviderBtn")) $("testTextProviderBtn").onclick = async () => { await runTextProviderTest(); };
-    if($("testImageProviderBtn")) $("testImageProviderBtn").onclick = async () => { await runImageProviderTest(); };
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
@@ -11633,7 +11446,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
         $("settingsStatus").innerText = "Saved";
           try{ await afterSettingsSaved(); }catch(e){}
-          try{ await runSystemSelfTest(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
