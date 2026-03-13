@@ -8718,14 +8718,35 @@ function makeSeat(defn, idx){
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
 
+    async function getMicPermissionState(){
+      try{
+        if(!navigator.permissions || !navigator.permissions.query) return "unknown";
+        const result = await navigator.permissions.query({ name: "microphone" });
+        return (result && result.state) ? result.state : "unknown";
+      }catch(_){
+        return "unknown";
+      }
+    }
+
     async function ensureMicPermission(){
-      // No-op if media devices are not available.
       try{
         if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
-        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-        // Immediately stop tracks; we just want to prompt permission.
+
+        const before = await getMicPermissionState();
+        if(before === "granted") return true;
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
         try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
-        return true;
+
+        const after = await getMicPermissionState();
+        return after === "granted" || before === "prompt" || after === "prompt" || true;
       }catch(e){
         return false;
       }
@@ -8733,9 +8754,24 @@ function makeSeat(defn, idx){
 
     function micHelpText(){
       if(isInAppBrowser()){
-        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
+        return "Microphone access is often blocked inside Messenger, Facebook, and Instagram in-app browsers. If the permission prompt does not appear or the mic still will not start, open this page in Chrome or Safari, allow microphone access for this site, then try Talk or Always listen again.";
       }
-      return "If the mic won't start, check site permissions for microphone access and try again.";
+      return "Microphone access is blocked for this site. When prompted, tap Allow. If you already blocked it, use your browser's site settings or the lock icon to allow microphone access, then try again.";
+    }
+
+    async function preflightMicOrExplain(statusId){
+      const status = $(statusId);
+      if(status) status.innerText = "Mic: requesting permission";
+
+      const okPerm = await ensureMicPermission();
+      if(okPerm){
+        if(status) status.innerText = "Mic: ready";
+        return true;
+      }
+
+      if(status) status.innerText = "Mic: blocked";
+      showModal("Allow microphone", micHelpText());
+      return false;
     }
     // --- end voice patch ---
 
@@ -8830,8 +8866,17 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
-    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+    $("talkGroupBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      await startDictation("opPrompt", "micStatusGroup");
+    };
+
+    $("talkDmBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      await startDictation("followMsg", "micStatusDm");
+    };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -9091,22 +9136,26 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = () => {
+    $("alwaysListenGroupBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("group");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("group");
     };
 
-    $("alwaysListenDmBtn").onclick = () => {
+    $("alwaysListenDmBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("dm");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("dm");
     };
 
     async function conveneAll(){
