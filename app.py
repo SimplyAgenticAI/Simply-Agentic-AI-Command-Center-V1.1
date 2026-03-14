@@ -34,6 +34,13 @@ except Exception:
     google_build = None
     GoogleHttpError = Exception
 
+# Optional Claude / Anthropic support
+try:
+    import anthropic
+except Exception:
+    anthropic = None
+
+
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
