@@ -46,6 +46,9 @@ load_dotenv()
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openai")
 PORT = int(os.getenv("PORT", "5000"))
 
 # Uploads
