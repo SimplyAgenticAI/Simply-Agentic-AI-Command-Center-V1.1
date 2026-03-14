@@ -10482,8 +10482,7 @@ Challenge weak assumptions. Surface risks.`;
       lines.push((speechSupported() ? "✅" : "⚠️") + " SpeechRecognition API: " + (speechSupported() ? "available" : "missing"));
       lines.push((recorderMicSupported() ? "✅" : "⚠️") + " MediaRecorder mic fallback: " + (recorderMicSupported() ? "available" : "missing"));
       lines.push((isInAppBrowser() ? "⚠️" : "✅") + " In-app browser detected: " + (isInAppBrowser() ? "yes" : "no"));
-      return lines.join("
-");
+      return lines.join("\n");
     }
 
     async function runSystemSelfTest(){
