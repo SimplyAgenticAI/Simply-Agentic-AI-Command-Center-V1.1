@@ -5201,7 +5201,7 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: none;
+      resize: both;
       overflow: hidden;
       min-width: 560px;
       min-height: 420px;
@@ -7589,6 +7589,8 @@ function showModal(title, body, imgUrl){
       bar.addEventListener("pointerup", (e) => endDrag(e.pointerId));
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
+
+    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("modalWin", "modalBar", "floating:modal"); }catch(_){ }
 
     (function initModalResizePersist(){
       const win = $("modalWin");
@@ -12844,11 +12846,338 @@ maybeAutoShowOnboarding();
     70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
     100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
   }
+
+  /* ===== Additive visual polish + floating window controls ===== */
+  :root{
+    --glass-1: rgba(10,16,35,.78);
+    --glass-2: rgba(16,24,54,.92);
+    --line-1: rgba(116,150,255,.16);
+    --line-2: rgba(182,115,255,.24);
+    --glow-1: 0 18px 48px rgba(7,12,28,.40), 0 0 0 1px rgba(255,255,255,.03) inset;
+    --glow-2: 0 28px 80px rgba(56,22,125,.22), 0 10px 34px rgba(25,44,110,.20);
+  }
+
+  .topbar,
+  .sideCard,
+  .seat,
+  .modal,
+  #onbCard{
+    backdrop-filter: blur(14px) saturate(1.08);
+    box-shadow: var(--glow-1), var(--glow-2);
+  }
+
+  .topbar{
+    background:
+      linear-gradient(180deg, rgba(17,26,56,.92), rgba(8,12,28,.88));
+    border-bottom: 1px solid var(--line-1);
+  }
+
+  .sideCard,
+  .seat,
+  .modal,
+  #onbCard{
+    background:
+      radial-gradient(circle at top right, rgba(123,92,255,.12), transparent 34%),
+      radial-gradient(circle at top left, rgba(45,167,255,.10), transparent 28%),
+      linear-gradient(180deg, var(--glass-2), var(--glass-1));
+    border-color: var(--line-2) !important;
+  }
+
+  .seat{
+    transition: transform .16s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .seat:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 18px 42px rgba(13,22,50,.38), 0 0 24px rgba(123,92,255,.10);
+    border-color: rgba(151,120,255,.34) !important;
+  }
+
+  .btn,
+  .seatToolBtn{
+    box-shadow: 0 8px 22px rgba(10,16,34,.18);
+  }
+
+  .modal{
+    border: 1px solid rgba(152,124,255,.22);
+  }
+
+  .modalBar,
+  #onbHeader{
+    background:
+      linear-gradient(180deg, rgba(17,26,56,.78), rgba(9,14,31,.58));
+    border-bottom: 1px solid rgba(145,170,255,.12);
+  }
+
+  .winHandle{
+    position:absolute;
+    z-index: 120;
+    touch-action:none;
+    user-select:none;
+    opacity:.0;
+    transition: opacity .16s ease;
+  }
+  .modal:hover .winHandle,
+  #onboardingPanel:hover .winHandle,
+  .modal.window-active .winHandle,
+  #onboardingPanel.window-active .winHandle{
+    opacity:.96;
+  }
+  .winHandle::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius:999px;
+    background: linear-gradient(135deg, rgba(130,102,255,.85), rgba(65,190,255,.78));
+    box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 0 18px rgba(109,96,255,.28);
+  }
+  .winHandle.edge-n,.winHandle.edge-s{
+    height:8px; left:12px; right:12px; cursor:ns-resize;
+  }
+  .winHandle.edge-n{ top:-4px; }
+  .winHandle.edge-s{ bottom:-4px; }
+  .winHandle.edge-e,.winHandle.edge-w{
+    width:8px; top:12px; bottom:12px; cursor:ew-resize;
+  }
+  .winHandle.edge-e{ right:-4px; }
+  .winHandle.edge-w{ left:-4px; }
+  .winHandle.corner-nw,.winHandle.corner-ne,.winHandle.corner-sw,.winHandle.corner-se{
+    width:14px; height:14px; border-radius:999px;
+  }
+  .winHandle.corner-nw{ left:-6px; top:-6px; cursor:nwse-resize; }
+  .winHandle.corner-ne{ right:-6px; top:-6px; cursor:nesw-resize; }
+  .winHandle.corner-sw{ left:-6px; bottom:-6px; cursor:nesw-resize; }
+  .winHandle.corner-se{ right:-6px; bottom:-6px; cursor:nwse-resize; }
+
+  @media (max-width: 720px){
+    .winHandle{ display:none !important; }
+  }
 </style>
 
 <script>
 (function(){
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+  function addWindowHandles(win){
+    if(!win || win.dataset.windowHandles === "1") return;
+    win.dataset.windowHandles = "1";
+    const defs = ["n","s","e","w","nw","ne","sw","se"];
+    defs.forEach((dir)=>{
+      const h = document.createElement("div");
+      h.className = "winHandle " + (dir.length === 1 ? ("edge-" + dir) : ("corner-" + dir));
+      h.dataset.dir = dir;
+      win.appendChild(h);
+    });
+  }
+
+  function enableFloatingWindow(winId, headerId, keyPrefix){
+    const win = document.getElementById(winId);
+    const header = document.getElementById(headerId);
+    if(!win || !header) return;
+
+    addWindowHandles(win);
+
+    const state = {
+      mode: null,
+      dir: "",
+      startX: 0,
+      startY: 0,
+      startLeft: 0,
+      startTop: 0,
+      startWidth: 0,
+      startHeight: 0,
+      pointerId: null
+    };
+
+    function vw(){ return Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0); }
+    function vh(){ return Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0); }
+    function minW(){ return Math.max(parseFloat(getComputedStyle(win).minWidth) || 320, 280); }
+    function minH(){ return Math.max(parseFloat(getComputedStyle(win).minHeight) || 220, 180); }
+    function edgePad(){ return window.innerWidth <= 720 ? 0 : 8; }
+
+    function saveState(){
+      try{
+        const r = win.getBoundingClientRect();
+        localStorage.setItem(keyPrefix + ":geom", JSON.stringify({
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        }));
+      }catch(e){}
+    }
+
+    function loadState(){
+      try{
+        const raw = localStorage.getItem(keyPrefix + ":geom");
+        if(!raw) return;
+        const g = JSON.parse(raw);
+        if(!g || typeof g !== "object") return;
+        if(window.innerWidth <= 720 && winId === "modalWin") return;
+        if(Number.isFinite(g.width)) win.style.width = Math.max(minW(), g.width) + "px";
+        if(Number.isFinite(g.height)) win.style.height = Math.max(minH(), g.height) + "px";
+        if(Number.isFinite(g.left)){
+          win.style.right = "auto";
+          win.style.left = clamp(g.left, edgePad(), Math.max(edgePad(), vw() - (g.width || win.offsetWidth) - edgePad())) + "px";
+        }
+        if(Number.isFinite(g.top)){
+          win.style.bottom = "auto";
+          win.style.top = clamp(g.top, edgePad(), Math.max(edgePad(), vh() - (g.height || win.offsetHeight) - edgePad())) + "px";
+        }
+        if(winId === "modalWin"){
+          win.style.transform = "none";
+        }
+      }catch(e){}
+    }
+
+    function startMove(ev){
+      const r = win.getBoundingClientRect();
+      state.mode = "move";
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }else{
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }
+      try{ header.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function startResize(ev, dir){
+      const r = win.getBoundingClientRect();
+      state.mode = "resize";
+      state.dir = dir;
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+      }
+      win.style.right = "auto";
+      win.style.bottom = "auto";
+      win.style.left = r.left + "px";
+      win.style.top = r.top + "px";
+      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function onMove(ev){
+      if(!state.mode) return;
+      const dx = ev.clientX - state.startX;
+      const dy = ev.clientY - state.startY;
+
+      if(state.mode === "move"){
+        const nextLeft = clamp(state.startLeft + dx, edgePad(), Math.max(edgePad(), vw() - win.offsetWidth - edgePad()));
+        const nextTop = clamp(state.startTop + dy, edgePad(), Math.max(edgePad(), vh() - win.offsetHeight - edgePad()));
+        win.style.left = nextLeft + "px";
+        win.style.top = nextTop + "px";
+        return;
+      }
+
+      let left = state.startLeft;
+      let top = state.startTop;
+      let width = state.startWidth;
+      let height = state.startHeight;
+
+      if(state.dir.includes("e")) width = state.startWidth + dx;
+      if(state.dir.includes("s")) height = state.startHeight + dy;
+      if(state.dir.includes("w")){
+        width = state.startWidth - dx;
+        left = state.startLeft + dx;
+      }
+      if(state.dir.includes("n")){
+        height = state.startHeight - dy;
+        top = state.startTop + dy;
+      }
+
+      width = Math.max(minW(), width)
+      height = Math.max(minH(), height)
+
+      if(state.dir.includes("w")) left = state.startLeft + (state.startWidth - width);
+      if(state.dir.includes("n")) top = state.startTop + (state.startHeight - height);
+
+      width = Math.min(width, vw() - edgePad() - left);
+      height = Math.min(height, vh() - edgePad() - top);
+      left = clamp(left, edgePad(), Math.max(edgePad(), vw() - width - edgePad()));
+      top = clamp(top, edgePad(), Math.max(edgePad(), vh() - height - edgePad()));
+
+      win.style.left = left + "px";
+      win.style.top = top + "px";
+      win.style.width = width + "px";
+      win.style.height = height + "px";
+    }
+
+    function end(ev){
+      if(!state.mode) return;
+      try{
+        if(state.mode === "move") header.releasePointerCapture(state.pointerId);
+        else if(ev && ev.target && ev.target.releasePointerCapture) ev.target.releasePointerCapture(state.pointerId);
+      }catch(e){}
+      state.mode = null;
+      state.dir = "";
+      state.pointerId = null;
+      win.classList.remove("window-active");
+      saveState();
+    }
+
+    header.addEventListener("pointerdown", (ev)=>{
+      try{
+        if(ev.target && ev.target.closest && ev.target.closest("button")) return;
+      }catch(e){}
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      startMove(ev);
+    });
+    header.addEventListener("pointermove", onMove);
+    header.addEventListener("pointerup", end);
+    header.addEventListener("pointercancel", end);
+
+    Array.from(win.querySelectorAll(".winHandle")).forEach((h)=>{
+      h.addEventListener("pointerdown", (ev)=>{
+        if(window.innerWidth <= 720) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        startResize(ev, h.dataset.dir || "se");
+      });
+      h.addEventListener("pointermove", onMove);
+      h.addEventListener("pointerup", end);
+      h.addEventListener("pointercancel", end);
+    });
+
+    loadState();
+    window.addEventListener("resize", ()=>{
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      setTimeout(()=>{
+        try{
+          const r = win.getBoundingClientRect();
+          win.style.left = clamp(r.left, edgePad(), Math.max(edgePad(), vw() - r.width - edgePad())) + "px";
+          win.style.top = clamp(r.top, edgePad(), Math.max(edgePad(), vh() - r.height - edgePad())) + "px";
+          saveState();
+        }catch(e){}
+      }, 80);
+    }, {passive:true});
+  }
+
+  window.enableFloatingWindow = enableFloatingWindow;
+})();
+</script>
+
+<script>
+(function(){
   let onbData = null;
+
   let drag = {active:false, dx:0, dy:0};
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
@@ -13091,6 +13420,7 @@ maybeAutoShowOnboarding();
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
 
     wireDrag();
+    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("onboardingPanel", "onbHeader", "floating:onboarding"); }catch(_){ }
     wireHide();
     wireExit();
     wireOnboardingButtons();
