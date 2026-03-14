@@ -12110,9 +12110,1333 @@ maybeAutoShowOnboarding();
 })();
 </script>
 
+
+<style>
+#opsDock{
+  position: fixed;
+  left: 14px;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 285;
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  max-width:min(92vw, 720px);
+}
+#opsDock .opsBtn{
+  border:1px solid rgba(255,255,255,.14);
+  background: linear-gradient(180deg, rgba(18,28,58,.94), rgba(9,14,28,.92));
+  color: var(--text);
+  padding:10px 12px;
+  border-radius: 999px;
+  cursor:pointer;
+  font-weight:800;
+  font-size:12px;
+  letter-spacing:.2px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.28), 0 0 18px rgba(124,58,237,.12);
+  backdrop-filter: blur(10px);
+}
+#opsDock .opsBtn:hover{ transform: translateY(-1px); }
+#opsOverlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index: 286;
+  background: rgba(2,6,16,.62);
+}
+#opsOverlay.show{ display:block; }
+#opsPanel{
+  display:none;
+  position:fixed;
+  z-index: 287;
+  left: 50%;
+  top: 72px;
+  transform: translateX(-50%);
+  width:min(1180px, calc(100% - 20px));
+  max-width: calc(100% - 20px);
+  min-height: min(560px, calc(100vh - 100px));
+  max-height: calc(100vh - 92px);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(9,14,28,.96), rgba(6,10,20,.94));
+  box-shadow: 0 26px 80px rgba(0,0,0,.56), 0 0 60px rgba(59,130,246,.08);
+  overflow:hidden;
+  backdrop-filter: blur(12px);
+  resize: both;
+}
+#opsPanel.show{ display:flex; flex-direction:column; }
+#opsPanelHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(124,58,237,.14), rgba(59,130,246,.08));
+  cursor: grab;
+}
+#opsPanelTitle{
+  font-weight:900;
+  letter-spacing:.2px;
+  font-size:15px;
+}
+#opsPanelSub{ font-size:12px; color: var(--muted); }
+#opsPanelBody{
+  display:grid;
+  grid-template-columns: 220px 1fr;
+  min-height:0;
+  flex:1;
+}
+#opsSide{
+  border-right:1px solid rgba(255,255,255,.08);
+  padding:12px;
+  overflow:auto;
+  background: rgba(255,255,255,.02);
+}
+#opsMain{
+  padding:14px;
+  overflow:auto;
+}
+.opsNavBtn{
+  width:100%;
+  text-align:left;
+  margin-bottom:8px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  padding:10px 12px;
+  border-radius: 12px;
+  font-weight:700;
+  cursor:pointer;
+}
+.opsNavBtn.active{
+  background: linear-gradient(180deg, rgba(124,58,237,.22), rgba(59,130,246,.10));
+  border-color: rgba(124,58,237,.45);
+}
+.opsGrid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap:12px;
+}
+.opsCard{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  background: rgba(255,255,255,.04);
+  padding:12px;
+}
+.opsCard h4{
+  margin:0 0 8px 0;
+  font-size:13px;
+  letter-spacing:.2px;
+}
+.opsTiny{ font-size:12px; color: var(--muted); }
+.opsPill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:11px;
+  margin:0 6px 6px 0;
+  background: rgba(255,255,255,.04);
+}
+.opsRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.opsInput, .opsTextarea, .opsSelect{
+  width:100%;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.22);
+  color: var(--text);
+  border-radius:12px;
+  padding:10px 12px;
+  font-size:13px;
+}
+.opsTextarea{ min-height: 120px; resize: vertical; }
+.opsActions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.opsActionBtn{
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  padding:9px 12px;
+  border-radius: 12px;
+  cursor:pointer;
+  font-size:12px;
+  font-weight:700;
+}
+.opsActionBtn.primary{
+  background: linear-gradient(180deg, rgba(124,58,237,.26), rgba(59,130,246,.10));
+  border-color: rgba(124,58,237,.48);
+}
+.opsList{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.opsItem{
+  border:1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  padding:12px;
+  background: rgba(255,255,255,.04);
+}
+.opsItemTitle{
+  font-weight:800;
+  font-size:13px;
+  margin-bottom:6px;
+}
+.opsReason{
+  font-size:12px;
+  color: var(--muted);
+  margin-top:6px;
+}
+.opsScore{
+  font-weight:900;
+  font-size:14px;
+}
+.opsBadge{
+  display:inline-flex;
+  align-items:center;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:11px;
+  margin-right:6px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.05);
+}
+.opsPre{
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:10px;
+  background: rgba(0,0,0,.24);
+}
+@media (max-width: 900px){
+  #opsDock{
+    left: 10px;
+    right: 10px;
+    bottom: calc(86px + env(safe-area-inset-bottom));
+    max-width:none;
+  }
+  #opsPanel{
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    transform:none;
+    width:auto;
+    max-width:none;
+    max-height: calc(100vh - 20px);
+    min-height: calc(100vh - 20px);
+    resize: none;
+  }
+  #opsPanelBody{
+    grid-template-columns: 1fr;
+  }
+  #opsSide{
+    border-right:none;
+    border-bottom:1px solid rgba(255,255,255,.08);
+  }
+  .opsGrid{
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+
+<div id="opsDock">
+  <button class="opsBtn" id="opsOpenBtn">Ops Center</button>
+  <button class="opsBtn" id="opsQuickTaskBtn">Quick Task</button>
+  <button class="opsBtn" id="opsQuickScanBtn">FB Scan</button>
+</div>
+
+<div id="opsOverlay"></div>
+
+<div id="opsPanel" aria-hidden="true">
+  <div id="opsPanelHeader">
+    <div>
+      <div id="opsPanelTitle">Ops Command Center</div>
+      <div id="opsPanelSub">Tasks, diagnostics, teammate memory, and semi-auto Facebook review.</div>
+    </div>
+    <div class="opsRow">
+      <button class="opsActionBtn" id="opsRefreshBtn">Refresh</button>
+      <button class="opsActionBtn" id="opsSafeModeBtn">Safe Mode</button>
+      <button class="opsActionBtn" id="opsCloseBtn">Close</button>
+    </div>
+  </div>
+  <div id="opsPanelBody">
+    <div id="opsSide">
+      <button class="opsNavBtn active" data-ops-tab="dashboard">Dashboard</button>
+      <button class="opsNavBtn" data-ops-tab="tasks">Tasks</button>
+      <button class="opsNavBtn" data-ops-tab="memory">Memory</button>
+      <button class="opsNavBtn" data-ops-tab="facebook">Facebook</button>
+      <button class="opsNavBtn" data-ops-tab="insights">Post Insights</button>
+      <div class="opsCard" style="margin-top:12px;">
+        <h4>Quick status</h4>
+        <div id="opsQuickStats" class="opsTiny">Loading…</div>
+      </div>
+    </div>
+    <div id="opsMain">
+      <div class="opsTab" id="opsTab-dashboard">
+        <div class="opsGrid">
+          <div class="opsCard">
+            <h4>System readiness</h4>
+            <div id="opsSystemChecks" class="opsList"></div>
+          </div>
+          <div class="opsCard">
+            <h4>Startup snapshot</h4>
+            <div id="opsStartupChecks" class="opsList"></div>
+          </div>
+        </div>
+        <div class="opsCard" style="margin-top:12px;">
+          <h4>Recent events</h4>
+          <div id="opsEvents" class="opsList"></div>
+        </div>
+      </div>
+
+      <div class="opsTab" id="opsTab-tasks" style="display:none;">
+        <div class="opsGrid">
+          <div class="opsCard">
+            <h4>Create task</h4>
+            <div class="opsTiny">Use this for structured, semi-auto work instead of discovering what to do next on the fly.</div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Title</label>
+              <input class="opsInput" id="opsTaskTitle" placeholder="Ex: Facebook cleanup pass" />
+            </div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Type</label>
+              <select class="opsSelect" id="opsTaskType">
+                <option value="general">General</option>
+                <option value="facebook_cleanup">Facebook cleanup</option>
+                <option value="content_batch">Content batch</option>
+                <option value="lead_review">Lead review</option>
+                <option value="research">Research</option>
+              </select>
+            </div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Checklist</label>
+              <textarea class="opsTextarea" id="opsTaskChecklist" placeholder="One step per line"></textarea>
+            </div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Notes</label>
+              <textarea class="opsTextarea" id="opsTaskNotes" placeholder="Why this task matters, target URL, review notes, or safety reminders."></textarea>
+            </div>
+            <div class="opsActions">
+              <button class="opsActionBtn primary" id="opsCreateTaskBtn">Create task</button>
+            </div>
+          </div>
+          <div class="opsCard">
+            <h4>Active task queue</h4>
+            <div id="opsTasksList" class="opsList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="opsTab" id="opsTab-memory" style="display:none;">
+        <div class="opsGrid">
+          <div class="opsCard">
+            <h4>Save teammate memory</h4>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Teammate</label>
+              <input class="opsInput" id="opsMemoryTeammate" placeholder="Alex, Willow, Sunshine, Operator…" />
+            </div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Source</label>
+              <input class="opsInput" id="opsMemorySource" placeholder="manual, diagnostics, client call, content review" />
+            </div>
+            <div style="margin-top:10px;">
+              <label class="opsTiny">Note</label>
+              <textarea class="opsTextarea" id="opsMemoryNote" placeholder="Store something important so the teammate system keeps context."></textarea>
+            </div>
+            <div class="opsActions">
+              <button class="opsActionBtn primary" id="opsSaveMemoryBtn">Save memory</button>
+            </div>
+          </div>
+          <div class="opsCard">
+            <h4>Recent memory notes</h4>
+            <div id="opsMemoryList" class="opsList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="opsTab" id="opsTab-facebook" style="display:none;">
+        <div class="opsCard">
+          <h4>Facebook inactive friend review</h4>
+          <div class="opsTiny">Semi-auto only. Paste visible profile notes, friend list snippets, or manual review notes. The app scores candidates, then you review them manually inside Facebook before removing anyone.</div>
+          <div style="margin-top:10px;">
+            <textarea class="opsTextarea" id="opsFacebookRaw" placeholder="Paste copied friend rows, profile notes, or manual inactivity notes here. Separate people with blank lines for best results."></textarea>
+          </div>
+          <div class="opsActions">
+            <button class="opsActionBtn primary" id="opsRunFriendScanBtn">Analyze inactive candidates</button>
+          </div>
+        </div>
+        <div class="opsCard" style="margin-top:12px;">
+          <h4>Candidate review</h4>
+          <div id="opsFacebookCandidates" class="opsList"></div>
+        </div>
+      </div>
+
+      <div class="opsTab" id="opsTab-insights" style="display:none;">
+        <div class="opsCard">
+          <h4>Facebook post insights</h4>
+          <div class="opsTiny">Paste the post text and any metrics you have, like reach, comments, shares, saves, clicks, or reactions.</div>
+          <div style="margin-top:10px;">
+            <textarea class="opsTextarea" id="opsInsightsRaw" placeholder="Example:
+Hook: Facebook reach is often misunderstood…
+Reach: 2840
+Comments: 31
+Shares: 5
+Reactions: 72"></textarea>
+          </div>
+          <div class="opsActions">
+            <button class="opsActionBtn primary" id="opsAnalyzeInsightsBtn">Analyze post</button>
+          </div>
+        </div>
+        <div class="opsCard" style="margin-top:12px;">
+          <h4>Insight output</h4>
+          <div id="opsInsightsOutput" class="opsList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const OPS_STORE_KEY = "ops:center:v1";
+  const state = {
+    tab: "dashboard",
+    safeMode: false,
+    dashboard: null,
+    tasks: [],
+    notes: []
+  };
+
+  function ops$(id){ return document.getElementById(id); }
+  function opsQS(sel, root){ return (root||document).querySelector(sel); }
+  function escapeHtml(str){
+    return String(str == null ? "" : str)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  async function opsFetch(url, options){
+    const res = await fetch(url, Object.assign({headers: {"Content-Type":"application/json"}}, options || {}));
+    const data = await res.json().catch(()=>({ok:false, error:"Invalid server response"}));
+    if(!res.ok || !data.ok) throw new Error(data && data.error ? data.error : ("Request failed: " + res.status));
+    return data;
+  }
+  function saveOpsState(){
+    try{
+      localStorage.setItem(OPS_STORE_KEY, JSON.stringify({tab: state.tab, safeMode: !!state.safeMode}));
+    }catch(_){}
+  }
+  function loadOpsState(){
+    try{
+      const raw = localStorage.getItem(OPS_STORE_KEY);
+      if(!raw) return;
+      const obj = JSON.parse(raw);
+      if(obj && typeof obj === "object"){
+        if(obj.tab) state.tab = obj.tab;
+        state.safeMode = !!obj.safeMode;
+      }
+    }catch(_){}
+  }
+  function setSafeMode(on){
+    state.safeMode = !!on;
+    document.body.classList.toggle("opsSafeMode", !!on);
+    if(on){
+      try{
+        if(window.showToast) window.showToast("Ops safe mode enabled");
+      }catch(_){}
+    }
+    saveOpsState();
+  }
+  function levelBadge(ok){
+    return ok ? '<span class="opsBadge">OK</span>' : '<span class="opsBadge">Needs attention</span>';
+  }
+  function renderChecks(containerId, checks){
+    const el = ops$(containerId);
+    if(!el) return;
+    if(!checks || !checks.length){
+      el.innerHTML = '<div class="opsTiny">No checks returned.</div>';
+      return;
+    }
+    el.innerHTML = checks.map(item => `
+      <div class="opsItem">
+        <div class="opsItemTitle">${escapeHtml(item.name || "Check")} ${levelBadge(!!item.ok)}</div>
+        <div class="opsReason">${escapeHtml(item.detail || "")}</div>
+      </div>
+    `).join("");
+  }
+  function renderEvents(events){
+    const el = ops$("opsEvents");
+    if(!el) return;
+    if(!events || !events.length){
+      el.innerHTML = '<div class="opsTiny">No recent events yet.</div>';
+      return;
+    }
+    el.innerHTML = events.slice().reverse().map(item => `
+      <div class="opsItem">
+        <div class="opsItemTitle">${escapeHtml(item.message || item.kind || "Event")}</div>
+        <div class="opsReason">${escapeHtml(item.ts || "")} • ${escapeHtml(item.level || "info")}</div>
+        ${item.detail ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(typeof item.detail === "string" ? item.detail : JSON.stringify(item.detail, null, 2))}</div>` : ''}
+      </div>
+    `).join("");
+  }
+  function renderQuickStats(payload){
+    const el = ops$("opsQuickStats");
+    if(!el) return;
+    const counts = (payload && payload.task_counts) || {};
+    el.innerHTML = `
+      <div class="opsPill">Queued: ${counts.queued || 0}</div>
+      <div class="opsPill">Running: ${counts.running || 0}</div>
+      <div class="opsPill">Needs review: ${counts.needs_review || 0}</div>
+      <div class="opsPill">Done: ${counts.done || 0}</div>
+      <div class="opsTiny" style="margin-top:8px;">Safe mode: ${state.safeMode ? "ON" : "OFF"}</div>
+    `;
+  }
+  function taskButtons(task){
+    const id = String(task.id || "");
+    return `
+      <div class="opsActions">
+        <button class="opsActionBtn" data-task-action="start" data-task-id="${escapeHtml(id)}">Start</button>
+        <button class="opsActionBtn" data-task-action="review" data-task-id="${escapeHtml(id)}">Needs review</button>
+        <button class="opsActionBtn" data-task-action="done" data-task-id="${escapeHtml(id)}">Done</button>
+        <button class="opsActionBtn" data-task-action="reset" data-task-id="${escapeHtml(id)}">Reset</button>
+      </div>
+    `;
+  }
+  function renderTasks(tasks){
+    const el = ops$("opsTasksList");
+    if(!el) return;
+    if(!tasks || !tasks.length){
+      el.innerHTML = '<div class="opsTiny">No tasks yet. Create one on the left.</div>';
+      return;
+    }
+    el.innerHTML = tasks.slice().reverse().map(task => {
+      const steps = Array.isArray(task.checklist) ? task.checklist : [];
+      return `
+        <div class="opsItem">
+          <div class="opsRow" style="justify-content:space-between;">
+            <div class="opsItemTitle">${escapeHtml(task.title || "Task")}</div>
+            <div class="opsScore">${escapeHtml(task.status || "queued")}</div>
+          </div>
+          <div class="opsReason">${escapeHtml(task.type || "general")} • ${escapeHtml(task.updated_at || task.created_at || "")}</div>
+          ${task.notes ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(task.notes)}</div>` : ''}
+          ${steps.length ? `<div class="opsList" style="margin-top:8px;">${steps.map((step, idx)=>`
+            <div class="opsItem" style="padding:8px 10px;">
+              <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+                <input type="checkbox" data-task-step="${idx}" data-task-id="${escapeHtml(task.id || "")}" ${step.done ? 'checked' : ''}/>
+                <span>${escapeHtml(step.label || "")}</span>
+              </label>
+            </div>`).join("")}</div>` : ''}
+          ${taskButtons(task)}
+        </div>
+      `;
+    }).join("");
+  }
+  function renderMemory(notes){
+    const el = ops$("opsMemoryList");
+    if(!el) return;
+    if(!notes || !notes.length){
+      el.innerHTML = '<div class="opsTiny">No memory notes saved yet.</div>';
+      return;
+    }
+    el.innerHTML = notes.slice().reverse().map(note => `
+      <div class="opsItem">
+        <div class="opsItemTitle">${escapeHtml(note.teammate || "operator")} <span class="opsBadge">${escapeHtml(note.source || "manual")}</span></div>
+        <div class="opsReason">${escapeHtml(note.created_at || "")}</div>
+        <div class="opsPre" style="margin-top:8px;">${escapeHtml(note.note || "")}</div>
+      </div>
+    `).join("");
+  }
+  function renderCandidates(items){
+    const el = ops$("opsFacebookCandidates");
+    if(!el) return;
+    if(!items || !items.length){
+      el.innerHTML = '<div class="opsTiny">No candidates yet. Run a scan above.</div>';
+      return;
+    }
+    el.innerHTML = items.map(item => `
+      <div class="opsItem">
+        <div class="opsRow" style="justify-content:space-between;">
+          <div class="opsItemTitle">${escapeHtml(item.name || "Unknown")}</div>
+          <div class="opsScore">${escapeHtml(item.score || 0)}/100</div>
+        </div>
+        <div class="opsReason">Recommended action: ${escapeHtml(item.recommended_action || "review")}</div>
+        <div class="opsReason">${(item.reasons || []).map(escapeHtml).join(" • ")}</div>
+        <details style="margin-top:8px;">
+          <summary class="opsTiny" style="cursor:pointer;">Show raw note</summary>
+          <div class="opsPre" style="margin-top:8px;">${escapeHtml(item.raw || "")}</div>
+        </details>
+      </div>
+    `).join("");
+  }
+  function renderInsights(analysis){
+    const el = ops$("opsInsightsOutput");
+    if(!el) return;
+    if(!analysis){
+      el.innerHTML = '<div class="opsTiny">Paste a post and run analysis.</div>';
+      return;
+    }
+    const metrics = analysis.metrics || {};
+    el.innerHTML = `
+      <div class="opsItem">
+        <div class="opsItemTitle">${escapeHtml(analysis.summary || "Analysis")}</div>
+        <div class="opsRow" style="margin-top:8px;">
+          <span class="opsPill">Reactions: ${metrics.reactions || 0}</span>
+          <span class="opsPill">Comments: ${metrics.comments || 0}</span>
+          <span class="opsPill">Shares: ${metrics.shares || 0}</span>
+          <span class="opsPill">Clicks: ${metrics.clicks || 0}</span>
+          <span class="opsPill">Saves: ${metrics.saves || 0}</span>
+          <span class="opsPill">Reach: ${metrics.reach || 0}</span>
+        </div>
+      </div>
+      <div class="opsGrid" style="margin-top:12px;">
+        <div class="opsCard">
+          <h4>Findings</h4>
+          <div class="opsList">${(analysis.findings || []).map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>
+        </div>
+        <div class="opsCard">
+          <h4>Next moves</h4>
+          <div class="opsList">${(analysis.next_moves || []).map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>
+        </div>
+      </div>
+    `;
+  }
+  function showTab(tab){
+    state.tab = tab;
+    saveOpsState();
+    document.querySelectorAll(".opsNavBtn").forEach(btn => btn.classList.toggle("active", btn.getAttribute("data-ops-tab") === tab));
+    document.querySelectorAll(".opsTab").forEach(el => el.style.display = "none");
+    const active = ops$("opsTab-" + tab);
+    if(active) active.style.display = "";
+  }
+  async function loadDashboard(){
+    const payload = await opsFetch("/api/ops/dashboard");
+    state.dashboard = payload;
+    renderChecks("opsSystemChecks", (payload.self_test && payload.self_test.checks) || []);
+    renderChecks("opsStartupChecks", (payload.startup && payload.startup.checks) || []);
+    renderEvents(payload.events || []);
+    renderQuickStats(payload);
+  }
+  async function loadTasks(){
+    const payload = await opsFetch("/api/ops/tasks");
+    state.tasks = payload.tasks || [];
+    renderTasks(state.tasks);
+    if(state.dashboard){
+      state.dashboard.task_counts = payload.counts || {};
+      renderQuickStats(state.dashboard);
+    }
+  }
+  async function loadMemory(){
+    const payload = await opsFetch("/api/ops/memory");
+    state.notes = payload.notes || [];
+    renderMemory(state.notes);
+  }
+  async function refreshAll(){
+    try{
+      await loadDashboard();
+      await loadTasks();
+      await loadMemory();
+    }catch(err){
+      console.error(err);
+      try{ if(window.showToast) window.showToast(err.message || "Ops refresh failed"); }catch(_){}
+    }
+  }
+  function openOpsPanel(tab){
+    if(tab) showTab(tab);
+    ops$("opsOverlay").classList.add("show");
+    ops$("opsPanel").classList.add("show");
+    ops$("opsPanel").setAttribute("aria-hidden", "false");
+    refreshAll();
+  }
+  function closeOpsPanel(){
+    ops$("opsOverlay").classList.remove("show");
+    ops$("opsPanel").classList.remove("show");
+    ops$("opsPanel").setAttribute("aria-hidden", "true");
+  }
+  async function createTaskFromForm(prefill){
+    const titleEl = ops$("opsTaskTitle");
+    const typeEl = ops$("opsTaskType");
+    const checkEl = ops$("opsTaskChecklist");
+    const notesEl = ops$("opsTaskNotes");
+    if(prefill){
+      if(titleEl && prefill.title) titleEl.value = prefill.title;
+      if(typeEl && prefill.type) typeEl.value = prefill.type;
+      if(checkEl && prefill.checklist) checkEl.value = prefill.checklist;
+      if(notesEl && prefill.notes) notesEl.value = prefill.notes;
+      openOpsPanel("tasks");
+      return;
+    }
+    const payload = {
+      title: titleEl ? titleEl.value : "",
+      type: typeEl ? typeEl.value : "general",
+      checklist: checkEl ? checkEl.value : "",
+      notes: notesEl ? notesEl.value : "",
+      semi_auto: true
+    };
+    const data = await opsFetch("/api/ops/tasks", {method:"POST", body: JSON.stringify(payload)});
+    if(titleEl) titleEl.value = "";
+    if(checkEl) checkEl.value = "";
+    if(notesEl) notesEl.value = "";
+    await loadTasks();
+    await loadDashboard();
+    try{ if(window.showToast) window.showToast("Task created"); }catch(_){}
+    return data;
+  }
+  async function saveMemory(){
+    const payload = {
+      teammate: (ops$("opsMemoryTeammate")||{}).value || "operator",
+      source: (ops$("opsMemorySource")||{}).value || "manual",
+      note: (ops$("opsMemoryNote")||{}).value || ""
+    };
+    await opsFetch("/api/ops/memory", {method:"POST", body: JSON.stringify(payload)});
+    if(ops$("opsMemoryNote")) ops$("opsMemoryNote").value = "";
+    await loadMemory();
+    await loadDashboard();
+    try{ if(window.showToast) window.showToast("Memory saved"); }catch(_){}
+  }
+  async function runFriendScan(){
+    const raw = (ops$("opsFacebookRaw")||{}).value || "";
+    const payload = await opsFetch("/api/facebook/friend_scan", {method:"POST", body: JSON.stringify({raw_text: raw})});
+    renderCandidates(payload.candidates || []);
+    await loadTasks();
+    await loadDashboard();
+    showTab("facebook");
+  }
+  async function runPostInsights(){
+    const raw = (ops$("opsInsightsRaw")||{}).value || "";
+    const payload = await opsFetch("/api/facebook/post_insights", {method:"POST", body: JSON.stringify({raw_text: raw})});
+    renderInsights(payload.analysis || null);
+    await loadDashboard();
+  }
+  async function logUiEvent(kind, message, detail, level){
+    try{
+      await opsFetch("/api/ops/event", {method:"POST", body: JSON.stringify({kind, message, detail, level})});
+    }catch(_){}
+  }
+  function wireTaskActions(){
+    document.addEventListener("click", async (e)=>{
+      const btn = e.target && e.target.closest ? e.target.closest("[data-task-action]") : null;
+      if(!btn) return;
+      const taskId = btn.getAttribute("data-task-id");
+      const action = btn.getAttribute("data-task-action");
+      if(!taskId || !action) return;
+      try{
+        await opsFetch(`/api/ops/tasks/${taskId}/action`, {method:"POST", body: JSON.stringify({action})});
+        await loadTasks();
+        await loadDashboard();
+      }catch(err){
+        try{ if(window.showToast) window.showToast(err.message || "Task update failed"); }catch(_){}
+      }
+    });
+    document.addEventListener("change", async (e)=>{
+      const cb = e.target;
+      if(!cb || !cb.matches || !cb.matches("[data-task-step]")) return;
+      const taskId = cb.getAttribute("data-task-id");
+      const stepIndex = Number(cb.getAttribute("data-task-step") || 0);
+      try{
+        await opsFetch(`/api/ops/tasks/${taskId}/action`, {method:"POST", body: JSON.stringify({action:"toggle_step", step_index: stepIndex})});
+        await loadTasks();
+      }catch(err){
+        try{ if(window.showToast) window.showToast(err.message || "Checklist update failed"); }catch(_){}
+      }
+    });
+  }
+  function wirePanel(){
+    const panel = ops$("opsPanel");
+    const overlay = ops$("opsOverlay");
+    const openBtn = ops$("opsOpenBtn");
+    const quickTaskBtn = ops$("opsQuickTaskBtn");
+    const quickScanBtn = ops$("opsQuickScanBtn");
+    const closeBtn = ops$("opsCloseBtn");
+    const refreshBtn = ops$("opsRefreshBtn");
+    const safeBtn = ops$("opsSafeModeBtn");
+
+    if(openBtn) openBtn.addEventListener("click", ()=> openOpsPanel("dashboard"));
+    if(closeBtn) closeBtn.addEventListener("click", closeOpsPanel);
+    if(overlay) overlay.addEventListener("click", closeOpsPanel);
+    if(refreshBtn) refreshBtn.addEventListener("click", refreshAll);
+    if(safeBtn) safeBtn.addEventListener("click", ()=> setSafeMode(!state.safeMode));
+    if(quickTaskBtn) quickTaskBtn.addEventListener("click", ()=> createTaskFromForm({
+      title: "Semi-auto review pass",
+      type: "general",
+      checklist: "Review diagnostics\nReview current queue\nStart the highest-value task\nLeave a note before closing",
+      notes: "Use this as a structured operator pass."
+    }));
+    if(quickScanBtn) quickScanBtn.addEventListener("click", ()=> openOpsPanel("facebook"));
+
+    document.querySelectorAll(".opsNavBtn").forEach(btn=>{
+      btn.addEventListener("click", ()=> showTab(btn.getAttribute("data-ops-tab") || "dashboard"));
+    });
+    const createBtn = ops$("opsCreateTaskBtn");
+    if(createBtn) createBtn.addEventListener("click", ()=> createTaskFromForm());
+    const memBtn = ops$("opsSaveMemoryBtn");
+    if(memBtn) memBtn.addEventListener("click", saveMemory);
+    const scanBtn = ops$("opsRunFriendScanBtn");
+    if(scanBtn) scanBtn.addEventListener("click", runFriendScan);
+    const insightBtn = ops$("opsAnalyzeInsightsBtn");
+    if(insightBtn) insightBtn.addEventListener("click", runPostInsights);
+
+    try{
+      if(window.enableFloatingWindow){
+        window.enableFloatingWindow("opsPanel", "opsPanelHeader", "floating:ops");
+      }
+    }catch(_){}
+  }
+
+  loadOpsState();
+  setSafeMode(state.safeMode);
+  document.addEventListener("DOMContentLoaded", ()=>{
+    showTab(state.tab || "dashboard");
+    wirePanel();
+    wireTaskActions();
+    window.addEventListener("error", (e)=>{
+      logUiEvent("ui_error", e && e.message ? e.message : "Unknown UI error", {source: e && e.filename, line: e && e.lineno}, "error");
+    });
+    window.addEventListener("unhandledrejection", (e)=>{
+      const reason = e && e.reason && e.reason.message ? e.reason.message : String((e && e.reason) || "Promise rejection");
+      logUiEvent("promise_rejection", reason, {}, "error");
+    });
+  });
+
+  try{
+    window.opsOpenPanel = openOpsPanel;
+    window.opsRefreshAll = refreshAll;
+  }catch(_){}
+})();
+</script>
+
 </body>
 </html>
 """
+
+
+# =========================================================
+# OPS COMMAND CENTER ADDITIVE PATCH
+# =========================================================
+
+OPS_DIR = DATA / "ops_center"
+OPS_DIR.mkdir(exist_ok=True)
+
+def _ops_user_dir(username: str) -> Path:
+    p = OPS_DIR / _safe_name(username or "anon")
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+def _ops_user_json(username: str, name: str, default: Dict[str, Any]) -> Dict[str, Any]:
+    path = _ops_user_dir(username) / f"{_safe_name(name)}.json"
+    data = load_json(path, default)
+    if not isinstance(data, dict):
+        data = default
+    return data
+
+def _ops_save_user_json(username: str, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    path = _ops_user_dir(username) / f"{_safe_name(name)}.json"
+    save_json(path, payload)
+    return payload
+
+def _load_ops_tasks(username: str) -> Dict[str, Any]:
+    data = _ops_user_json(username, "tasks", {"tasks": [], "updated_at": None})
+    tasks = data.get("tasks")
+    if not isinstance(tasks, list):
+        tasks = []
+    data["tasks"] = tasks
+    return data
+
+def _save_ops_tasks(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    data["updated_at"] = now_iso()
+    return _ops_save_user_json(username, "tasks", data)
+
+def _load_ops_memory(username: str) -> Dict[str, Any]:
+    data = _ops_user_json(username, "memory", {"notes": [], "updated_at": None})
+    notes = data.get("notes")
+    if not isinstance(notes, list):
+        notes = []
+    data["notes"] = notes
+    return data
+
+def _save_ops_memory(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    data["updated_at"] = now_iso()
+    return _ops_save_user_json(username, "memory", data)
+
+def _load_ops_events(username: str) -> Dict[str, Any]:
+    data = _ops_user_json(username, "events", {"events": [], "updated_at": None})
+    events = data.get("events")
+    if not isinstance(events, list):
+        events = []
+    data["events"] = events
+    return data
+
+def _save_ops_events(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    data["updated_at"] = now_iso()
+    return _ops_save_user_json(username, "events", data)
+
+def _append_ops_event(username: str, kind: str, message: str, detail: Any = None, level: str = "info") -> Dict[str, Any]:
+    data = _load_ops_events(username)
+    event = {
+        "id": "evt_" + uuid.uuid4().hex[:10],
+        "ts": now_iso(),
+        "kind": (kind or "log").strip()[:64],
+        "message": (message or "").strip()[:300],
+        "detail": detail if isinstance(detail, (dict, list, str, int, float, bool)) or detail is None else str(detail),
+        "level": (level or "info").strip()[:16],
+    }
+    data["events"] = (data.get("events") or [])[-199:] + [event]
+    _save_ops_events(username, data)
+    return event
+
+def _ops_recent_events(username: str, limit: int = 50) -> List[Dict[str, Any]]:
+    data = _load_ops_events(username)
+    items = data.get("events") or []
+    if not isinstance(items, list):
+        return []
+    return items[-max(1, min(limit, 200)):]
+
+def _new_ops_task(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    now = now_iso()
+    title = (payload.get("title") or "").strip()[:140]
+    if not title:
+        title = "Untitled task"
+    task_type = (payload.get("type") or "general").strip()[:80]
+    checklist = payload.get("checklist") or []
+    if isinstance(checklist, str):
+        checklist = [x.strip() for x in checklist.splitlines() if x.strip()]
+    if not isinstance(checklist, list):
+        checklist = []
+    clean_steps = []
+    for item in checklist[:30]:
+        if isinstance(item, dict):
+            label = (item.get("label") or "").strip()
+        else:
+            label = str(item).strip()
+        if label:
+            clean_steps.append({"label": label[:160], "done": False})
+    task = {
+        "id": "task_" + uuid.uuid4().hex[:10],
+        "title": title,
+        "type": task_type,
+        "status": (payload.get("status") or "queued").strip()[:24],
+        "priority": (payload.get("priority") or "normal").strip()[:24],
+        "semi_auto": bool(payload.get("semi_auto", True)),
+        "notes": (payload.get("notes") or "").strip()[:2000],
+        "target_url": (payload.get("target_url") or "").strip()[:500],
+        "source": (payload.get("source") or "manual").strip()[:80],
+        "created_at": now,
+        "updated_at": now,
+        "completed_at": None,
+        "teammate": (payload.get("teammate") or "").strip()[:64],
+        "checklist": clean_steps,
+        "result": payload.get("result") if isinstance(payload.get("result"), (dict, list, str, int, float, bool)) or payload.get("result") is None else str(payload.get("result")),
+    }
+    return task
+
+def _find_ops_task(username: str, task_id: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], int]:
+    data = _load_ops_tasks(username)
+    tasks = data.get("tasks") or []
+    for idx, task in enumerate(tasks):
+        if isinstance(task, dict) and task.get("id") == task_id:
+            return task, data, idx
+    return None, data, -1
+
+def _task_counts(tasks: List[Dict[str, Any]]) -> Dict[str, int]:
+    out = {"queued": 0, "running": 0, "needs_review": 0, "done": 0}
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        status = (t.get("status") or "queued").strip()
+        if status not in out:
+            out[status] = 0
+        out[status] += 1
+    return out
+
+def _ops_startup_snapshot() -> Dict[str, Any]:
+    items = []
+    def add(name: str, ok: bool, detail: str):
+        items.append({"name": name, "ok": bool(ok), "detail": detail})
+    add("Data directory", DATA.exists(), f"{DATA}")
+    add("Uploads directory", UPLOADS_DIR.exists(), f"{UPLOADS_DIR}")
+    add("Threads directory", THREADS_DIR.exists(), f"{THREADS_DIR}")
+    add("OpenAI import", True, "openai package imported")
+    add("Anthropic import", anthropic is not None, "anthropic available" if anthropic is not None else "anthropic missing")
+    add("OpenAI env", bool(OPENAI_API_KEY), "OPENAI_API_KEY available" if OPENAI_API_KEY else "OPENAI_API_KEY not set")
+    add("Claude env", bool(CLAUDE_API_KEY), "CLAUDE_API_KEY available" if CLAUDE_API_KEY else "CLAUDE_API_KEY not set")
+    return {"ok": all(i["ok"] for i in items if i["name"] not in ("Claude env", "Anthropic import")), "checks": items, "generated_at": now_iso()}
+
+OPS_STARTUP_SNAPSHOT = _ops_startup_snapshot()
+
+def _extract_years(raw: str) -> List[int]:
+    years = []
+    for y in re.findall(r"\b(20\d{2}|19\d{2})\b", raw or ""):
+        try:
+            years.append(int(y))
+        except Exception:
+            pass
+    return years
+
+def _facebook_activity_score(raw: str) -> Tuple[int, List[str], str]:
+    txt = (raw or "").strip()
+    low = txt.lower()
+    reasons = []
+    score = 50
+
+    inactivity_signals = [
+        ("no mutual friends", 14),
+        ("no mutual groups", 16),
+        ("no mutuals", 14),
+        ("lives in", 2),
+        ("joined facebook", 8),
+        ("no recent posts", 18),
+        ("inactive", 20),
+        ("last active", 12),
+        ("message unavailable", 5),
+    ]
+    strong_keep = [
+        ("family", -28),
+        ("client", -30),
+        ("lead", -16),
+        ("realtor", -10),
+        ("investor", -10),
+        ("recently posted", -18),
+        ("commented", -18),
+        ("reacted", -12),
+        ("mutual friends", -8),
+        ("mutual groups", -6),
+    ]
+
+    for phrase, delta in inactivity_signals:
+        if phrase in low:
+            score += delta
+            reasons.append(f"Signal: {phrase}")
+    for phrase, delta in strong_keep:
+        if phrase in low:
+            score += delta
+            reasons.append(f"Counter-signal: {phrase}")
+
+    yrs = _extract_years(txt)
+    if yrs:
+        latest = max(yrs)
+        age = max(0, datetime.utcnow().year - latest)
+        if age >= 4:
+            score += min(30, age * 5)
+            reasons.append(f"Latest visible year looks old: {latest}")
+        elif age <= 1:
+            score -= 18
+            reasons.append(f"Recent year found: {latest}")
+
+    if len(txt) < 40:
+        score += 6
+        reasons.append("Very little activity context provided")
+
+    score = max(0, min(100, score))
+    if score >= 70:
+        action = "remove_candidate"
+    elif score >= 45:
+        action = "review"
+    else:
+        action = "keep"
+    if not reasons:
+        reasons.append("No strong inactivity signal found")
+    return score, reasons[:6], action
+
+def _parse_friend_scan_text(raw_text: str) -> List[Dict[str, Any]]:
+    raw_text = (raw_text or "").strip()
+    if not raw_text:
+        return []
+    chunks = [c.strip() for c in re.split(r"\n\s*\n+", raw_text) if c.strip()]
+    if len(chunks) == 1:
+        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+        if len(lines) > 1 and len(lines) <= 80:
+            chunks = lines
+    out = []
+    seen = set()
+    for chunk in chunks[:150]:
+        first_line = chunk.splitlines()[0].strip()
+        name = re.sub(r"\s{2,}", " ", first_line)[:120]
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        score, reasons, action = _facebook_activity_score(chunk)
+        out.append({
+            "id": "fb_" + uuid.uuid4().hex[:10],
+            "name": name,
+            "score": score,
+            "recommended_action": action,
+            "reasons": reasons,
+            "raw": chunk[:3000],
+        })
+    out.sort(key=lambda x: (-int(x.get("score") or 0), (x.get("name") or "").lower()))
+    return out
+
+def _parse_metric_number(label: str, text_blob: str) -> Optional[int]:
+    patterns = [
+        rf"{label}\s*[:=]\s*([\d,]+)",
+        rf"{label}\s+([\d,]+)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text_blob, re.I)
+        if m:
+            try:
+                return int(m.group(1).replace(",", ""))
+            except Exception:
+                return None
+    return None
+
+def _facebook_post_insights(raw_text: str) -> Dict[str, Any]:
+    raw_text = (raw_text or "").strip()
+    low = raw_text.lower()
+    reactions = _parse_metric_number("reactions?", raw_text) or _parse_metric_number("likes?", raw_text) or 0
+    comments = _parse_metric_number("comments?", raw_text) or 0
+    shares = _parse_metric_number("shares?", raw_text) or 0
+    clicks = _parse_metric_number("clicks?", raw_text) or 0
+    reach = _parse_metric_number("reach", raw_text) or 0
+    saves = _parse_metric_number("saves?", raw_text) or 0
+
+    score = reactions + comments * 3 + shares * 5 + saves * 4 + clicks * 2
+    findings = []
+    next_moves = []
+
+    if comments >= max(8, reactions * 0.15 if reactions else 8):
+        findings.append("Comment rate looks strong. The post likely invited conversation instead of broadcasting.")
+        next_moves.append("Write a pinned comment that asks a narrow follow-up question to extend the thread.")
+    if shares >= 3:
+        findings.append("Share activity is present, which usually means the idea feels identity-aligned or useful.")
+        next_moves.append("Turn this topic into a sharper quote graphic or carousel while the signal is warm.")
+    if reactions > 0 and comments == 0:
+        findings.append("The post is getting passive approval more than conversation.")
+        next_moves.append("Rewrite the closing line into a simpler, lower-friction question.")
+    if reach and score:
+        er = round((score / max(reach, 1)) * 100, 2)
+        findings.append(f"Estimated weighted engagement score vs reach: {er}%")
+    if "question" in low:
+        findings.append("The copy appears to include a question, which usually helps comment depth.")
+    if "story" in low or "experience" in low:
+        findings.append("Story-style framing is present, which often improves read time and relatability.")
+    if not findings:
+        findings.append("Not enough structured metrics were found for a strong reading, but the paste is stored for review.")
+        next_moves.append("Paste the post text plus reach, reactions, comments, and shares for a stronger diagnosis.")
+    if not next_moves:
+        next_moves.append("Test a shorter hook with a more specific audience angle.")
+        next_moves.append("Reply to early comments quickly to increase conversation velocity.")
+    return {
+        "metrics": {
+            "reactions": reactions,
+            "comments": comments,
+            "shares": shares,
+            "clicks": clicks,
+            "saves": saves,
+            "reach": reach,
+            "weighted_score": score,
+        },
+        "findings": findings[:6],
+        "next_moves": next_moves[:6],
+        "summary": "Conversation-led signal looks promising." if comments or shares else "This looks more passive than conversational so far.",
+    }
+
+def _ops_dashboard_payload(username: str, user_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    user_obj = user_obj or {}
+    self_test = _run_system_self_test_for_user(user_obj) if isinstance(user_obj, dict) else {"ok": False, "checks": []}
+    tasks = _load_ops_tasks(username).get("tasks") or []
+    notes = _load_ops_memory(username).get("notes") or []
+    events = _ops_recent_events(username, 40)
+    counts = _task_counts([t for t in tasks if isinstance(t, dict)])
+    return {
+        "ok": True,
+        "startup": OPS_STARTUP_SNAPSHOT,
+        "self_test": self_test,
+        "task_counts": counts,
+        "recent_tasks": [t for t in tasks[-12:] if isinstance(t, dict)],
+        "recent_notes": [n for n in notes[-12:] if isinstance(n, dict)],
+        "events": events,
+        "feature_flags": {
+            "ops_center": True,
+            "semi_auto_facebook": True,
+            "memory_notes": True,
+            "task_engine": True,
+            "post_insights": True,
+        }
+    }
+
+@app.get("/api/ops/dashboard")
+def api_ops_dashboard():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    return jsonify(_ops_dashboard_payload(username, u))
+
+@app.get("/api/ops/tasks")
+def api_ops_tasks_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    data = _load_ops_tasks(username)
+    tasks = [t for t in (data.get("tasks") or []) if isinstance(t, dict)]
+    tasks.sort(key=lambda x: ((x.get("status") or "") == "done", x.get("updated_at") or ""), reverse=False)
+    return jsonify({"ok": True, "tasks": tasks, "counts": _task_counts(tasks)})
+
+@app.post("/api/ops/tasks")
+def api_ops_tasks_post():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    task = _new_ops_task(username, payload)
+    data = _load_ops_tasks(username)
+    data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
+    _save_ops_tasks(username, data)
+    _append_ops_event(username, "task_created", f"Task created: {task.get('title')}", {"task_id": task.get("id"), "type": task.get("type")})
+    append_task_log("ops_task_created", {"task": task}, teammate=task.get("teammate") or "", status="success")
+    return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+
+@app.post("/api/ops/tasks/<task_id>/action")
+def api_ops_task_action(task_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or "").strip().lower()
+    task, data, idx = _find_ops_task(username, task_id)
+    if not task:
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+    if action == "start":
+        task["status"] = "running"
+    elif action == "review":
+        task["status"] = "needs_review"
+    elif action == "done":
+        task["status"] = "done"
+        task["completed_at"] = now_iso()
+    elif action == "reset":
+        task["status"] = "queued"
+        task["completed_at"] = None
+        for step in (task.get("checklist") or []):
+            if isinstance(step, dict):
+                step["done"] = False
+    elif action == "toggle_step":
+        step_index = int(payload.get("step_index") or 0)
+        steps = task.get("checklist") or []
+        if 0 <= step_index < len(steps) and isinstance(steps[step_index], dict):
+            steps[step_index]["done"] = not bool(steps[step_index].get("done"))
+    elif action == "note":
+        note = (payload.get("note") or "").strip()
+        task["notes"] = (task.get("notes") or "")
+        if note:
+            task["notes"] = ((task.get("notes") or "").strip() + ("\n\n" if (task.get("notes") or "").strip() else "") + note)[:4000]
+    else:
+        return jsonify({"ok": False, "error": "Unsupported action"}), 400
+    task["updated_at"] = now_iso()
+    data["tasks"][idx] = task
+    _save_ops_tasks(username, data)
+    _append_ops_event(username, "task_updated", f"{task.get('title')} → {task.get('status')}", {"task_id": task_id, "action": action})
+    return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+
+@app.get("/api/ops/memory")
+def api_ops_memory_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    data = _load_ops_memory(username)
+    notes = [n for n in (data.get("notes") or []) if isinstance(n, dict)]
+    teammate = (request.args.get("teammate") or "").strip().lower()
+    if teammate:
+        notes = [n for n in notes if (n.get("teammate") or "").strip().lower() == teammate]
+    return jsonify({"ok": True, "notes": notes[-150:]})
+
+@app.post("/api/ops/memory")
+def api_ops_memory_post():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    note_text = (payload.get("note") or "").strip()
+    if not note_text:
+        return jsonify({"ok": False, "error": "Note is required"}), 400
+    teammate = (payload.get("teammate") or "operator").strip()[:64]
+    source = (payload.get("source") or "manual").strip()[:80]
+    data = _load_ops_memory(username)
+    note = {
+        "id": "mem_" + uuid.uuid4().hex[:10],
+        "teammate": teammate,
+        "source": source,
+        "note": note_text[:2500],
+        "created_at": now_iso(),
+    }
+    data["notes"] = (data.get("notes") or [])[-299:] + [note]
+    _save_ops_memory(username, data)
+    _append_ops_event(username, "memory_saved", f"Memory note saved for {teammate}", {"note_id": note["id"]})
+    return jsonify({"ok": True, "note": note, "count": len(data.get("notes") or [])})
+
+@app.post("/api/ops/event")
+def api_ops_event():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    evt = _append_ops_event(
+        username,
+        (payload.get("kind") or "ui").strip()[:64],
+        (payload.get("message") or "UI event").strip()[:300],
+        payload.get("detail"),
+        (payload.get("level") or "info").strip()[:16],
+    )
+    return jsonify({"ok": True, "event": evt})
+
+@app.post("/api/facebook/friend_scan")
+def api_facebook_friend_scan():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    raw_text = (payload.get("raw_text") or "").strip()
+    if not raw_text:
+        return jsonify({"ok": False, "error": "Paste friend activity text or notes to scan"}), 400
+    candidates = _parse_friend_scan_text(raw_text)
+    if not candidates:
+        return jsonify({"ok": False, "error": "No candidate lines were recognized"}), 400
+    task = _new_ops_task(username, {
+        "title": "Facebook inactive friend review",
+        "type": "facebook_cleanup",
+        "status": "needs_review",
+        "semi_auto": True,
+        "source": "facebook_scan",
+        "notes": "Semi-auto safety flow only. Review candidates manually in Facebook before removing anyone.",
+        "checklist": [
+            "Open Facebook friends list in a real browser",
+            "Review the highest-score candidates first",
+            "Open each profile before any remove action",
+            "Remove manually only after confirming inactivity",
+            "Mark the task done after the review pass"
+        ],
+        "result": {"candidate_count": len(candidates), "top_candidates": candidates[:25]},
+    })
+    data = _load_ops_tasks(username)
+    data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
+    _save_ops_tasks(username, data)
+    _append_ops_event(username, "facebook_scan", f"Facebook inactivity scan produced {len(candidates)} candidates", {"task_id": task.get("id")})
+    return jsonify({"ok": True, "task": task, "candidates": candidates[:80]})
+
+@app.post("/api/facebook/post_insights")
+def api_facebook_post_insights():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    payload = request.get_json(silent=True) or {}
+    raw_text = (payload.get("raw_text") or "").strip()
+    if not raw_text:
+        return jsonify({"ok": False, "error": "Paste the post text and any metrics you have"}), 400
+    analysis = _facebook_post_insights(raw_text)
+    _append_ops_event(username, "facebook_post_insights", "Facebook post insights generated", {"summary": analysis.get("summary")})
+    return jsonify({"ok": True, "analysis": analysis})
+
 
 @app.get("/")
 def index():
