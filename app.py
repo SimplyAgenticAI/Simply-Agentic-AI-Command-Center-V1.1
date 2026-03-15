@@ -648,13 +648,9 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "openai_key", "title": "Add OpenAI key"},
-    {"key": "claude_key", "title": "Add Claude key"},
+    {"key": "openai_key", "title": "Connect your preferred AI"},
     {"key": "operator_profile", "title": "Fill out Operator Profile"},
     {"key": "full_team", "title": "Install full team"},
-    {"key": "gmail_connected", "title": "Connect Gmail"},
-    {"key": "calendar_connected", "title": "Connect Calendar"},
-    {"key": "smtp_ready", "title": "Set up email sending"},
     {"key": "first_prompt", "title": "Send first prompt"},
 ]
 
@@ -708,19 +704,13 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: OpenAI key
+    # Step 1: Preferred AI connected in Settings
     try:
         stg = ((u or {}).get("settings") or {})
         key_openai = (stg.get("openai_key") or "").strip()
         key_claude = (stg.get("claude_key") or "").strip()
-        smtp = (stg.get("smtp") or {})
-        if key_openai:
+        if key_openai or key_claude:
             _mark_onboarding_step(username, "openai_key", True)
-        if key_claude:
-            _mark_onboarding_step(username, "claude_key", True)
-        smtp_ok = bool((smtp.get("host") or "").strip() and (smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
-        if smtp_ok:
-            _mark_onboarding_step(username, "smtp_ready", True)
     except Exception:
         pass
 
@@ -748,16 +738,10 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     except Exception:
         pass
 
-    # Connected integrations
+    # Step 5: Gmail connected
     try:
         if _user_gmail_oauth(u):
             _mark_onboarding_step(username, "gmail_connected", True)
-    except Exception:
-        pass
-
-    try:
-        if _user_calendar_oauth(u):
-            _mark_onboarding_step(username, "calendar_connected", True)
     except Exception:
         pass
 
@@ -12831,7 +12815,8 @@ maybeAutoShowOnboarding();
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Close</button>
+        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
+        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
       </div>
     </div>
     <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -12968,275 +12953,222 @@ maybeAutoShowOnboarding();
 
 <script>
 (function(){
-  let onbData = null;
-  let onbClosed = false;
-  const drag = {active:false, dx:0, dy:0};
-
-  function onb$(id){ return document.getElementById(id); }
-
-  function syncOnboardingButtons(){
-    try{
-      const topBtn = onb$("onboardingBtn");
-      const mobBtn = onb$("mobileOnboardingBtn");
-      const nextKey = (onbData && onbData.next_key) ? onbData.next_key : "";
-      const steps = (onbData && Array.isArray(onbData.steps)) ? onbData.steps : [];
-      let nextTitle = "Next step";
-      const hit = steps.find(s => s && s.key === nextKey);
-      if(hit && hit.title) nextTitle = hit.title;
-      [topBtn, mobBtn].forEach((btn)=>{
-        if(!btn) return;
-        if(onbData && !onbData.all_done){
-          btn.classList.add("onbBtnGlow");
-          btn.textContent = "Next step";
-          btn.title = nextTitle;
-        }else{
-          btn.classList.remove("onbBtnGlow");
-          btn.textContent = "Next step";
-          btn.title = "Guided onboarding checklist";
-        }
-      });
-    }catch(e){}
-  }
-
-  async function openOnboarding(){
-    try{
-      onbClosed = false;
-      await fetchOnboarding();
-      const panel = onb$("onboardingPanel");
-      if(panel) panel.style.display = "block";
-    }catch(e){}
-  }
-
-  function closeOnboarding(){
-    onbClosed = true;
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-  }
-
-  function wireOnboardingButtons(){
-    try{
-      const topBtn = document.getElementById("onboardingBtn");
-      const mobBtn = document.getElementById("mobileOnboardingBtn");
-      if(topBtn) topBtn.addEventListener("click", openOnboarding);
-      if(mobBtn) mobBtn.addEventListener("click", ()=>{
-        try{
-          const overlay = document.getElementById("mobileDrawerOverlay");
-          if(overlay) overlay.classList.remove("show");
-          try{ document.body.style.overflow = ""; }catch(_){}
-        }catch(_){}
-        openOnboarding();
-      });
-    }catch(e){}
-  }
-
-  function setPanelPos(x,y){
-    const panel = onb$("onboardingPanel");
-    if(!panel) return;
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
-    panel.style.left = Math.max(8, x) + "px";
-    panel.style.top = Math.max(8, y) + "px";
-  }
-
-  async function fetchOnboarding(){
-    try{
-      const res = await fetch("/api/onboarding/status");
-      const data = await res.json();
-      if(!data || !data.ok) return;
-      onbData = data;
-      renderOnboarding();
-      syncOnboardingButtons();
-      try{ window.onboardingStatus = onbData; }catch(_){ }
-    }catch(e){}
-  }
-
-  function renderOnboarding(){
-    const panel = onb$("onboardingPanel");
-    const list = onb$("onbList");
-    const sub = onb$("onbSub");
-    if(!panel || !list || !sub || !onbData) return;
-
-    if(onbData.dismissed || onbData.all_done){
-      panel.style.display = "none";
-      return;
-    }
-
-    if(!onbClosed){
-      panel.style.display = "block";
-    }
-
-    sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
-
-    list.innerHTML = "";
-    const nextKey = onbData.next_key || "";
-
-    (onbData.steps||[]).forEach((s)=>{
-      const row = document.createElement("div");
-      row.className = "onbItem";
-      row.setAttribute("data-key", s.key);
-
-      const dot = document.createElement("div");
-      dot.className = "onbDot" + (s.done ? " onbDone" : "");
-      if(!s.done && s.key === nextKey){
-        row.className += " onbNextPulse";
-      }
-
-      const wrap = document.createElement("div");
-      wrap.style.display = "flex";
-      wrap.style.flexDirection = "column";
-      wrap.style.gap = "2px";
-
-      const title = document.createElement("div");
-      title.className = "onbTitle";
-      title.textContent = s.title;
-
-      const meta = document.createElement("div");
-      meta.className = "onbMeta";
-      meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
-
-      wrap.appendChild(title);
-      wrap.appendChild(meta);
-
-      row.appendChild(dot);
-      row.appendChild(wrap);
-
-      row.addEventListener("click", ()=>onbAction(s.key, s.done));
-      list.appendChild(row);
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+  function addWindowHandles(win){
+    if(!win || win.dataset.windowHandles === "1") return;
+    win.dataset.windowHandles = "1";
+    const defs = ["n","s","e","w","nw","ne","sw","se"];
+    defs.forEach((dir)=>{
+      const h = document.createElement("div");
+      h.className = "winHandle " + (dir.length === 1 ? ("edge-" + dir) : ("corner-" + dir));
+      h.dataset.dir = dir;
+      win.appendChild(h);
     });
   }
 
-  async function dismissOnboarding(){
-    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
-    onbClosed = true;
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-  }
+  function enableFloatingWindow(winId, headerId, keyPrefix){
+    const win = document.getElementById(winId);
+    const header = document.getElementById(headerId);
+    if(!win || !header) return;
 
-  function focusEl(id){
-    try{
-      const el = document.getElementById(id);
-      if(el){
-        el.scrollIntoView({behavior:"smooth", block:"center"});
-        setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 80);
-        return true;
-      }
-    }catch(e){}
-    return false;
-  }
+    addWindowHandles(win);
 
-  async function onbAction(key, alreadyDone){
-    if(alreadyDone) return;
+    const state = {
+      mode: null,
+      dir: "",
+      startX: 0,
+      startY: 0,
+      startLeft: 0,
+      startTop: 0,
+      startWidth: 0,
+      startHeight: 0,
+      pointerId: null
+    };
 
-    try{
-      if(key === "openai_key"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
-        return;
-      }
+    function vw(){ return Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0); }
+    function vh(){ return Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0); }
+    function minW(){ return Math.max(parseFloat(getComputedStyle(win).minWidth) || 320, 280); }
+    function minH(){ return Math.max(parseFloat(getComputedStyle(win).minHeight) || 220, 180); }
+    function edgePad(){ return window.innerWidth <= 720 ? 0 : 8; }
 
-      if(key === "claude_key"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("claudeKey") || focusEl("claudeModel"); }, 150);
-        return;
-      }
-
-      if(key === "operator_profile"){
-        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
-        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
-        return;
-      }
-
-      if(key === "full_team"){
-        try{
-          const r = await fetch("/api/install/full", {method:"POST"});
-          const d = await r.json();
-          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
-          else{ if(typeof showToast === "function") showToast("Install failed"); }
-        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
-        setTimeout(fetchOnboarding, 300);
-        return;
-      }
-
-      if(key === "gmail_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("gmailConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/gmail/connect"; }
-        }, 200);
-        return;
-      }
-
-      if(key === "calendar_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("calendarConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/calendar/connect"; }
-        }, 200);
-        return;
-      }
-
-      if(key === "smtp_ready"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("smtpHost") || focusEl("smtpUser"); }, 150);
-        return;
-      }
-
-      if(key === "first_prompt"){
-        focusEl("followMsg") || focusEl("opPrompt");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
-        return;
-      }
-    }finally{
-      setTimeout(fetchOnboarding, 600);
-    }
-  }
-
-  function wireDrag(){
-    const header = onb$("onbHeader");
-    const panel = onb$("onboardingPanel");
-    if(!header || !panel) return;
-
-    header.addEventListener("pointerdown", (e)=>{
+    function saveState(){
       try{
-        if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
-      }catch(_){ }
-      drag.active = true;
-      header.style.cursor = "grabbing";
-      const rect = panel.getBoundingClientRect();
-      drag.dx = e.clientX - rect.left;
-      drag.dy = e.clientY - rect.top;
-      try{ header.setPointerCapture(e.pointerId); }catch(err){}
+        const r = win.getBoundingClientRect();
+        localStorage.setItem(keyPrefix + ":geom", JSON.stringify({
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        }));
+      }catch(e){}
+    }
+
+    function loadState(){
+      try{
+        const raw = localStorage.getItem(keyPrefix + ":geom");
+        if(!raw) return;
+        const g = JSON.parse(raw);
+        if(!g || typeof g !== "object") return;
+        if(window.innerWidth <= 720 && winId === "modalWin") return;
+        if(Number.isFinite(g.width)) win.style.width = Math.max(minW(), g.width) + "px";
+        if(Number.isFinite(g.height)) win.style.height = Math.max(minH(), g.height) + "px";
+        if(Number.isFinite(g.left)){
+          win.style.right = "auto";
+          win.style.left = clamp(g.left, edgePad(), Math.max(edgePad(), vw() - (g.width || win.offsetWidth) - edgePad())) + "px";
+        }
+        if(Number.isFinite(g.top)){
+          win.style.bottom = "auto";
+          win.style.top = clamp(g.top, edgePad(), Math.max(edgePad(), vh() - (g.height || win.offsetHeight) - edgePad())) + "px";
+        }
+        if(winId === "modalWin"){
+          win.style.transform = "none";
+        }
+      }catch(e){}
+    }
+
+    function startMove(ev){
+      const r = win.getBoundingClientRect();
+      state.mode = "move";
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }else{
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }
+      try{ header.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function startResize(ev, dir){
+      const r = win.getBoundingClientRect();
+      state.mode = "resize";
+      state.dir = dir;
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+      }
+      win.style.right = "auto";
+      win.style.bottom = "auto";
+      win.style.left = r.left + "px";
+      win.style.top = r.top + "px";
+      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function onMove(ev){
+      if(!state.mode) return;
+      const dx = ev.clientX - state.startX;
+      const dy = ev.clientY - state.startY;
+
+      if(state.mode === "move"){
+        const nextLeft = clamp(state.startLeft + dx, edgePad(), Math.max(edgePad(), vw() - win.offsetWidth - edgePad()));
+        const nextTop = clamp(state.startTop + dy, edgePad(), Math.max(edgePad(), vh() - win.offsetHeight - edgePad()));
+        win.style.left = nextLeft + "px";
+        win.style.top = nextTop + "px";
+        return;
+      }
+
+      let left = state.startLeft;
+      let top = state.startTop;
+      let width = state.startWidth;
+      let height = state.startHeight;
+
+      if(state.dir.includes("e")) width = state.startWidth + dx;
+      if(state.dir.includes("s")) height = state.startHeight + dy;
+      if(state.dir.includes("w")){
+        width = state.startWidth - dx;
+        left = state.startLeft + dx;
+      }
+      if(state.dir.includes("n")){
+        height = state.startHeight - dy;
+        top = state.startTop + dy;
+      }
+
+      width = Math.max(minW(), width)
+      height = Math.max(minH(), height)
+
+      if(state.dir.includes("w")) left = state.startLeft + (state.startWidth - width);
+      if(state.dir.includes("n")) top = state.startTop + (state.startHeight - height);
+
+      width = Math.min(width, vw() - edgePad() - left);
+      height = Math.min(height, vh() - edgePad() - top);
+      left = clamp(left, edgePad(), Math.max(edgePad(), vw() - width - edgePad()));
+      top = clamp(top, edgePad(), Math.max(edgePad(), vh() - height - edgePad()));
+
+      win.style.left = left + "px";
+      win.style.top = top + "px";
+      win.style.width = width + "px";
+      win.style.height = height + "px";
+    }
+
+    function end(ev){
+      if(!state.mode) return;
+      try{
+        if(state.mode === "move") header.releasePointerCapture(state.pointerId);
+        else if(ev && ev.target && ev.target.releasePointerCapture) ev.target.releasePointerCapture(state.pointerId);
+      }catch(e){}
+      state.mode = null;
+      state.dir = "";
+      state.pointerId = null;
+      win.classList.remove("window-active");
+      saveState();
+    }
+
+    header.addEventListener("pointerdown", (ev)=>{
+      try{
+        if(ev.target && ev.target.closest && ev.target.closest("button")) return;
+      }catch(e){}
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      startMove(ev);
+    });
+    header.addEventListener("pointermove", onMove);
+    header.addEventListener("pointerup", end);
+    header.addEventListener("pointercancel", end);
+
+    Array.from(win.querySelectorAll(".winHandle")).forEach((h)=>{
+      h.addEventListener("pointerdown", (ev)=>{
+        if(window.innerWidth <= 720) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        startResize(ev, h.dataset.dir || "se");
+      });
+      h.addEventListener("pointermove", onMove);
+      h.addEventListener("pointerup", end);
+      h.addEventListener("pointercancel", end);
     });
 
-    header.addEventListener("pointermove", (e)=>{
-      if(!drag.active) return;
-      setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
-    });
-
-    header.addEventListener("pointerup", (e)=>{
-      drag.active = false;
-      header.style.cursor = "grab";
-      try{ header.releasePointerCapture(e.pointerId); }catch(err){}
-    });
+    loadState();
+    window.addEventListener("resize", ()=>{
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      setTimeout(()=>{
+        try{
+          const r = win.getBoundingClientRect();
+          win.style.left = clamp(r.left, edgePad(), Math.max(edgePad(), vw() - r.width - edgePad())) + "px";
+          win.style.top = clamp(r.top, edgePad(), Math.max(edgePad(), vh() - r.height - edgePad())) + "px";
+          saveState();
+        }catch(e){}
+      }, 80);
+    }, {passive:true});
   }
 
-  function wireExit(){
-    const btn = onb$("onbExit");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
-  }
-
-  try{
-    try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
-
-    wireDrag();
-    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("onboardingPanel", "onbHeader", "floating:onboarding"); }catch(_){ }
-    wireExit();
-    wireOnboardingButtons();
-    setTimeout(fetchOnboarding, 450);
-    setInterval(fetchOnboarding, 12000);
-  }catch(e){}
+  window.enableFloatingWindow = enableFloatingWindow;
 })();
 </script>
 
