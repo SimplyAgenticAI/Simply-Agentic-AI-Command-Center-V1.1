@@ -6118,7 +6118,6 @@ HTML = r"""
 
 </body>
 </html>
-"""
 
 @app.get("/")
 def index():
