@@ -16,10 +16,6 @@ from typing import Dict, Any, List, Tuple, Optional, Union
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
-try:
-    import anthropic
-except Exception:
-    anthropic = None
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
@@ -43,10 +39,6 @@ load_dotenv()
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-AI_PROVIDER = (os.getenv("AI_PROVIDER", "openai") or "openai").strip().lower()
-CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", MODEL if 'MODEL' in globals() else os.getenv("MODEL", "gpt-5.2"))
 PORT = int(os.getenv("PORT", "5000"))
 
 # Uploads
@@ -402,11 +394,7 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "settings": {
-            "provider": "openai",
             "openai_key": "",
-            "openai_model": "",
-            "claude_key": "",
-            "claude_model": "",
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -453,33 +441,42 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static", "/register"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
         return None
     if request.path.startswith("/static/"):
         return None
 
+    # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
+        # transparently restore a local owner user so the app remains usable without
+        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
+        try:
+            session["user"] = ensure_local_owner_user()
+        except Exception:
+            return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        if not has_any_user():
-            return redirect(url_for("setup"))
-        return redirect(url_for("login"))
+        # Local-first bootstrap on the main app page as well.
+        try:
+            session["user"] = ensure_local_owner_user()
+        except Exception:
+            if not has_any_user():
+                return redirect(url_for("setup"))
+            return redirect(url_for("login"))
 
+    # attach per-user OpenAI client for this request
     u = current_user()
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
-    try:
-        g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY or ""))
-    except Exception:
-        g.openai_client = None
+    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
 
     return None
 
@@ -648,9 +645,10 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "openai_key", "title": "Connect your preferred AI"},
-    {"key": "operator_profile", "title": "Fill out Operator Profile"},
+    {"key": "preferred_ai", "title": "Connect Chat GPT or Claude"},
     {"key": "full_team", "title": "Install full team"},
+    {"key": "email_connected", "title": "Connect Email"},
+    {"key": "calendar_connected", "title": "Connect Calendar"},
     {"key": "first_prompt", "title": "Send first prompt"},
 ]
 
@@ -704,26 +702,18 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: Preferred AI connected in Settings
+    # Step 1: Preferred AI connected (OpenAI or Claude)
     try:
-        stg = ((u or {}).get("settings") or {})
-        key_openai = (stg.get("openai_key") or "").strip()
-        key_claude = (stg.get("claude_key") or "").strip()
-        if key_openai or key_claude:
-            _mark_onboarding_step(username, "openai_key", True)
+        settings = ((u or {}).get("settings") or {})
+        openai_key = (settings.get("openai_key") or "").strip()
+        claude_key = (settings.get("claude_key") or settings.get("anthropic_key") or "").strip()
+        provider = (settings.get("ai_provider") or settings.get("provider") or "").strip().lower()
+        if openai_key or claude_key or provider in ("openai", "claude"):
+            _mark_onboarding_step(username, "preferred_ai", True)
     except Exception:
         pass
 
-    # Step 2: Operator profile
-    try:
-        op = _load_operator_profile(username) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
-        if any(((op.get(k) or "").strip() for k in meaningful)):
-            _mark_onboarding_step(username, "operator_profile", True)
-    except Exception:
-        pass
-
-    # Step 3: Full team installed
+    # Step 2: Full team installed
     try:
         reg = load_registry()
         installed = reg.get("installed") or {}
@@ -738,10 +728,21 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     except Exception:
         pass
 
-    # Step 5: Gmail connected
+    # Step 3: Email connected (Gmail OAuth OR SMTP)
     try:
-        if _user_gmail_oauth(u):
-            _mark_onboarding_step(username, "gmail_connected", True)
+        settings = ((u or {}).get("settings") or {})
+        smtp = (settings.get("smtp") or {})
+        smtp_ready = bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
+        gmail_ready = bool(_user_gmail_oauth(u))
+        if smtp_ready or gmail_ready:
+            _mark_onboarding_step(username, "email_connected", True)
+    except Exception:
+        pass
+
+    # Step 4: Calendar connected
+    try:
+        if _user_calendar_oauth(u):
+            _mark_onboarding_step(username, "calendar_connected", True)
     except Exception:
         pass
 
@@ -2359,70 +2360,6 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 
-
-def _current_ai_settings() -> Dict[str, str]:
-    u = current_user() or {}
-    s = (u.get("settings") or {}) if isinstance(u, dict) else {}
-    provider = (s.get("provider") or AI_PROVIDER or "openai").strip().lower()
-    if provider not in ("openai", "claude"):
-        provider = "openai"
-    return {
-        "provider": provider,
-        "openai_key": (s.get("openai_key") or OPENAI_API_KEY or "").strip(),
-        "openai_model": (s.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2").strip(),
-        "claude_key": (s.get("claude_key") or CLAUDE_API_KEY or "").strip(),
-        "claude_model": (s.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest").strip(),
-    }
-
-def _flatten_message_content_for_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for part in content:
-            if isinstance(part, dict) and part.get("type") == "text":
-                parts.append(part.get("text", ""))
-            elif isinstance(part, dict) and part.get("type") == "image_url":
-                parts.append("[Image attached]")
-            elif isinstance(part, str):
-                parts.append(part)
-        return "\n".join([p for p in parts if p]).strip()
-    return str(content or "")
-
-def _call_claude_chat(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    cfg = _current_ai_settings()
-    if anthropic is None:
-        raise RuntimeError("Claude support requires the anthropic package to be installed.")
-    api_key = cfg.get("claude_key") or ""
-    if not api_key:
-        raise RuntimeError("Claude is selected but no Claude API key is saved in Settings.")
-    model_name = cfg.get("claude_model") or "claude-3-5-sonnet-latest"
-    client = anthropic.Anthropic(api_key=api_key)
-
-    msg_list = []
-    for m in messages:
-        role = (m.get("role") or "user").strip().lower()
-        if role not in ("user", "assistant"):
-            role = "user"
-        msg_list.append({
-            "role": role,
-            "content": _flatten_message_content_for_text(m.get("content", ""))
-        })
-
-    resp = client.messages.create(
-        model=model_name,
-        max_tokens=2048,
-        temperature=temperature,
-        system=system,
-        messages=msg_list,
-    )
-    chunks = []
-    for item in getattr(resp, "content", []) or []:
-        t = getattr(item, "text", None)
-        if t:
-            chunks.append(t)
-    return "\n".join(chunks).strip()
-
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     Returns (http_status, user_message)
@@ -2430,100 +2367,19 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
-    if "billing hard limit" in s or "billing_hard_limit_reached" in s:
-        return 402, "OpenAI billing hard limit reached for the API project tied to this key. ChatGPT usage and API billing are separate. Update the API project budget or replace the key."
-    if "insufficient_quota" in s or ("quota" in s and "insufficient" in s):
-        return 402, "OpenAI API quota is exhausted for this key or project. Update billing or switch keys in Settings."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
-
-def _friendly_provider_error_message(e: Exception, provider: str) -> str:
-    msg = (str(e) or "").strip()
-    low = msg.lower()
-    if provider == "claude":
-        if "api key" in low or "authentication" in low or "unauthorized" in low:
-            return "Claude is selected, but the Claude API key appears invalid or missing. Open Settings and update the Claude key."
-        if "rate limit" in low or "429" in low:
-            return "Claude rate limit hit. Try again in a moment."
-        if "credit" in low or "billing" in low or "quota" in low:
-            return "Claude billing or quota issue detected. Check the Anthropic account tied to this key."
-        return msg or "Claude request failed."
-    _status, friendly = _classify_openai_error(e)
-    return friendly or msg or "OpenAI request failed."
-
-
-def _friendly_image_error_message(detail: str, tried: List[str]) -> str:
-    low = (detail or "").lower()
-    lead = f"Image generation failed (tried: {', '.join(tried)})."
-    if "billing_hard_limit_reached" in low or "billing hard limit" in low:
-        return lead + " OpenAI API billing hard limit has been reached for the project tied to this key. ChatGPT usage does not raise API image limits. Update the API project budget or replace the API key in Settings."
-    if "insufficient_quota" in low or ("quota" in low and "insufficient" in low):
-        return lead + " OpenAI API quota is exhausted for the project tied to this key."
-    if "incorrect api key" in low or "authentication" in low or "invalid api key" in low:
-        return lead + " The OpenAI API key used for images is invalid or missing."
-    if "rate limit" in low or "429" in low:
-        return lead + " OpenAI rate limit hit. Try again in a moment."
-    if "content_policy_violation" in low:
-        return lead + " The prompt was blocked by the image safety system. Try changing the wording."
-    if detail:
-        return lead + " " + detail.strip()
-    return lead
-
-
-def _run_system_self_test_for_user(u: Dict[str, Any]) -> Dict[str, Any]:
-    settings = (u.get("settings") or {}) if isinstance(u, dict) else {}
-    provider = (settings.get("provider") or AI_PROVIDER or "openai").strip().lower()
-    openai_key = (settings.get("openai_key") or OPENAI_API_KEY or "").strip()
-    claude_key = (settings.get("claude_key") or CLAUDE_API_KEY or "").strip()
-    smtp = (settings.get("smtp") or {}) if isinstance(settings.get("smtp"), dict) else {}
-
-    checks = []
-    def add(name: str, ok: bool, detail: str, severity: str = "error"):
-        checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
-
-    add("Login session", True, f"Signed in as {(u.get('username') or 'unknown')}", "info")
-    add("Uploads directory", UPLOADS_DIR.exists(), f"Uploads path: {UPLOADS_DIR}")
-    add("Data directory", DATA_DIR.exists(), f"Data path: {DATA_DIR}")
-    add("OpenAI package", True, "openai package imported", "info")
-    add("Anthropic package", anthropic is not None, "anthropic package installed" if anthropic is not None else "anthropic package missing. Claude text replies will fail until installed.")
-    add("Selected AI provider", provider in ("openai", "claude"), f"Provider: {provider}")
-    add("OpenAI key", bool(openai_key), "OpenAI key available" if openai_key else "OpenAI key missing. Image generation and audio transcription need OpenAI.")
-    add("Claude key", bool(claude_key), "Claude key available" if claude_key else "Claude key missing.", "warning")
-    add("Text provider readiness", bool(openai_key) if provider == "openai" else bool(claude_key),
-        "Selected provider is configured." if ((provider == "openai" and openai_key) or (provider == "claude" and claude_key)) else "Selected text provider is missing its API key.")
-    add("Image generation readiness", bool(openai_key), "OpenAI key available for images." if openai_key else "OpenAI image generation is unavailable until an OpenAI key is saved.")
-    add("Audio transcription readiness", bool(openai_key), "OpenAI key available for speech-to-text fallback." if openai_key else "Mobile mic fallback transcription requires an OpenAI key.")
-    smtp_ok = bool((smtp.get('host') or '').strip() and (smtp.get('user') or '').strip() and ((smtp.get('pass') or '').strip()))
-    add("SMTP readiness", smtp_ok, "SMTP looks configured." if smtp_ok else "SMTP is not fully configured yet.", "warning")
-
-    ok = all(c["ok"] or c.get("severity") in ("warning", "info") for c in checks)
-    return {
-        "ok": ok,
-        "provider": provider,
-        "checks": checks,
-        "summary": "System checks passed." if ok else "Some important items still need attention."
-    }
-
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    cfg = _current_ai_settings()
-    provider = cfg.get("provider") or "openai"
-
-    if provider == "claude":
-        try:
-            return _call_claude_chat(system, messages, temperature=temperature)
-        except Exception as e:
-            raise RuntimeError(_friendly_provider_error_message(e, "claude"))
-
     try:
         resp = get_openai_client().chat.completions.create(
-            model=(cfg.get("openai_model") or MODEL),
+            model=MODEL,
             messages=[{"role": "system", "content": system}] + messages,
             temperature=temperature,
-            timeout=60,
+                    timeout=60,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
@@ -2543,15 +2399,17 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
         try:
             resp2 = get_openai_client().chat.completions.create(
-                model=(cfg.get("openai_model") or MODEL),
-                messages=[{"role": "system", "content": system}] + safe_msgs,
-                temperature=temperature,
-                timeout=60,
-            )
-            out = (resp2.choices[0].message.content or "").strip()
-            return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+            model=MODEL,
+            messages=[{"role": "system", "content": system}] + safe_msgs,
+            temperature=temperature,
+            timeout=60,
+        )
         except Exception as e2:
-            raise RuntimeError(_friendly_provider_error_message(e2, "openai"))
+            # bubble up for route handlers to return a clean JSON error
+            raise e2
+        out = (resp2.choices[0].message.content or "").strip()
+        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -2663,80 +2521,6 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
-
-
-def _extract_transcription_text(resp: Any) -> str:
-    try:
-        if resp is None:
-            return ""
-        if isinstance(resp, str):
-            return resp.strip()
-        txt = getattr(resp, "text", None)
-        if isinstance(txt, str) and txt.strip():
-            return txt.strip()
-        if isinstance(resp, dict):
-            for k in ("text", "transcript", "content"):
-                v = resp.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        return str(resp).strip()
-    except Exception:
-        return ""
-
-@app.post("/api/transcribe_audio")
-def api_transcribe_audio():
-    if not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    up = request.files.get("audio")
-    if not up:
-        return jsonify({"ok": False, "error": "Missing audio file"}), 400
-
-    username = session.get("user") or "anon"
-    try:
-        client = _get_openai_client_for_username(username)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Transcription needs an OpenAI key in Settings. {e}"}), 400
-
-    filename = secure_filename(up.filename or "speech.webm") or "speech.webm"
-    suffix = Path(filename).suffix or ".webm"
-    preferred_model = (os.getenv("AUDIO_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
-    fallback_models = [preferred_model]
-    for m in ("gpt-4o-mini-transcribe", "whisper-1"):
-        if m not in fallback_models:
-            fallback_models.append(m)
-
-    last_err = ""
-    for model_name in fallback_models:
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                up.stream.seek(0)
-                tmp.write(up.read())
-                tmp.flush()
-                tmp_path = tmp.name
-
-            with open(tmp_path, "rb") as audio_f:
-                resp = client.audio.transcriptions.create(
-                    model=model_name,
-                    file=audio_f,
-                )
-            text = _extract_transcription_text(resp)
-            if not text:
-                text = ""
-            append_log("audio_transcribed", {"user": username, "model": model_name, "filename": filename, "chars": len(text)})
-            return jsonify({"ok": True, "text": text, "model": model_name})
-        except Exception as e:
-            last_err = str(e)
-        finally:
-            try:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-
-    return jsonify({"ok": False, "error": last_err or "Transcription failed"}), 500
-
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -2807,7 +2591,9 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             continue
 
     detail = (last_err or "").strip()
-    return None, None, _friendly_image_error_message(detail, tried)
+    if detail:
+        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
+    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
 
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
@@ -3120,15 +2906,17 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -3138,17 +2926,23 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
 
-    openai_key = (settings.get("openai_key") or "").strip()
-    claude_key = (settings.get("claude_key") or "").strip()
+    key = (settings.get("openai_key") or "").strip()
+    key_hint = ""
+    if key:
+        # show only last 4 chars to confirm something is saved, never return the key
+        key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
 
-    def _hint(val: str) -> str:
-        return ("••••" + val[-4:]) if val else ""
-
+    # do not leak password
     safe_smtp = {
         "host": smtp.get("host", ""),
         "port": smtp.get("port", 587),
@@ -3158,13 +2952,8 @@ def api_get_user_settings():
     return jsonify({
         "ok": True,
         "settings": {
-            "provider": (settings.get("provider") or AI_PROVIDER or "openai"),
-            "has_openai_key": bool(openai_key),
-            "openai_key_hint": _hint(openai_key),
-            "openai_model": (settings.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2"),
-            "has_claude_key": bool(claude_key),
-            "claude_key_hint": _hint(claude_key),
-            "claude_model": (settings.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest"),
+            "has_openai_key": bool(key),
+            "openai_key_hint": key_hint,
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -3175,18 +2964,27 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(force=True) or {}
-    provider = (data.get("provider") or "openai").strip().lower()
-    if provider not in ("openai", "claude"):
-        provider = "openai"
+    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
+        if new_key:
+            _mark_onboarding_step(uname, "openai_key", True)
+    except Exception:
+        pass
 
-    openai_key = (data.get("openai_key") or "").strip()
-    openai_model = (data.get("openai_model") or "").strip()
-    claude_key = (data.get("claude_key") or "").strip()
-    claude_model = (data.get("claude_model") or "").strip()
+
+    data = request.get_json(force=True) or {}
+    openai_key_in = (data.get("openai_key") or "")
+    openai_key = openai_key_in.strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -3203,17 +3001,9 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-    rec["settings"]["provider"] = provider
-
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
-    if openai_model:
-        rec["settings"]["openai_model"] = openai_model
-
-    if claude_key and len(claude_key) >= 20:
-        rec["settings"]["claude_key"] = claude_key
-    if claude_model:
-        rec["settings"]["claude_model"] = claude_model
+    # if user leaves it blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -3226,51 +3016,12 @@ def api_set_user_settings():
     if smtp_from_name != "":
         rec["settings"]["smtp"]["from_name"] = smtp_from_name
 
-    try:
-        if (rec.get("settings") or {}).get("openai_key") or (rec.get("settings") or {}).get("claude_key"):
-            _mark_onboarding_step(uname, "openai_key", True)
-    except Exception:
-        pass
-
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
 
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     return jsonify({"ok": True})
-
-
-@app.get("/api/system/self_test")
-def api_system_self_test():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = _run_system_self_test_for_user(u)
-    return jsonify(payload)
-
-
-@app.post("/api/system/test_text")
-def api_system_test_text():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        out = call_llm("Reply with exactly: OK", [{"role": "user", "content": "Say OK"}], temperature=0)
-        return jsonify({"ok": True, "reply": (out or "").strip()[:200]})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-
-
-@app.post("/api/system/test_image")
-def api_system_test_image():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    rec, url, err = generate_image_for_teammate("simple abstract blue square icon", teammate="system", username=uname, lighting_mode=False)
-    if err:
-        return jsonify({"ok": False, "error": err}), 400
-    return jsonify({"ok": True, "image_url": url, "file": rec})
 
 
 @app.get("/api/framework")
@@ -3431,6 +3182,12 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
+    if not u:
+        try:
+            session["user"] = ensure_local_owner_user()
+            u = current_user()
+        except Exception:
+            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3678,10 +3435,7 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e) or "Teammate request failed"}), 502
+    text = call_llm(sys, msgs, temperature=0.65)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -5973,233 +5727,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 
 </style>
-
-<style id="claudeAndMobileFixPatch">
-@media (max-width: 720px){
-  html, body{
-    width:100%;
-    max-width:100%;
-    overflow-x:hidden !important;
-  }
-  *, *::before, *::after{
-    box-sizing:border-box;
-  }
-  .stage{
-    grid-template-columns: 1fr !important;
-    width:100% !important;
-    max-width:100% !important;
-  }
-  .arena,
-  .side,
-  .underTable,
-  .groupCard,
-  .sideCard,
-  .tableWrap,
-  .operator,
-  .topbar,
-  .mobileBar,
-  .mobileDrawer,
-  .passRow,
-  .pillRow{
-    width:100% !important;
-    max-width:100% !important;
-  }
-  .arena,
-  .side{
-    min-width:0 !important;
-    padding-left:12px !important;
-    padding-right:12px !important;
-    margin-left:auto !important;
-    margin-right:auto !important;
-  }
-  .side{
-    border-left:0 !important;
-    overflow:visible !important;
-  }
-  .sideCard,
-  .groupCard,
-  .operator{
-    overflow:hidden !important;
-  }
-  .sideHead,
-  .opHead{
-    display:flex !important;
-    flex-wrap:wrap !important;
-    align-items:flex-start !important;
-    justify-content:space-between !important;
-    gap:10px !important;
-  }
-  .sideTitle,
-  .opTitle{
-    min-width:0 !important;
-    flex:1 1 220px !important;
-  }
-  .sideTitle .h1,
-  .opTitle .t1{
-    white-space:normal !important;
-    word-break:break-word !important;
-  }
-  .sideTitle .h2,
-  .opTitle .t2{
-    white-space:normal !important;
-    overflow:visible !important;
-    text-overflow:unset !important;
-  }
-  #refreshThread{
-    flex:0 0 auto !important;
-    margin-left:auto !important;
-    align-self:flex-start !important;
-  }
-  .passRow,
-  .pillRow{
-    flex-wrap:wrap !important;
-  }
-  .btn,
-  .btnMini,
-  .btnTiny{
-    max-width:100% !important;
-  }
-  .thread,
-  .followBox,
-  .field,
-  textarea,
-  input,
-  select{
-    width:100% !important;
-    max-width:100% !important;
-    min-width:0 !important;
-  }
-}
-</style>
-
-<style>
-  /* Visual polish upgrade: sharper contrast, richer depth, safer mobile glow */
-  :root{
-    --glass-bg: linear-gradient(180deg, rgba(14,22,48,.88), rgba(8,12,28,.92));
-    --glass-border: rgba(96,124,255,.24);
-    --glow-violet: rgba(124,58,237,.22);
-    --glow-blue: rgba(59,130,246,.18);
-    --soft-text-glow: 0 0 18px rgba(148,163,255,.10);
-  }
-
-  body::before{
-    content:"";
-    position:fixed;
-    inset:0;
-    pointer-events:none;
-    background:
-      radial-gradient(680px 420px at 18% 12%, rgba(124,58,237,.10), transparent 62%),
-      radial-gradient(760px 460px at 82% 18%, rgba(59,130,246,.10), transparent 62%),
-      radial-gradient(520px 320px at 50% 78%, rgba(168,85,247,.08), transparent 70%);
-    mix-blend-mode: screen;
-    opacity:.9;
-    z-index:0;
-  }
-
-  .topbar,
-  .sideCard,
-  .operator,
-  .seat,
-  .modalCard,
-  .table,
-  .thread,
-  .opText,
-  .msgInput,
-  textarea,
-  input,
-  select{
-    backdrop-filter: blur(16px) saturate(130%);
-  }
-
-  .topbar,
-  .sideCard,
-  .operator,
-  .seat,
-  .modalCard{
-    background: var(--glass-bg) !important;
-    border-color: var(--glass-border) !important;
-    box-shadow:
-      0 12px 34px rgba(0,0,0,.26),
-      0 0 0 1px rgba(255,255,255,.03) inset,
-      0 0 28px rgba(59,130,246,.08),
-      0 0 46px rgba(124,58,237,.08) !important;
-  }
-
-  .table{
-    box-shadow:
-      0 0 0 1px rgba(17,24,39,.35) inset,
-      0 0 86px rgba(124,58,237,.24),
-      0 0 150px rgba(59,130,246,.14) !important;
-  }
-
-  .btn{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.04) inset,
-      0 10px 24px rgba(0,0,0,.22),
-      0 0 18px rgba(59,130,246,.08);
-    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
-  }
-
-  .btn:hover{
-    transform: translateY(-1px);
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.05) inset,
-      0 14px 28px rgba(0,0,0,.26),
-      0 0 24px rgba(124,58,237,.14);
-  }
-
-  .btnPrimary{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.06) inset,
-      0 12px 28px rgba(0,0,0,.26),
-      0 0 22px rgba(124,58,237,.18),
-      0 0 34px rgba(59,130,246,.12) !important;
-  }
-
-  .brand,
-  .sideTitle .h1,
-  .seatName,
-  .opTitle .t1,
-  .modalTitle,
-  h1, h2, h3{
-    text-shadow: var(--soft-text-glow);
-    letter-spacing:.15px;
-  }
-
-  .tiny,
-  .seatRole,
-  .seatStatus,
-  .opTitle .t2{
-    color: rgba(210,220,255,.82) !important;
-  }
-
-  textarea,
-  input,
-  select,
-  .opText{
-    box-shadow:
-      0 1px 0 rgba(255,255,255,.03) inset,
-      0 0 0 1px rgba(255,255,255,.02),
-      0 0 18px rgba(59,130,246,.05);
-  }
-
-  .seat:hover{
-    box-shadow:
-      0 14px 30px rgba(0,0,0,.30),
-      0 0 28px rgba(124,58,237,.16),
-      0 0 36px rgba(59,130,246,.10) !important;
-  }
-
-  @media (max-width: 900px){
-    body::before{ opacity:.72; }
-    .btn{
-      box-shadow:
-        0 8px 20px rgba(0,0,0,.24),
-        0 0 16px rgba(124,58,237,.08);
-    }
-  }
-</style>
-
 </head>
 <body>
   <div class="topbar">
@@ -6488,36 +6015,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               <div class="modalForm" id="settingsForm">
                 <div class="tiny" style="margin-bottom:10px;">
-                  Personal settings for this account. Choose your AI provider here. OpenAI image generation stays unchanged, and text replies can use either OpenAI or Claude.
+                  Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
-
-                <label>AI Provider</label>
-                <select id="aiProvider">
-                  <option value="openai">ChatGPT / OpenAI</option>
-                  <option value="claude">Claude / Anthropic</option>
-                </select>
 
                 <label>OpenAI API Key</label>
                 <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
-
-                <label>OpenAI Model</label>
-                <input id="openaiModel" type="text" placeholder="gpt-5.2" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
-
-                <label>Claude API Key</label>
-                <input id="claudeKey" type="text" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
-
-                <label>Claude Model</label>
-                <input id="claudeModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
-
-                <div style="height:10px"></div>
-                <div class="tiny" style="margin-bottom:6px;">System checks</div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-                  <button class="btn btnMini" id="runSelfTestBtn">Run system check</button>
-                  <button class="btn btnMini" id="testTextProviderBtn">Test text provider</button>
-                  <button class="btn btnMini" id="testImageProviderBtn">Test image generation</button>
-                </div>
-                <div class="tiny" id="systemCheckStatus">Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.</div>
-                <pre id="systemCheckOutput" style="white-space:pre-wrap; margin-top:8px; max-height:180px; overflow:auto; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; background:rgba(4,8,24,.72);"></pre>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -6595,6 +6097,14 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
+    <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
+    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
+    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
+    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
+    <button class="btn btnMini" id="crmTabPlaybooks">Growth Playbooks</button>
+    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
+    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
+    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -6687,7 +6197,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <!-- Pipeline -->
   <div id="crmViewPipeline" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages (one per line). This controls filtering, sequences, and followups.</div>
+    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages and manage a visual deal board. Drag cards between stages to keep your pipeline current.</div>
     <label>Stages</label>
     <textarea id="crmStagesText" style="height:180px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6695,6 +6205,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
     </div>
     <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
+    <div class="tiny" style="margin:12px 0 8px;">Live pipeline board</div>
+    <div id="crmPipelineBoard" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;"></div>
   </div>
 
   <!-- Broadcast -->
@@ -6870,6 +6382,112 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
     </div>
     <div class="tiny" id="crmCalStatus" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- Lead Lab -->
+  <div id="crmViewLeadLab" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Turn raw lead notes into structured leads. Paste rows as: Name | Company | Domain | Title. If you only know the company and domain, the system will still suggest likely contact paths.</div>
+    <div class="grid">
+      <div>
+        <label>Target niche</label>
+        <input id="leadLabNiche" placeholder="real estate agents" />
+      </div>
+      <div>
+        <label>Location</label>
+        <input id="leadLabLocation" placeholder="New Jersey" />
+      </div>
+    </div>
+    <label style="margin-top:10px;">Lead source text</label>
+    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn" id="leadLabSampleBtn">Sample</button>
+      <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
+    </div>
+    <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
+    <div id="leadLabResults" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- Social Studio -->
+  <div id="crmViewSocialStudio" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
+    <div class="grid">
+      <div>
+        <label>Platform</label>
+        <select id="socialStudioPlatform">
+          <option value="Facebook">Facebook</option>
+          <option value="LinkedIn">LinkedIn</option>
+          <option value="Instagram">Instagram</option>
+          <option value="X">X</option>
+        </select>
+      </div>
+      <div>
+        <label>Asset set</label>
+        <select id="socialStudioAsset">
+          <option value="content_pack">Content pack</option>
+          <option value="dm_pack">DM pack</option>
+          <option value="comment_pack">Comment pack</option>
+          <option value="launch_pack">Launch pack</option>
+        </select>
+      </div>
+    </div>
+    <label style="margin-top:10px;">Audience</label>
+    <input id="socialStudioAudience" placeholder="solo real estate agents" />
+    <label style="margin-top:10px;">Offer / angle</label>
+    <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
+    </div>
+    <div class="tiny" id="socialStudioStatus" style="margin-top:8px;"></div>
+    <div id="socialStudioResults" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- Offer Builder -->
+  <div id="crmViewOfferBuilder" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
+    <label>Who do you help?</label>
+    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
+    <label style="margin-top:10px;">What result do you help them get?</label>
+    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
+    <label style="margin-top:10px;">How do you deliver it?</label>
+    <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
+    </div>
+    <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;"></div>
+    <div id="offerBuilderResults" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- Playbooks -->
+  <div id="crmViewPlaybooks" style="display:none;">
+    <div class="tiny" style="margin-bottom:8px;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
+    <div class="grid">
+      <div>
+        <label>Goal</label>
+        <select id="playbookGoal">
+          <option value="get_clients">Get clients</option>
+          <option value="grow_audience">Grow audience</option>
+          <option value="launch_offer">Launch an offer</option>
+          <option value="reactivate_leads">Reactivate old leads</option>
+          <option value="book_calls">Book more calls</option>
+        </select>
+      </div>
+      <div>
+        <label>Timeline</label>
+        <select id="playbookTimeline">
+          <option value="7 days">7 days</option>
+          <option value="14 days">14 days</option>
+          <option value="30 days">30 days</option>
+          <option value="90 days">90 days</option>
+        </select>
+      </div>
+    </div>
+    <label style="margin-top:10px;">Business context</label>
+    <textarea id="playbookContext" rows="4" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+      <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
+    </div>
+    <div class="tiny" id="playbookStatus" style="margin-top:8px;"></div>
+    <div id="playbookResults" style="margin-top:12px;"></div>
   </div>
 </div>
 
@@ -7588,8 +7206,6 @@ function showModal(title, body, imgUrl){
       bar.addEventListener("pointerup", (e) => endDrag(e.pointerId));
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
-
-    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("modalWin", "modalBar", "floating:modal"); }catch(_){ }
 
     (function initModalResizePersist(){
       const win = $("modalWin");
@@ -9036,35 +8652,14 @@ function makeSeat(defn, idx){
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
 
-    async function getMicPermissionState(){
-      try{
-        if(!navigator.permissions || !navigator.permissions.query) return "unknown";
-        const result = await navigator.permissions.query({ name: "microphone" });
-        return (result && result.state) ? result.state : "unknown";
-      }catch(_){
-        return "unknown";
-      }
-    }
-
     async function ensureMicPermission(){
+      // No-op if media devices are not available.
       try{
         if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
-
-        const before = await getMicPermissionState();
-        if(before === "granted") return true;
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        // Immediately stop tracks; we just want to prompt permission.
         try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
-
-        const after = await getMicPermissionState();
-        return after === "granted" || before === "prompt" || after === "prompt" || true;
+        return true;
       }catch(e){
         return false;
       }
@@ -9072,255 +8667,19 @@ function makeSeat(defn, idx){
 
     function micHelpText(){
       if(isInAppBrowser()){
-        return "Microphone access is often blocked inside Messenger, Facebook, and Instagram in-app browsers. If the permission prompt does not appear or the mic still will not start, open this page in Chrome or Safari, allow microphone access for this site, then try Talk or Always listen again.";
+        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
       }
-      return "Microphone access is blocked for this site. When prompted, tap Allow. If you already blocked it, use your browser's site settings or the lock icon to allow microphone access, then try again.";
-    }
-
-    async function preflightMicOrExplain(statusId){
-      const status = $(statusId);
-      if(status) status.innerText = "Mic: requesting permission";
-
-      const okPerm = await ensureMicPermission();
-      if(okPerm){
-        if(status) status.innerText = "Mic: ready";
-        return true;
-      }
-
-      if(status) status.innerText = "Mic: blocked";
-      showModal("Allow microphone", micHelpText());
-      return false;
+      return "If the mic won't start, check site permissions for microphone access and try again.";
     }
     // --- end voice patch ---
-
-    let sharedMicStream = null;
-    let activeTalkRecorder = null;
-    let talkMonitorTimer = null;
-    let talkRecorderMime = "";
-    let alwaysRecorderTimer = null;
 
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
-    function mediaRecorderSupported(){
-      return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    }
-
-    function preferRecorderMic(){
-      const ua = (navigator.userAgent || "").toLowerCase();
-      return isInAppBrowser() || /iphone|ipad|ipod|android/i.test(ua);
-    }
-
-    function pickRecorderMimeType(){
-      if(!window.MediaRecorder || !window.MediaRecorder.isTypeSupported) return "";
-      const types = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-        "audio/mp4;codecs=mp4a.40.2",
-        "audio/ogg;codecs=opus",
-      ];
-      for(const t of types){
-        try{
-          if(MediaRecorder.isTypeSupported(t)) return t;
-        }catch(_){}
-      }
-      return "";
-    }
-
-    async function getSharedMicStream(){
-      if(sharedMicStream){
-        const live = sharedMicStream.getTracks().some(t => t.readyState === "live");
-        if(live) return sharedMicStream;
-      }
-      sharedMicStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-      return sharedMicStream;
-    }
-
-    function stopSharedMicStream(){
-      try{
-        if(sharedMicStream){
-          sharedMicStream.getTracks().forEach(t => t.stop());
-        }
-      }catch(_){}
-      sharedMicStream = null;
-    }
-
-    async function transcribeAudioBlob(blob){
-      const fileExt = (blob && blob.type && blob.type.includes("mp4")) ? "m4a" : "webm";
-      const file = new File([blob], "speech." + fileExt, { type: (blob && blob.type) || "audio/webm" });
-      const fd = new FormData();
-      fd.append("audio", file);
-      const res = await fetch("/api/transcribe_audio", { method: "POST", body: fd });
-      const data = await res.json().catch(() => ({}));
-      if(!res.ok || !data.ok){
-        throw new Error((data && data.error) ? data.error : "Transcription failed");
-      }
-      return (data.text || "").trim();
-    }
-
-    function scheduleVoiceAutoSend(targetId, snapshot){
-      try{
-        const snap = (snapshot || "").trim();
-        if(!snap) return;
-        setTimeout(() => {
-          try{
-            const t = $(targetId);
-            const current = ((t && t.value) ? t.value : "").trim();
-            if(current !== snap) return;
-            if(targetId === "opPrompt"){
-              conveneAll();
-            }else if(targetId === "followMsg"){
-              sendFollow();
-            }
-          }catch(_){}
-        }, 2000);
-      }catch(_){}
-    }
-
-    async function finalizeRecorderTalk(blob, targetId, statusId, baseText){
-      const target = $(targetId);
-      const status = $(statusId);
-      try{
-        if(status) status.innerText = "Mic: transcribing";
-        const spoken = await transcribeAudioBlob(blob);
-        const combined = (baseText + " " + spoken).replace(/\s+/g, " ").trim();
-        if(target) target.value = combined;
-        if(status) status.innerText = spoken ? "Mic: idle" : "Mic: no speech";
-        if(spoken){
-          scheduleVoiceAutoSend(targetId, combined);
-        }
-      }catch(e){
-        if(status) status.innerText = "Mic: error";
-        showModal("Mic error", String(e && e.message ? e.message : e));
-      }finally{
-        activeTalkRecorder = null;
-        if(talkMonitorTimer){
-          clearInterval(talkMonitorTimer);
-          talkMonitorTimer = null;
-        }
-        stopSharedMicStream();
-      }
-    }
-
-    async function startRecorderDictation(targetId, statusId){
-      const target = $(targetId);
-      const status = $(statusId);
-      if(!target || !status){
-        showModal("Mic error", "Voice target is unavailable right now.");
-        return;
-      }
-
-      if(activeTalkRecorder){
-        try{
-          if(activeTalkRecorder.state === "recording"){
-            activeTalkRecorder.stop();
-            return;
-          }
-        }catch(_){}
-      }
-
-      let stream = null;
-      try{
-        stream = await getSharedMicStream();
-      }catch(e){
-        if(status) status.innerText = "Mic: blocked";
-        showModal("Allow microphone", micHelpText());
-        return;
-      }
-
-      const mime = pickRecorderMimeType();
-      talkRecorderMime = mime || "audio/webm";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-      activeTalkRecorder = rec;
-
-      const baseText = (target.value || "").trim();
-      const chunks = [];
-      let speechDetected = false;
-      let lastLoudAt = Date.now();
-      const startedAt = Date.now();
-
-      rec.ondataavailable = (event) => {
-        if(event.data && event.data.size > 0){
-          chunks.push(event.data);
-        }
-      };
-
-      rec.onerror = () => {
-        if(status) status.innerText = "Mic: error";
-      };
-
-      rec.onstop = async () => {
-        const blob = new Blob(chunks, { type: talkRecorderMime || "audio/webm" });
-        await finalizeRecorderTalk(blob, targetId, statusId, baseText);
-      };
-
-      if(status) status.innerText = "Mic: listening";
-      rec.start(250);
-
-      try{
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if(AudioCtx){
-          const audioCtx = new AudioCtx();
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 1024;
-          const source = audioCtx.createMediaStreamSource(stream);
-          source.connect(analyser);
-          const data = new Uint8Array(analyser.frequencyBinCount);
-
-          talkMonitorTimer = setInterval(() => {
-            if(!activeTalkRecorder || activeTalkRecorder.state !== "recording") return;
-            analyser.getByteFrequencyData(data);
-            let sum = 0;
-            for(let i = 0; i < data.length; i++) sum += data[i];
-            const avg = sum / (data.length || 1);
-
-            if(avg > 10){
-              speechDetected = true;
-              lastLoudAt = Date.now();
-            }
-
-            const now = Date.now();
-            const maxed = (now - startedAt) > 15000;
-            const silentEnough = speechDetected && (now - lastLoudAt) > 1200;
-
-            if(maxed || silentEnough){
-              try{
-                if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
-                  activeTalkRecorder.stop();
-                }
-              }catch(_){}
-              try{ source.disconnect(); }catch(_){}
-              try{ analyser.disconnect(); }catch(_){}
-              try{ audioCtx.close(); }catch(_){}
-            }
-          }, 140);
-        }
-      }catch(_){
-        setTimeout(() => {
-          try{
-            if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
-              activeTalkRecorder.stop();
-            }
-          }catch(_){}
-        }, 9000);
-      }
-    }
-
     async function startDictation(targetId, statusId){
-      if((!speechSupported()) || preferRecorderMic()){
-        if(!mediaRecorderSupported()){
-          showModal("Mic not supported", micHelpText());
-          return;
-        }
-        await startRecorderDictation(targetId, statusId);
+      if(!speechSupported()){
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -9366,9 +8725,8 @@ function makeSeat(defn, idx){
         target.value = combined;
       };
 
-      rec.onerror = async () => {
-        status.innerText = "Mic: recorder fallback";
-        await startRecorderDictation(targetId, statusId);
+      rec.onerror = () => {
+        status.innerText = "Mic: error";
       };
 
       rec.onend = () => {
@@ -9377,29 +8735,37 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-        scheduleVoiceAutoSend(targetId, combined);
+
+        // AUTO SEND AFTER TALKING STOPS (ADD v1)
+        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
+        try{
+          const snapshot = (combined || "").trim();
+          if(snapshot){
+            setTimeout(() => {
+              try{
+                const t = $(targetId);
+                const current = ((t && t.value) ? t.value : "").trim();
+                if(current !== snapshot) return; // user edited; do not auto send
+                if(targetId === "opPrompt"){
+                  conveneAll();
+                }else if(targetId === "followMsg"){
+                  sendFollow();
+                }
+              }catch(_){}
+            }, 2000);
+          }
+        }catch(_){}
       };
 
       try{
         rec.start();
       }catch(e){
-        status.innerText = "Mic: recorder fallback";
-        await startRecorderDictation(targetId, statusId);
+        status.innerText = "Mic: error";
       }
     }
 
-    $("talkGroupBtn").onclick = async () => {
-      const ok = await preflightMicOrExplain("micStatusGroup");
-      if(!ok) return;
-      await startDictation("opPrompt", "micStatusGroup");
-    };
-
-    $("talkDmBtn").onclick = async () => {
-      const ok = await preflightMicOrExplain("micStatusDm");
-      if(!ok) return;
-      await startDictation("followMsg", "micStatusDm");
-    };
-
+    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
+    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -9501,145 +8867,16 @@ function makeSeat(defn, idx){
       if(st2) st2.innerText = "Mic: idle";
 
       try{
-        if(alwaysRecorderTimer){
-          clearTimeout(alwaysRecorderTimer);
-        }
-      }catch(_){}
-      alwaysRecorderTimer = null;
-
-      try{
         if(alwaysRec){
           alwaysRec.onresult = null;
           alwaysRec.onerror = null;
           alwaysRec.onend = null;
-          if(alwaysRec.state === "recording"){
-            alwaysRec.stop();
-          }
+          alwaysRec.stop();
         }
       }catch(e){}
       alwaysRec = null;
 
-      stopSharedMicStream();
       updateAlwaysButtons();
-    }
-
-    async function applyAlwaysTranscriptText(rawText){
-      let spoken = (rawText || "").replace(/\s+/g, " ").trim();
-      if(!spoken) return;
-
-      const hit = findFirstNameMention(spoken);
-      if(hit){
-        spoken = removeNameOnce(spoken, hit.name).replace(/\s+/g, " ").trim();
-        await selectSeat(hit.name);
-        forceSeatSelectUI(hit.name);
-      }
-
-      const target = currentAlwaysTarget();
-      if(!target) return;
-
-      alwaysBaseText = (target.value || "").trim();
-      target.value = (alwaysBaseText + " " + spoken).replace(/\s+/g, " ").trim();
-      alwaysBaseText = (target.value || "").trim();
-      alwaysFinalText = "";
-      alwaysInterimText = "";
-      alwaysFinalBaseline = "";
-    }
-
-    async function startAlwaysListeningRecorder(mode){
-      if(!mediaRecorderSupported()){
-        showModal("Mic not supported", micHelpText());
-        return;
-      }
-
-      alwaysMode = mode || "dm";
-      alwaysOn = true;
-      updateAlwaysButtons();
-      resetAlwaysBuffers();
-
-      const okPerm = await ensureMicPermission();
-      if(!okPerm){
-        alwaysOn = false;
-        updateAlwaysButtons();
-        showModal("Microphone blocked", micHelpText());
-        return;
-      }
-
-      const status = currentAlwaysStatusEl();
-      if(status) status.innerText = "Mic: always listening";
-
-      const runChunk = async () => {
-        if(!alwaysOn) return;
-
-        let stream = null;
-        try{
-          stream = await getSharedMicStream();
-        }catch(e){
-          stopAlwaysListening();
-          showModal("Allow microphone", micHelpText());
-          return;
-        }
-
-        const mime = pickRecorderMimeType();
-        const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
-        alwaysRec = rec;
-        const chunks = [];
-
-        rec.ondataavailable = (event) => {
-          if(event.data && event.data.size > 0){
-            chunks.push(event.data);
-          }
-        };
-
-        rec.onerror = (e) => {
-          const s = currentAlwaysStatusEl();
-          if(s) s.innerText = "Mic: error";
-          try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){}
-          stopAlwaysListening();
-        };
-
-        rec.onstop = async () => {
-          if(!alwaysOn){
-            stopSharedMicStream();
-            return;
-          }
-
-          try{
-            const s = currentAlwaysStatusEl();
-            if(s) s.innerText = "Mic: transcribing";
-            const blob = new Blob(chunks, { type: mime || "audio/webm" });
-            const spoken = await transcribeAudioBlob(blob);
-            if(spoken){
-              await applyAlwaysTranscriptText(spoken);
-            }
-            if(alwaysOn){
-              const s2 = currentAlwaysStatusEl();
-              if(s2) s2.innerText = "Mic: always listening";
-              alwaysRecorderTimer = setTimeout(runChunk, 160);
-            }
-          }catch(e){
-            const s3 = currentAlwaysStatusEl();
-            if(s3) s3.innerText = "Mic: error";
-            showModal("Mic error", String(e && e.message ? e.message : e));
-            stopAlwaysListening();
-          }
-        };
-
-        try{
-          rec.start();
-          alwaysRecorderTimer = setTimeout(() => {
-            try{
-              if(alwaysRec && alwaysRec.state === "recording"){
-                alwaysRec.stop();
-              }
-            }catch(_){}
-          }, 4200);
-        }catch(e){
-          stopAlwaysListening();
-          showModal("Mic error", "Could not start always listening. Check permissions and try again.");
-        }
-      };
-
-      await runChunk();
     }
 
     // UPDATE: Build canonical final + interim from the full results list.
@@ -9680,8 +8917,8 @@ function makeSeat(defn, idx){
 
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
-      if((!speechSupported()) || preferRecorderMic()){
-        await startAlwaysListeningRecorder(mode);
+      if(!speechSupported()){
+        showModal("Mic not supported", micHelpText());
         return;
       }
 
@@ -9733,11 +8970,14 @@ function makeSeat(defn, idx){
                 .trim();
             }
 
+            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
+            // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
 
+            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             alwaysFinalText = "";
@@ -9746,6 +8986,7 @@ function makeSeat(defn, idx){
           }
         }
 
+        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
         alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
@@ -9757,11 +8998,12 @@ function makeSeat(defn, idx){
         }
       };
 
-      rec.onerror = async (e) => {
+      rec.onerror = (e) => {
         const s = currentAlwaysStatusEl();
-        if(s) s.innerText = "Mic: recorder fallback";
-        try{ stopAlwaysListening(); }catch(_){}
-        await startAlwaysListeningRecorder(mode);
+        if(s) s.innerText = "Mic: error";
+        // In many webviews, errors persist; stop to avoid a dead loop.
+        try{ stopAlwaysListening(); }catch(_){ }
+        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -9779,30 +9021,26 @@ function makeSeat(defn, idx){
         rec.start();
       }catch(e){
         stopAlwaysListening();
-        await startAlwaysListeningRecorder(mode);
+        showModal("Mic error", "Could not start always listening. Check permissions and try again.");
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = async () => {
+    $("alwaysListenGroupBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
-        return;
+      }else{
+        stopAlwaysListening();
+        startAlwaysListening("group");
       }
-      const ok = await preflightMicOrExplain("micStatusGroup");
-      if(!ok) return;
-      stopAlwaysListening();
-      startAlwaysListening("group");
     };
 
-    $("alwaysListenDmBtn").onclick = async () => {
+    $("alwaysListenDmBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
-        return;
+      }else{
+        stopAlwaysListening();
+        startAlwaysListening("dm");
       }
-      const ok = await preflightMicOrExplain("micStatusDm");
-      if(!ok) return;
-      stopAlwaysListening();
-      startAlwaysListening("dm");
     };
 
     async function conveneAll(){
@@ -9988,66 +9226,42 @@ async function sendFollow(){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      try{
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch("/api/followup", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
+      });
+      const data = await res.json();
 
-        const res = await fetch("/api/followup", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn}),
-          signal: controller.signal
-        });
-        clearTimeout(t);
-
-        let data = null;
-        try{
-          data = await res.json();
-        }catch(_){
-          setSeatLive(selectedSeat, "waiting");
-          setOpStatus("Error");
-          showModal("Error", "The server returned an invalid response. The teammate request did not complete cleanly.");
-          return;
-        }
-
-        if(!data.ok){
-          setSeatLive(selectedSeat, "waiting");
-          setOpStatus("Error");
-          showModal("Error", data.error || "Send failed");
-          return;
-        }
-
-        if(data.job_id){
-          // Image generation runs in background to avoid request timeouts.
-          setSeatLive(selectedSeat, "thinking");
-          setOpStatus("Generating image");
-          $("followMsg").value = "";
-          await refreshThread();
-          pollImageJob(data.job_id, selectedSeat);
-        }else{
-          setSeatLive(selectedSeat, "done");
-          setOpStatus("Complete");
-          $("followMsg").value = "";
-          await refreshThread();
-        }
-
-        $("followMsg").value = "";
-        await refreshThread();
-        try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
-        dmFileIds = [];
-        renderAttachList("dmAttachList", dmFileIds);
-
-        if(data.email_draft){
-          applyEmailDraft(data.email_draft, selectedSeat);
-        }
-      }catch(e){
+      if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
-        const msg = (e && e.name === "AbortError")
-          ? "The teammate request timed out. The app recovered cleanly instead of staying stuck on thinking."
-          : String(e || "Send failed");
-        showModal("Error", msg);
+        showModal("Error", data.error || "Send failed");
+        return;
+      }
+
+      if(data.job_id){
+        // Image generation runs in background to avoid request timeouts.
+        setSeatLive(selectedSeat, "thinking");
+        setOpStatus("Generating image");
+        $("followMsg").value = "";
+        await refreshThread();
+        pollImageJob(data.job_id, selectedSeat);
+      }else{
+        setSeatLive(selectedSeat, "done");
+        setOpStatus("Complete");
+        $("followMsg").value = "";
+        await refreshThread();
+      }
+      $("followMsg").value = "";
+      await refreshThread();
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+
+      dmFileIds = [];
+      renderAttachList("dmAttachList", dmFileIds);
+
+      if(data.email_draft){
+        applyEmailDraft(data.email_draft, selectedSeat);
       }
     }
 
@@ -10441,96 +9655,20 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         const s = data.settings || {};
-        $("aiProvider").value = (s.provider || "openai");
+        // Never auto-fill the key. Show a hint only.
         const hint = s.openai_key_hint || "";
         $("openaiKey").value = "";
         $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
-        $("openaiModel").value = s.openai_model || "";
-        const cHint = s.claude_key_hint || "";
-        $("claudeKey").value = "";
-        $("claudeKey").placeholder = cHint ? ("Saved (" + cHint + ") paste new to replace") : "sk-ant-...";
-        $("claudeModel").value = s.claude_model || "";
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
-        if($("systemCheckStatus")) $("systemCheckStatus").innerText = "Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.";
-        if($("systemCheckOutput")) $("systemCheckOutput").textContent = "";
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
-      }
-    }
-
-    function formatSelfTestResults(data){
-      if(!data) return "No data.";
-      const lines = [];
-      if(data.summary) lines.push(data.summary);
-      const checks = data.checks || [];
-      checks.forEach(c => {
-        const sev = c.severity || "error";
-        const icon = c.ok ? "✅" : (sev === "warning" ? "⚠️" : (sev === "info" ? "ℹ️" : "❌"));
-        lines.push(icon + " " + (c.name || "Check") + ": " + (c.detail || ""));
-      });
-      lines.push("");
-      lines.push("Browser checks:");
-      lines.push((window.isSecureContext ? "✅" : "❌") + " Secure context: " + (window.isSecureContext ? "yes" : "no"));
-      lines.push((speechSupported() ? "✅" : "⚠️") + " SpeechRecognition API: " + (speechSupported() ? "available" : "missing"));
-      lines.push((recorderMicSupported() ? "✅" : "⚠️") + " MediaRecorder mic fallback: " + (recorderMicSupported() ? "available" : "missing"));
-      lines.push((isInAppBrowser() ? "⚠️" : "✅") + " In-app browser detected: " + (isInAppBrowser() ? "yes" : "no"));
-      return lines.join("\n");
-    }
-
-    async function runSystemSelfTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = "Running system check...";
-      if(out) out.textContent = "Running system check...";
-      try{
-        const res = await fetch('/api/system/self_test');
-        const data = await res.json();
-        if(st) st.innerText = data.summary || (data.ok ? 'System checks passed.' : 'System checks found issues.');
-        if(out) out.textContent = formatSelfTestResults(data);
-      }catch(e){
-        if(st) st.innerText = 'System check failed';
-        if(out) out.textContent = 'System check failed.';
-      }
-    }
-
-    async function runTextProviderTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = 'Testing text provider...';
-      if(out) out.textContent = 'Testing text provider...';
-      try{
-        const res = await fetch('/api/system/test_text', {method:'POST'});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Text provider test failed');
-        if(st) st.innerText = 'Text provider test passed';
-        if(out) out.textContent = '✅ Text provider replied: ' + (data.reply || 'OK');
-      }catch(e){
-        if(st) st.innerText = 'Text provider test failed';
-        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Text provider test failed');
-      }
-    }
-
-    async function runImageProviderTest(){
-      const out = $("systemCheckOutput");
-      const st = $("systemCheckStatus");
-      if(st) st.innerText = 'Testing image generation...';
-      if(out) out.textContent = 'Testing image generation...';
-      try{
-        const res = await fetch('/api/system/test_image', {method:'POST'});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Image generation test failed');
-        if(st) st.innerText = 'Image generation test passed';
-        if(out) out.textContent = '✅ Image generation test passed. Generated file: ' + ((data.file && data.file.filename) || 'image');
-      }catch(e){
-        if(st) st.innerText = 'Image generation test failed';
-        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Image generation test failed');
       }
     }
 
@@ -10565,7 +9703,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -10580,7 +9718,7 @@ Challenge weak assumptions. Surface risks.`;
         const res = await fetch('/api/crm/state');
         const data = await res.json();
         if(data.ok){
-          crmCache.pipeline = (data.pipeline_stages || []);
+          crmCache.pipeline = (((data.pipeline||{}).stages) || data.pipeline_stages || []);
           return data;
         }
       }catch(e){}
@@ -10682,6 +9820,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchClients();
         crmRenderClients();
+        crmRenderPipelineBoard();
         showToast('Client deleted');
       }catch(e){
         showToast('Delete failed');
@@ -10715,6 +9854,7 @@ Challenge weak assumptions. Surface risks.`;
         crmEditingClientId = null;
         await crmFetchClients();
         crmRenderClients();
+        crmRenderPipelineBoard();
         showToast('Saved');
       }catch(e){
         if(st) st.innerText = 'Save failed';
@@ -10725,8 +9865,10 @@ Challenge weak assumptions. Surface risks.`;
       const st = $("crmPipelineStatus");
       if(st) st.innerText = 'Loading...';
       const data = await crmFetchState();
-      const stages = (data && data.pipeline_stages) ? data.pipeline_stages : (crmCache.pipeline||[]);
+      const stages = (data && (((data.pipeline||{}).stages)||data.pipeline_stages)) ? (((data.pipeline||{}).stages)||data.pipeline_stages) : (crmCache.pipeline||[]);
       $("crmStagesText").value = (stages||[]).join('\n');
+      try{ await crmFetchClients(); }catch(e){}
+      crmRenderPipelineBoard();
       if(st) st.innerText = 'Ready';
     }
 
@@ -11220,6 +10362,208 @@ async function crmFetchTasks(){
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
 
     // CRM tab binds (safe if missing)
+
+    function crmRenderRichBlocks(text){
+      const raw = (text||'').trim();
+      if(!raw) return '<div class="tiny" style="opacity:.8;">Nothing generated yet.</div>';
+      const parts = raw.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
+      return parts.map(part=>{
+        const lines = part.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+        const title = lines[0] || '';
+        const body = lines.slice(1);
+        const isBullet = body.every(x=>/^[\-\*\d]/.test(x));
+        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
+          <div style="font-weight:800; margin-bottom:6px;">${escapeHtml(title)}</div>
+          ${isBullet ? `<ul style="margin:0 0 0 18px; padding:0;">${body.map(x=>`<li style="margin:6px 0;">${escapeHtml(x.replace(/^[\-\*\d\.\s]+/,''))}</li>`).join('')}</ul>` :
+          `<div style="white-space:pre-wrap; line-height:1.45;">${escapeHtml(body.join('\n'))}</div>`}
+        </div>`;
+      }).join('');
+    }
+
+    function crmGuessEmails(name, domain){
+      const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
+      const nm = (name||'').trim().toLowerCase();
+      const bits = nm.split(/\s+/).filter(Boolean);
+      if(!cleanDomain) return [];
+      const first = bits[0] || 'hello';
+      const last = bits.length > 1 ? bits[bits.length-1] : '';
+      const fi = first ? first[0] : '';
+      const li = last ? last[0] : '';
+      const out = [];
+      const push = (local, score)=> out.push({email:`${local}@${cleanDomain}`, confidence:score});
+      push(first, 0.62);
+      if(last) push(`${first}.${last}`, 0.76);
+      if(last) push(`${fi}${last}`, 0.71);
+      if(last) push(`${first}${li}`, 0.66);
+      push('hello', 0.48);
+      push('info', 0.42);
+      const seen = new Set();
+      return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
+    }
+
+    function crmRenderLeadResults(items){
+      const box = $("leadLabResults");
+      if(!box) return;
+      if(!Array.isArray(items) || !items.length){
+        box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
+        return;
+      }
+      box.innerHTML = items.map((item, idx)=>{
+        const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
+        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:800;">${escapeHtml(item.name || '(no name)')}</div>
+              <div class="tiny" style="opacity:.85;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
+              <div class="tiny" style="opacity:.85; margin-top:4px;">${escapeHtml(item.domain || '')}</div>
+            </div>
+            <div class="tiny" style="opacity:.9;">Match score ${(item.score || 0)}%</div>
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
+          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+            <button class="btn btnMini" data-lead-copy="${idx}">Copy top email</button>
+            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
+          </div>
+        </div>`;
+      }).join('');
+      box.querySelectorAll('[data-lead-copy]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-copy'))] || {};
+          const email = (((item.email_candidates||[])[0]||{}).email) || '';
+          if(!email) return;
+          try{ await navigator.clipboard.writeText(email); showToast('Copied'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-add]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
+          const top = ((item.email_candidates||[])[0]||{}).email || '';
+          try{
+            const res = await fetch('/api/crm/clients', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                name: item.name || item.company || 'New lead',
+                company: item.company || '',
+                email: top,
+                status: 'lead',
+                pipeline_stage: 'Lead',
+                tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
+                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
+              })
+            });
+            const data = await res.json();
+            if(!data.ok) throw new Error(data.error||'Add failed');
+            showToast('Lead added to CRM');
+            try{ await crmFetchClients(); }catch(e){}
+          }catch(e){
+            showToast('Could not add lead');
+          }
+        };
+      });
+    }
+
+    async function crmRunLeadLab(){
+      const st = $("leadLabStatus");
+      if(st) st.innerText = 'Building lead list...';
+      try{
+        const res = await fetch('/api/crm/lead_lab', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            niche: ($("leadLabNiche")?.value || '').trim(),
+            location: ($("leadLabLocation")?.value || '').trim(),
+            source_text: ($("leadLabInput")?.value || '').trim()
+          })
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'Lead build failed');
+        crmRenderLeadResults(data.items || []);
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads`;
+      }catch(e){
+        if(st) st.innerText = e.message || 'Lead build failed';
+      }
+    }
+
+    function crmSampleLeadLab(){
+      const ta = $("leadLabInput");
+      if(!ta) return;
+      ta.value = [
+        'Jamie Cole | Garden State Realty | gardenstaterealty.com | Broker',
+        'Morgan Lee | BrightPath Investors | brightpathinvestors.com | Founder',
+        'Taylor Adams | Northshore Lending | northshorelending.com | Loan Officer'
+      ].join('\n');
+      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
+      if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
+    }
+
+    async function crmRunGenerator(endpoint, payload, statusId, resultsId){
+      const st = $(statusId), box = $(resultsId);
+      if(st) st.innerText = 'Generating...';
+      if(box) box.innerHTML = '';
+      try{
+        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Generation failed');
+        if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
+        if(st) st.innerText = 'Ready';
+      }catch(e){
+        if(st) st.innerText = e.message || 'Generation failed';
+      }
+    }
+
+    function crmRenderPipelineBoard(){
+      const box = $("crmPipelineBoard");
+      if(!box) return;
+      const stages = (crmCache.pipeline||[]).length ? (crmCache.pipeline||[]) : ['Lead','Conversation','Interested','Call booked','Client'];
+      const clients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
+      box.innerHTML = stages.map(stage=>{
+        const cards = clients.filter(c => (c.pipeline_stage||'Lead') === stage);
+        return `<div class="diagCard" data-stage="${escapeHtml(stage)}" style="padding:10px; min-height:180px;">
+          <div style="font-weight:800; margin-bottom:8px; display:flex; justify-content:space-between; gap:8px;">
+            <span>${escapeHtml(stage)}</span>
+            <span class="pill">${cards.length}</span>
+          </div>
+          <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px; display:flex; flex-direction:column; gap:8px;">
+            ${cards.map(c=>`<div class="pill" draggable="true" data-client-drag="${escapeHtml(c.id||'')}" style="display:block; cursor:grab;">
+                <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
+                <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
+              </div>`).join('')}
+          </div>
+        </div>`;
+      }).join('');
+
+      box.querySelectorAll('[data-client-drag]').forEach(el=>{
+        el.addEventListener('dragstart', ev=>{
+          ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
+        });
+      });
+      box.querySelectorAll('[data-stage-drop]').forEach(el=>{
+        el.addEventListener('dragover', ev=> ev.preventDefault());
+        el.addEventListener('drop', async ev=>{
+          ev.preventDefault();
+          const clientId = ev.dataTransfer.getData('text/plain');
+          const stage = el.getAttribute('data-stage-drop')||'Lead';
+          if(!clientId) return;
+          try{
+            const client = (crmCache.clients||[]).find(x=>x.id===clientId);
+            if(!client) return;
+            const payload = {...client, pipeline_stage: stage};
+            const res = await fetch('/api/crm/clients/' + encodeURIComponent(clientId), {
+              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if(!data.ok) throw new Error(data.error||'Move failed');
+            await crmFetchClients();
+            crmRenderPipelineBoard();
+            showToast('Pipeline updated');
+          }catch(e){
+            showToast('Move failed');
+          }
+        });
+      });
+    }
+
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
@@ -11229,6 +10573,10 @@ async function crmFetchTasks(){
       b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
+      b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
+      b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
+      b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
+      b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
@@ -11240,6 +10588,24 @@ async function crmFetchTasks(){
 
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
+      b('leadLabSampleBtn', crmSampleLeadLab);
+      b('leadLabRunBtn', crmRunLeadLab);
+      b('socialStudioRunBtn', ()=>crmRunGenerator('/api/crm/social_studio', {
+        platform: ($("socialStudioPlatform")?.value || 'Facebook'),
+        asset_type: ($("socialStudioAsset")?.value || 'content_pack'),
+        audience: ($("socialStudioAudience")?.value || '').trim(),
+        offer: ($("socialStudioOffer")?.value || '').trim()
+      }, 'socialStudioStatus', 'socialStudioResults'));
+      b('offerBuilderRunBtn', ()=>crmRunGenerator('/api/crm/offer_builder', {
+        audience: ($("offerBuilderAudience")?.value || '').trim(),
+        result: ($("offerBuilderResult")?.value || '').trim(),
+        method: ($("offerBuilderMethod")?.value || '').trim()
+      }, 'offerBuilderStatus', 'offerBuilderResults'));
+      b('playbookRunBtn', ()=>crmRunGenerator('/api/crm/playbooks', {
+        goal: ($("playbookGoal")?.value || 'get_clients'),
+        timeline: ($("playbookTimeline")?.value || '30 days'),
+        context: ($("playbookContext")?.value || '').trim()
+      }, 'playbookStatus', 'playbookResults'));
 
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
@@ -11627,18 +10993,12 @@ try{
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
-    if($("runSelfTestBtn")) $("runSelfTestBtn").onclick = async () => { await runSystemSelfTest(); };
-    if($("testTextProviderBtn")) $("testTextProviderBtn").onclick = async () => { await runTextProviderTest(); };
-    if($("testImageProviderBtn")) $("testImageProviderBtn").onclick = async () => { await runImageProviderTest(); };
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
+      const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
-        provider: ($("aiProvider").value || "openai").trim(),
-        openai_key: ($("openaiKey").value || "").trim(),
-        openai_model: ($("openaiModel").value || "").trim(),
-        claude_key: ($("claudeKey").value || "").trim(),
-        claude_model: ($("claudeModel").value || "").trim(),
+        openai_key: keyVal,
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -11660,7 +11020,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
         $("settingsStatus").innerText = "Saved";
           try{ await afterSettingsSaved(); }catch(e){}
-          try{ await runSystemSelfTest(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
@@ -12804,8 +12163,8 @@ maybeAutoShowOnboarding();
 
 
 <!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); min-width:260px; min-height:220px; resize:both; overflow:auto; display:none;">
-  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden;">
+<div id="onboardingPanel" style="position:fixed; left:calc(50% + 290px); top:96px; right:auto; bottom:auto; z-index:9999; width:340px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 24px); min-width:280px; min-height:230px; resize:both; overflow:hidden; display:none;">
+  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden; display:flex; flex-direction:column; height:100%;">
     <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
       <div style="display:flex; gap:10px; align-items:center;">
         <div style="width:10px; height:10px; border-radius:999px; background:linear-gradient(135deg,#7c3aed,#22c55e); box-shadow:0 0 18px rgba(124,58,237,0.55);"></div>
@@ -12815,15 +12174,18 @@ maybeAutoShowOnboarding();
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
-        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
+        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Close</button>
       </div>
     </div>
-    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
+    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; overflow-x:hidden; flex:1 1 auto; min-height:0;"></div>
   </div>
 </div>
 
 <style>
+  #onboardingPanel{ scrollbar-width:none; -ms-overflow-style:none; }
+  #onboardingPanel::-webkit-scrollbar{ width:0; height:0; }
+  #onbList{ scrollbar-width:none; -ms-overflow-style:none; }
+  #onbList::-webkit-scrollbar{ width:0; height:0; }
   .onbItem{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.03); cursor:pointer; }
   .onbItem:hover{ background:rgba(255,255,255,0.06); }
   .onbDot{ width:12px; height:12px; border-radius:999px; border:1px solid rgba(255,255,255,0.35); flex:0 0 auto; }
@@ -12844,338 +12206,11 @@ maybeAutoShowOnboarding();
     70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
     100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
   }
-
-  /* ===== Additive visual polish + floating window controls ===== */
-  :root{
-    --glass-1: rgba(10,16,35,.78);
-    --glass-2: rgba(16,24,54,.92);
-    --line-1: rgba(116,150,255,.16);
-    --line-2: rgba(182,115,255,.24);
-    --glow-1: 0 18px 48px rgba(7,12,28,.40), 0 0 0 1px rgba(255,255,255,.03) inset;
-    --glow-2: 0 28px 80px rgba(56,22,125,.22), 0 10px 34px rgba(25,44,110,.20);
-  }
-
-  .topbar,
-  .sideCard,
-  .seat,
-  .modal,
-  #onbCard{
-    backdrop-filter: blur(14px) saturate(1.08);
-    box-shadow: var(--glow-1), var(--glow-2);
-  }
-
-  .topbar{
-    background:
-      linear-gradient(180deg, rgba(17,26,56,.92), rgba(8,12,28,.88));
-    border-bottom: 1px solid var(--line-1);
-  }
-
-  .sideCard,
-  .seat,
-  .modal,
-  #onbCard{
-    background:
-      radial-gradient(circle at top right, rgba(123,92,255,.12), transparent 34%),
-      radial-gradient(circle at top left, rgba(45,167,255,.10), transparent 28%),
-      linear-gradient(180deg, var(--glass-2), var(--glass-1));
-    border-color: var(--line-2) !important;
-  }
-
-  .seat{
-    transition: transform .16s ease, box-shadow .18s ease, border-color .18s ease;
-  }
-  .seat:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 18px 42px rgba(13,22,50,.38), 0 0 24px rgba(123,92,255,.10);
-    border-color: rgba(151,120,255,.34) !important;
-  }
-
-  .btn,
-  .seatToolBtn{
-    box-shadow: 0 8px 22px rgba(10,16,34,.18);
-  }
-
-  .modal{
-    border: 1px solid rgba(152,124,255,.22);
-  }
-
-  .modalBar,
-  #onbHeader{
-    background:
-      linear-gradient(180deg, rgba(17,26,56,.78), rgba(9,14,31,.58));
-    border-bottom: 1px solid rgba(145,170,255,.12);
-  }
-
-  .winHandle{
-    position:absolute;
-    z-index: 120;
-    touch-action:none;
-    user-select:none;
-    opacity:.0;
-    transition: opacity .16s ease;
-  }
-  .modal:hover .winHandle,
-  #onboardingPanel:hover .winHandle,
-  .modal.window-active .winHandle,
-  #onboardingPanel.window-active .winHandle{
-    opacity:.96;
-  }
-  .winHandle::after{
-    content:"";
-    position:absolute;
-    inset:0;
-    border-radius:999px;
-    background: linear-gradient(135deg, rgba(130,102,255,.85), rgba(65,190,255,.78));
-    box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 0 18px rgba(109,96,255,.28);
-  }
-  .winHandle.edge-n,.winHandle.edge-s{
-    height:8px; left:12px; right:12px; cursor:ns-resize;
-  }
-  .winHandle.edge-n{ top:-4px; }
-  .winHandle.edge-s{ bottom:-4px; }
-  .winHandle.edge-e,.winHandle.edge-w{
-    width:8px; top:12px; bottom:12px; cursor:ew-resize;
-  }
-  .winHandle.edge-e{ right:-4px; }
-  .winHandle.edge-w{ left:-4px; }
-  .winHandle.corner-nw,.winHandle.corner-ne,.winHandle.corner-sw,.winHandle.corner-se{
-    width:14px; height:14px; border-radius:999px;
-  }
-  .winHandle.corner-nw{ left:-6px; top:-6px; cursor:nwse-resize; }
-  .winHandle.corner-ne{ right:-6px; top:-6px; cursor:nesw-resize; }
-  .winHandle.corner-sw{ left:-6px; bottom:-6px; cursor:nesw-resize; }
-  .winHandle.corner-se{ right:-6px; bottom:-6px; cursor:nwse-resize; }
-
-  @media (max-width: 720px){
-    .winHandle{ display:none !important; }
-  }
 </style>
 
 <script>
 (function(){
-  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-  function addWindowHandles(win){
-    if(!win || win.dataset.windowHandles === "1") return;
-    win.dataset.windowHandles = "1";
-    const defs = ["n","s","e","w","nw","ne","sw","se"];
-    defs.forEach((dir)=>{
-      const h = document.createElement("div");
-      h.className = "winHandle " + (dir.length === 1 ? ("edge-" + dir) : ("corner-" + dir));
-      h.dataset.dir = dir;
-      win.appendChild(h);
-    });
-  }
-
-  function enableFloatingWindow(winId, headerId, keyPrefix){
-    const win = document.getElementById(winId);
-    const header = document.getElementById(headerId);
-    if(!win || !header) return;
-
-    addWindowHandles(win);
-
-    const state = {
-      mode: null,
-      dir: "",
-      startX: 0,
-      startY: 0,
-      startLeft: 0,
-      startTop: 0,
-      startWidth: 0,
-      startHeight: 0,
-      pointerId: null
-    };
-
-    function vw(){ return Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0); }
-    function vh(){ return Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0); }
-    function minW(){ return Math.max(parseFloat(getComputedStyle(win).minWidth) || 320, 280); }
-    function minH(){ return Math.max(parseFloat(getComputedStyle(win).minHeight) || 220, 180); }
-    function edgePad(){ return window.innerWidth <= 720 ? 0 : 8; }
-
-    function saveState(){
-      try{
-        const r = win.getBoundingClientRect();
-        localStorage.setItem(keyPrefix + ":geom", JSON.stringify({
-          left: Math.round(r.left),
-          top: Math.round(r.top),
-          width: Math.round(r.width),
-          height: Math.round(r.height)
-        }));
-      }catch(e){}
-    }
-
-    function loadState(){
-      try{
-        const raw = localStorage.getItem(keyPrefix + ":geom");
-        if(!raw) return;
-        const g = JSON.parse(raw);
-        if(!g || typeof g !== "object") return;
-        if(window.innerWidth <= 720 && winId === "modalWin") return;
-        if(Number.isFinite(g.width)) win.style.width = Math.max(minW(), g.width) + "px";
-        if(Number.isFinite(g.height)) win.style.height = Math.max(minH(), g.height) + "px";
-        if(Number.isFinite(g.left)){
-          win.style.right = "auto";
-          win.style.left = clamp(g.left, edgePad(), Math.max(edgePad(), vw() - (g.width || win.offsetWidth) - edgePad())) + "px";
-        }
-        if(Number.isFinite(g.top)){
-          win.style.bottom = "auto";
-          win.style.top = clamp(g.top, edgePad(), Math.max(edgePad(), vh() - (g.height || win.offsetHeight) - edgePad())) + "px";
-        }
-        if(winId === "modalWin"){
-          win.style.transform = "none";
-        }
-      }catch(e){}
-    }
-
-    function startMove(ev){
-      const r = win.getBoundingClientRect();
-      state.mode = "move";
-      state.startX = ev.clientX;
-      state.startY = ev.clientY;
-      state.startLeft = r.left;
-      state.startTop = r.top;
-      state.startWidth = r.width;
-      state.startHeight = r.height;
-      state.pointerId = ev.pointerId;
-      win.classList.add("window-active");
-      if(winId === "modalWin"){
-        win.style.transform = "none";
-        win.style.left = r.left + "px";
-        win.style.top = r.top + "px";
-      }else{
-        win.style.right = "auto";
-        win.style.bottom = "auto";
-        win.style.left = r.left + "px";
-        win.style.top = r.top + "px";
-      }
-      try{ header.setPointerCapture(ev.pointerId); }catch(e){}
-    }
-
-    function startResize(ev, dir){
-      const r = win.getBoundingClientRect();
-      state.mode = "resize";
-      state.dir = dir;
-      state.startX = ev.clientX;
-      state.startY = ev.clientY;
-      state.startLeft = r.left;
-      state.startTop = r.top;
-      state.startWidth = r.width;
-      state.startHeight = r.height;
-      state.pointerId = ev.pointerId;
-      win.classList.add("window-active");
-      if(winId === "modalWin"){
-        win.style.transform = "none";
-      }
-      win.style.right = "auto";
-      win.style.bottom = "auto";
-      win.style.left = r.left + "px";
-      win.style.top = r.top + "px";
-      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
-    }
-
-    function onMove(ev){
-      if(!state.mode) return;
-      const dx = ev.clientX - state.startX;
-      const dy = ev.clientY - state.startY;
-
-      if(state.mode === "move"){
-        const nextLeft = clamp(state.startLeft + dx, edgePad(), Math.max(edgePad(), vw() - win.offsetWidth - edgePad()));
-        const nextTop = clamp(state.startTop + dy, edgePad(), Math.max(edgePad(), vh() - win.offsetHeight - edgePad()));
-        win.style.left = nextLeft + "px";
-        win.style.top = nextTop + "px";
-        return;
-      }
-
-      let left = state.startLeft;
-      let top = state.startTop;
-      let width = state.startWidth;
-      let height = state.startHeight;
-
-      if(state.dir.includes("e")) width = state.startWidth + dx;
-      if(state.dir.includes("s")) height = state.startHeight + dy;
-      if(state.dir.includes("w")){
-        width = state.startWidth - dx;
-        left = state.startLeft + dx;
-      }
-      if(state.dir.includes("n")){
-        height = state.startHeight - dy;
-        top = state.startTop + dy;
-      }
-
-      width = Math.max(minW(), width)
-      height = Math.max(minH(), height)
-
-      if(state.dir.includes("w")) left = state.startLeft + (state.startWidth - width);
-      if(state.dir.includes("n")) top = state.startTop + (state.startHeight - height);
-
-      width = Math.min(width, vw() - edgePad() - left);
-      height = Math.min(height, vh() - edgePad() - top);
-      left = clamp(left, edgePad(), Math.max(edgePad(), vw() - width - edgePad()));
-      top = clamp(top, edgePad(), Math.max(edgePad(), vh() - height - edgePad()));
-
-      win.style.left = left + "px";
-      win.style.top = top + "px";
-      win.style.width = width + "px";
-      win.style.height = height + "px";
-    }
-
-    function end(ev){
-      if(!state.mode) return;
-      try{
-        if(state.mode === "move") header.releasePointerCapture(state.pointerId);
-        else if(ev && ev.target && ev.target.releasePointerCapture) ev.target.releasePointerCapture(state.pointerId);
-      }catch(e){}
-      state.mode = null;
-      state.dir = "";
-      state.pointerId = null;
-      win.classList.remove("window-active");
-      saveState();
-    }
-
-    header.addEventListener("pointerdown", (ev)=>{
-      try{
-        if(ev.target && ev.target.closest && ev.target.closest("button")) return;
-      }catch(e){}
-      if(window.innerWidth <= 720 && winId === "modalWin") return;
-      startMove(ev);
-    });
-    header.addEventListener("pointermove", onMove);
-    header.addEventListener("pointerup", end);
-    header.addEventListener("pointercancel", end);
-
-    Array.from(win.querySelectorAll(".winHandle")).forEach((h)=>{
-      h.addEventListener("pointerdown", (ev)=>{
-        if(window.innerWidth <= 720) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        startResize(ev, h.dataset.dir || "se");
-      });
-      h.addEventListener("pointermove", onMove);
-      h.addEventListener("pointerup", end);
-      h.addEventListener("pointercancel", end);
-    });
-
-    loadState();
-    window.addEventListener("resize", ()=>{
-      if(window.innerWidth <= 720 && winId === "modalWin") return;
-      setTimeout(()=>{
-        try{
-          const r = win.getBoundingClientRect();
-          win.style.left = clamp(r.left, edgePad(), Math.max(edgePad(), vw() - r.width - edgePad())) + "px";
-          win.style.top = clamp(r.top, edgePad(), Math.max(edgePad(), vh() - r.height - edgePad())) + "px";
-          saveState();
-        }catch(e){}
-      }, 80);
-    }, {passive:true});
-  }
-
-  window.enableFloatingWindow = enableFloatingWindow;
-})();
-</script>
-
-<script>
-(function(){
   let onbData = null;
-
   let drag = {active:false, dx:0, dy:0};
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
@@ -13199,7 +12234,6 @@ maybeAutoShowOnboarding();
 
   async function openOnboarding(){
     try{
-      // Undismiss (if previously hidden)
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -13209,14 +12243,26 @@ maybeAutoShowOnboarding();
     try{
       await fetchOnboarding();
       const panel = onb$("onboardingPanel");
-      if(panel) panel.style.display = "block";
+      if(panel){
+        const hasPos = !!(panel.style.left || panel.style.top);
+        if(!hasPos){
+          try{
+            const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+            const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+            const width = Math.min(340, Math.max(280, panel.offsetWidth || 340));
+            const x = Math.max(12, Math.min(vw - width - 12, Math.round(vw * 0.64)));
+            const y = 96;
+            setPanelPos(x, y);
+          }catch(_){}
+        }
+        panel.style.display = "block";
+      }
     }catch(e){}
   }
 
   function closeOnboarding(){
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
-    // Do not dismiss. User can reopen via "Next step" button.
   }
 
 
@@ -13332,26 +12378,46 @@ maybeAutoShowOnboarding();
     if(alreadyDone) return;
 
     try{
-      if(key === "openai_key"){
+      if(key === "preferred_ai"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
-        return;
-      }
-
-      if(key === "operator_profile"){
-        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
-        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
+        setTimeout(()=>{
+          focusEl("aiProvider") || focusEl("providerSelect") || focusEl("openaiKey") || focusEl("apiKey");
+        }, 150);
         return;
       }
 
       if(key === "full_team"){
         try{
-          const r = await fetch("/api/install/full", {method:"POST"});
-          const d = await r.json();
-          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
-          else{ if(typeof showToast === "function") showToast("Install failed"); }
-        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
-        setTimeout(fetchOnboarding, 300);
+          const btn = document.getElementById("installFullBtn");
+          if(btn){
+            btn.click();
+          }else{
+            const r = await fetch("/api/install/full", {method:"POST"});
+            const d = await r.json();
+            if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
+            else{ if(typeof showToast === "function") showToast("Install failed"); }
+          }
+        }catch(e){
+          if(typeof showToast === "function") showToast("Install failed");
+        }
+        setTimeout(fetchOnboarding, 500);
+        return;
+      }
+
+      if(key === "email_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{
+          focusEl("gmailConnectBtn") || focusEl("smtpHost") || focusEl("smtpUser");
+        }, 180);
+        return;
+      }
+
+      if(key === "calendar_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{
+          const btn = document.getElementById("calendarConnectBtn");
+          if(btn) btn.focus();
+        }, 180);
         return;
       }
 
@@ -13360,18 +12426,8 @@ maybeAutoShowOnboarding();
         try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
         return;
       }
-
-      if(key === "gmail_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("gmailConnectBtn");
-          if(btn){ btn.click(); }
-          else{ window.location = "/gmail/connect"; }
-        }, 200);
-        return;
-      }
     }finally{
-      setTimeout(fetchOnboarding, 600);
+      setTimeout(fetchOnboarding, 700);
     }
   }
 
@@ -13404,10 +12460,6 @@ maybeAutoShowOnboarding();
     });
   }
 
-  function wireHide(){
-    const btn = onb$("onbHide");
-    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
-  }
 
   function wireExit(){
     const btn = onb$("onbExit");
@@ -13418,8 +12470,6 @@ maybeAutoShowOnboarding();
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
 
     wireDrag();
-    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("onboardingPanel", "onbHeader", "floating:onboarding"); }catch(_){ }
-    wireHide();
     wireExit();
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
@@ -14595,6 +13645,230 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+# =========================
+# CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
+# =========================
+
+def _crm_extract_domain(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"^https?://", "", s)
+    s = re.sub(r"^www\.", "", s)
+    s = s.split("/")[0].strip()
+    return s
+
+def _crm_name_bits(name: str) -> Tuple[str, str]:
+    bits = [x for x in re.split(r"\s+", (name or "").strip()) if x]
+    if not bits:
+        return ("", "")
+    first = re.sub(r"[^a-z]", "", bits[0].lower())
+    last = re.sub(r"[^a-z]", "", bits[-1].lower()) if len(bits) > 1 else ""
+    return first, last
+
+def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
+    domain = _crm_extract_domain(domain)
+    if not domain:
+        return []
+    first, last = _crm_name_bits(name)
+    if not first and not last:
+        first = "hello"
+    fi = first[:1]
+    li = last[:1]
+    vals = []
+    def add(local: str, score: float):
+        if local:
+            vals.append({"email": f"{local}@{domain}", "confidence": round(float(score), 2), "status": "estimated"})
+    add(first, 0.62)
+    add(f"{first}.{last}" if first and last else "", 0.76)
+    add(f"{fi}{last}" if fi and last else "", 0.71)
+    add(f"{first}{li}" if first and li else "", 0.66)
+    add("hello", 0.48)
+    add("info", 0.42)
+    out = []
+    seen = set()
+    for row in sorted(vals, key=lambda x: x["confidence"], reverse=True):
+        email = row["email"]
+        if email in seen:
+            continue
+        seen.add(email)
+        out.append(row)
+    return out
+
+def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
+    rows = []
+    for raw in (source_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+        else:
+            parts = [p.strip() for p in re.split(r",|\t", line)]
+        parts = [p for p in parts if p]
+        item = {"name": "", "company": "", "domain": "", "title": "", "notes": ""}
+        if len(parts) == 1:
+            item["company"] = parts[0]
+        elif len(parts) == 2:
+            item["company"], item["domain"] = parts[0], parts[1]
+        elif len(parts) == 3:
+            item["name"], item["company"], item["domain"] = parts[0], parts[1], parts[2]
+        else:
+            item["name"], item["company"], item["domain"], item["title"] = parts[0], parts[1], parts[2], parts[3]
+            if len(parts) > 4:
+                item["notes"] = " | ".join(parts[4:])
+        rows.append(item)
+    return rows
+
+def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
+    try:
+        reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
+        reply = (reply or "").strip()
+        if reply:
+            return reply
+    except Exception:
+        pass
+    return fallback
+
+@app.post("/api/crm/lead_lab")
+def api_crm_lead_lab():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    niche = (payload.get("niche") or "").strip()
+    location = (payload.get("location") or "").strip()
+    source_text = (payload.get("source_text") or "").strip()
+    if not source_text:
+        return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
+
+    rows = _crm_parse_lead_source_rows(source_text)
+    items = []
+    for row in rows[:200]:
+        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
+        name = (row.get("name") or "").strip()
+        company = (row.get("company") or "").strip() or domain.split(".")[0].replace("-", " ").title()
+        title = (row.get("title") or "").strip()
+        if not name and company:
+            name = company
+        email_candidates = _crm_email_candidates(name, domain)
+        score = 55
+        if domain:
+            score += 15
+        if name and name != company:
+            score += 15
+        if title:
+            score += 5
+        if niche:
+            score += 5
+        score = max(1, min(99, score))
+        notes = []
+        if niche:
+            notes.append(f"Niche target: {niche}")
+        if location:
+            notes.append(f"Location target: {location}")
+        if not domain:
+            notes.append("Add company domain for better email confidence.")
+        items.append({
+            "name": name,
+            "company": company,
+            "domain": domain,
+            "title": title,
+            "score": score,
+            "notes": " ".join(notes).strip(),
+            "email_candidates": email_candidates,
+        })
+    return jsonify({"ok": True, "items": items, "count": len(items)})
+
+@app.post("/api/crm/social_studio")
+def api_crm_social_studio():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    platform = (payload.get("platform") or "Facebook").strip()
+    asset_type = (payload.get("asset_type") or "content_pack").strip()
+    audience = (payload.get("audience") or "entrepreneurs").strip()
+    offer = (payload.get("offer") or "").strip()
+    if not offer:
+        return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
+
+    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
+    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+    fallback = (
+        f"Content pack for {platform}\n"
+        f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
+        f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
+        f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
+        f"Comments\n"
+        f"- Curious what part of this feels hardest right now?\n"
+        f"- This is the part most people skip, and it costs them momentum.\n"
+        f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
+        f"DM openers\n"
+        f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
+        f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
+        f"CTA ideas\n"
+        f"- Want the exact workflow? Comment \"system\".\n"
+        f"- If this is relevant to your business, message me and I will show you the simple version."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
+
+@app.post("/api/crm/offer_builder")
+def api_crm_offer_builder():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    audience = (payload.get("audience") or "").strip()
+    result = (payload.get("result") or "").strip()
+    method = (payload.get("method") or "").strip()
+    if not audience or not result or not method:
+        return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
+
+    system = "You are an offer strategist. Build clear, practical offers with concise sections."
+    prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
+    fallback = (
+        f"Offer statement\n"
+        f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
+        f"Core promise\n"
+        f"- Faster clarity\n"
+        f"- Less guesswork\n"
+        f"- More consistent execution\n\n"
+        f"Why it stands out\n"
+        f"- Done with you structure instead of generic advice\n"
+        f"- Clear next steps instead of random tactics\n"
+        f"- Built for speed and consistency\n\n"
+        f"CTA\n"
+        f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
+        f"DM pitch\n"
+        f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
+
+@app.post("/api/crm/playbooks")
+def api_crm_playbooks():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    goal = (payload.get("goal") or "get_clients").strip()
+    timeline = (payload.get("timeline") or "30 days").strip()
+    context = (payload.get("context") or "").strip()
+    system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
+    prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
+    fallback = (
+        f"Playbook for {goal.replace('_',' ')}\n"
+        f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
+        f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
+        f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
+        f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
+        f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
+        f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
 
@@ -15084,4 +14358,3 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
-
