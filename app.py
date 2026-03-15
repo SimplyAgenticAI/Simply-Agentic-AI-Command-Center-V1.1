@@ -9,18 +9,23 @@ import hashlib
 import hmac
 import threading
 import tempfile
+import shutil
 from pathlib import Path
-from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
+try:
+    import anthropic
+except Exception:
+    anthropic = None
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.exceptions import HTTPException
 
 # Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
 # If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
@@ -35,21 +40,15 @@ except Exception:
     google_build = None
     GoogleHttpError = Exception
 
-# Optional Claude / Anthropic support
-try:
-    import anthropic
-except Exception:
-    anthropic = None
-
-
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AI_PROVIDER = (os.getenv("AI_PROVIDER", "openai") or "openai").strip().lower()
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
-AI_PROVIDER = os.getenv("AI_PROVIDER", "openai")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", MODEL if 'MODEL' in globals() else os.getenv("MODEL", "gpt-5.2"))
 PORT = int(os.getenv("PORT", "5000"))
 
 # Uploads
@@ -377,6 +376,25 @@ app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
+
+@app.errorhandler(Exception)
+def _jsonify_api_errors(e):
+    """Return JSON for API exceptions so the frontend never gets HTML trace pages."""
+    if request.path.startswith("/api/"):
+        code = 500
+        msg = ""
+        if isinstance(e, HTTPException):
+            code = int(getattr(e, "code", 500) or 500)
+            msg = str(getattr(e, "description", "") or "")
+        else:
+            msg = str(e or "")
+        msg = (msg or "Server error").strip()
+        return jsonify({"ok": False, "error": msg}), code
+    if isinstance(e, HTTPException):
+        return e
+    raise e
+
+
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
     if not isinstance(data, dict):
@@ -405,7 +423,11 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "settings": {
+            "provider": "openai",
             "openai_key": "",
+            "openai_model": "",
+            "claude_key": "",
+            "claude_model": "",
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -452,42 +474,33 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static", "/register"):
         return None
     if request.path.startswith("/static/"):
         return None
 
-    # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"):
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
-        # transparently restore a local owner user so the app remains usable without
-        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # Local-first bootstrap on the main app page as well.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            if not has_any_user():
-                return redirect(url_for("setup"))
-            return redirect(url_for("login"))
+        if not has_any_user():
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
-    # attach per-user OpenAI client for this request
     u = current_user()
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
-    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
+    try:
+        g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY or ""))
+    except Exception:
+        g.openai_client = None
 
     return None
 
@@ -713,10 +726,12 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: OpenAI key
+    # Step 1: AI key (OpenAI or Claude)
     try:
-        key = (((u or {}).get("settings") or {}).get("openai_key") or "").strip()
-        if key:
+        stg = ((u or {}).get("settings") or {})
+        key_openai = (stg.get("openai_key") or "").strip()
+        key_claude = (stg.get("claude_key") or "").strip()
+        if key_openai or key_claude:
             _mark_onboarding_step(username, "openai_key", True)
     except Exception:
         pass
@@ -2366,6 +2381,70 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 
+
+def _current_ai_settings() -> Dict[str, str]:
+    u = current_user() or {}
+    s = (u.get("settings") or {}) if isinstance(u, dict) else {}
+    provider = (s.get("provider") or AI_PROVIDER or "openai").strip().lower()
+    if provider not in ("openai", "claude"):
+        provider = "openai"
+    return {
+        "provider": provider,
+        "openai_key": (s.get("openai_key") or OPENAI_API_KEY or "").strip(),
+        "openai_model": (s.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2").strip(),
+        "claude_key": (s.get("claude_key") or CLAUDE_API_KEY or "").strip(),
+        "claude_model": (s.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest").strip(),
+    }
+
+def _flatten_message_content_for_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif isinstance(part, dict) and part.get("type") == "image_url":
+                parts.append("[Image attached]")
+            elif isinstance(part, str):
+                parts.append(part)
+        return "\n".join([p for p in parts if p]).strip()
+    return str(content or "")
+
+def _call_claude_chat(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
+    cfg = _current_ai_settings()
+    if anthropic is None:
+        raise RuntimeError("Claude support requires the anthropic package to be installed.")
+    api_key = cfg.get("claude_key") or ""
+    if not api_key:
+        raise RuntimeError("Claude is selected but no Claude API key is saved in Settings.")
+    model_name = cfg.get("claude_model") or "claude-3-5-sonnet-latest"
+    client = anthropic.Anthropic(api_key=api_key)
+
+    msg_list = []
+    for m in messages:
+        role = (m.get("role") or "user").strip().lower()
+        if role not in ("user", "assistant"):
+            role = "user"
+        msg_list.append({
+            "role": role,
+            "content": _flatten_message_content_for_text(m.get("content", ""))
+        })
+
+    resp = client.messages.create(
+        model=model_name,
+        max_tokens=2048,
+        temperature=temperature,
+        system=system,
+        messages=msg_list,
+    )
+    chunks = []
+    for item in getattr(resp, "content", []) or []:
+        t = getattr(item, "text", None)
+        if t:
+            chunks.append(t)
+    return "\n".join(chunks).strip()
+
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     Returns (http_status, user_message)
@@ -2373,19 +2452,100 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+    if "billing hard limit" in s or "billing_hard_limit_reached" in s:
+        return 402, "OpenAI billing hard limit reached for the API project tied to this key. ChatGPT usage and API billing are separate. Update the API project budget or replace the key."
+    if "insufficient_quota" in s or ("quota" in s and "insufficient" in s):
+        return 402, "OpenAI API quota is exhausted for this key or project. Update billing or switch keys in Settings."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
     if "rate limit" in s or "429" in s:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
+
+def _friendly_provider_error_message(e: Exception, provider: str) -> str:
+    msg = (str(e) or "").strip()
+    low = msg.lower()
+    if provider == "claude":
+        if "api key" in low or "authentication" in low or "unauthorized" in low:
+            return "Claude is selected, but the Claude API key appears invalid or missing. Open Settings and update the Claude key."
+        if "rate limit" in low or "429" in low:
+            return "Claude rate limit hit. Try again in a moment."
+        if "credit" in low or "billing" in low or "quota" in low:
+            return "Claude billing or quota issue detected. Check the Anthropic account tied to this key."
+        return msg or "Claude request failed."
+    _status, friendly = _classify_openai_error(e)
+    return friendly or msg or "OpenAI request failed."
+
+
+def _friendly_image_error_message(detail: str, tried: List[str]) -> str:
+    low = (detail or "").lower()
+    lead = f"Image generation failed (tried: {', '.join(tried)})."
+    if "billing_hard_limit_reached" in low or "billing hard limit" in low:
+        return lead + " OpenAI API billing hard limit has been reached for the project tied to this key. ChatGPT usage does not raise API image limits. Update the API project budget or replace the API key in Settings."
+    if "insufficient_quota" in low or ("quota" in low and "insufficient" in low):
+        return lead + " OpenAI API quota is exhausted for the project tied to this key."
+    if "incorrect api key" in low or "authentication" in low or "invalid api key" in low:
+        return lead + " The OpenAI API key used for images is invalid or missing."
+    if "rate limit" in low or "429" in low:
+        return lead + " OpenAI rate limit hit. Try again in a moment."
+    if "content_policy_violation" in low:
+        return lead + " The prompt was blocked by the image safety system. Try changing the wording."
+    if detail:
+        return lead + " " + detail.strip()
+    return lead
+
+
+def _run_system_self_test_for_user(u: Dict[str, Any]) -> Dict[str, Any]:
+    settings = (u.get("settings") or {}) if isinstance(u, dict) else {}
+    provider = (settings.get("provider") or AI_PROVIDER or "openai").strip().lower()
+    openai_key = (settings.get("openai_key") or OPENAI_API_KEY or "").strip()
+    claude_key = (settings.get("claude_key") or CLAUDE_API_KEY or "").strip()
+    smtp = (settings.get("smtp") or {}) if isinstance(settings.get("smtp"), dict) else {}
+
+    checks = []
+    def add(name: str, ok: bool, detail: str, severity: str = "error"):
+        checks.append({"name": name, "ok": bool(ok), "detail": detail, "severity": severity})
+
+    add("Login session", True, f"Signed in as {(u.get('username') or 'unknown')}", "info")
+    add("Uploads directory", UPLOADS_DIR.exists(), f"Uploads path: {UPLOADS_DIR}")
+    add("Data directory", DATA_DIR.exists(), f"Data path: {DATA_DIR}")
+    add("OpenAI package", True, "openai package imported", "info")
+    add("Anthropic package", anthropic is not None, "anthropic package installed" if anthropic is not None else "anthropic package missing. Claude text replies will fail until installed.")
+    add("Selected AI provider", provider in ("openai", "claude"), f"Provider: {provider}")
+    add("OpenAI key", bool(openai_key), "OpenAI key available" if openai_key else "OpenAI key missing. Image generation and audio transcription need OpenAI.")
+    add("Claude key", bool(claude_key), "Claude key available" if claude_key else "Claude key missing.", "warning")
+    add("Text provider readiness", bool(openai_key) if provider == "openai" else bool(claude_key),
+        "Selected provider is configured." if ((provider == "openai" and openai_key) or (provider == "claude" and claude_key)) else "Selected text provider is missing its API key.")
+    add("Image generation readiness", bool(openai_key), "OpenAI key available for images." if openai_key else "OpenAI image generation is unavailable until an OpenAI key is saved.")
+    add("Audio transcription readiness", bool(openai_key), "OpenAI key available for speech-to-text fallback." if openai_key else "Mobile mic fallback transcription requires an OpenAI key.")
+    smtp_ok = bool((smtp.get('host') or '').strip() and (smtp.get('user') or '').strip() and ((smtp.get('pass') or '').strip()))
+    add("SMTP readiness", smtp_ok, "SMTP looks configured." if smtp_ok else "SMTP is not fully configured yet.", "warning")
+
+    ok = all(c["ok"] or c.get("severity") in ("warning", "info") for c in checks)
+    return {
+        "ok": ok,
+        "provider": provider,
+        "checks": checks,
+        "summary": "System checks passed." if ok else "Some important items still need attention."
+    }
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
+    cfg = _current_ai_settings()
+    provider = cfg.get("provider") or "openai"
+
+    if provider == "claude":
+        try:
+            return _call_claude_chat(system, messages, temperature=temperature)
+        except Exception as e:
+            raise RuntimeError(_friendly_provider_error_message(e, "claude"))
+
     try:
         resp = get_openai_client().chat.completions.create(
-            model=MODEL,
+            model=(cfg.get("openai_model") or MODEL),
             messages=[{"role": "system", "content": system}] + messages,
             temperature=temperature,
-                    timeout=60,
+            timeout=60,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
@@ -2405,17 +2565,15 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
         try:
             resp2 = get_openai_client().chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "system", "content": system}] + safe_msgs,
-            temperature=temperature,
-            timeout=60,
-        )
+                model=(cfg.get("openai_model") or MODEL),
+                messages=[{"role": "system", "content": system}] + safe_msgs,
+                temperature=temperature,
+                timeout=60,
+            )
+            out = (resp2.choices[0].message.content or "").strip()
+            return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
         except Exception as e2:
-            # bubble up for route handlers to return a clean JSON error
-            raise e2
-        out = (resp2.choices[0].message.content or "").strip()
-        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
-
+            raise RuntimeError(_friendly_provider_error_message(e2, "openai"))
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -2527,6 +2685,80 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
+
+
+def _extract_transcription_text(resp: Any) -> str:
+    try:
+        if resp is None:
+            return ""
+        if isinstance(resp, str):
+            return resp.strip()
+        txt = getattr(resp, "text", None)
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+        if isinstance(resp, dict):
+            for k in ("text", "transcript", "content"):
+                v = resp.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+        return str(resp).strip()
+    except Exception:
+        return ""
+
+@app.post("/api/transcribe_audio")
+def api_transcribe_audio():
+    if not session.get("user"):
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    up = request.files.get("audio")
+    if not up:
+        return jsonify({"ok": False, "error": "Missing audio file"}), 400
+
+    username = session.get("user") or "anon"
+    try:
+        client = _get_openai_client_for_username(username)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Transcription needs an OpenAI key in Settings. {e}"}), 400
+
+    filename = secure_filename(up.filename or "speech.webm") or "speech.webm"
+    suffix = Path(filename).suffix or ".webm"
+    preferred_model = (os.getenv("AUDIO_TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe").strip()
+    fallback_models = [preferred_model]
+    for m in ("gpt-4o-mini-transcribe", "whisper-1"):
+        if m not in fallback_models:
+            fallback_models.append(m)
+
+    last_err = ""
+    for model_name in fallback_models:
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                up.stream.seek(0)
+                tmp.write(up.read())
+                tmp.flush()
+                tmp_path = tmp.name
+
+            with open(tmp_path, "rb") as audio_f:
+                resp = client.audio.transcriptions.create(
+                    model=model_name,
+                    file=audio_f,
+                )
+            text = _extract_transcription_text(resp)
+            if not text:
+                text = ""
+            append_log("audio_transcribed", {"user": username, "model": model_name, "filename": filename, "chars": len(text)})
+            return jsonify({"ok": True, "text": text, "model": model_name})
+        except Exception as e:
+            last_err = str(e)
+        finally:
+            try:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    return jsonify({"ok": False, "error": last_err or "Transcription failed"}), 500
+
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -2597,9 +2829,7 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             continue
 
     detail = (last_err or "").strip()
-    if detail:
-        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
-    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
+    return None, None, _friendly_image_error_message(detail, tried)
 
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
@@ -2717,6 +2947,59 @@ def api_diagnostics():
     })
 
 
+
+
+@app.get("/api/system_status")
+def api_system_status():
+    """Compact status endpoint for the status dock and quick troubleshooting."""
+    reg = load_registry()
+    u = current_user()
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    active = reg.get("active_order") or []
+    installed = reg.get("installed_order") or []
+    task_entries = read_task_log(limit=30)
+    recent_errors = [x for x in task_entries if (x.get("status") or "") == "error"]
+    onboarding = _onboarding_status_payload(u) if u else {"progress_pct": 0, "all_done": False}
+    image_jobs = 0
+    try:
+        with IMAGE_JOBS_LOCK:
+            image_jobs = sum(1 for _jid, job in (IMAGE_JOBS or {}).items() if (job or {}).get("status") in ("queued", "running"))
+    except Exception:
+        image_jobs = 0
+    return jsonify({
+        "ok": True,
+        "user": uname,
+        "provider": (((u or {}).get("settings") or {}).get("provider") or AI_PROVIDER or "openai"),
+        "openai_ready": bool((((u or {}).get("settings") or {}).get("openai_key") or OPENAI_API_KEY or "").strip()),
+        "claude_ready": bool((((u or {}).get("settings") or {}).get("claude_key") or CLAUDE_API_KEY or "").strip()),
+        "active_teammates": len(active),
+        "installed_teammates": len(installed),
+        "queued_image_jobs": image_jobs,
+        "recent_task_errors": len(recent_errors),
+        "onboarding_progress_pct": int(onboarding.get("progress_pct") or 0),
+        "gmail_connected": bool((_email_capability_for_user(u) if u else {}).get("gmail_connected")),
+        "calendar_connected": bool((_calendar_creds_for_user(u)[0]) if u else False),
+        "timestamp": now_iso(),
+    })
+
+@app.post("/api/client_log")
+def api_client_log():
+    try:
+        payload = request.get_json(silent=True) or {}
+        append_task_log(
+            action="client_log",
+            record={
+                "level": (payload.get("level") or "info"),
+                "message": (payload.get("message") or "")[:2000],
+                "extra": payload.get("extra") or {},
+            },
+            teammate=(payload.get("teammate") or ""),
+            status="error" if str(payload.get("level") or "").lower() == "error" else "success",
+        )
+        return jsonify({"ok": True})
+    except Exception:
+        return jsonify({"ok": False, "error": "Log write failed"}), 500
+
 @app.get("/api/task_log")
 def api_task_log():
     # Optional query params: teammate, status, limit
@@ -2761,7 +3044,7 @@ def api_action_stacks_save(teammate: str, stack_name: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     steps = _normalize_steps(payload.get("steps"))
     data = _load_saved_stacks(uname, teammate)
     data.setdefault("stacks", {})
@@ -2775,7 +3058,7 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     user_input = (payload.get("input") or "").strip()
     data = _load_saved_stacks(uname, teammate)
     stack = (data.get("stacks") or {}).get(stack_name)
@@ -2793,7 +3076,7 @@ def api_action_stack_run_resume(run_id: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     user_input = (payload.get("input") or "").strip()
 
     runs_data = _load_runs(uname)
@@ -2829,7 +3112,7 @@ def api_action_stacks_schedules_create(teammate: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     mode = (payload.get("mode") or "").strip().lower()
     stack_name = (payload.get("stack_name") or "").strip()
     if not stack_name:
@@ -2860,7 +3143,7 @@ def api_action_stacks_schedules_delete(teammate: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     sid = (payload.get("schedule_id") or "").strip()
     if not sid:
         return jsonify({"ok": False, "error": "Missing schedule_id"}), 400
@@ -2912,17 +3195,15 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -2932,23 +3213,17 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
 
-    key = (settings.get("openai_key") or "").strip()
-    key_hint = ""
-    if key:
-        # show only last 4 chars to confirm something is saved, never return the key
-        key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
+    openai_key = (settings.get("openai_key") or "").strip()
+    claude_key = (settings.get("claude_key") or "").strip()
 
-    # do not leak password
+    def _hint(val: str) -> str:
+        return ("••••" + val[-4:]) if val else ""
+
     safe_smtp = {
         "host": smtp.get("host", ""),
         "port": smtp.get("port", 587),
@@ -2958,8 +3233,13 @@ def api_get_user_settings():
     return jsonify({
         "ok": True,
         "settings": {
-            "has_openai_key": bool(key),
-            "openai_key_hint": key_hint,
+            "provider": (settings.get("provider") or AI_PROVIDER or "openai"),
+            "has_openai_key": bool(openai_key),
+            "openai_key_hint": _hint(openai_key),
+            "openai_model": (settings.get("openai_model") or OPENAI_MODEL or MODEL or "gpt-5.2"),
+            "has_claude_key": bool(claude_key),
+            "claude_key_hint": _hint(claude_key),
+            "claude_model": (settings.get("claude_model") or CLAUDE_MODEL or "claude-3-5-sonnet-latest"),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -2970,27 +3250,18 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
-    except Exception:
-        pass
+    data = request.get_json(silent=True) or {}
+    provider = (data.get("provider") or "openai").strip().lower()
+    if provider not in ("openai", "claude"):
+        provider = "openai"
 
-
-    data = request.get_json(force=True) or {}
-    openai_key_in = (data.get("openai_key") or "")
-    openai_key = openai_key_in.strip()
+    openai_key = (data.get("openai_key") or "").strip()
+    openai_model = (data.get("openai_model") or "").strip()
+    claude_key = (data.get("claude_key") or "").strip()
+    claude_model = (data.get("claude_model") or "").strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -3007,9 +3278,17 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
+    rec["settings"]["provider"] = provider
+
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
-    # if user leaves it blank, do NOT overwrite the saved key
+    if openai_model:
+        rec["settings"]["openai_model"] = openai_model
+
+    if claude_key and len(claude_key) >= 20:
+        rec["settings"]["claude_key"] = claude_key
+    if claude_model:
+        rec["settings"]["claude_model"] = claude_model
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -3022,12 +3301,51 @@ def api_set_user_settings():
     if smtp_from_name != "":
         rec["settings"]["smtp"]["from_name"] = smtp_from_name
 
+    try:
+        if (rec.get("settings") or {}).get("openai_key") or (rec.get("settings") or {}).get("claude_key"):
+            _mark_onboarding_step(uname, "openai_key", True)
+    except Exception:
+        pass
+
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
 
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     return jsonify({"ok": True})
+
+
+@app.get("/api/system/self_test")
+def api_system_self_test():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = _run_system_self_test_for_user(u)
+    return jsonify(payload)
+
+
+@app.post("/api/system/test_text")
+def api_system_test_text():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    try:
+        out = call_llm("Reply with exactly: OK", [{"role": "user", "content": "Say OK"}], temperature=0)
+        return jsonify({"ok": True, "reply": (out or "").strip()[:200]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/system/test_image")
+def api_system_test_image():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    rec, url, err = generate_image_for_teammate("simple abstract blue square icon", teammate="system", username=uname, lighting_mode=False)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "image_url": url, "file": rec})
 
 
 @app.get("/api/framework")
@@ -3037,7 +3355,7 @@ def api_get_framework():
 
 @app.post("/api/framework")
 def api_set_framework():
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     fw = (data.get("framework") or "").strip()
     save_core_framework(fw)
     append_log("framework_updated", {"updated_at": now_iso(), "length": len(load_core_framework())})
@@ -3060,7 +3378,7 @@ def api_install_full():
 
 @app.post("/api/active_order")
 def api_set_active_order():
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     order = data.get("active_order")
     if not isinstance(order, list):
         return jsonify({"ok": False, "error": "active_order must be a list"}), 400
@@ -3071,7 +3389,7 @@ def api_set_active_order():
 
 @app.post("/api/teammate/create")
 def api_create_teammate():
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     try:
         t = create_teammate(data)
     except Exception as e:
@@ -3115,7 +3433,7 @@ def api_update_teammate(name: str):
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
 
-    payload = request.get_json(force=True) or {}
+    payload = request.get_json(silent=True) or {}
     current = installed[name]
     updated = _sanitize_teammate_update(payload, current)
 
@@ -3188,12 +3506,6 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
-    if not u:
-        try:
-            session["user"] = ensure_local_owner_user()
-            u = current_user()
-        except Exception:
-            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3441,7 +3753,10 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    text = call_llm(sys, msgs, temperature=0.65)
+    try:
+        text = call_llm(sys, msgs, temperature=0.65)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e) or "Teammate request failed"}), 502
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -3509,7 +3824,7 @@ def api_teammate_set_current_image(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     file_id = (data.get("file_id") or "").strip()
     approve = bool(data.get("approve"))
     if not file_id:
@@ -3538,7 +3853,7 @@ def api_send_email():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     to_addr = (data.get("to") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
@@ -4960,7 +5275,7 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: none;
+      resize: both;
       overflow: hidden;
       min-width: 560px;
       min-height: 420px;
@@ -5733,6 +6048,233 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 
 </style>
+
+<style id="claudeAndMobileFixPatch">
+@media (max-width: 720px){
+  html, body{
+    width:100%;
+    max-width:100%;
+    overflow-x:hidden !important;
+  }
+  *, *::before, *::after{
+    box-sizing:border-box;
+  }
+  .stage{
+    grid-template-columns: 1fr !important;
+    width:100% !important;
+    max-width:100% !important;
+  }
+  .arena,
+  .side,
+  .underTable,
+  .groupCard,
+  .sideCard,
+  .tableWrap,
+  .operator,
+  .topbar,
+  .mobileBar,
+  .mobileDrawer,
+  .passRow,
+  .pillRow{
+    width:100% !important;
+    max-width:100% !important;
+  }
+  .arena,
+  .side{
+    min-width:0 !important;
+    padding-left:12px !important;
+    padding-right:12px !important;
+    margin-left:auto !important;
+    margin-right:auto !important;
+  }
+  .side{
+    border-left:0 !important;
+    overflow:visible !important;
+  }
+  .sideCard,
+  .groupCard,
+  .operator{
+    overflow:hidden !important;
+  }
+  .sideHead,
+  .opHead{
+    display:flex !important;
+    flex-wrap:wrap !important;
+    align-items:flex-start !important;
+    justify-content:space-between !important;
+    gap:10px !important;
+  }
+  .sideTitle,
+  .opTitle{
+    min-width:0 !important;
+    flex:1 1 220px !important;
+  }
+  .sideTitle .h1,
+  .opTitle .t1{
+    white-space:normal !important;
+    word-break:break-word !important;
+  }
+  .sideTitle .h2,
+  .opTitle .t2{
+    white-space:normal !important;
+    overflow:visible !important;
+    text-overflow:unset !important;
+  }
+  #refreshThread{
+    flex:0 0 auto !important;
+    margin-left:auto !important;
+    align-self:flex-start !important;
+  }
+  .passRow,
+  .pillRow{
+    flex-wrap:wrap !important;
+  }
+  .btn,
+  .btnMini,
+  .btnTiny{
+    max-width:100% !important;
+  }
+  .thread,
+  .followBox,
+  .field,
+  textarea,
+  input,
+  select{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+  }
+}
+</style>
+
+<style>
+  /* Visual polish upgrade: sharper contrast, richer depth, safer mobile glow */
+  :root{
+    --glass-bg: linear-gradient(180deg, rgba(14,22,48,.88), rgba(8,12,28,.92));
+    --glass-border: rgba(96,124,255,.24);
+    --glow-violet: rgba(124,58,237,.22);
+    --glow-blue: rgba(59,130,246,.18);
+    --soft-text-glow: 0 0 18px rgba(148,163,255,.10);
+  }
+
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    background:
+      radial-gradient(680px 420px at 18% 12%, rgba(124,58,237,.10), transparent 62%),
+      radial-gradient(760px 460px at 82% 18%, rgba(59,130,246,.10), transparent 62%),
+      radial-gradient(520px 320px at 50% 78%, rgba(168,85,247,.08), transparent 70%);
+    mix-blend-mode: screen;
+    opacity:.9;
+    z-index:0;
+  }
+
+  .topbar,
+  .sideCard,
+  .operator,
+  .seat,
+  .modalCard,
+  .table,
+  .thread,
+  .opText,
+  .msgInput,
+  textarea,
+  input,
+  select{
+    backdrop-filter: blur(16px) saturate(130%);
+  }
+
+  .topbar,
+  .sideCard,
+  .operator,
+  .seat,
+  .modalCard{
+    background: var(--glass-bg) !important;
+    border-color: var(--glass-border) !important;
+    box-shadow:
+      0 12px 34px rgba(0,0,0,.26),
+      0 0 0 1px rgba(255,255,255,.03) inset,
+      0 0 28px rgba(59,130,246,.08),
+      0 0 46px rgba(124,58,237,.08) !important;
+  }
+
+  .table{
+    box-shadow:
+      0 0 0 1px rgba(17,24,39,.35) inset,
+      0 0 86px rgba(124,58,237,.24),
+      0 0 150px rgba(59,130,246,.14) !important;
+  }
+
+  .btn{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.04) inset,
+      0 10px 24px rgba(0,0,0,.22),
+      0 0 18px rgba(59,130,246,.08);
+    transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease, background .14s ease;
+  }
+
+  .btn:hover{
+    transform: translateY(-1px);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 14px 28px rgba(0,0,0,.26),
+      0 0 24px rgba(124,58,237,.14);
+  }
+
+  .btnPrimary{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.06) inset,
+      0 12px 28px rgba(0,0,0,.26),
+      0 0 22px rgba(124,58,237,.18),
+      0 0 34px rgba(59,130,246,.12) !important;
+  }
+
+  .brand,
+  .sideTitle .h1,
+  .seatName,
+  .opTitle .t1,
+  .modalTitle,
+  h1, h2, h3{
+    text-shadow: var(--soft-text-glow);
+    letter-spacing:.15px;
+  }
+
+  .tiny,
+  .seatRole,
+  .seatStatus,
+  .opTitle .t2{
+    color: rgba(210,220,255,.82) !important;
+  }
+
+  textarea,
+  input,
+  select,
+  .opText{
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.03) inset,
+      0 0 0 1px rgba(255,255,255,.02),
+      0 0 18px rgba(59,130,246,.05);
+  }
+
+  .seat:hover{
+    box-shadow:
+      0 14px 30px rgba(0,0,0,.30),
+      0 0 28px rgba(124,58,237,.16),
+      0 0 36px rgba(59,130,246,.10) !important;
+  }
+
+  @media (max-width: 900px){
+    body::before{ opacity:.72; }
+    .btn{
+      box-shadow:
+        0 8px 20px rgba(0,0,0,.24),
+        0 0 16px rgba(124,58,237,.08);
+    }
+  }
+</style>
+
 </head>
 <body>
   <div class="topbar">
@@ -6021,11 +6563,36 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               <div class="modalForm" id="settingsForm">
                 <div class="tiny" style="margin-bottom:10px;">
-                  Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
+                  Personal settings for this account. Choose your AI provider here. OpenAI image generation stays unchanged, and text replies can use either OpenAI or Claude.
                 </div>
+
+                <label>AI Provider</label>
+                <select id="aiProvider">
+                  <option value="openai">ChatGPT / OpenAI</option>
+                  <option value="claude">Claude / Anthropic</option>
+                </select>
 
                 <label>OpenAI API Key</label>
                 <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+
+                <label>OpenAI Model</label>
+                <input id="openaiModel" type="text" placeholder="gpt-5.2" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
+
+                <label>Claude API Key</label>
+                <input id="claudeKey" type="text" placeholder="sk-ant-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
+
+                <label>Claude Model</label>
+                <input id="claudeModel" type="text" placeholder="claude-3-5-sonnet-latest" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" />
+
+                <div style="height:10px"></div>
+                <div class="tiny" style="margin-bottom:6px;">System checks</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+                  <button class="btn btnMini" id="runSelfTestBtn">Run system check</button>
+                  <button class="btn btnMini" id="testTextProviderBtn">Test text provider</button>
+                  <button class="btn btnMini" id="testImageProviderBtn">Test image generation</button>
+                </div>
+                <div class="tiny" id="systemCheckStatus">Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.</div>
+                <pre id="systemCheckOutput" style="white-space:pre-wrap; margin-top:8px; max-height:180px; overflow:auto; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; background:rgba(4,8,24,.72);"></pre>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -7097,6 +7664,8 @@ function showModal(title, body, imgUrl){
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
     })();
 
+    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("modalWin", "modalBar", "floating:modal"); }catch(_){ }
+
     (function initModalResizePersist(){
       const win = $("modalWin");
       if(!win) return;
@@ -7438,13 +8007,53 @@ function renderStackSteps(){
   });
 }
 
+
+async function apiFetchJson(url, options){
+  const opts = options || {};
+  const method = (opts.method || "GET").toUpperCase();
+  let res;
+  try{
+    res = await fetch(url, opts);
+  }catch(err){
+    const msg = String(err || "Network error");
+    try{
+      fetch("/api/client_log", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({level:"error", message:"Network error", extra:{url, method, error: msg}})
+      }).catch(()=>{});
+    }catch(_){}
+    return { ok:false, error: msg, __network_error:true };
+  }
+  let data = null;
+  try{
+    data = await res.json();
+  }catch(_){
+    const msg = "Invalid server response";
+    try{
+      fetch("/api/client_log", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({level:"error", message: msg, extra:{url, method, status: res.status}})
+      }).catch(()=>{});
+    }catch(__){}
+    return { ok:false, error: msg, __invalid_json:true, status: res.status };
+  }
+  if(!res.ok && (!data || typeof data !== "object")){
+    return { ok:false, error:"Request failed", status: res.status };
+  }
+  return (data && typeof data === "object") ? data : { ok:false, error:"Invalid payload", status: res.status };
+}
+
 async function loadStacksForTeammate(teammate){
   const sel = $("stackSelect");
   if(!sel) return;
   sel.innerHTML = "";
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
-  const data = await res.json();
-  if(!data.ok) return;
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
+  if(!data.ok){
+    if($("stackStatus")) $("stackStatus").innerText = data.error || "Could not load stacks.";
+    return;
+  }
   const opt0 = document.createElement("option");
   opt0.value = "";
   opt0.text = "(select)";
@@ -7459,11 +8068,13 @@ async function loadStacksForTeammate(teammate){
 
 async function loadStackDetail(teammate, name){
   if(!name) return;
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
-  const data = await res.json();
-  if(!data.ok) return;
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
+  if(!data.ok){
+    if($("stackStatus")) $("stackStatus").innerText = data.error || "Could not load that stack.";
+    return;
+  }
   const stack = data.stack || {};
-  ActionStack.steps = (stack.steps || []).map(s => ({type:"prompt", prompt: s.prompt || ""}));
+  ActionStack.steps = (stack.steps || []).map(s => ({type:(s.type || "prompt"), prompt: s.prompt || "", seconds: s.seconds || 0, key: s.key || "", to_teammate: s.to_teammate || ""}));
   if($("stackName")) $("stackName").value = stack.name || name;
   renderStackSteps();
 }
@@ -7472,9 +8083,14 @@ async function loadSchedulesForTeammate(teammate){
   const box = $("stackSchedules");
   if(!box) return;
   box.innerHTML = "";
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
-  const data = await res.json();
-  if(!data.ok) return;
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
+  if(!data.ok){
+    const t = document.createElement("div");
+    t.className = "tiny";
+    t.innerText = data.error || "Could not load schedules.";
+    box.appendChild(t);
+    return;
+  }
   const items = data.schedules || [];
   if(items.length === 0){
     const t = document.createElement("div");
@@ -7500,11 +8116,12 @@ async function loadSchedulesForTeammate(teammate){
     del.className = "btn";
     del.innerText = "Delete";
     del.onclick = async () => {
-      await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
+      const out = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
         method:"POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({schedule_id: s.id})
       });
+      if($("stackStatus")) $("stackStatus").innerText = out.ok ? "Schedule deleted." : (out.error || "Delete failed.");
       loadSchedulesForTeammate(teammate);
     };
     row.appendChild(del);
@@ -7517,12 +8134,11 @@ async function saveCurrentStack(){
   const name = (($("stackName") && $("stackName").value) || "").trim();
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Enter a stack name."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({steps: ActionStack.steps})
   });
-  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
   loadStacksForTeammate(teammate);
 }
@@ -7532,15 +8148,16 @@ async function runCurrentStack(){
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
+  if($("stackStatus")) $("stackStatus").innerText = "Running...";
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({input: (($("mainPrompt") && $("mainPrompt").value) || "").trim(), client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")})
   });
-  const data = await res.json();
   if(!data.ok){ if($("stackStatus")) $("stackStatus").innerText = data.error || "Run failed."; return; }
   renderStackSteps();
   renderRunOutputs(data.run);
+  if($("stackStatus")) $("stackStatus").innerText = (data.run && data.run.status) ? ("Run: " + data.run.status) : "Run complete.";
 }
 
 async function scheduleOnce(){
@@ -7550,12 +8167,11 @@ async function scheduleOnce(){
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
   if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a datetime."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
   });
-  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
@@ -7567,12 +8183,11 @@ async function scheduleDaily(){
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
   if(!t){ if($("stackStatus")) $("stackStatus").innerText = "Pick a daily time."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({mode:"daily", stack_name:name, time: t})
   });
-  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
@@ -8542,14 +9157,35 @@ function makeSeat(defn, idx){
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
 
+    async function getMicPermissionState(){
+      try{
+        if(!navigator.permissions || !navigator.permissions.query) return "unknown";
+        const result = await navigator.permissions.query({ name: "microphone" });
+        return (result && result.state) ? result.state : "unknown";
+      }catch(_){
+        return "unknown";
+      }
+    }
+
     async function ensureMicPermission(){
-      // No-op if media devices are not available.
       try{
         if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return true;
-        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-        // Immediately stop tracks; we just want to prompt permission.
+
+        const before = await getMicPermissionState();
+        if(before === "granted") return true;
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
         try{ stream.getTracks().forEach(t => t.stop()); }catch(_){}
-        return true;
+
+        const after = await getMicPermissionState();
+        return after === "granted" || before === "prompt" || after === "prompt" || true;
       }catch(e){
         return false;
       }
@@ -8557,19 +9193,255 @@ function makeSeat(defn, idx){
 
     function micHelpText(){
       if(isInAppBrowser()){
-        return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
+        return "Microphone access is often blocked inside Messenger, Facebook, and Instagram in-app browsers. If the permission prompt does not appear or the mic still will not start, open this page in Chrome or Safari, allow microphone access for this site, then try Talk or Always listen again.";
       }
-      return "If the mic won't start, check site permissions for microphone access and try again.";
+      return "Microphone access is blocked for this site. When prompted, tap Allow. If you already blocked it, use your browser's site settings or the lock icon to allow microphone access, then try again.";
+    }
+
+    async function preflightMicOrExplain(statusId){
+      const status = $(statusId);
+      if(status) status.innerText = "Mic: requesting permission";
+
+      const okPerm = await ensureMicPermission();
+      if(okPerm){
+        if(status) status.innerText = "Mic: ready";
+        return true;
+      }
+
+      if(status) status.innerText = "Mic: blocked";
+      showModal("Allow microphone", micHelpText());
+      return false;
     }
     // --- end voice patch ---
+
+    let sharedMicStream = null;
+    let activeTalkRecorder = null;
+    let talkMonitorTimer = null;
+    let talkRecorderMime = "";
+    let alwaysRecorderTimer = null;
 
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
+    function mediaRecorderSupported(){
+      return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function preferRecorderMic(){
+      const ua = (navigator.userAgent || "").toLowerCase();
+      return isInAppBrowser() || /iphone|ipad|ipod|android/i.test(ua);
+    }
+
+    function pickRecorderMimeType(){
+      if(!window.MediaRecorder || !window.MediaRecorder.isTypeSupported) return "";
+      const types = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/ogg;codecs=opus",
+      ];
+      for(const t of types){
+        try{
+          if(MediaRecorder.isTypeSupported(t)) return t;
+        }catch(_){}
+      }
+      return "";
+    }
+
+    async function getSharedMicStream(){
+      if(sharedMicStream){
+        const live = sharedMicStream.getTracks().some(t => t.readyState === "live");
+        if(live) return sharedMicStream;
+      }
+      sharedMicStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      return sharedMicStream;
+    }
+
+    function stopSharedMicStream(){
+      try{
+        if(sharedMicStream){
+          sharedMicStream.getTracks().forEach(t => t.stop());
+        }
+      }catch(_){}
+      sharedMicStream = null;
+    }
+
+    async function transcribeAudioBlob(blob){
+      const fileExt = (blob && blob.type && blob.type.includes("mp4")) ? "m4a" : "webm";
+      const file = new File([blob], "speech." + fileExt, { type: (blob && blob.type) || "audio/webm" });
+      const fd = new FormData();
+      fd.append("audio", file);
+      const res = await fetch("/api/transcribe_audio", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok){
+        throw new Error((data && data.error) ? data.error : "Transcription failed");
+      }
+      return (data.text || "").trim();
+    }
+
+    function scheduleVoiceAutoSend(targetId, snapshot){
+      try{
+        const snap = (snapshot || "").trim();
+        if(!snap) return;
+        setTimeout(() => {
+          try{
+            const t = $(targetId);
+            const current = ((t && t.value) ? t.value : "").trim();
+            if(current !== snap) return;
+            if(targetId === "opPrompt"){
+              conveneAll();
+            }else if(targetId === "followMsg"){
+              sendFollow();
+            }
+          }catch(_){}
+        }, 2000);
+      }catch(_){}
+    }
+
+    async function finalizeRecorderTalk(blob, targetId, statusId, baseText){
+      const target = $(targetId);
+      const status = $(statusId);
+      try{
+        if(status) status.innerText = "Mic: transcribing";
+        const spoken = await transcribeAudioBlob(blob);
+        const combined = (baseText + " " + spoken).replace(/\s+/g, " ").trim();
+        if(target) target.value = combined;
+        if(status) status.innerText = spoken ? "Mic: idle" : "Mic: no speech";
+        if(spoken){
+          scheduleVoiceAutoSend(targetId, combined);
+        }
+      }catch(e){
+        if(status) status.innerText = "Mic: error";
+        showModal("Mic error", String(e && e.message ? e.message : e));
+      }finally{
+        activeTalkRecorder = null;
+        if(talkMonitorTimer){
+          clearInterval(talkMonitorTimer);
+          talkMonitorTimer = null;
+        }
+        stopSharedMicStream();
+      }
+    }
+
+    async function startRecorderDictation(targetId, statusId){
+      const target = $(targetId);
+      const status = $(statusId);
+      if(!target || !status){
+        showModal("Mic error", "Voice target is unavailable right now.");
+        return;
+      }
+
+      if(activeTalkRecorder){
+        try{
+          if(activeTalkRecorder.state === "recording"){
+            activeTalkRecorder.stop();
+            return;
+          }
+        }catch(_){}
+      }
+
+      let stream = null;
+      try{
+        stream = await getSharedMicStream();
+      }catch(e){
+        if(status) status.innerText = "Mic: blocked";
+        showModal("Allow microphone", micHelpText());
+        return;
+      }
+
+      const mime = pickRecorderMimeType();
+      talkRecorderMime = mime || "audio/webm";
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      activeTalkRecorder = rec;
+
+      const baseText = (target.value || "").trim();
+      const chunks = [];
+      let speechDetected = false;
+      let lastLoudAt = Date.now();
+      const startedAt = Date.now();
+
+      rec.ondataavailable = (event) => {
+        if(event.data && event.data.size > 0){
+          chunks.push(event.data);
+        }
+      };
+
+      rec.onerror = () => {
+        if(status) status.innerText = "Mic: error";
+      };
+
+      rec.onstop = async () => {
+        const blob = new Blob(chunks, { type: talkRecorderMime || "audio/webm" });
+        await finalizeRecorderTalk(blob, targetId, statusId, baseText);
+      };
+
+      if(status) status.innerText = "Mic: listening";
+      rec.start(250);
+
+      try{
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if(AudioCtx){
+          const audioCtx = new AudioCtx();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 1024;
+          const source = audioCtx.createMediaStreamSource(stream);
+          source.connect(analyser);
+          const data = new Uint8Array(analyser.frequencyBinCount);
+
+          talkMonitorTimer = setInterval(() => {
+            if(!activeTalkRecorder || activeTalkRecorder.state !== "recording") return;
+            analyser.getByteFrequencyData(data);
+            let sum = 0;
+            for(let i = 0; i < data.length; i++) sum += data[i];
+            const avg = sum / (data.length || 1);
+
+            if(avg > 10){
+              speechDetected = true;
+              lastLoudAt = Date.now();
+            }
+
+            const now = Date.now();
+            const maxed = (now - startedAt) > 15000;
+            const silentEnough = speechDetected && (now - lastLoudAt) > 1200;
+
+            if(maxed || silentEnough){
+              try{
+                if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
+                  activeTalkRecorder.stop();
+                }
+              }catch(_){}
+              try{ source.disconnect(); }catch(_){}
+              try{ analyser.disconnect(); }catch(_){}
+              try{ audioCtx.close(); }catch(_){}
+            }
+          }, 140);
+        }
+      }catch(_){
+        setTimeout(() => {
+          try{
+            if(activeTalkRecorder && activeTalkRecorder.state === "recording"){
+              activeTalkRecorder.stop();
+            }
+          }catch(_){}
+        }, 9000);
+      }
+    }
+
     async function startDictation(targetId, statusId){
-      if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+      if((!speechSupported()) || preferRecorderMic()){
+        if(!mediaRecorderSupported()){
+          showModal("Mic not supported", micHelpText());
+          return;
+        }
+        await startRecorderDictation(targetId, statusId);
         return;
       }
 
@@ -8615,8 +9487,9 @@ function makeSeat(defn, idx){
         target.value = combined;
       };
 
-      rec.onerror = () => {
-        status.innerText = "Mic: error";
+      rec.onerror = async () => {
+        status.innerText = "Mic: recorder fallback";
+        await startRecorderDictation(targetId, statusId);
       };
 
       rec.onend = () => {
@@ -8625,37 +9498,29 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-
-        // AUTO SEND AFTER TALKING STOPS (ADD v1)
-        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
-        try{
-          const snapshot = (combined || "").trim();
-          if(snapshot){
-            setTimeout(() => {
-              try{
-                const t = $(targetId);
-                const current = ((t && t.value) ? t.value : "").trim();
-                if(current !== snapshot) return; // user edited; do not auto send
-                if(targetId === "opPrompt"){
-                  conveneAll();
-                }else if(targetId === "followMsg"){
-                  sendFollow();
-                }
-              }catch(_){}
-            }, 2000);
-          }
-        }catch(_){}
+        scheduleVoiceAutoSend(targetId, combined);
       };
 
       try{
         rec.start();
       }catch(e){
-        status.innerText = "Mic: error";
+        status.innerText = "Mic: recorder fallback";
+        await startRecorderDictation(targetId, statusId);
       }
     }
 
-    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
-    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+    $("talkGroupBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      await startDictation("opPrompt", "micStatusGroup");
+    };
+
+    $("talkDmBtn").onclick = async () => {
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      await startDictation("followMsg", "micStatusDm");
+    };
+
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -8757,16 +9622,145 @@ function makeSeat(defn, idx){
       if(st2) st2.innerText = "Mic: idle";
 
       try{
+        if(alwaysRecorderTimer){
+          clearTimeout(alwaysRecorderTimer);
+        }
+      }catch(_){}
+      alwaysRecorderTimer = null;
+
+      try{
         if(alwaysRec){
           alwaysRec.onresult = null;
           alwaysRec.onerror = null;
           alwaysRec.onend = null;
-          alwaysRec.stop();
+          if(alwaysRec.state === "recording"){
+            alwaysRec.stop();
+          }
         }
       }catch(e){}
       alwaysRec = null;
 
+      stopSharedMicStream();
       updateAlwaysButtons();
+    }
+
+    async function applyAlwaysTranscriptText(rawText){
+      let spoken = (rawText || "").replace(/\s+/g, " ").trim();
+      if(!spoken) return;
+
+      const hit = findFirstNameMention(spoken);
+      if(hit){
+        spoken = removeNameOnce(spoken, hit.name).replace(/\s+/g, " ").trim();
+        await selectSeat(hit.name);
+        forceSeatSelectUI(hit.name);
+      }
+
+      const target = currentAlwaysTarget();
+      if(!target) return;
+
+      alwaysBaseText = (target.value || "").trim();
+      target.value = (alwaysBaseText + " " + spoken).replace(/\s+/g, " ").trim();
+      alwaysBaseText = (target.value || "").trim();
+      alwaysFinalText = "";
+      alwaysInterimText = "";
+      alwaysFinalBaseline = "";
+    }
+
+    async function startAlwaysListeningRecorder(mode){
+      if(!mediaRecorderSupported()){
+        showModal("Mic not supported", micHelpText());
+        return;
+      }
+
+      alwaysMode = mode || "dm";
+      alwaysOn = true;
+      updateAlwaysButtons();
+      resetAlwaysBuffers();
+
+      const okPerm = await ensureMicPermission();
+      if(!okPerm){
+        alwaysOn = false;
+        updateAlwaysButtons();
+        showModal("Microphone blocked", micHelpText());
+        return;
+      }
+
+      const status = currentAlwaysStatusEl();
+      if(status) status.innerText = "Mic: always listening";
+
+      const runChunk = async () => {
+        if(!alwaysOn) return;
+
+        let stream = null;
+        try{
+          stream = await getSharedMicStream();
+        }catch(e){
+          stopAlwaysListening();
+          showModal("Allow microphone", micHelpText());
+          return;
+        }
+
+        const mime = pickRecorderMimeType();
+        const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        alwaysRec = rec;
+        const chunks = [];
+
+        rec.ondataavailable = (event) => {
+          if(event.data && event.data.size > 0){
+            chunks.push(event.data);
+          }
+        };
+
+        rec.onerror = (e) => {
+          const s = currentAlwaysStatusEl();
+          if(s) s.innerText = "Mic: error";
+          try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){}
+          stopAlwaysListening();
+        };
+
+        rec.onstop = async () => {
+          if(!alwaysOn){
+            stopSharedMicStream();
+            return;
+          }
+
+          try{
+            const s = currentAlwaysStatusEl();
+            if(s) s.innerText = "Mic: transcribing";
+            const blob = new Blob(chunks, { type: mime || "audio/webm" });
+            const spoken = await transcribeAudioBlob(blob);
+            if(spoken){
+              await applyAlwaysTranscriptText(spoken);
+            }
+            if(alwaysOn){
+              const s2 = currentAlwaysStatusEl();
+              if(s2) s2.innerText = "Mic: always listening";
+              alwaysRecorderTimer = setTimeout(runChunk, 160);
+            }
+          }catch(e){
+            const s3 = currentAlwaysStatusEl();
+            if(s3) s3.innerText = "Mic: error";
+            showModal("Mic error", String(e && e.message ? e.message : e));
+            stopAlwaysListening();
+          }
+        };
+
+        try{
+          rec.start();
+          alwaysRecorderTimer = setTimeout(() => {
+            try{
+              if(alwaysRec && alwaysRec.state === "recording"){
+                alwaysRec.stop();
+              }
+            }catch(_){}
+          }, 4200);
+        }catch(e){
+          stopAlwaysListening();
+          showModal("Mic error", "Could not start always listening. Check permissions and try again.");
+        }
+      };
+
+      await runChunk();
     }
 
     // UPDATE: Build canonical final + interim from the full results list.
@@ -8807,8 +9801,8 @@ function makeSeat(defn, idx){
 
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
-      if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+      if((!speechSupported()) || preferRecorderMic()){
+        await startAlwaysListeningRecorder(mode);
         return;
       }
 
@@ -8860,14 +9854,11 @@ function makeSeat(defn, idx){
                 .trim();
             }
 
-            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
 
-            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             alwaysFinalText = "";
@@ -8876,7 +9867,6 @@ function makeSeat(defn, idx){
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
         alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
@@ -8888,12 +9878,11 @@ function makeSeat(defn, idx){
         }
       };
 
-      rec.onerror = (e) => {
+      rec.onerror = async (e) => {
         const s = currentAlwaysStatusEl();
-        if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
-        try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        if(s) s.innerText = "Mic: recorder fallback";
+        try{ stopAlwaysListening(); }catch(_){}
+        await startAlwaysListeningRecorder(mode);
       };
 
       rec.onend = () => {
@@ -8911,26 +9900,30 @@ function makeSeat(defn, idx){
         rec.start();
       }catch(e){
         stopAlwaysListening();
-        showModal("Mic error", "Could not start always listening. Check permissions and try again.");
+        await startAlwaysListeningRecorder(mode);
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = () => {
+    $("alwaysListenGroupBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("group");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusGroup");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("group");
     };
 
-    $("alwaysListenDmBtn").onclick = () => {
+    $("alwaysListenDmBtn").onclick = async () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("dm");
+        return;
       }
+      const ok = await preflightMicOrExplain("micStatusDm");
+      if(!ok) return;
+      stopAlwaysListening();
+      startAlwaysListening("dm");
     };
 
     async function conveneAll(){
@@ -9116,42 +10109,66 @@ async function sendFollow(){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
-      });
-      const data = await res.json();
+      try{
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 120000);
 
-      if(!data.ok){
+        const res = await fetch("/api/followup", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn}),
+          signal: controller.signal
+        });
+        clearTimeout(t);
+
+        let data = null;
+        try{
+          data = await res.json();
+        }catch(_){
+          setSeatLive(selectedSeat, "waiting");
+          setOpStatus("Error");
+          showModal("Error", "The server returned an invalid response. The teammate request did not complete cleanly.");
+          return;
+        }
+
+        if(!data.ok){
+          setSeatLive(selectedSeat, "waiting");
+          setOpStatus("Error");
+          showModal("Error", data.error || "Send failed");
+          return;
+        }
+
+        if(data.job_id){
+          // Image generation runs in background to avoid request timeouts.
+          setSeatLive(selectedSeat, "thinking");
+          setOpStatus("Generating image");
+          $("followMsg").value = "";
+          await refreshThread();
+          pollImageJob(data.job_id, selectedSeat);
+        }else{
+          setSeatLive(selectedSeat, "done");
+          setOpStatus("Complete");
+          $("followMsg").value = "";
+          await refreshThread();
+        }
+
+        $("followMsg").value = "";
+        await refreshThread();
+        try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+
+        dmFileIds = [];
+        renderAttachList("dmAttachList", dmFileIds);
+
+        if(data.email_draft){
+          applyEmailDraft(data.email_draft, selectedSeat);
+        }
+      }catch(e){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
-        showModal("Error", data.error || "Send failed");
-        return;
-      }
-
-      if(data.job_id){
-        // Image generation runs in background to avoid request timeouts.
-        setSeatLive(selectedSeat, "thinking");
-        setOpStatus("Generating image");
-        $("followMsg").value = "";
-        await refreshThread();
-        pollImageJob(data.job_id, selectedSeat);
-      }else{
-        setSeatLive(selectedSeat, "done");
-        setOpStatus("Complete");
-        $("followMsg").value = "";
-        await refreshThread();
-      }
-      $("followMsg").value = "";
-      await refreshThread();
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
-      dmFileIds = [];
-      renderAttachList("dmAttachList", dmFileIds);
-
-      if(data.email_draft){
-        applyEmailDraft(data.email_draft, selectedSeat);
+        const msg = (e && e.name === "AbortError")
+          ? "The teammate request timed out. The app recovered cleanly instead of staying stuck on thinking."
+          : String(e || "Send failed");
+        showModal("Error", msg);
       }
     }
 
@@ -9545,20 +10562,96 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         const s = data.settings || {};
-        // Never auto-fill the key. Show a hint only.
+        $("aiProvider").value = (s.provider || "openai");
         const hint = s.openai_key_hint || "";
         $("openaiKey").value = "";
         $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
+        $("openaiModel").value = s.openai_model || "";
+        const cHint = s.claude_key_hint || "";
+        $("claudeKey").value = "";
+        $("claudeKey").placeholder = cHint ? ("Saved (" + cHint + ") paste new to replace") : "sk-ant-...";
+        $("claudeModel").value = s.claude_model || "";
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
         $("smtpUser").value = smtp.user || "";
         $("smtpPass").value = "";
         $("smtpFromName").value = smtp.from_name || "";
+        if($("systemCheckStatus")) $("systemCheckStatus").innerText = "Run a check after saving to catch missing keys, packages, billing issues, and feature gaps before you hit them in normal use.";
+        if($("systemCheckOutput")) $("systemCheckOutput").textContent = "";
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
+      }
+    }
+
+    function formatSelfTestResults(data){
+      if(!data) return "No data.";
+      const lines = [];
+      if(data.summary) lines.push(data.summary);
+      const checks = data.checks || [];
+      checks.forEach(c => {
+        const sev = c.severity || "error";
+        const icon = c.ok ? "✅" : (sev === "warning" ? "⚠️" : (sev === "info" ? "ℹ️" : "❌"));
+        lines.push(icon + " " + (c.name || "Check") + ": " + (c.detail || ""));
+      });
+      lines.push("");
+      lines.push("Browser checks:");
+      lines.push((window.isSecureContext ? "✅" : "❌") + " Secure context: " + (window.isSecureContext ? "yes" : "no"));
+      lines.push((speechSupported() ? "✅" : "⚠️") + " SpeechRecognition API: " + (speechSupported() ? "available" : "missing"));
+      lines.push((recorderMicSupported() ? "✅" : "⚠️") + " MediaRecorder mic fallback: " + (recorderMicSupported() ? "available" : "missing"));
+      lines.push((isInAppBrowser() ? "⚠️" : "✅") + " In-app browser detected: " + (isInAppBrowser() ? "yes" : "no"));
+      return lines.join("\n");
+    }
+
+    async function runSystemSelfTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = "Running system check...";
+      if(out) out.textContent = "Running system check...";
+      try{
+        const res = await fetch('/api/system/self_test');
+        const data = await res.json();
+        if(st) st.innerText = data.summary || (data.ok ? 'System checks passed.' : 'System checks found issues.');
+        if(out) out.textContent = formatSelfTestResults(data);
+      }catch(e){
+        if(st) st.innerText = 'System check failed';
+        if(out) out.textContent = 'System check failed.';
+      }
+    }
+
+    async function runTextProviderTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = 'Testing text provider...';
+      if(out) out.textContent = 'Testing text provider...';
+      try{
+        const res = await fetch('/api/system/test_text', {method:'POST'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Text provider test failed');
+        if(st) st.innerText = 'Text provider test passed';
+        if(out) out.textContent = '✅ Text provider replied: ' + (data.reply || 'OK');
+      }catch(e){
+        if(st) st.innerText = 'Text provider test failed';
+        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Text provider test failed');
+      }
+    }
+
+    async function runImageProviderTest(){
+      const out = $("systemCheckOutput");
+      const st = $("systemCheckStatus");
+      if(st) st.innerText = 'Testing image generation...';
+      if(out) out.textContent = 'Testing image generation...';
+      try{
+        const res = await fetch('/api/system/test_image', {method:'POST'});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Image generation test failed');
+        if(st) st.innerText = 'Image generation test passed';
+        if(out) out.textContent = '✅ Image generation test passed. Generated file: ' + ((data.file && data.file.filename) || 'image');
+      }catch(e){
+        if(st) st.innerText = 'Image generation test failed';
+        if(out) out.textContent = '❌ ' + (e && e.message ? e.message : 'Image generation test failed');
       }
     }
 
@@ -10655,12 +11748,18 @@ try{
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
+    if($("runSelfTestBtn")) $("runSelfTestBtn").onclick = async () => { await runSystemSelfTest(); };
+    if($("testTextProviderBtn")) $("testTextProviderBtn").onclick = async () => { await runTextProviderTest(); };
+    if($("testImageProviderBtn")) $("testImageProviderBtn").onclick = async () => { await runImageProviderTest(); };
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
-      const keyVal = ($("openaiKey").value || "").trim();
       const payload = {
-        openai_key: keyVal,
+        provider: ($("aiProvider").value || "openai").trim(),
+        openai_key: ($("openaiKey").value || "").trim(),
+        openai_model: ($("openaiModel").value || "").trim(),
+        claude_key: ($("claudeKey").value || "").trim(),
+        claude_model: ($("claudeModel").value || "").trim(),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -10682,6 +11781,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
         $("settingsStatus").innerText = "Saved";
           try{ await afterSettingsSaved(); }catch(e){}
+          try{ await runSystemSelfTest(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
       }
@@ -11865,11 +12965,338 @@ maybeAutoShowOnboarding();
     70%{ box-shadow: 0 0 0 12px rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.10); }
     100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
   }
+
+  /* ===== Additive visual polish + floating window controls ===== */
+  :root{
+    --glass-1: rgba(10,16,35,.78);
+    --glass-2: rgba(16,24,54,.92);
+    --line-1: rgba(116,150,255,.16);
+    --line-2: rgba(182,115,255,.24);
+    --glow-1: 0 18px 48px rgba(7,12,28,.40), 0 0 0 1px rgba(255,255,255,.03) inset;
+    --glow-2: 0 28px 80px rgba(56,22,125,.22), 0 10px 34px rgba(25,44,110,.20);
+  }
+
+  .topbar,
+  .sideCard,
+  .seat,
+  .modal,
+  #onbCard{
+    backdrop-filter: blur(14px) saturate(1.08);
+    box-shadow: var(--glow-1), var(--glow-2);
+  }
+
+  .topbar{
+    background:
+      linear-gradient(180deg, rgba(17,26,56,.92), rgba(8,12,28,.88));
+    border-bottom: 1px solid var(--line-1);
+  }
+
+  .sideCard,
+  .seat,
+  .modal,
+  #onbCard{
+    background:
+      radial-gradient(circle at top right, rgba(123,92,255,.12), transparent 34%),
+      radial-gradient(circle at top left, rgba(45,167,255,.10), transparent 28%),
+      linear-gradient(180deg, var(--glass-2), var(--glass-1));
+    border-color: var(--line-2) !important;
+  }
+
+  .seat{
+    transition: transform .16s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .seat:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 18px 42px rgba(13,22,50,.38), 0 0 24px rgba(123,92,255,.10);
+    border-color: rgba(151,120,255,.34) !important;
+  }
+
+  .btn,
+  .seatToolBtn{
+    box-shadow: 0 8px 22px rgba(10,16,34,.18);
+  }
+
+  .modal{
+    border: 1px solid rgba(152,124,255,.22);
+  }
+
+  .modalBar,
+  #onbHeader{
+    background:
+      linear-gradient(180deg, rgba(17,26,56,.78), rgba(9,14,31,.58));
+    border-bottom: 1px solid rgba(145,170,255,.12);
+  }
+
+  .winHandle{
+    position:absolute;
+    z-index: 120;
+    touch-action:none;
+    user-select:none;
+    opacity:.0;
+    transition: opacity .16s ease;
+  }
+  .modal:hover .winHandle,
+  #onboardingPanel:hover .winHandle,
+  .modal.window-active .winHandle,
+  #onboardingPanel.window-active .winHandle{
+    opacity:.96;
+  }
+  .winHandle::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius:999px;
+    background: linear-gradient(135deg, rgba(130,102,255,.85), rgba(65,190,255,.78));
+    box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 0 18px rgba(109,96,255,.28);
+  }
+  .winHandle.edge-n,.winHandle.edge-s{
+    height:8px; left:12px; right:12px; cursor:ns-resize;
+  }
+  .winHandle.edge-n{ top:-4px; }
+  .winHandle.edge-s{ bottom:-4px; }
+  .winHandle.edge-e,.winHandle.edge-w{
+    width:8px; top:12px; bottom:12px; cursor:ew-resize;
+  }
+  .winHandle.edge-e{ right:-4px; }
+  .winHandle.edge-w{ left:-4px; }
+  .winHandle.corner-nw,.winHandle.corner-ne,.winHandle.corner-sw,.winHandle.corner-se{
+    width:14px; height:14px; border-radius:999px;
+  }
+  .winHandle.corner-nw{ left:-6px; top:-6px; cursor:nwse-resize; }
+  .winHandle.corner-ne{ right:-6px; top:-6px; cursor:nesw-resize; }
+  .winHandle.corner-sw{ left:-6px; bottom:-6px; cursor:nesw-resize; }
+  .winHandle.corner-se{ right:-6px; bottom:-6px; cursor:nwse-resize; }
+
+  @media (max-width: 720px){
+    .winHandle{ display:none !important; }
+  }
 </style>
 
 <script>
 (function(){
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+  function addWindowHandles(win){
+    if(!win || win.dataset.windowHandles === "1") return;
+    win.dataset.windowHandles = "1";
+    const defs = ["n","s","e","w","nw","ne","sw","se"];
+    defs.forEach((dir)=>{
+      const h = document.createElement("div");
+      h.className = "winHandle " + (dir.length === 1 ? ("edge-" + dir) : ("corner-" + dir));
+      h.dataset.dir = dir;
+      win.appendChild(h);
+    });
+  }
+
+  function enableFloatingWindow(winId, headerId, keyPrefix){
+    const win = document.getElementById(winId);
+    const header = document.getElementById(headerId);
+    if(!win || !header) return;
+
+    addWindowHandles(win);
+
+    const state = {
+      mode: null,
+      dir: "",
+      startX: 0,
+      startY: 0,
+      startLeft: 0,
+      startTop: 0,
+      startWidth: 0,
+      startHeight: 0,
+      pointerId: null
+    };
+
+    function vw(){ return Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0); }
+    function vh(){ return Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0); }
+    function minW(){ return Math.max(parseFloat(getComputedStyle(win).minWidth) || 320, 280); }
+    function minH(){ return Math.max(parseFloat(getComputedStyle(win).minHeight) || 220, 180); }
+    function edgePad(){ return window.innerWidth <= 720 ? 0 : 8; }
+
+    function saveState(){
+      try{
+        const r = win.getBoundingClientRect();
+        localStorage.setItem(keyPrefix + ":geom", JSON.stringify({
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        }));
+      }catch(e){}
+    }
+
+    function loadState(){
+      try{
+        const raw = localStorage.getItem(keyPrefix + ":geom");
+        if(!raw) return;
+        const g = JSON.parse(raw);
+        if(!g || typeof g !== "object") return;
+        if(window.innerWidth <= 720 && winId === "modalWin") return;
+        if(Number.isFinite(g.width)) win.style.width = Math.max(minW(), g.width) + "px";
+        if(Number.isFinite(g.height)) win.style.height = Math.max(minH(), g.height) + "px";
+        if(Number.isFinite(g.left)){
+          win.style.right = "auto";
+          win.style.left = clamp(g.left, edgePad(), Math.max(edgePad(), vw() - (g.width || win.offsetWidth) - edgePad())) + "px";
+        }
+        if(Number.isFinite(g.top)){
+          win.style.bottom = "auto";
+          win.style.top = clamp(g.top, edgePad(), Math.max(edgePad(), vh() - (g.height || win.offsetHeight) - edgePad())) + "px";
+        }
+        if(winId === "modalWin"){
+          win.style.transform = "none";
+        }
+      }catch(e){}
+    }
+
+    function startMove(ev){
+      const r = win.getBoundingClientRect();
+      state.mode = "move";
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }else{
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+      }
+      try{ header.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function startResize(ev, dir){
+      const r = win.getBoundingClientRect();
+      state.mode = "resize";
+      state.dir = dir;
+      state.startX = ev.clientX;
+      state.startY = ev.clientY;
+      state.startLeft = r.left;
+      state.startTop = r.top;
+      state.startWidth = r.width;
+      state.startHeight = r.height;
+      state.pointerId = ev.pointerId;
+      win.classList.add("window-active");
+      if(winId === "modalWin"){
+        win.style.transform = "none";
+      }
+      win.style.right = "auto";
+      win.style.bottom = "auto";
+      win.style.left = r.left + "px";
+      win.style.top = r.top + "px";
+      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+    }
+
+    function onMove(ev){
+      if(!state.mode) return;
+      const dx = ev.clientX - state.startX;
+      const dy = ev.clientY - state.startY;
+
+      if(state.mode === "move"){
+        const nextLeft = clamp(state.startLeft + dx, edgePad(), Math.max(edgePad(), vw() - win.offsetWidth - edgePad()));
+        const nextTop = clamp(state.startTop + dy, edgePad(), Math.max(edgePad(), vh() - win.offsetHeight - edgePad()));
+        win.style.left = nextLeft + "px";
+        win.style.top = nextTop + "px";
+        return;
+      }
+
+      let left = state.startLeft;
+      let top = state.startTop;
+      let width = state.startWidth;
+      let height = state.startHeight;
+
+      if(state.dir.includes("e")) width = state.startWidth + dx;
+      if(state.dir.includes("s")) height = state.startHeight + dy;
+      if(state.dir.includes("w")){
+        width = state.startWidth - dx;
+        left = state.startLeft + dx;
+      }
+      if(state.dir.includes("n")){
+        height = state.startHeight - dy;
+        top = state.startTop + dy;
+      }
+
+      width = Math.max(minW(), width)
+      height = Math.max(minH(), height)
+
+      if(state.dir.includes("w")) left = state.startLeft + (state.startWidth - width);
+      if(state.dir.includes("n")) top = state.startTop + (state.startHeight - height);
+
+      width = Math.min(width, vw() - edgePad() - left);
+      height = Math.min(height, vh() - edgePad() - top);
+      left = clamp(left, edgePad(), Math.max(edgePad(), vw() - width - edgePad()));
+      top = clamp(top, edgePad(), Math.max(edgePad(), vh() - height - edgePad()));
+
+      win.style.left = left + "px";
+      win.style.top = top + "px";
+      win.style.width = width + "px";
+      win.style.height = height + "px";
+    }
+
+    function end(ev){
+      if(!state.mode) return;
+      try{
+        if(state.mode === "move") header.releasePointerCapture(state.pointerId);
+        else if(ev && ev.target && ev.target.releasePointerCapture) ev.target.releasePointerCapture(state.pointerId);
+      }catch(e){}
+      state.mode = null;
+      state.dir = "";
+      state.pointerId = null;
+      win.classList.remove("window-active");
+      saveState();
+    }
+
+    header.addEventListener("pointerdown", (ev)=>{
+      try{
+        if(ev.target && ev.target.closest && ev.target.closest("button")) return;
+      }catch(e){}
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      startMove(ev);
+    });
+    header.addEventListener("pointermove", onMove);
+    header.addEventListener("pointerup", end);
+    header.addEventListener("pointercancel", end);
+
+    Array.from(win.querySelectorAll(".winHandle")).forEach((h)=>{
+      h.addEventListener("pointerdown", (ev)=>{
+        if(window.innerWidth <= 720) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        startResize(ev, h.dataset.dir || "se");
+      });
+      h.addEventListener("pointermove", onMove);
+      h.addEventListener("pointerup", end);
+      h.addEventListener("pointercancel", end);
+    });
+
+    loadState();
+    window.addEventListener("resize", ()=>{
+      if(window.innerWidth <= 720 && winId === "modalWin") return;
+      setTimeout(()=>{
+        try{
+          const r = win.getBoundingClientRect();
+          win.style.left = clamp(r.left, edgePad(), Math.max(edgePad(), vw() - r.width - edgePad())) + "px";
+          win.style.top = clamp(r.top, edgePad(), Math.max(edgePad(), vh() - r.height - edgePad())) + "px";
+          saveState();
+        }catch(e){}
+      }, 80);
+    }, {passive:true});
+  }
+
+  window.enableFloatingWindow = enableFloatingWindow;
+})();
+</script>
+
+<script>
+(function(){
   let onbData = null;
+
   let drag = {active:false, dx:0, dy:0};
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
@@ -12112,6 +13539,7 @@ maybeAutoShowOnboarding();
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
 
     wireDrag();
+    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("onboardingPanel", "onbHeader", "floating:onboarding"); }catch(_){ }
     wireHide();
     wireExit();
     wireOnboardingButtons();
@@ -12122,1538 +13550,22 @@ maybeAutoShowOnboarding();
 </script>
 
 
-<style>
-#opsDock{
-  position: fixed;
-  left: 14px;
-  bottom: calc(14px + env(safe-area-inset-bottom));
-  z-index: 285;
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  max-width:min(92vw, 720px);
-}
-#opsDock .opsBtn{
-  border:1px solid rgba(255,255,255,.14);
-  background: linear-gradient(180deg, rgba(18,28,58,.94), rgba(9,14,28,.92));
-  color: var(--text);
-  padding:10px 12px;
-  border-radius: 999px;
-  cursor:pointer;
-  font-weight:800;
-  font-size:12px;
-  letter-spacing:.2px;
-  box-shadow: 0 10px 28px rgba(0,0,0,.28), 0 0 18px rgba(124,58,237,.12);
-  backdrop-filter: blur(10px);
-}
-#opsDock .opsBtn:hover{ transform: translateY(-1px); }
-#opsOverlay{
-  display:none;
-  position:fixed;
-  inset:0;
-  z-index: 286;
-  background: rgba(2,6,16,.62);
-}
-#opsOverlay.show{ display:block; }
-#opsPanel{
-  display:none;
-  position:fixed;
-  z-index: 287;
-  left: 50%;
-  top: 72px;
-  transform: translateX(-50%);
-  width:min(1180px, calc(100% - 20px));
-  max-width: calc(100% - 20px);
-  min-height: min(560px, calc(100vh - 100px));
-  max-height: calc(100vh - 92px);
-  border:1px solid rgba(255,255,255,.12);
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(9,14,28,.96), rgba(6,10,20,.94));
-  box-shadow: 0 26px 80px rgba(0,0,0,.56), 0 0 60px rgba(59,130,246,.08);
-  overflow:hidden;
-  backdrop-filter: blur(12px);
-  resize: both;
-}
-#opsPanel.show{ display:flex; flex-direction:column; }
-#opsPanelHeader{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  padding:12px 14px;
-  border-bottom:1px solid rgba(255,255,255,.10);
-  background: linear-gradient(180deg, rgba(124,58,237,.14), rgba(59,130,246,.08));
-  cursor: grab;
-}
-#opsPanelTitle{
-  font-weight:900;
-  letter-spacing:.2px;
-  font-size:15px;
-}
-#opsPanelSub{ font-size:12px; color: var(--muted); }
-#opsPanelBody{
-  display:grid;
-  grid-template-columns: 220px 1fr;
-  min-height:0;
-  flex:1;
-}
-#opsSide{
-  border-right:1px solid rgba(255,255,255,.08);
-  padding:12px;
-  overflow:auto;
-  background: rgba(255,255,255,.02);
-}
-#opsMain{
-  padding:14px;
-  overflow:auto;
-}
-.opsNavBtn{
-  width:100%;
-  text-align:left;
-  margin-bottom:8px;
-  border:1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.04);
-  color: var(--text);
-  padding:10px 12px;
-  border-radius: 12px;
-  font-weight:700;
-  cursor:pointer;
-}
-.opsNavBtn.active{
-  background: linear-gradient(180deg, rgba(124,58,237,.22), rgba(59,130,246,.10));
-  border-color: rgba(124,58,237,.45);
-}
-.opsGrid{
-  display:grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap:12px;
-}
-.opsCard{
-  border:1px solid rgba(255,255,255,.10);
-  border-radius: 16px;
-  background: rgba(255,255,255,.04);
-  padding:12px;
-}
-.opsCard h4{
-  margin:0 0 8px 0;
-  font-size:13px;
-  letter-spacing:.2px;
-}
-.opsTiny{ font-size:12px; color: var(--muted); }
-.opsPill{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:999px;
-  padding:6px 10px;
-  font-size:11px;
-  margin:0 6px 6px 0;
-  background: rgba(255,255,255,.04);
-}
-.opsRow{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-.opsInput, .opsTextarea, .opsSelect{
-  width:100%;
-  border:1px solid rgba(255,255,255,.12);
-  background: rgba(0,0,0,.22);
-  color: var(--text);
-  border-radius:12px;
-  padding:10px 12px;
-  font-size:13px;
-}
-.opsTextarea{ min-height: 120px; resize: vertical; }
-.opsActions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-.opsActionBtn{
-  border:1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
-  color: var(--text);
-  padding:9px 12px;
-  border-radius: 12px;
-  cursor:pointer;
-  font-size:12px;
-  font-weight:700;
-}
-.opsActionBtn.primary{
-  background: linear-gradient(180deg, rgba(124,58,237,.26), rgba(59,130,246,.10));
-  border-color: rgba(124,58,237,.48);
-}
-.opsList{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-.opsItem{
-  border:1px solid rgba(255,255,255,.10);
-  border-radius: 14px;
-  padding:12px;
-  background: rgba(255,255,255,.04);
-}
-.opsItemTitle{
-  font-weight:800;
-  font-size:13px;
-  margin-bottom:6px;
-}
-.opsReason{
-  font-size:12px;
-  color: var(--muted);
-  margin-top:6px;
-}
-.opsScore{
-  font-weight:900;
-  font-size:14px;
-}
-.opsBadge{
-  display:inline-flex;
-  align-items:center;
-  padding:4px 8px;
-  border-radius:999px;
-  font-size:11px;
-  margin-right:6px;
-  border:1px solid rgba(255,255,255,.10);
-  background: rgba(255,255,255,.05);
-}
-.opsPre{
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.45;
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:14px;
-  padding:10px;
-  background: rgba(0,0,0,.24);
-}
-@media (max-width: 900px){
-  #opsDock{
-    left: 10px;
-    right: 10px;
-    bottom: calc(86px + env(safe-area-inset-bottom));
-    max-width:none;
-  }
-  #opsPanel{
-    top: 10px;
-    left: 10px;
-    right: 10px;
-    transform:none;
-    width:auto;
-    max-width:none;
-    max-height: calc(100vh - 20px);
-    min-height: calc(100vh - 20px);
-    resize: none;
-  }
-  #opsPanelBody{
-    grid-template-columns: 1fr;
-  }
-  #opsSide{
-    border-right:none;
-    border-bottom:1px solid rgba(255,255,255,.08);
-  }
-  .opsGrid{
-    grid-template-columns: 1fr;
-  }
-}
-</style>
-
-<div id="opsDock">
-  <button class="opsBtn" id="opsOpenBtn">Ops Center</button>
-  <button class="opsBtn" id="opsQuickTaskBtn">Quick Task</button>
-  <button class="opsBtn" id="opsQuickScanBtn">FB Scan</button>
-</div>
-
-<div id="opsOverlay"></div>
-
-<div id="opsPanel" aria-hidden="true">
-  <div id="opsPanelHeader">
-    <div>
-      <div id="opsPanelTitle">Ops Command Center</div>
-      <div id="opsPanelSub">Tasks, diagnostics, teammate memory, and semi-auto Facebook review.</div>
-    </div>
-    <div class="opsRow">
-      <button class="opsActionBtn" id="opsRefreshBtn">Refresh</button>
-      <button class="opsActionBtn" id="opsSafeModeBtn">Safe Mode</button>
-      <button class="opsActionBtn" id="opsCloseBtn">Close</button>
+<div id="statusDock" style="position:fixed; right:14px; bottom:14px; z-index:9999; width:min(320px, calc(100vw - 24px)); background:rgba(8,12,24,.88); border:1px solid rgba(124,146,255,.26); box-shadow:0 14px 40px rgba(0,0,0,.34); backdrop-filter: blur(14px); border-radius:18px; overflow:hidden;">
+  <div id="statusDockHead" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; cursor:move; user-select:none; background:linear-gradient(180deg, rgba(40,55,120,.45), rgba(15,20,40,.15));">
+    <div style="font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; opacity:.9;">System status</div>
+    <div style="display:flex; gap:6px;">
+      <button class="btn btnTiny" id="statusDockRefreshBtn">Refresh</button>
+      <button class="btn btnTiny" id="statusDockToggleBtn">Hide</button>
     </div>
   </div>
-  <div id="opsPanelBody">
-    <div id="opsSide">
-      <button class="opsNavBtn active" data-ops-tab="dashboard">Dashboard</button>
-      <button class="opsNavBtn" data-ops-tab="tasks">Tasks</button>
-      <button class="opsNavBtn" data-ops-tab="memory">Memory</button>
-      <button class="opsNavBtn" data-ops-tab="facebook">Facebook</button>
-      <button class="opsNavBtn" data-ops-tab="insights">Post Insights</button>
-      <div class="opsCard" style="margin-top:12px;">
-        <h4>Quick status</h4>
-        <div id="opsQuickStats" class="opsTiny">Loading…</div>
-      </div>
-    </div>
-    <div id="opsMain">
-      <div class="opsTab" id="opsTab-dashboard">
-        <div class="opsGrid">
-          <div class="opsCard">
-            <h4>System readiness</h4>
-            <div id="opsSystemChecks" class="opsList"></div>
-          </div>
-          <div class="opsCard">
-            <h4>Startup snapshot</h4>
-            <div id="opsStartupChecks" class="opsList"></div>
-          </div>
-        </div>
-        <div class="opsCard" style="margin-top:12px;">
-          <h4>Recent events</h4>
-          <div id="opsEvents" class="opsList"></div>
-        </div>
-      </div>
-
-      <div class="opsTab" id="opsTab-tasks" style="display:none;">
-        <div class="opsGrid">
-          <div class="opsCard">
-            <h4>Create task</h4>
-            <div class="opsTiny">Use this for structured, semi-auto work instead of discovering what to do next on the fly.</div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Title</label>
-              <input class="opsInput" id="opsTaskTitle" placeholder="Ex: Facebook cleanup pass" />
-            </div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Type</label>
-              <select class="opsSelect" id="opsTaskType">
-                <option value="general">General</option>
-                <option value="facebook_cleanup">Facebook cleanup</option>
-                <option value="content_batch">Content batch</option>
-                <option value="lead_review">Lead review</option>
-                <option value="research">Research</option>
-              </select>
-            </div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Checklist</label>
-              <textarea class="opsTextarea" id="opsTaskChecklist" placeholder="One step per line"></textarea>
-            </div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Notes</label>
-              <textarea class="opsTextarea" id="opsTaskNotes" placeholder="Why this task matters, target URL, review notes, or safety reminders."></textarea>
-            </div>
-            <div class="opsActions">
-              <button class="opsActionBtn primary" id="opsCreateTaskBtn">Create task</button>
-            </div>
-          </div>
-          <div class="opsCard">
-            <h4>Active task queue</h4>
-            <div id="opsTasksList" class="opsList"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="opsTab" id="opsTab-memory" style="display:none;">
-        <div class="opsGrid">
-          <div class="opsCard">
-            <h4>Save teammate memory</h4>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Teammate</label>
-              <input class="opsInput" id="opsMemoryTeammate" placeholder="Alex, Willow, Sunshine, Operator…" />
-            </div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Source</label>
-              <input class="opsInput" id="opsMemorySource" placeholder="manual, diagnostics, client call, content review" />
-            </div>
-            <div style="margin-top:10px;">
-              <label class="opsTiny">Note</label>
-              <textarea class="opsTextarea" id="opsMemoryNote" placeholder="Store something important so the teammate system keeps context."></textarea>
-            </div>
-            <div class="opsActions">
-              <button class="opsActionBtn primary" id="opsSaveMemoryBtn">Save memory</button>
-            </div>
-          </div>
-          <div class="opsCard">
-            <h4>Recent memory notes</h4>
-            <div id="opsMemoryList" class="opsList"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="opsTab" id="opsTab-facebook" style="display:none;">
-        <div class="opsCard">
-          <h4>Facebook inactive friend review</h4>
-          <div class="opsTiny">Semi-auto only. Paste your Facebook friends-list link first. The app will save a guided review session, open the link in a new tab when you want, and then score any friend rows or profile notes you paste back in. Final keep or remove decisions still happen manually inside Facebook.</div>
-          <div style="margin-top:10px;">
-            <label class="opsTiny">Facebook friends-list or review URL</label>
-            <input class="opsInput" id="opsFacebookUrl" placeholder="https://www.facebook.com/friends/list/..." />
-          </div>
-          <div class="opsActions">
-            <button class="opsActionBtn primary" id="opsStartGuidedReviewBtn">Start guided review</button>
-          </div>
-          <div id="opsFacebookSession" class="opsList" style="margin-top:12px;"></div>
-          <div style="margin-top:12px;">
-            <label class="opsTiny">Paste copied friend rows or review notes</label>
-            <textarea class="opsTextarea" id="opsFacebookRaw" placeholder="Paste copied friend rows, profile notes, or manual inactivity notes here. Separate people with blank lines for best results."></textarea>
-          </div>
-          <div class="opsActions">
-            <button class="opsActionBtn primary" id="opsRunFriendScanBtn">Analyze inactive candidates</button>
-          </div>
-        </div>
-        <div class="opsCard" style="margin-top:12px;">
-          <h4>Candidate review</h4>
-          <div id="opsFacebookCandidates" class="opsList"></div>
-        </div>
-      </div>
-
-      <div class="opsTab" id="opsTab-insights" style="display:none;">
-        <div class="opsCard">
-          <h4>Facebook post insights</h4>
-          <div class="opsTiny">Paste the post text and any metrics you have, like reach, comments, shares, saves, clicks, or reactions.</div>
-          <div style="margin-top:10px;">
-            <textarea class="opsTextarea" id="opsInsightsRaw" placeholder="Example:
-Hook: Facebook reach is often misunderstood…
-Reach: 2840
-Comments: 31
-Shares: 5
-Reactions: 72"></textarea>
-          </div>
-          <div class="opsActions">
-            <button class="opsActionBtn primary" id="opsAnalyzeInsightsBtn">Analyze post</button>
-          </div>
-        </div>
-        <div class="opsCard" style="margin-top:12px;">
-          <h4>Insight output</h4>
-          <div id="opsInsightsOutput" class="opsList"></div>
-        </div>
-      </div>
-    </div>
+  <div id="statusDockBody" style="padding:10px 12px 12px;">
+    <div id="statusDockGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
+    <div id="statusDockMeta" class="tiny" style="margin-top:8px; opacity:.85;">Checking…</div>
   </div>
 </div>
-
-<script>
-(function(){
-  const OPS_STORE_KEY = "ops:center:v1";
-  const state = {
-    tab: "dashboard",
-    safeMode: false,
-    dashboard: null,
-    tasks: [],
-    notes: [],
-    friendSession: null
-  };
-
-  function ops$(id){ return document.getElementById(id); }
-  function opsQS(sel, root){ return (root||document).querySelector(sel); }
-  function escapeHtml(str){
-    return String(str == null ? "" : str)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
-  async function opsFetch(url, options){
-    const res = await fetch(url, Object.assign({headers: {"Content-Type":"application/json"}}, options || {}));
-    const rawText = await res.text();
-    let data = null;
-    try{
-      data = rawText ? JSON.parse(rawText) : {};
-    }catch(_){
-      data = null;
-    }
-    if(!res.ok){
-      const fallback = res.status === 401 ? "You need to log in again." : (rawText && rawText.trim() ? rawText.slice(0, 220) : ("Request failed: " + res.status));
-      throw new Error((data && data.error) ? data.error : fallback);
-    }
-    if(!data || typeof data !== "object"){
-      throw new Error("Invalid server response");
-    }
-    if(data.ok === false){
-      throw new Error(data.error || "Request failed");
-    }
-    return data;
-  }
-  function saveOpsState(){
-    try{
-      localStorage.setItem(OPS_STORE_KEY, JSON.stringify({tab: state.tab, safeMode: !!state.safeMode}));
-    }catch(_){}
-  }
-  function loadOpsState(){
-    try{
-      const raw = localStorage.getItem(OPS_STORE_KEY);
-      if(!raw) return;
-      const obj = JSON.parse(raw);
-      if(obj && typeof obj === "object"){
-        if(obj.tab) state.tab = obj.tab;
-        state.safeMode = !!obj.safeMode;
-      }
-    }catch(_){}
-  }
-  function setSafeMode(on){
-    state.safeMode = !!on;
-    document.body.classList.toggle("opsSafeMode", !!on);
-    if(on){
-      try{
-        if(window.showToast) window.showToast("Ops safe mode enabled");
-      }catch(_){}
-    }
-    saveOpsState();
-  }
-  function levelBadge(ok){
-    return ok ? '<span class="opsBadge">OK</span>' : '<span class="opsBadge">Needs attention</span>';
-  }
-  function renderChecks(containerId, checks){
-    const el = ops$(containerId);
-    if(!el) return;
-    if(!checks || !checks.length){
-      el.innerHTML = '<div class="opsTiny">No checks returned.</div>';
-      return;
-    }
-    el.innerHTML = checks.map(item => `
-      <div class="opsItem">
-        <div class="opsItemTitle">${escapeHtml(item.name || "Check")} ${levelBadge(!!item.ok)}</div>
-        <div class="opsReason">${escapeHtml(item.detail || "")}</div>
-      </div>
-    `).join("");
-  }
-  function renderEvents(events){
-    const el = ops$("opsEvents");
-    if(!el) return;
-    if(!events || !events.length){
-      el.innerHTML = '<div class="opsTiny">No recent events yet.</div>';
-      return;
-    }
-    el.innerHTML = events.slice().reverse().map(item => `
-      <div class="opsItem">
-        <div class="opsItemTitle">${escapeHtml(item.message || item.kind || "Event")}</div>
-        <div class="opsReason">${escapeHtml(item.ts || "")} • ${escapeHtml(item.level || "info")}</div>
-        ${item.detail ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(typeof item.detail === "string" ? item.detail : JSON.stringify(item.detail, null, 2))}</div>` : ''}
-      </div>
-    `).join("");
-  }
-  function renderQuickStats(payload){
-    const el = ops$("opsQuickStats");
-    if(!el) return;
-    const counts = (payload && payload.task_counts) || {};
-    el.innerHTML = `
-      <div class="opsPill">Queued: ${counts.queued || 0}</div>
-      <div class="opsPill">Running: ${counts.running || 0}</div>
-      <div class="opsPill">Needs review: ${counts.needs_review || 0}</div>
-      <div class="opsPill">Done: ${counts.done || 0}</div>
-      <div class="opsTiny" style="margin-top:8px;">Safe mode: ${state.safeMode ? "ON" : "OFF"}</div>
-    `;
-  }
-  function taskButtons(task){
-    const id = String(task.id || "");
-    const launch = task && task.target_url ? `<a class="opsActionBtn primary" href="${escapeHtml(task.target_url)}" target="_blank" rel="noopener noreferrer">Open target</a>` : "";
-    return `
-      <div class="opsActions">
-        ${launch}
-        <button class="opsActionBtn" data-task-action="start" data-task-id="${escapeHtml(id)}">Run</button>
-        <button class="opsActionBtn" data-task-action="review" data-task-id="${escapeHtml(id)}">Needs review</button>
-        <button class="opsActionBtn" data-task-action="done" data-task-id="${escapeHtml(id)}">Done</button>
-        <button class="opsActionBtn" data-task-action="reset" data-task-id="${escapeHtml(id)}">Reset</button>
-      </div>
-    `;
-  }
-  function renderTasks(tasks){
-    const el = ops$("opsTasksList");
-    if(!el) return;
-    if(!tasks || !tasks.length){
-      el.innerHTML = '<div class="opsTiny">No tasks yet. Create one on the left.</div>';
-      return;
-    }
-    el.innerHTML = tasks.slice().reverse().map(task => {
-      const steps = Array.isArray(task.checklist) ? task.checklist : [];
-      return `
-        <div class="opsItem">
-          <div class="opsRow" style="justify-content:space-between;">
-            <div class="opsItemTitle">${escapeHtml(task.title || "Task")}</div>
-            <div class="opsScore">${escapeHtml(task.status || "queued")}</div>
-          </div>
-          <div class="opsReason">${escapeHtml(task.type || "general")} • ${escapeHtml(task.updated_at || task.created_at || "")}</div>
-          ${task.target_url ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(task.target_url)}</div>` : ''}
-          ${task.notes ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(task.notes)}</div>` : ''}
-          ${steps.length ? `<div class="opsList" style="margin-top:8px;">${steps.map((step, idx)=>`
-            <div class="opsItem" style="padding:8px 10px;">
-              <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
-                <input type="checkbox" data-task-step="${idx}" data-task-id="${escapeHtml(task.id || "")}" ${step.done ? 'checked' : ''}/>
-                <span>${escapeHtml(step.label || "")}</span>
-              </label>
-            </div>`).join("")}</div>` : ''}
-          ${taskButtons(task)}
-        </div>
-      `;
-    }).join("");
-  }
-  function renderMemory(notes){
-    const el = ops$("opsMemoryList");
-    if(!el) return;
-    if(!notes || !notes.length){
-      el.innerHTML = '<div class="opsTiny">No memory notes saved yet.</div>';
-      return;
-    }
-    el.innerHTML = notes.slice().reverse().map(note => `
-      <div class="opsItem">
-        <div class="opsItemTitle">${escapeHtml(note.teammate || "operator")} <span class="opsBadge">${escapeHtml(note.source || "manual")}</span></div>
-        <div class="opsReason">${escapeHtml(note.created_at || "")}</div>
-        <div class="opsPre" style="margin-top:8px;">${escapeHtml(note.note || "")}</div>
-      </div>
-    `).join("");
-  }
-
-  function renderFriendSession(session){
-    const el = ops$("opsFacebookSession");
-    if(!el) return;
-    if(!session){
-      el.innerHTML = '<div class="opsTiny">No guided review session yet. Paste your Facebook link above and click Start guided review.</div>';
-      return;
-    }
-    const instructions = Array.isArray(session.instructions) ? session.instructions : [];
-    const launchUrl = escapeHtml(session.target_url || "");
-    el.innerHTML = `
-      <div class="opsItem">
-        <div class="opsRow" style="justify-content:space-between;">
-          <div class="opsItemTitle">Guided review ready</div>
-          <div class="opsScore">${escapeHtml(session.status || "ready")}</div>
-        </div>
-        <div class="opsReason">${escapeHtml(session.created_at || "")}</div>
-        <div class="opsPre" style="margin-top:8px;">${launchUrl}</div>
-        ${launchUrl ? `<div class="opsActions"><a class="opsActionBtn primary" href="${launchUrl}" target="_blank" rel="noopener noreferrer">Open Facebook review tab</a></div>` : ""}
-        ${instructions.length ? `<div class="opsList" style="margin-top:8px;">${instructions.map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>` : ""}
-      </div>
-    `;
-  }
-
-  function renderCandidates(items){
-    const el = ops$("opsFacebookCandidates");
-    if(!el) return;
-    if(!items || !items.length){
-      el.innerHTML = '<div class="opsTiny">No candidates yet. Run a scan above.</div>';
-      return;
-    }
-    el.innerHTML = items.map(item => `
-      <div class="opsItem">
-        <div class="opsRow" style="justify-content:space-between;">
-          <div class="opsItemTitle">${escapeHtml(item.name || "Unknown")}</div>
-          <div class="opsScore">${escapeHtml(item.score || 0)}/100</div>
-        </div>
-        <div class="opsReason">Recommended action: ${escapeHtml(item.recommended_action || "review")}</div>
-        <div class="opsReason">${(item.reasons || []).map(escapeHtml).join(" • ")}</div>
-        <details style="margin-top:8px;">
-          <summary class="opsTiny" style="cursor:pointer;">Show raw note</summary>
-          <div class="opsPre" style="margin-top:8px;">${escapeHtml(item.raw || "")}</div>
-        </details>
-      </div>
-    `).join("");
-  }
-  function renderInsights(analysis){
-    const el = ops$("opsInsightsOutput");
-    if(!el) return;
-    if(!analysis){
-      el.innerHTML = '<div class="opsTiny">Paste a post and run analysis.</div>';
-      return;
-    }
-    const metrics = analysis.metrics || {};
-    el.innerHTML = `
-      <div class="opsItem">
-        <div class="opsItemTitle">${escapeHtml(analysis.summary || "Analysis")}</div>
-        <div class="opsRow" style="margin-top:8px;">
-          <span class="opsPill">Reactions: ${metrics.reactions || 0}</span>
-          <span class="opsPill">Comments: ${metrics.comments || 0}</span>
-          <span class="opsPill">Shares: ${metrics.shares || 0}</span>
-          <span class="opsPill">Clicks: ${metrics.clicks || 0}</span>
-          <span class="opsPill">Saves: ${metrics.saves || 0}</span>
-          <span class="opsPill">Reach: ${metrics.reach || 0}</span>
-        </div>
-      </div>
-      <div class="opsGrid" style="margin-top:12px;">
-        <div class="opsCard">
-          <h4>Findings</h4>
-          <div class="opsList">${(analysis.findings || []).map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>
-        </div>
-        <div class="opsCard">
-          <h4>Next moves</h4>
-          <div class="opsList">${(analysis.next_moves || []).map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>
-        </div>
-      </div>
-    `;
-  }
-  function showTab(tab){
-    state.tab = tab;
-    saveOpsState();
-    document.querySelectorAll(".opsNavBtn").forEach(btn => btn.classList.toggle("active", btn.getAttribute("data-ops-tab") === tab));
-    document.querySelectorAll(".opsTab").forEach(el => el.style.display = "none");
-    const active = ops$("opsTab-" + tab);
-    if(active) active.style.display = "";
-  }
-  async function loadDashboard(){
-    const payload = await opsFetch("/api/ops/dashboard");
-    state.dashboard = payload;
-    state.friendSession = payload.friend_session || null;
-    renderChecks("opsSystemChecks", (payload.self_test && payload.self_test.checks) || []);
-    renderChecks("opsStartupChecks", (payload.startup && payload.startup.checks) || []);
-    renderEvents(payload.events || []);
-    renderQuickStats(payload);
-    renderFriendSession(state.friendSession);
-  }
-  async function loadTasks(){
-    const payload = await opsFetch("/api/ops/tasks");
-    state.tasks = payload.tasks || [];
-    renderTasks(state.tasks);
-    if(state.dashboard){
-      state.dashboard.task_counts = payload.counts || {};
-      renderQuickStats(state.dashboard);
-    }
-  }
-  async function loadMemory(){
-    const payload = await opsFetch("/api/ops/memory");
-    state.notes = payload.notes || [];
-    renderMemory(state.notes);
-  }
-  async function refreshAll(){
-    try{
-      await loadDashboard();
-      await loadTasks();
-      await loadMemory();
-    }catch(err){
-      console.error(err);
-      try{ if(window.showToast) window.showToast(err.message || "Ops refresh failed"); }catch(_){}
-    }
-  }
-  function openOpsPanel(tab){
-    if(tab) showTab(tab);
-    ops$("opsOverlay").classList.add("show");
-    ops$("opsPanel").classList.add("show");
-    ops$("opsPanel").setAttribute("aria-hidden", "false");
-    refreshAll();
-  }
-  function closeOpsPanel(){
-    ops$("opsOverlay").classList.remove("show");
-    ops$("opsPanel").classList.remove("show");
-    ops$("opsPanel").setAttribute("aria-hidden", "true");
-  }
-  async function createTaskFromForm(prefill){
-    const titleEl = ops$("opsTaskTitle");
-    const typeEl = ops$("opsTaskType");
-    const checkEl = ops$("opsTaskChecklist");
-    const notesEl = ops$("opsTaskNotes");
-    if(prefill){
-      if(titleEl && prefill.title) titleEl.value = prefill.title;
-      if(typeEl && prefill.type) typeEl.value = prefill.type;
-      if(checkEl && prefill.checklist) checkEl.value = prefill.checklist;
-      if(notesEl && prefill.notes) notesEl.value = prefill.notes;
-      openOpsPanel("tasks");
-      return;
-    }
-    const payload = {
-      title: titleEl ? titleEl.value : "",
-      type: typeEl ? typeEl.value : "general",
-      checklist: checkEl ? checkEl.value : "",
-      notes: notesEl ? notesEl.value : "",
-      semi_auto: true
-    };
-    const data = await opsFetch("/api/ops/tasks", {method:"POST", body: JSON.stringify(payload)});
-    if(titleEl) titleEl.value = "";
-    if(checkEl) checkEl.value = "";
-    if(notesEl) notesEl.value = "";
-    await loadTasks();
-    await loadDashboard();
-    try{ if(window.showToast) window.showToast("Task created"); }catch(_){}
-    return data;
-  }
-  async function saveMemory(){
-    const payload = {
-      teammate: (ops$("opsMemoryTeammate")||{}).value || "operator",
-      source: (ops$("opsMemorySource")||{}).value || "manual",
-      note: (ops$("opsMemoryNote")||{}).value || ""
-    };
-    await opsFetch("/api/ops/memory", {method:"POST", body: JSON.stringify(payload)});
-    if(ops$("opsMemoryNote")) ops$("opsMemoryNote").value = "";
-    await loadMemory();
-    await loadDashboard();
-    try{ if(window.showToast) window.showToast("Memory saved"); }catch(_){}
-  }
-  async function startGuidedReview(){
-    const targetUrl = ((ops$("opsFacebookUrl")||{}).value || "").trim();
-    const payload = await opsFetch("/api/facebook/friend_review_session", {method:"POST", body: JSON.stringify({target_url: targetUrl})});
-    state.friendSession = payload.session || null;
-    renderFriendSession(state.friendSession);
-    await loadTasks();
-    await loadDashboard();
-    showTab("facebook");
-    try{ if(window.showToast) window.showToast("Guided review ready"); }catch(_){}
-    return payload;
-  }
-  async function runFriendScan(){
-    const raw = (ops$("opsFacebookRaw")||{}).value || "";
-    const targetUrl = ((ops$("opsFacebookUrl")||{}).value || "").trim();
-    const payload = await opsFetch("/api/facebook/friend_scan", {method:"POST", body: JSON.stringify({raw_text: raw, target_url: targetUrl})});
-    renderCandidates(payload.candidates || []);
-    if(payload.session){
-      state.friendSession = payload.session;
-      renderFriendSession(state.friendSession);
-    }
-    await loadTasks();
-    await loadDashboard();
-    showTab("facebook");
-  }
-  async function runPostInsights(){
-    const raw = (ops$("opsInsightsRaw")||{}).value || "";
-    const payload = await opsFetch("/api/facebook/post_insights", {method:"POST", body: JSON.stringify({raw_text: raw})});
-    renderInsights(payload.analysis || null);
-    await loadDashboard();
-  }
-  async function logUiEvent(kind, message, detail, level){
-    try{
-      await opsFetch("/api/ops/event", {method:"POST", body: JSON.stringify({kind, message, detail, level})});
-    }catch(_){}
-  }
-  function wireTaskActions(){
-    document.addEventListener("click", async (e)=>{
-      const btn = e.target && e.target.closest ? e.target.closest("[data-task-action]") : null;
-      if(!btn) return;
-      const taskId = btn.getAttribute("data-task-id");
-      const action = btn.getAttribute("data-task-action");
-      if(!taskId || !action) return;
-      try{
-        await opsFetch(`/api/ops/tasks/${taskId}/action`, {method:"POST", body: JSON.stringify({action})});
-        await loadTasks();
-        await loadDashboard();
-      }catch(err){
-        try{ if(window.showToast) window.showToast(err.message || "Task update failed"); }catch(_){}
-      }
-    });
-    document.addEventListener("change", async (e)=>{
-      const cb = e.target;
-      if(!cb || !cb.matches || !cb.matches("[data-task-step]")) return;
-      const taskId = cb.getAttribute("data-task-id");
-      const stepIndex = Number(cb.getAttribute("data-task-step") || 0);
-      try{
-        await opsFetch(`/api/ops/tasks/${taskId}/action`, {method:"POST", body: JSON.stringify({action:"toggle_step", step_index: stepIndex})});
-        await loadTasks();
-      }catch(err){
-        try{ if(window.showToast) window.showToast(err.message || "Checklist update failed"); }catch(_){}
-      }
-    });
-  }
-  function wirePanel(){
-    const panel = ops$("opsPanel");
-    const overlay = ops$("opsOverlay");
-    const openBtn = ops$("opsOpenBtn");
-    const quickTaskBtn = ops$("opsQuickTaskBtn");
-    const quickScanBtn = ops$("opsQuickScanBtn");
-    const closeBtn = ops$("opsCloseBtn");
-    const refreshBtn = ops$("opsRefreshBtn");
-    const safeBtn = ops$("opsSafeModeBtn");
-
-    if(openBtn) openBtn.addEventListener("click", ()=> openOpsPanel("dashboard"));
-    if(closeBtn) closeBtn.addEventListener("click", closeOpsPanel);
-    if(overlay) overlay.addEventListener("click", closeOpsPanel);
-    if(refreshBtn) refreshBtn.addEventListener("click", refreshAll);
-    if(safeBtn) safeBtn.addEventListener("click", ()=> setSafeMode(!state.safeMode));
-    if(quickTaskBtn) quickTaskBtn.addEventListener("click", ()=> createTaskFromForm({
-      title: "Semi-auto review pass",
-      type: "general",
-      checklist: "Review diagnostics\nReview current queue\nStart the highest-value task\nLeave a note before closing",
-      notes: "Use this as a structured operator pass."
-    }));
-    if(quickScanBtn) quickScanBtn.addEventListener("click", ()=> openOpsPanel("facebook"));
-
-    document.querySelectorAll(".opsNavBtn").forEach(btn=>{
-      btn.addEventListener("click", ()=> showTab(btn.getAttribute("data-ops-tab") || "dashboard"));
-    });
-    const createBtn = ops$("opsCreateTaskBtn");
-    if(createBtn) createBtn.addEventListener("click", ()=> createTaskFromForm());
-    const memBtn = ops$("opsSaveMemoryBtn");
-    if(memBtn) memBtn.addEventListener("click", saveMemory);
-    const reviewBtn = ops$("opsStartGuidedReviewBtn");
-    if(reviewBtn) reviewBtn.addEventListener("click", async ()=>{ try{ await startGuidedReview(); }catch(err){ try{ if(window.showToast) window.showToast(err.message || "Could not start guided review"); }catch(_){} } });
-    const scanBtn = ops$("opsRunFriendScanBtn");
-    if(scanBtn) scanBtn.addEventListener("click", async ()=>{ try{ await runFriendScan(); }catch(err){ try{ if(window.showToast) window.showToast(err.message || "Friend scan failed"); }catch(_){} } });
-    const insightBtn = ops$("opsAnalyzeInsightsBtn");
-    if(insightBtn) insightBtn.addEventListener("click", runPostInsights);
-
-    try{
-      if(window.enableFloatingWindow){
-        window.enableFloatingWindow("opsPanel", "opsPanelHeader", "floating:ops");
-      }
-    }catch(_){}
-  }
-
-  loadOpsState();
-  setSafeMode(state.safeMode);
-  document.addEventListener("DOMContentLoaded", ()=>{
-    showTab(state.tab || "dashboard");
-    wirePanel();
-    wireTaskActions();
-    window.addEventListener("error", (e)=>{
-      logUiEvent("ui_error", e && e.message ? e.message : "Unknown UI error", {source: e && e.filename, line: e && e.lineno}, "error");
-    });
-    window.addEventListener("unhandledrejection", (e)=>{
-      const reason = e && e.reason && e.reason.message ? e.reason.message : String((e && e.reason) || "Promise rejection");
-      logUiEvent("promise_rejection", reason, {}, "error");
-    });
-  });
-
-  try{
-    window.opsOpenPanel = openOpsPanel;
-    window.opsRefreshAll = refreshAll;
-  }catch(_){}
-})();
-</script>
-
 </body>
 </html>
 """
-
-
-# =========================================================
-# OPS COMMAND CENTER ADDITIVE PATCH
-# =========================================================
-
-OPS_DIR = DATA / "ops_center"
-OPS_DIR.mkdir(exist_ok=True)
-
-def _ops_user_dir(username: str) -> Path:
-    p = OPS_DIR / _safe_name(username or "anon")
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-def _ops_user_json(username: str, name: str, default: Dict[str, Any]) -> Dict[str, Any]:
-    path = _ops_user_dir(username) / f"{_safe_name(name)}.json"
-    data = load_json(path, default)
-    if not isinstance(data, dict):
-        data = default
-    return data
-
-def _ops_save_user_json(username: str, name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    path = _ops_user_dir(username) / f"{_safe_name(name)}.json"
-    save_json(path, payload)
-    return payload
-
-def _load_ops_tasks(username: str) -> Dict[str, Any]:
-    data = _ops_user_json(username, "tasks", {"tasks": [], "updated_at": None})
-    tasks = data.get("tasks")
-    if not isinstance(tasks, list):
-        tasks = []
-    data["tasks"] = tasks
-    return data
-
-def _save_ops_tasks(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    data["updated_at"] = now_iso()
-    return _ops_save_user_json(username, "tasks", data)
-
-def _load_ops_memory(username: str) -> Dict[str, Any]:
-    data = _ops_user_json(username, "memory", {"notes": [], "updated_at": None})
-    notes = data.get("notes")
-    if not isinstance(notes, list):
-        notes = []
-    data["notes"] = notes
-    return data
-
-def _save_ops_memory(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    data["updated_at"] = now_iso()
-    return _ops_save_user_json(username, "memory", data)
-
-def _load_ops_events(username: str) -> Dict[str, Any]:
-    data = _ops_user_json(username, "events", {"events": [], "updated_at": None})
-    events = data.get("events")
-    if not isinstance(events, list):
-        events = []
-    data["events"] = events
-    return data
-
-def _save_ops_events(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    data["updated_at"] = now_iso()
-    return _ops_save_user_json(username, "events", data)
-
-def _append_ops_event(username: str, kind: str, message: str, detail: Any = None, level: str = "info") -> Dict[str, Any]:
-    data = _load_ops_events(username)
-    event = {
-        "id": "evt_" + uuid.uuid4().hex[:10],
-        "ts": now_iso(),
-        "kind": (kind or "log").strip()[:64],
-        "message": (message or "").strip()[:300],
-        "detail": detail if isinstance(detail, (dict, list, str, int, float, bool)) or detail is None else str(detail),
-        "level": (level or "info").strip()[:16],
-    }
-    data["events"] = (data.get("events") or [])[-199:] + [event]
-    _save_ops_events(username, data)
-    return event
-
-def _ops_recent_events(username: str, limit: int = 50) -> List[Dict[str, Any]]:
-    data = _load_ops_events(username)
-    items = data.get("events") or []
-    if not isinstance(items, list):
-        return []
-    return items[-max(1, min(limit, 200)):]
-
-
-def _load_ops_friend_sessions(username: str) -> Dict[str, Any]:
-    data = _ops_user_json(username, "friend_sessions", {"sessions": [], "updated_at": None})
-    sessions = data.get("sessions")
-    if not isinstance(sessions, list):
-        sessions = []
-    data["sessions"] = sessions
-    return data
-
-def _save_ops_friend_sessions(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    data["updated_at"] = now_iso()
-    return _ops_save_user_json(username, "friend_sessions", data)
-
-def _normalize_facebook_url(raw_url: str) -> str:
-    raw_url = (raw_url or "").strip()
-    if not raw_url:
-        return ""
-    try:
-        parsed = urlparse(raw_url)
-        if parsed.scheme not in ("http", "https"):
-            return ""
-        host = (parsed.netloc or "").lower().strip()
-        if host.startswith("www."):
-            host = host[4:]
-        allowed = {
-            "facebook.com",
-            "m.facebook.com",
-            "mbasic.facebook.com",
-            "web.facebook.com",
-            "fb.com",
-        }
-        if host not in allowed and not host.endswith(".facebook.com"):
-            return ""
-        return parsed.geturl()[:500]
-    except Exception:
-        return ""
-
-def _latest_friend_session(username: str) -> Optional[Dict[str, Any]]:
-    data = _load_ops_friend_sessions(username)
-    sessions = [s for s in (data.get("sessions") or []) if isinstance(s, dict)]
-    return sessions[-1] if sessions else None
-
-def _new_friend_review_session(username: str, target_url: str) -> Dict[str, Any]:
-    clean_url = _normalize_facebook_url(target_url)
-    if not clean_url:
-        raise ValueError("Paste a valid Facebook friends-list or profile-review URL")
-    session_id = "fbscan_" + uuid.uuid4().hex[:10]
-    session_obj = {
-        "id": session_id,
-        "target_url": clean_url,
-        "created_at": now_iso(),
-        "updated_at": now_iso(),
-        "status": "ready",
-        "instructions": [
-            "Open the Facebook link in a real browser tab while logged in.",
-            "Scroll naturally and review one profile at a time.",
-            "Copy visible friend rows, profile notes, or your own inactivity notes back into the analyzer box.",
-            "Use the scored candidates as a review aid only, then remove manually inside Facebook if you choose.",
-        ],
-    }
-    data = _load_ops_friend_sessions(username)
-    data["sessions"] = (data.get("sessions") or [])[-49:] + [session_obj]
-    _save_ops_friend_sessions(username, data)
-    return session_obj
-
-def _new_ops_task(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    now = now_iso()
-    title = (payload.get("title") or "").strip()[:140]
-    if not title:
-        title = "Untitled task"
-    task_type = (payload.get("type") or "general").strip()[:80]
-    checklist = payload.get("checklist") or []
-    if isinstance(checklist, str):
-        checklist = [x.strip() for x in checklist.splitlines() if x.strip()]
-    if not isinstance(checklist, list):
-        checklist = []
-    clean_steps = []
-    for item in checklist[:30]:
-        if isinstance(item, dict):
-            label = (item.get("label") or "").strip()
-        else:
-            label = str(item).strip()
-        if label:
-            clean_steps.append({"label": label[:160], "done": False})
-    task = {
-        "id": "task_" + uuid.uuid4().hex[:10],
-        "title": title,
-        "type": task_type,
-        "status": (payload.get("status") or "queued").strip()[:24],
-        "priority": (payload.get("priority") or "normal").strip()[:24],
-        "semi_auto": bool(payload.get("semi_auto", True)),
-        "notes": (payload.get("notes") or "").strip()[:2000],
-        "target_url": (payload.get("target_url") or "").strip()[:500],
-        "source": (payload.get("source") or "manual").strip()[:80],
-        "created_at": now,
-        "updated_at": now,
-        "completed_at": None,
-        "teammate": (payload.get("teammate") or "").strip()[:64],
-        "checklist": clean_steps,
-        "result": payload.get("result") if isinstance(payload.get("result"), (dict, list, str, int, float, bool)) or payload.get("result") is None else str(payload.get("result")),
-    }
-    return task
-
-def _find_ops_task(username: str, task_id: str) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], int]:
-    data = _load_ops_tasks(username)
-    tasks = data.get("tasks") or []
-    for idx, task in enumerate(tasks):
-        if isinstance(task, dict) and task.get("id") == task_id:
-            return task, data, idx
-    return None, data, -1
-
-def _task_counts(tasks: List[Dict[str, Any]]) -> Dict[str, int]:
-    out = {"queued": 0, "running": 0, "needs_review": 0, "done": 0}
-    for t in tasks:
-        if not isinstance(t, dict):
-            continue
-        status = (t.get("status") or "queued").strip()
-        if status not in out:
-            out[status] = 0
-        out[status] += 1
-    return out
-
-def _ops_startup_snapshot() -> Dict[str, Any]:
-    items = []
-    def add(name: str, ok: bool, detail: str):
-        items.append({"name": name, "ok": bool(ok), "detail": detail})
-    add("Data directory", DATA.exists(), f"{DATA}")
-    add("Uploads directory", UPLOADS_DIR.exists(), f"{UPLOADS_DIR}")
-    add("Threads directory", THREADS_DIR.exists(), f"{THREADS_DIR}")
-    add("OpenAI import", True, "openai package imported")
-    add("Anthropic import", anthropic is not None, "anthropic available" if anthropic is not None else "anthropic missing")
-    add("OpenAI env", bool(OPENAI_API_KEY), "OPENAI_API_KEY available" if OPENAI_API_KEY else "OPENAI_API_KEY not set")
-    add("Claude env", bool(CLAUDE_API_KEY), "CLAUDE_API_KEY available" if CLAUDE_API_KEY else "CLAUDE_API_KEY not set")
-    return {"ok": all(i["ok"] for i in items if i["name"] not in ("Claude env", "Anthropic import")), "checks": items, "generated_at": now_iso()}
-
-OPS_STARTUP_SNAPSHOT = _ops_startup_snapshot()
-
-def _extract_years(raw: str) -> List[int]:
-    years = []
-    for y in re.findall(r"\b(20\d{2}|19\d{2})\b", raw or ""):
-        try:
-            years.append(int(y))
-        except Exception:
-            pass
-    return years
-
-def _facebook_activity_score(raw: str) -> Tuple[int, List[str], str]:
-    txt = (raw or "").strip()
-    low = txt.lower()
-    reasons = []
-    score = 50
-
-    inactivity_signals = [
-        ("no mutual friends", 14),
-        ("no mutual groups", 16),
-        ("no mutuals", 14),
-        ("lives in", 2),
-        ("joined facebook", 8),
-        ("no recent posts", 18),
-        ("inactive", 20),
-        ("last active", 12),
-        ("message unavailable", 5),
-    ]
-    strong_keep = [
-        ("family", -28),
-        ("client", -30),
-        ("lead", -16),
-        ("realtor", -10),
-        ("investor", -10),
-        ("recently posted", -18),
-        ("commented", -18),
-        ("reacted", -12),
-        ("mutual friends", -8),
-        ("mutual groups", -6),
-    ]
-
-    for phrase, delta in inactivity_signals:
-        if phrase in low:
-            score += delta
-            reasons.append(f"Signal: {phrase}")
-    for phrase, delta in strong_keep:
-        if phrase in low:
-            score += delta
-            reasons.append(f"Counter-signal: {phrase}")
-
-    yrs = _extract_years(txt)
-    if yrs:
-        latest = max(yrs)
-        age = max(0, datetime.utcnow().year - latest)
-        if age >= 4:
-            score += min(30, age * 5)
-            reasons.append(f"Latest visible year looks old: {latest}")
-        elif age <= 1:
-            score -= 18
-            reasons.append(f"Recent year found: {latest}")
-
-    if len(txt) < 40:
-        score += 6
-        reasons.append("Very little activity context provided")
-
-    score = max(0, min(100, score))
-    if score >= 70:
-        action = "remove_candidate"
-    elif score >= 45:
-        action = "review"
-    else:
-        action = "keep"
-    if not reasons:
-        reasons.append("No strong inactivity signal found")
-    return score, reasons[:6], action
-
-def _parse_friend_scan_text(raw_text: str) -> List[Dict[str, Any]]:
-    raw_text = (raw_text or "").strip()
-    if not raw_text:
-        return []
-    chunks = [c.strip() for c in re.split(r"\n\s*\n+", raw_text) if c.strip()]
-    if len(chunks) == 1:
-        lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
-        if len(lines) > 1 and len(lines) <= 80:
-            chunks = lines
-    out = []
-    seen = set()
-    for chunk in chunks[:150]:
-        first_line = chunk.splitlines()[0].strip()
-        name = re.sub(r"\s{2,}", " ", first_line)[:120]
-        if not name:
-            continue
-        key = name.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        score, reasons, action = _facebook_activity_score(chunk)
-        out.append({
-            "id": "fb_" + uuid.uuid4().hex[:10],
-            "name": name,
-            "score": score,
-            "recommended_action": action,
-            "reasons": reasons,
-            "raw": chunk[:3000],
-        })
-    out.sort(key=lambda x: (-int(x.get("score") or 0), (x.get("name") or "").lower()))
-    return out
-
-def _parse_metric_number(label: str, text_blob: str) -> Optional[int]:
-    patterns = [
-        rf"{label}\s*[:=]\s*([\d,]+)",
-        rf"{label}\s+([\d,]+)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text_blob, re.I)
-        if m:
-            try:
-                return int(m.group(1).replace(",", ""))
-            except Exception:
-                return None
-    return None
-
-def _facebook_post_insights(raw_text: str) -> Dict[str, Any]:
-    raw_text = (raw_text or "").strip()
-    low = raw_text.lower()
-    reactions = _parse_metric_number("reactions?", raw_text) or _parse_metric_number("likes?", raw_text) or 0
-    comments = _parse_metric_number("comments?", raw_text) or 0
-    shares = _parse_metric_number("shares?", raw_text) or 0
-    clicks = _parse_metric_number("clicks?", raw_text) or 0
-    reach = _parse_metric_number("reach", raw_text) or 0
-    saves = _parse_metric_number("saves?", raw_text) or 0
-
-    score = reactions + comments * 3 + shares * 5 + saves * 4 + clicks * 2
-    findings = []
-    next_moves = []
-
-    if comments >= max(8, reactions * 0.15 if reactions else 8):
-        findings.append("Comment rate looks strong. The post likely invited conversation instead of broadcasting.")
-        next_moves.append("Write a pinned comment that asks a narrow follow-up question to extend the thread.")
-    if shares >= 3:
-        findings.append("Share activity is present, which usually means the idea feels identity-aligned or useful.")
-        next_moves.append("Turn this topic into a sharper quote graphic or carousel while the signal is warm.")
-    if reactions > 0 and comments == 0:
-        findings.append("The post is getting passive approval more than conversation.")
-        next_moves.append("Rewrite the closing line into a simpler, lower-friction question.")
-    if reach and score:
-        er = round((score / max(reach, 1)) * 100, 2)
-        findings.append(f"Estimated weighted engagement score vs reach: {er}%")
-    if "question" in low:
-        findings.append("The copy appears to include a question, which usually helps comment depth.")
-    if "story" in low or "experience" in low:
-        findings.append("Story-style framing is present, which often improves read time and relatability.")
-    if not findings:
-        findings.append("Not enough structured metrics were found for a strong reading, but the paste is stored for review.")
-        next_moves.append("Paste the post text plus reach, reactions, comments, and shares for a stronger diagnosis.")
-    if not next_moves:
-        next_moves.append("Test a shorter hook with a more specific audience angle.")
-        next_moves.append("Reply to early comments quickly to increase conversation velocity.")
-    return {
-        "metrics": {
-            "reactions": reactions,
-            "comments": comments,
-            "shares": shares,
-            "clicks": clicks,
-            "saves": saves,
-            "reach": reach,
-            "weighted_score": score,
-        },
-        "findings": findings[:6],
-        "next_moves": next_moves[:6],
-        "summary": "Conversation-led signal looks promising." if comments or shares else "This looks more passive than conversational so far.",
-    }
-
-
-def _ops_json_error(username: str, kind: str, exc: Exception, user_message: str, status: int = 500):
-    try:
-        _append_ops_event(username or "anon", kind, user_message, {"error": str(exc)}, "error")
-    except Exception:
-        pass
-    return jsonify({"ok": False, "error": user_message, "detail": str(exc)}), status
-
-def _ops_dashboard_payload(username: str, user_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    user_obj = user_obj or {}
-    self_test = _run_system_self_test_for_user(user_obj) if isinstance(user_obj, dict) else {"ok": False, "checks": []}
-    tasks = _load_ops_tasks(username).get("tasks") or []
-    notes = _load_ops_memory(username).get("notes") or []
-    events = _ops_recent_events(username, 40)
-    counts = _task_counts([t for t in tasks if isinstance(t, dict)])
-    return {
-        "ok": True,
-        "startup": OPS_STARTUP_SNAPSHOT,
-        "self_test": self_test,
-        "task_counts": counts,
-        "recent_tasks": [t for t in tasks[-12:] if isinstance(t, dict)],
-        "recent_notes": [n for n in notes[-12:] if isinstance(n, dict)],
-        "events": events,
-        "feature_flags": {
-            "ops_center": True,
-            "semi_auto_facebook": True,
-            "memory_notes": True,
-            "task_engine": True,
-            "post_insights": True,
-        },
-        "friend_session": _latest_friend_session(username),
-    }
-
-@app.get("/api/ops/dashboard")
-def api_ops_dashboard():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    return jsonify(_ops_dashboard_payload(username, u))
-
-@app.get("/api/ops/tasks")
-def api_ops_tasks_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    data = _load_ops_tasks(username)
-    tasks = [t for t in (data.get("tasks") or []) if isinstance(t, dict)]
-    tasks.sort(key=lambda x: ((x.get("status") or "") == "done", x.get("updated_at") or ""), reverse=False)
-    return jsonify({"ok": True, "tasks": tasks, "counts": _task_counts(tasks)})
-
-@app.post("/api/ops/tasks")
-def api_ops_tasks_post():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    try:
-        payload = request.get_json(silent=True) or {}
-        task = _new_ops_task(username, payload)
-        data = _load_ops_tasks(username)
-        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
-        _save_ops_tasks(username, data)
-        _append_ops_event(username, "ops_task_created", f"Task created: {task.get('title')}", {"task_id": task.get("id"), "type": task.get("type")})
-        append_task_log("ops_task_created", {"task": task}, teammate=task.get("teammate") or "", status="success")
-        return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
-    except Exception as e:
-        return _ops_json_error(username, "ops_task_create_error", e, "Task creation failed")
-
-
-@app.post("/api/ops/tasks/<task_id>/action")
-def api_ops_task_action(task_id: str):
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    try:
-        payload = request.get_json(silent=True) or {}
-        action = (payload.get("action") or "").strip().lower()
-        task, data, idx = _find_ops_task(username, task_id)
-        if not task:
-            return jsonify({"ok": False, "error": "Task not found"}), 404
-        if action == "start":
-            task["status"] = "running"
-        elif action == "review":
-            task["status"] = "needs_review"
-        elif action == "done":
-            task["status"] = "done"
-            task["completed_at"] = now_iso()
-        elif action == "reset":
-            task["status"] = "queued"
-            task["completed_at"] = None
-            for step in (task.get("checklist") or []):
-                if isinstance(step, dict):
-                    step["done"] = False
-        elif action == "toggle_step":
-            step_index = int(payload.get("step_index") or 0)
-            steps = task.get("checklist") or []
-            if 0 <= step_index < len(steps) and isinstance(steps[step_index], dict):
-                steps[step_index]["done"] = not bool(steps[step_index].get("done"))
-        elif action == "note":
-            note = (payload.get("note") or "").strip()
-            task["notes"] = (task.get("notes") or "")
-            if note:
-                task["notes"] = ((task.get("notes") or "").strip() + ("\n\n" if (task.get("notes") or "").strip() else "") + note)[:4000]
-        else:
-            return jsonify({"ok": False, "error": "Unsupported action"}), 400
-        task["updated_at"] = now_iso()
-        if not isinstance(data.get("tasks"), list):
-            data["tasks"] = []
-        if idx < 0 or idx >= len(data["tasks"]):
-            return jsonify({"ok": False, "error": "Task storage is out of sync"}), 409
-        data["tasks"][idx] = task
-        _save_ops_tasks(username, data)
-        _append_ops_event(username, "task_updated", f"{task.get('title')} → {task.get('status')}", {"task_id": task_id, "action": action})
-        return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
-    except Exception as e:
-        return _ops_json_error(username, "task_update_error", e, "Task action failed")
-
-
-
-@app.get("/api/ops/memory")
-def api_ops_memory_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    data = _load_ops_memory(username)
-    notes = [n for n in (data.get("notes") or []) if isinstance(n, dict)]
-    teammate = (request.args.get("teammate") or "").strip().lower()
-    if teammate:
-        notes = [n for n in notes if (n.get("teammate") or "").strip().lower() == teammate]
-    return jsonify({"ok": True, "notes": notes[-150:]})
-
-@app.post("/api/ops/memory")
-def api_ops_memory_post():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    note_text = (payload.get("note") or "").strip()
-    if not note_text:
-        return jsonify({"ok": False, "error": "Note is required"}), 400
-    teammate = (payload.get("teammate") or "operator").strip()[:64]
-    source = (payload.get("source") or "manual").strip()[:80]
-    data = _load_ops_memory(username)
-    note = {
-        "id": "mem_" + uuid.uuid4().hex[:10],
-        "teammate": teammate,
-        "source": source,
-        "note": note_text[:2500],
-        "created_at": now_iso(),
-    }
-    data["notes"] = (data.get("notes") or [])[-299:] + [note]
-    _save_ops_memory(username, data)
-    _append_ops_event(username, "memory_saved", f"Memory note saved for {teammate}", {"note_id": note["id"]})
-    return jsonify({"ok": True, "note": note, "count": len(data.get("notes") or [])})
-
-@app.post("/api/ops/event")
-def api_ops_event():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    evt = _append_ops_event(
-        username,
-        (payload.get("kind") or "ui").strip()[:64],
-        (payload.get("message") or "UI event").strip()[:300],
-        payload.get("detail"),
-        (payload.get("level") or "info").strip()[:16],
-    )
-    return jsonify({"ok": True, "event": evt})
-
-@app.post("/api/facebook/friend_review_session")
-def api_facebook_friend_review_session():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    try:
-        payload = request.get_json(silent=True) or {}
-        target_url = (payload.get("target_url") or "").strip()
-        session_obj = _new_friend_review_session(username, target_url)
-        task = _new_ops_task(username, {
-            "title": "Facebook guided friend review",
-            "type": "facebook_cleanup",
-            "status": "running",
-            "semi_auto": True,
-            "source": "facebook_guided_review",
-            "target_url": session_obj.get("target_url"),
-            "notes": "Open the Facebook tab from this task, review people naturally, then paste copied friend rows or profile notes back into the analyzer for scoring. Final keep or remove decisions stay manual.",
-            "checklist": session_obj.get("instructions") or [],
-            "result": {"session_id": session_obj.get("id")},
-        })
-        data = _load_ops_tasks(username)
-        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
-        _save_ops_tasks(username, data)
-        _append_ops_event(username, "facebook_guided_review", "Facebook guided review session created", {"task_id": task.get("id"), "session_id": session_obj.get("id")})
-        return jsonify({"ok": True, "session": session_obj, "task": task})
-    except Exception as e:
-        return _ops_json_error(username, "facebook_guided_review_error", e, "Could not start the Facebook guided review")
-
-@app.post("/api/facebook/friend_scan")
-def api_facebook_friend_scan():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    try:
-        payload = request.get_json(silent=True) or {}
-        raw_text = (payload.get("raw_text") or "").strip()
-        target_url = (payload.get("target_url") or "").strip()
-        session_obj = None
-        if target_url:
-            clean_url = _normalize_facebook_url(target_url)
-            if not clean_url:
-                return jsonify({"ok": False, "error": "Paste a valid Facebook URL before scanning"}), 400
-            session_obj = _latest_friend_session(username)
-            if not session_obj or session_obj.get("target_url") != clean_url:
-                session_obj = _new_friend_review_session(username, clean_url)
-        if not raw_text:
-            return jsonify({"ok": False, "error": "Paste friend rows, profile notes, or review notes to scan"}), 400
-        candidates = _parse_friend_scan_text(raw_text)
-        if not candidates:
-            return jsonify({"ok": False, "error": "No candidate lines were recognized"}), 400
-        task = _new_ops_task(username, {
-            "title": "Facebook inactive friend review",
-            "type": "facebook_cleanup",
-            "status": "needs_review",
-            "semi_auto": True,
-            "source": "facebook_scan",
-            "target_url": session_obj.get("target_url") if session_obj else "",
-            "notes": "Semi-auto safety flow only. Use the scored candidates as a review aid, then confirm manually inside Facebook before removing anyone.",
-            "checklist": [
-                "Open the Facebook review tab or your friends list in a real browser",
-                "Review the highest-score candidates first",
-                "Open each profile before any remove action",
-                "Remove manually only after confirming inactivity",
-                "Mark the task done after the review pass"
-            ],
-            "result": {"candidate_count": len(candidates), "top_candidates": candidates[:25], "session_id": session_obj.get("id") if session_obj else None},
-        })
-        data = _load_ops_tasks(username)
-        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
-        _save_ops_tasks(username, data)
-        _append_ops_event(username, "facebook_scan", f"Facebook inactivity scan produced {len(candidates)} candidates", {"task_id": task.get("id")})
-        return jsonify({"ok": True, "task": task, "session": session_obj, "candidates": candidates[:80]})
-    except Exception as e:
-        return _ops_json_error(username, "facebook_scan_error", e, "Friend scan failed")
-
-
-@app.post("/api/facebook/post_insights")
-def api_facebook_post_insights():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    username = (u.get("username") or "").strip() or _get_session_username()
-    try:
-        payload = request.get_json(silent=True) or {}
-        raw_text = (payload.get("raw_text") or "").strip()
-        if not raw_text:
-            return jsonify({"ok": False, "error": "Paste the post text and any metrics you have"}), 400
-        analysis = _facebook_post_insights(raw_text)
-        _append_ops_event(username, "facebook_post_insights", "Facebook post insights generated", {"summary": analysis.get("summary")})
-        return jsonify({"ok": True, "analysis": analysis})
-    except Exception as e:
-        return _ops_json_error(username, "facebook_post_insights_error", e, "Post insights failed")
-
-
 
 @app.get("/")
 def index():
@@ -15253,9 +15165,99 @@ ADD_UI_POLISH_V8 = r'''
     });
   }
 
+
+  window.addEventListener("error", function(ev){
+    try{
+      fetch("/api/client_log", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+          level:"error",
+          message: (ev && ev.message) ? String(ev.message) : "Client error",
+          extra: {
+            source: ev && ev.filename ? String(ev.filename) : "",
+            line: ev && ev.lineno ? ev.lineno : 0,
+            col: ev && ev.colno ? ev.colno : 0
+          }
+        })
+      }).catch(()=>{});
+    }catch(_){}
+  });
   // -----------------------------
   // v8: Bootstrap
   // -----------------------------
+
+  function statusBadge(label, value){
+    return `<div style="border:1px solid rgba(124,146,255,.16); border-radius:12px; padding:8px 10px; background:rgba(255,255,255,.02);">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; opacity:.75;">${label}</div>
+      <div style="margin-top:2px; font-size:13px; font-weight:700;">${value}</div>
+    </div>`;
+  }
+
+  async function refreshStatusDock(){
+    const grid = $("statusDockGrid");
+    const meta = $("statusDockMeta");
+    if(!grid || !meta) return;
+    meta.innerText = "Checking...";
+    const data = await apiFetchJson("/api/system_status");
+    if(!data.ok){
+      meta.innerText = data.error || "Status unavailable";
+      return;
+    }
+    grid.innerHTML = [
+      statusBadge("Provider", data.provider || "openai"),
+      statusBadge("Active team", String(data.active_teammates || 0)),
+      statusBadge("OpenAI", data.openai_ready ? "Ready" : "Missing"),
+      statusBadge("Claude", data.claude_ready ? "Ready" : "Missing"),
+      statusBadge("Image jobs", String(data.queued_image_jobs || 0)),
+      statusBadge("Task errors", String(data.recent_task_errors || 0)),
+      statusBadge("Onboarding", `${data.onboarding_progress_pct || 0}%`),
+      statusBadge("Calendar", data.calendar_connected ? "Connected" : "Off")
+    ].join("");
+    meta.innerText = `Updated ${new Date().toLocaleTimeString()}`;
+  }
+
+  function installStatusDock(){
+    const dock = $("statusDock");
+    const body = $("statusDockBody");
+    const head = $("statusDockHead");
+    const toggle = $("statusDockToggleBtn");
+    const refreshBtn = $("statusDockRefreshBtn");
+    if(!dock || !body || !head || !toggle || !refreshBtn) return;
+    let hidden = false;
+    toggle.onclick = () => {
+      hidden = !hidden;
+      body.style.display = hidden ? "none" : "block";
+      toggle.innerText = hidden ? "Show" : "Hide";
+    };
+    refreshBtn.onclick = () => refreshStatusDock();
+    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+    head.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      sx = e.clientX; sy = e.clientY;
+      const rect = dock.getBoundingClientRect();
+      ox = rect.left; oy = rect.top;
+      dock.style.left = rect.left + "px";
+      dock.style.top = rect.top + "px";
+      dock.style.right = "auto";
+      dock.style.bottom = "auto";
+      try{ head.setPointerCapture(e.pointerId); }catch(_){}
+    });
+    head.addEventListener("pointermove", (e) => {
+      if(!dragging) return;
+      dock.style.left = Math.max(8, ox + (e.clientX - sx)) + "px";
+      dock.style.top = Math.max(8, oy + (e.clientY - sy)) + "px";
+    });
+    const stop = () => { dragging = false; };
+    head.addEventListener("pointerup", stop);
+    head.addEventListener("pointercancel", stop);
+
+    refreshStatusDock();
+    if(!window.__statusDockTimer){
+      window.__statusDockTimer = setInterval(refreshStatusDock, 30000);
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", function(){
     try{ moveDiagnosticsIntoSettings(); }catch(_){}
 
@@ -15265,6 +15267,7 @@ ADD_UI_POLISH_V8 = r'''
     try{ installAutoScroll(); }catch(_){}
     try{ installIdleBreath(); }catch(_){}
     try{ installLockBehavior(); }catch(_){}
+    try{ installStatusDock(); }catch(_){}
 
     // Restore seat after table render; retry a few times in case render is async.
     let tries = 0;
@@ -15307,3 +15310,4 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
+
