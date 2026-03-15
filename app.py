@@ -9,7 +9,6 @@ import hashlib
 import hmac
 import threading
 import tempfile
-import shutil
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -25,7 +24,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException
 
 # Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
 # If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
@@ -376,25 +374,6 @@ app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-
-@app.errorhandler(Exception)
-def _jsonify_api_errors(e):
-    """Return JSON for API exceptions so the frontend never gets HTML trace pages."""
-    if request.path.startswith("/api/"):
-        code = 500
-        msg = ""
-        if isinstance(e, HTTPException):
-            code = int(getattr(e, "code", 500) or 500)
-            msg = str(getattr(e, "description", "") or "")
-        else:
-            msg = str(e or "")
-        msg = (msg or "Server error").strip()
-        return jsonify({"ok": False, "error": msg}), code
-    if isinstance(e, HTTPException):
-        return e
-    raise e
-
-
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
     if not isinstance(data, dict):
@@ -670,10 +649,13 @@ ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "openai_key", "title": "Add OpenAI key"},
+    {"key": "claude_key", "title": "Add Claude key"},
     {"key": "operator_profile", "title": "Fill out Operator Profile"},
     {"key": "full_team", "title": "Install full team"},
-    {"key": "first_prompt", "title": "Send first prompt"},
     {"key": "gmail_connected", "title": "Connect Gmail"},
+    {"key": "calendar_connected", "title": "Connect Calendar"},
+    {"key": "smtp_ready", "title": "Set up email sending"},
+    {"key": "first_prompt", "title": "Send first prompt"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -726,13 +708,19 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: AI key (OpenAI or Claude)
+    # Step 1: OpenAI key
     try:
         stg = ((u or {}).get("settings") or {})
         key_openai = (stg.get("openai_key") or "").strip()
         key_claude = (stg.get("claude_key") or "").strip()
-        if key_openai or key_claude:
+        smtp = (stg.get("smtp") or {})
+        if key_openai:
             _mark_onboarding_step(username, "openai_key", True)
+        if key_claude:
+            _mark_onboarding_step(username, "claude_key", True)
+        smtp_ok = bool((smtp.get("host") or "").strip() and (smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
+        if smtp_ok:
+            _mark_onboarding_step(username, "smtp_ready", True)
     except Exception:
         pass
 
@@ -760,10 +748,16 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     except Exception:
         pass
 
-    # Step 5: Gmail connected
+    # Connected integrations
     try:
         if _user_gmail_oauth(u):
             _mark_onboarding_step(username, "gmail_connected", True)
+    except Exception:
+        pass
+
+    try:
+        if _user_calendar_oauth(u):
+            _mark_onboarding_step(username, "calendar_connected", True)
     except Exception:
         pass
 
@@ -2947,59 +2941,6 @@ def api_diagnostics():
     })
 
 
-
-
-@app.get("/api/system_status")
-def api_system_status():
-    """Compact status endpoint for the status dock and quick troubleshooting."""
-    reg = load_registry()
-    u = current_user()
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    active = reg.get("active_order") or []
-    installed = reg.get("installed_order") or []
-    task_entries = read_task_log(limit=30)
-    recent_errors = [x for x in task_entries if (x.get("status") or "") == "error"]
-    onboarding = _onboarding_status_payload(u) if u else {"progress_pct": 0, "all_done": False}
-    image_jobs = 0
-    try:
-        with IMAGE_JOBS_LOCK:
-            image_jobs = sum(1 for _jid, job in (IMAGE_JOBS or {}).items() if (job or {}).get("status") in ("queued", "running"))
-    except Exception:
-        image_jobs = 0
-    return jsonify({
-        "ok": True,
-        "user": uname,
-        "provider": (((u or {}).get("settings") or {}).get("provider") or AI_PROVIDER or "openai"),
-        "openai_ready": bool((((u or {}).get("settings") or {}).get("openai_key") or OPENAI_API_KEY or "").strip()),
-        "claude_ready": bool((((u or {}).get("settings") or {}).get("claude_key") or CLAUDE_API_KEY or "").strip()),
-        "active_teammates": len(active),
-        "installed_teammates": len(installed),
-        "queued_image_jobs": image_jobs,
-        "recent_task_errors": len(recent_errors),
-        "onboarding_progress_pct": int(onboarding.get("progress_pct") or 0),
-        "gmail_connected": bool((_email_capability_for_user(u) if u else {}).get("gmail_connected")),
-        "calendar_connected": bool((_calendar_creds_for_user(u)[0]) if u else False),
-        "timestamp": now_iso(),
-    })
-
-@app.post("/api/client_log")
-def api_client_log():
-    try:
-        payload = request.get_json(silent=True) or {}
-        append_task_log(
-            action="client_log",
-            record={
-                "level": (payload.get("level") or "info"),
-                "message": (payload.get("message") or "")[:2000],
-                "extra": payload.get("extra") or {},
-            },
-            teammate=(payload.get("teammate") or ""),
-            status="error" if str(payload.get("level") or "").lower() == "error" else "success",
-        )
-        return jsonify({"ok": True})
-    except Exception:
-        return jsonify({"ok": False, "error": "Log write failed"}), 500
-
 @app.get("/api/task_log")
 def api_task_log():
     # Optional query params: teammate, status, limit
@@ -3044,7 +2985,7 @@ def api_action_stacks_save(teammate: str, stack_name: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     steps = _normalize_steps(payload.get("steps"))
     data = _load_saved_stacks(uname, teammate)
     data.setdefault("stacks", {})
@@ -3058,7 +2999,7 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     user_input = (payload.get("input") or "").strip()
     data = _load_saved_stacks(uname, teammate)
     stack = (data.get("stacks") or {}).get(stack_name)
@@ -3076,7 +3017,7 @@ def api_action_stack_run_resume(run_id: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     user_input = (payload.get("input") or "").strip()
 
     runs_data = _load_runs(uname)
@@ -3112,7 +3053,7 @@ def api_action_stacks_schedules_create(teammate: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     mode = (payload.get("mode") or "").strip().lower()
     stack_name = (payload.get("stack_name") or "").strip()
     if not stack_name:
@@ -3143,7 +3084,7 @@ def api_action_stacks_schedules_delete(teammate: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     sid = (payload.get("schedule_id") or "").strip()
     if not sid:
         return jsonify({"ok": False, "error": "Missing schedule_id"}), 400
@@ -3253,7 +3194,7 @@ def api_set_user_settings():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     provider = (data.get("provider") or "openai").strip().lower()
     if provider not in ("openai", "claude"):
         provider = "openai"
@@ -3355,7 +3296,7 @@ def api_get_framework():
 
 @app.post("/api/framework")
 def api_set_framework():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     fw = (data.get("framework") or "").strip()
     save_core_framework(fw)
     append_log("framework_updated", {"updated_at": now_iso(), "length": len(load_core_framework())})
@@ -3378,7 +3319,7 @@ def api_install_full():
 
 @app.post("/api/active_order")
 def api_set_active_order():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     order = data.get("active_order")
     if not isinstance(order, list):
         return jsonify({"ok": False, "error": "active_order must be a list"}), 400
@@ -3389,7 +3330,7 @@ def api_set_active_order():
 
 @app.post("/api/teammate/create")
 def api_create_teammate():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     try:
         t = create_teammate(data)
     except Exception as e:
@@ -3433,7 +3374,7 @@ def api_update_teammate(name: str):
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
 
-    payload = request.get_json(silent=True) or {}
+    payload = request.get_json(force=True) or {}
     current = installed[name]
     updated = _sanitize_teammate_update(payload, current)
 
@@ -3824,7 +3765,7 @@ def api_teammate_set_current_image(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     file_id = (data.get("file_id") or "").strip()
     approve = bool(data.get("approve"))
     if not file_id:
@@ -3853,7 +3794,7 @@ def api_send_email():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True) or {}
     to_addr = (data.get("to") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
@@ -8007,53 +7948,13 @@ function renderStackSteps(){
   });
 }
 
-
-async function apiFetchJson(url, options){
-  const opts = options || {};
-  const method = (opts.method || "GET").toUpperCase();
-  let res;
-  try{
-    res = await fetch(url, opts);
-  }catch(err){
-    const msg = String(err || "Network error");
-    try{
-      fetch("/api/client_log", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({level:"error", message:"Network error", extra:{url, method, error: msg}})
-      }).catch(()=>{});
-    }catch(_){}
-    return { ok:false, error: msg, __network_error:true };
-  }
-  let data = null;
-  try{
-    data = await res.json();
-  }catch(_){
-    const msg = "Invalid server response";
-    try{
-      fetch("/api/client_log", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({level:"error", message: msg, extra:{url, method, status: res.status}})
-      }).catch(()=>{});
-    }catch(__){}
-    return { ok:false, error: msg, __invalid_json:true, status: res.status };
-  }
-  if(!res.ok && (!data || typeof data !== "object")){
-    return { ok:false, error:"Request failed", status: res.status };
-  }
-  return (data && typeof data === "object") ? data : { ok:false, error:"Invalid payload", status: res.status };
-}
-
 async function loadStacksForTeammate(teammate){
   const sel = $("stackSelect");
   if(!sel) return;
   sel.innerHTML = "";
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
-  if(!data.ok){
-    if($("stackStatus")) $("stackStatus").innerText = data.error || "Could not load stacks.";
-    return;
-  }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
+  const data = await res.json();
+  if(!data.ok) return;
   const opt0 = document.createElement("option");
   opt0.value = "";
   opt0.text = "(select)";
@@ -8068,13 +7969,11 @@ async function loadStacksForTeammate(teammate){
 
 async function loadStackDetail(teammate, name){
   if(!name) return;
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
-  if(!data.ok){
-    if($("stackStatus")) $("stackStatus").innerText = data.error || "Could not load that stack.";
-    return;
-  }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
+  const data = await res.json();
+  if(!data.ok) return;
   const stack = data.stack || {};
-  ActionStack.steps = (stack.steps || []).map(s => ({type:(s.type || "prompt"), prompt: s.prompt || "", seconds: s.seconds || 0, key: s.key || "", to_teammate: s.to_teammate || ""}));
+  ActionStack.steps = (stack.steps || []).map(s => ({type:"prompt", prompt: s.prompt || ""}));
   if($("stackName")) $("stackName").value = stack.name || name;
   renderStackSteps();
 }
@@ -8083,14 +7982,9 @@ async function loadSchedulesForTeammate(teammate){
   const box = $("stackSchedules");
   if(!box) return;
   box.innerHTML = "";
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
-  if(!data.ok){
-    const t = document.createElement("div");
-    t.className = "tiny";
-    t.innerText = data.error || "Could not load schedules.";
-    box.appendChild(t);
-    return;
-  }
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
+  const data = await res.json();
+  if(!data.ok) return;
   const items = data.schedules || [];
   if(items.length === 0){
     const t = document.createElement("div");
@@ -8116,12 +8010,11 @@ async function loadSchedulesForTeammate(teammate){
     del.className = "btn";
     del.innerText = "Delete";
     del.onclick = async () => {
-      const out = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
+      await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
         method:"POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({schedule_id: s.id})
       });
-      if($("stackStatus")) $("stackStatus").innerText = out.ok ? "Schedule deleted." : (out.error || "Delete failed.");
       loadSchedulesForTeammate(teammate);
     };
     row.appendChild(del);
@@ -8134,11 +8027,12 @@ async function saveCurrentStack(){
   const name = (($("stackName") && $("stackName").value) || "").trim();
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Enter a stack name."; return; }
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({steps: ActionStack.steps})
   });
+  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
   loadStacksForTeammate(teammate);
 }
@@ -8148,16 +8042,15 @@ async function runCurrentStack(){
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
-  if($("stackStatus")) $("stackStatus").innerText = "Running...";
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({input: (($("mainPrompt") && $("mainPrompt").value) || "").trim(), client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")})
   });
+  const data = await res.json();
   if(!data.ok){ if($("stackStatus")) $("stackStatus").innerText = data.error || "Run failed."; return; }
   renderStackSteps();
   renderRunOutputs(data.run);
-  if($("stackStatus")) $("stackStatus").innerText = (data.run && data.run.status) ? ("Run: " + data.run.status) : "Run complete.";
 }
 
 async function scheduleOnce(){
@@ -8167,11 +8060,12 @@ async function scheduleOnce(){
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
   if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a datetime."; return; }
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
   });
+  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
@@ -8183,11 +8077,12 @@ async function scheduleDaily(){
   if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
   if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
   if(!t){ if($("stackStatus")) $("stackStatus").innerText = "Pick a daily time."; return; }
-  const data = await apiFetchJson(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
+  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
     method:"POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({mode:"daily", stack_name:name, time: t})
   });
+  const data = await res.json();
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
@@ -12936,8 +12831,7 @@ maybeAutoShowOnboarding();
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
-        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
+        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Close</button>
       </div>
     </div>
     <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
@@ -13074,222 +12968,275 @@ maybeAutoShowOnboarding();
 
 <script>
 (function(){
-  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-  function addWindowHandles(win){
-    if(!win || win.dataset.windowHandles === "1") return;
-    win.dataset.windowHandles = "1";
-    const defs = ["n","s","e","w","nw","ne","sw","se"];
-    defs.forEach((dir)=>{
-      const h = document.createElement("div");
-      h.className = "winHandle " + (dir.length === 1 ? ("edge-" + dir) : ("corner-" + dir));
-      h.dataset.dir = dir;
-      win.appendChild(h);
+  let onbData = null;
+  let onbClosed = false;
+  const drag = {active:false, dx:0, dy:0};
+
+  function onb$(id){ return document.getElementById(id); }
+
+  function syncOnboardingButtons(){
+    try{
+      const topBtn = onb$("onboardingBtn");
+      const mobBtn = onb$("mobileOnboardingBtn");
+      const nextKey = (onbData && onbData.next_key) ? onbData.next_key : "";
+      const steps = (onbData && Array.isArray(onbData.steps)) ? onbData.steps : [];
+      let nextTitle = "Next step";
+      const hit = steps.find(s => s && s.key === nextKey);
+      if(hit && hit.title) nextTitle = hit.title;
+      [topBtn, mobBtn].forEach((btn)=>{
+        if(!btn) return;
+        if(onbData && !onbData.all_done){
+          btn.classList.add("onbBtnGlow");
+          btn.textContent = "Next step";
+          btn.title = nextTitle;
+        }else{
+          btn.classList.remove("onbBtnGlow");
+          btn.textContent = "Next step";
+          btn.title = "Guided onboarding checklist";
+        }
+      });
+    }catch(e){}
+  }
+
+  async function openOnboarding(){
+    try{
+      onbClosed = false;
+      await fetchOnboarding();
+      const panel = onb$("onboardingPanel");
+      if(panel) panel.style.display = "block";
+    }catch(e){}
+  }
+
+  function closeOnboarding(){
+    onbClosed = true;
+    const panel = onb$("onboardingPanel");
+    if(panel) panel.style.display = "none";
+  }
+
+  function wireOnboardingButtons(){
+    try{
+      const topBtn = document.getElementById("onboardingBtn");
+      const mobBtn = document.getElementById("mobileOnboardingBtn");
+      if(topBtn) topBtn.addEventListener("click", openOnboarding);
+      if(mobBtn) mobBtn.addEventListener("click", ()=>{
+        try{
+          const overlay = document.getElementById("mobileDrawerOverlay");
+          if(overlay) overlay.classList.remove("show");
+          try{ document.body.style.overflow = ""; }catch(_){}
+        }catch(_){}
+        openOnboarding();
+      });
+    }catch(e){}
+  }
+
+  function setPanelPos(x,y){
+    const panel = onb$("onboardingPanel");
+    if(!panel) return;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.style.left = Math.max(8, x) + "px";
+    panel.style.top = Math.max(8, y) + "px";
+  }
+
+  async function fetchOnboarding(){
+    try{
+      const res = await fetch("/api/onboarding/status");
+      const data = await res.json();
+      if(!data || !data.ok) return;
+      onbData = data;
+      renderOnboarding();
+      syncOnboardingButtons();
+      try{ window.onboardingStatus = onbData; }catch(_){ }
+    }catch(e){}
+  }
+
+  function renderOnboarding(){
+    const panel = onb$("onboardingPanel");
+    const list = onb$("onbList");
+    const sub = onb$("onbSub");
+    if(!panel || !list || !sub || !onbData) return;
+
+    if(onbData.dismissed || onbData.all_done){
+      panel.style.display = "none";
+      return;
+    }
+
+    if(!onbClosed){
+      panel.style.display = "block";
+    }
+
+    sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
+
+    list.innerHTML = "";
+    const nextKey = onbData.next_key || "";
+
+    (onbData.steps||[]).forEach((s)=>{
+      const row = document.createElement("div");
+      row.className = "onbItem";
+      row.setAttribute("data-key", s.key);
+
+      const dot = document.createElement("div");
+      dot.className = "onbDot" + (s.done ? " onbDone" : "");
+      if(!s.done && s.key === nextKey){
+        row.className += " onbNextPulse";
+      }
+
+      const wrap = document.createElement("div");
+      wrap.style.display = "flex";
+      wrap.style.flexDirection = "column";
+      wrap.style.gap = "2px";
+
+      const title = document.createElement("div");
+      title.className = "onbTitle";
+      title.textContent = s.title;
+
+      const meta = document.createElement("div");
+      meta.className = "onbMeta";
+      meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
+
+      wrap.appendChild(title);
+      wrap.appendChild(meta);
+
+      row.appendChild(dot);
+      row.appendChild(wrap);
+
+      row.addEventListener("click", ()=>onbAction(s.key, s.done));
+      list.appendChild(row);
     });
   }
 
-  function enableFloatingWindow(winId, headerId, keyPrefix){
-    const win = document.getElementById(winId);
-    const header = document.getElementById(headerId);
-    if(!win || !header) return;
+  async function dismissOnboarding(){
+    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
+    onbClosed = true;
+    const panel = onb$("onboardingPanel");
+    if(panel) panel.style.display = "none";
+  }
 
-    addWindowHandles(win);
-
-    const state = {
-      mode: null,
-      dir: "",
-      startX: 0,
-      startY: 0,
-      startLeft: 0,
-      startTop: 0,
-      startWidth: 0,
-      startHeight: 0,
-      pointerId: null
-    };
-
-    function vw(){ return Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0); }
-    function vh(){ return Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0); }
-    function minW(){ return Math.max(parseFloat(getComputedStyle(win).minWidth) || 320, 280); }
-    function minH(){ return Math.max(parseFloat(getComputedStyle(win).minHeight) || 220, 180); }
-    function edgePad(){ return window.innerWidth <= 720 ? 0 : 8; }
-
-    function saveState(){
-      try{
-        const r = win.getBoundingClientRect();
-        localStorage.setItem(keyPrefix + ":geom", JSON.stringify({
-          left: Math.round(r.left),
-          top: Math.round(r.top),
-          width: Math.round(r.width),
-          height: Math.round(r.height)
-        }));
-      }catch(e){}
-    }
-
-    function loadState(){
-      try{
-        const raw = localStorage.getItem(keyPrefix + ":geom");
-        if(!raw) return;
-        const g = JSON.parse(raw);
-        if(!g || typeof g !== "object") return;
-        if(window.innerWidth <= 720 && winId === "modalWin") return;
-        if(Number.isFinite(g.width)) win.style.width = Math.max(minW(), g.width) + "px";
-        if(Number.isFinite(g.height)) win.style.height = Math.max(minH(), g.height) + "px";
-        if(Number.isFinite(g.left)){
-          win.style.right = "auto";
-          win.style.left = clamp(g.left, edgePad(), Math.max(edgePad(), vw() - (g.width || win.offsetWidth) - edgePad())) + "px";
-        }
-        if(Number.isFinite(g.top)){
-          win.style.bottom = "auto";
-          win.style.top = clamp(g.top, edgePad(), Math.max(edgePad(), vh() - (g.height || win.offsetHeight) - edgePad())) + "px";
-        }
-        if(winId === "modalWin"){
-          win.style.transform = "none";
-        }
-      }catch(e){}
-    }
-
-    function startMove(ev){
-      const r = win.getBoundingClientRect();
-      state.mode = "move";
-      state.startX = ev.clientX;
-      state.startY = ev.clientY;
-      state.startLeft = r.left;
-      state.startTop = r.top;
-      state.startWidth = r.width;
-      state.startHeight = r.height;
-      state.pointerId = ev.pointerId;
-      win.classList.add("window-active");
-      if(winId === "modalWin"){
-        win.style.transform = "none";
-        win.style.left = r.left + "px";
-        win.style.top = r.top + "px";
-      }else{
-        win.style.right = "auto";
-        win.style.bottom = "auto";
-        win.style.left = r.left + "px";
-        win.style.top = r.top + "px";
+  function focusEl(id){
+    try{
+      const el = document.getElementById(id);
+      if(el){
+        el.scrollIntoView({behavior:"smooth", block:"center"});
+        setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 80);
+        return true;
       }
-      try{ header.setPointerCapture(ev.pointerId); }catch(e){}
-    }
+    }catch(e){}
+    return false;
+  }
 
-    function startResize(ev, dir){
-      const r = win.getBoundingClientRect();
-      state.mode = "resize";
-      state.dir = dir;
-      state.startX = ev.clientX;
-      state.startY = ev.clientY;
-      state.startLeft = r.left;
-      state.startTop = r.top;
-      state.startWidth = r.width;
-      state.startHeight = r.height;
-      state.pointerId = ev.pointerId;
-      win.classList.add("window-active");
-      if(winId === "modalWin"){
-        win.style.transform = "none";
-      }
-      win.style.right = "auto";
-      win.style.bottom = "auto";
-      win.style.left = r.left + "px";
-      win.style.top = r.top + "px";
-      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){}
-    }
+  async function onbAction(key, alreadyDone){
+    if(alreadyDone) return;
 
-    function onMove(ev){
-      if(!state.mode) return;
-      const dx = ev.clientX - state.startX;
-      const dy = ev.clientY - state.startY;
-
-      if(state.mode === "move"){
-        const nextLeft = clamp(state.startLeft + dx, edgePad(), Math.max(edgePad(), vw() - win.offsetWidth - edgePad()));
-        const nextTop = clamp(state.startTop + dy, edgePad(), Math.max(edgePad(), vh() - win.offsetHeight - edgePad()));
-        win.style.left = nextLeft + "px";
-        win.style.top = nextTop + "px";
+    try{
+      if(key === "openai_key"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
         return;
       }
 
-      let left = state.startLeft;
-      let top = state.startTop;
-      let width = state.startWidth;
-      let height = state.startHeight;
-
-      if(state.dir.includes("e")) width = state.startWidth + dx;
-      if(state.dir.includes("s")) height = state.startHeight + dy;
-      if(state.dir.includes("w")){
-        width = state.startWidth - dx;
-        left = state.startLeft + dx;
-      }
-      if(state.dir.includes("n")){
-        height = state.startHeight - dy;
-        top = state.startTop + dy;
+      if(key === "claude_key"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{ focusEl("claudeKey") || focusEl("claudeModel"); }, 150);
+        return;
       }
 
-      width = Math.max(minW(), width)
-      height = Math.max(minH(), height)
+      if(key === "operator_profile"){
+        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
+        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
+        return;
+      }
 
-      if(state.dir.includes("w")) left = state.startLeft + (state.startWidth - width);
-      if(state.dir.includes("n")) top = state.startTop + (state.startHeight - height);
-
-      width = Math.min(width, vw() - edgePad() - left);
-      height = Math.min(height, vh() - edgePad() - top);
-      left = clamp(left, edgePad(), Math.max(edgePad(), vw() - width - edgePad()));
-      top = clamp(top, edgePad(), Math.max(edgePad(), vh() - height - edgePad()));
-
-      win.style.left = left + "px";
-      win.style.top = top + "px";
-      win.style.width = width + "px";
-      win.style.height = height + "px";
-    }
-
-    function end(ev){
-      if(!state.mode) return;
-      try{
-        if(state.mode === "move") header.releasePointerCapture(state.pointerId);
-        else if(ev && ev.target && ev.target.releasePointerCapture) ev.target.releasePointerCapture(state.pointerId);
-      }catch(e){}
-      state.mode = null;
-      state.dir = "";
-      state.pointerId = null;
-      win.classList.remove("window-active");
-      saveState();
-    }
-
-    header.addEventListener("pointerdown", (ev)=>{
-      try{
-        if(ev.target && ev.target.closest && ev.target.closest("button")) return;
-      }catch(e){}
-      if(window.innerWidth <= 720 && winId === "modalWin") return;
-      startMove(ev);
-    });
-    header.addEventListener("pointermove", onMove);
-    header.addEventListener("pointerup", end);
-    header.addEventListener("pointercancel", end);
-
-    Array.from(win.querySelectorAll(".winHandle")).forEach((h)=>{
-      h.addEventListener("pointerdown", (ev)=>{
-        if(window.innerWidth <= 720) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        startResize(ev, h.dataset.dir || "se");
-      });
-      h.addEventListener("pointermove", onMove);
-      h.addEventListener("pointerup", end);
-      h.addEventListener("pointercancel", end);
-    });
-
-    loadState();
-    window.addEventListener("resize", ()=>{
-      if(window.innerWidth <= 720 && winId === "modalWin") return;
-      setTimeout(()=>{
+      if(key === "full_team"){
         try{
-          const r = win.getBoundingClientRect();
-          win.style.left = clamp(r.left, edgePad(), Math.max(edgePad(), vw() - r.width - edgePad())) + "px";
-          win.style.top = clamp(r.top, edgePad(), Math.max(edgePad(), vh() - r.height - edgePad())) + "px";
-          saveState();
-        }catch(e){}
-      }, 80);
-    }, {passive:true});
+          const r = await fetch("/api/install/full", {method:"POST"});
+          const d = await r.json();
+          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
+          else{ if(typeof showToast === "function") showToast("Install failed"); }
+        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
+        setTimeout(fetchOnboarding, 300);
+        return;
+      }
+
+      if(key === "gmail_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{
+          const btn = document.getElementById("gmailConnectBtn");
+          if(btn){ btn.click(); }
+          else{ window.location = "/gmail/connect"; }
+        }, 200);
+        return;
+      }
+
+      if(key === "calendar_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{
+          const btn = document.getElementById("calendarConnectBtn");
+          if(btn){ btn.click(); }
+          else{ window.location = "/calendar/connect"; }
+        }, 200);
+        return;
+      }
+
+      if(key === "smtp_ready"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{ focusEl("smtpHost") || focusEl("smtpUser"); }, 150);
+        return;
+      }
+
+      if(key === "first_prompt"){
+        focusEl("followMsg") || focusEl("opPrompt");
+        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
+        return;
+      }
+    }finally{
+      setTimeout(fetchOnboarding, 600);
+    }
   }
 
-  window.enableFloatingWindow = enableFloatingWindow;
+  function wireDrag(){
+    const header = onb$("onbHeader");
+    const panel = onb$("onboardingPanel");
+    if(!header || !panel) return;
+
+    header.addEventListener("pointerdown", (e)=>{
+      try{
+        if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
+      }catch(_){ }
+      drag.active = true;
+      header.style.cursor = "grabbing";
+      const rect = panel.getBoundingClientRect();
+      drag.dx = e.clientX - rect.left;
+      drag.dy = e.clientY - rect.top;
+      try{ header.setPointerCapture(e.pointerId); }catch(err){}
+    });
+
+    header.addEventListener("pointermove", (e)=>{
+      if(!drag.active) return;
+      setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
+    });
+
+    header.addEventListener("pointerup", (e)=>{
+      drag.active = false;
+      header.style.cursor = "grab";
+      try{ header.releasePointerCapture(e.pointerId); }catch(err){}
+    });
+  }
+
+  function wireExit(){
+    const btn = onb$("onbExit");
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
+  }
+
+  try{
+    try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
+
+    wireDrag();
+    try{ if(window.enableFloatingWindow) window.enableFloatingWindow("onboardingPanel", "onbHeader", "floating:onboarding"); }catch(_){ }
+    wireExit();
+    wireOnboardingButtons();
+    setTimeout(fetchOnboarding, 450);
+    setInterval(fetchOnboarding, 12000);
+  }catch(e){}
 })();
 </script>
 
@@ -13549,20 +13496,6 @@ maybeAutoShowOnboarding();
 })();
 </script>
 
-
-<div id="statusDock" style="position:fixed; right:14px; bottom:14px; z-index:9999; width:min(320px, calc(100vw - 24px)); background:rgba(8,12,24,.88); border:1px solid rgba(124,146,255,.26); box-shadow:0 14px 40px rgba(0,0,0,.34); backdrop-filter: blur(14px); border-radius:18px; overflow:hidden;">
-  <div id="statusDockHead" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; cursor:move; user-select:none; background:linear-gradient(180deg, rgba(40,55,120,.45), rgba(15,20,40,.15));">
-    <div style="font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; opacity:.9;">System status</div>
-    <div style="display:flex; gap:6px;">
-      <button class="btn btnTiny" id="statusDockRefreshBtn">Refresh</button>
-      <button class="btn btnTiny" id="statusDockToggleBtn">Hide</button>
-    </div>
-  </div>
-  <div id="statusDockBody" style="padding:10px 12px 12px;">
-    <div id="statusDockGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
-    <div id="statusDockMeta" class="tiny" style="margin-top:8px; opacity:.85;">Checking…</div>
-  </div>
-</div>
 </body>
 </html>
 """
@@ -15165,99 +15098,9 @@ ADD_UI_POLISH_V8 = r'''
     });
   }
 
-
-  window.addEventListener("error", function(ev){
-    try{
-      fetch("/api/client_log", {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          level:"error",
-          message: (ev && ev.message) ? String(ev.message) : "Client error",
-          extra: {
-            source: ev && ev.filename ? String(ev.filename) : "",
-            line: ev && ev.lineno ? ev.lineno : 0,
-            col: ev && ev.colno ? ev.colno : 0
-          }
-        })
-      }).catch(()=>{});
-    }catch(_){}
-  });
   // -----------------------------
   // v8: Bootstrap
   // -----------------------------
-
-  function statusBadge(label, value){
-    return `<div style="border:1px solid rgba(124,146,255,.16); border-radius:12px; padding:8px 10px; background:rgba(255,255,255,.02);">
-      <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; opacity:.75;">${label}</div>
-      <div style="margin-top:2px; font-size:13px; font-weight:700;">${value}</div>
-    </div>`;
-  }
-
-  async function refreshStatusDock(){
-    const grid = $("statusDockGrid");
-    const meta = $("statusDockMeta");
-    if(!grid || !meta) return;
-    meta.innerText = "Checking...";
-    const data = await apiFetchJson("/api/system_status");
-    if(!data.ok){
-      meta.innerText = data.error || "Status unavailable";
-      return;
-    }
-    grid.innerHTML = [
-      statusBadge("Provider", data.provider || "openai"),
-      statusBadge("Active team", String(data.active_teammates || 0)),
-      statusBadge("OpenAI", data.openai_ready ? "Ready" : "Missing"),
-      statusBadge("Claude", data.claude_ready ? "Ready" : "Missing"),
-      statusBadge("Image jobs", String(data.queued_image_jobs || 0)),
-      statusBadge("Task errors", String(data.recent_task_errors || 0)),
-      statusBadge("Onboarding", `${data.onboarding_progress_pct || 0}%`),
-      statusBadge("Calendar", data.calendar_connected ? "Connected" : "Off")
-    ].join("");
-    meta.innerText = `Updated ${new Date().toLocaleTimeString()}`;
-  }
-
-  function installStatusDock(){
-    const dock = $("statusDock");
-    const body = $("statusDockBody");
-    const head = $("statusDockHead");
-    const toggle = $("statusDockToggleBtn");
-    const refreshBtn = $("statusDockRefreshBtn");
-    if(!dock || !body || !head || !toggle || !refreshBtn) return;
-    let hidden = false;
-    toggle.onclick = () => {
-      hidden = !hidden;
-      body.style.display = hidden ? "none" : "block";
-      toggle.innerText = hidden ? "Show" : "Hide";
-    };
-    refreshBtn.onclick = () => refreshStatusDock();
-    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    head.addEventListener("pointerdown", (e) => {
-      dragging = true;
-      sx = e.clientX; sy = e.clientY;
-      const rect = dock.getBoundingClientRect();
-      ox = rect.left; oy = rect.top;
-      dock.style.left = rect.left + "px";
-      dock.style.top = rect.top + "px";
-      dock.style.right = "auto";
-      dock.style.bottom = "auto";
-      try{ head.setPointerCapture(e.pointerId); }catch(_){}
-    });
-    head.addEventListener("pointermove", (e) => {
-      if(!dragging) return;
-      dock.style.left = Math.max(8, ox + (e.clientX - sx)) + "px";
-      dock.style.top = Math.max(8, oy + (e.clientY - sy)) + "px";
-    });
-    const stop = () => { dragging = false; };
-    head.addEventListener("pointerup", stop);
-    head.addEventListener("pointercancel", stop);
-
-    refreshStatusDock();
-    if(!window.__statusDockTimer){
-      window.__statusDockTimer = setInterval(refreshStatusDock, 30000);
-    }
-  }
-
   document.addEventListener("DOMContentLoaded", function(){
     try{ moveDiagnosticsIntoSettings(); }catch(_){}
 
@@ -15267,7 +15110,6 @@ ADD_UI_POLISH_V8 = r'''
     try{ installAutoScroll(); }catch(_){}
     try{ installIdleBreath(); }catch(_){}
     try{ installLockBehavior(); }catch(_){}
-    try{ installStatusDock(); }catch(_){}
 
     // Restore seat after table render; retry a few times in case render is async.
     let tries = 0;
