@@ -4079,6 +4079,151 @@ LOGIN_HTML = r"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
+
+/* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
+<style>
+@media (max-width: 900px){
+  html, body{
+    width:100% !important;
+    max-width:100% !important;
+    overflow-x:hidden !important;
+  }
+
+  *, *::before, *::after{
+    box-sizing:border-box !important;
+  }
+
+  .container,
+  .stage,
+  .arena,
+  .underTable,
+  .side,
+  .sideCard,
+  .groupCard{
+    width:100% !important;
+    max-width:100% !important;
+  }
+
+  .stage{
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:stretch !important;
+    min-height:auto !important;
+  }
+
+  .arena{
+    padding-left:0 !important;
+    padding-right:0 !important;
+    overflow:visible !important;
+  }
+
+  .underTable{
+    margin:0 auto 18px auto !important;
+    padding-left:0 !important;
+    padding-right:0 !important;
+  }
+
+  .side{
+    position:relative !important;
+    top:auto !important;
+    height:auto !important;
+    overflow:visible !important;
+    border-left:none !important;
+    padding:0 !important;
+    background:transparent !important;
+    backdrop-filter:none !important;
+  }
+
+  .sideCard,
+  .groupCard{
+    margin-left:0 !important;
+    margin-right:0 !important;
+  }
+
+  .sideHead{
+    flex-wrap:wrap !important;
+    align-items:flex-start !important;
+    justify-content:space-between !important;
+  }
+
+  .sideTitle{
+    min-width:0 !important;
+    flex:1 1 180px !important;
+  }
+
+  .sideHead .btn{
+    flex:0 0 auto !important;
+    max-width:100% !important;
+  }
+
+  .passRow,
+  .pillRow{
+    width:100% !important;
+    max-width:100% !important;
+    overflow:visible !important;
+  }
+
+  .passRow .btn,
+  .pillRow .btn{
+    max-width:100% !important;
+  }
+
+  textarea, input, select{
+    max-width:100% !important;
+  }
+}
+
+@media (max-width: 700px){
+  .container{
+    padding-left:12px !important;
+    padding-right:12px !important;
+    padding-bottom:88px !important;
+  }
+
+  .groupCard,
+  .sideCard{
+    padding:10px !important;
+    border-radius:14px !important;
+  }
+
+  .sideHead{
+    gap:8px !important;
+  }
+
+  .sideHead .btn{
+    align-self:flex-start !important;
+  }
+
+  .h1, #seatTitle{
+    max-width:100% !important;
+    word-break:break-word !important;
+  }
+
+  #refreshThread{
+    margin-left:auto !important;
+  }
+
+  .tableWrap#tableWrap{
+    width:min(94vw, 620px) !important;
+    height:min(94vw, 620px) !important;
+    min-height:min(94vw, 620px) !important;
+  }
+
+  #tableViewport{
+    padding-left:0 !important;
+    padding-right:0 !important;
+    overflow-x:hidden !important;
+  }
+
+  .table{
+    transform:translateX(0) !important;
+    zoom:var(--tableZoom, 0.70) !important;
+    margin-left:auto !important;
+    margin-right:auto !important;
+  }
+}
+</style>
+
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
