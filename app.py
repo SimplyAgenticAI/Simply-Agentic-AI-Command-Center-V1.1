@@ -12774,6 +12774,60 @@ maybeAutoShowOnboarding();
 }
 </style>
 
+
+<style>
+/* ===== MOBILE ROUND TABLE RESTORE v4 ===== */
+@media (max-width: 700px){
+  .arena{
+    overflow: visible !important;
+    padding: 8px 0 18px 0 !important;
+  }
+
+  #tableViewport{
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    overflow: visible !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .tableWrap#tableWrap{
+    width: min(94vw, 620px) !important;
+    height: min(94vw, 620px) !important;
+    min-height: min(94vw, 620px) !important;
+    margin: 0 auto 8px auto !important;
+    position: relative !important;
+    overflow: visible !important;
+  }
+
+  #rtStage{
+    position: absolute !important;
+    inset: 0 !important;
+    transform: none !important;
+    transform-origin: 0 0 !important;
+    will-change: auto !important;
+  }
+
+  #rtStage .table,
+  .table{
+    position: absolute !important;
+    inset: auto !important;
+    left: 50% !important;
+    top: 50% !important;
+    margin: 0 !important;
+    transform: translate(-50%, -50%) scale(0.72) !important;
+    transform-origin: center center !important;
+    zoom: normal !important;
+  }
+
+  .underTable,
+  .side{
+    overflow: visible !important;
+  }
+}
+</style>
+
 </body>
 </html>
 """
