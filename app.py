@@ -6118,6 +6118,7 @@ HTML = r"""
 
 </body>
 </html>
+"""
 
 @app.get("/")
 def index():
@@ -7314,7 +7315,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
 });
 </script>
-"""
+'''
 
 
 
@@ -7745,7 +7746,7 @@ ADD_UI_POLISH_V8 = r'''
 
 
 </script>
-"""
+'''
 
 
 
