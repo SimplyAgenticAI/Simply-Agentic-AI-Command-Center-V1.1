@@ -10,6 +10,7 @@ import hmac
 import threading
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 
@@ -12469,8 +12470,17 @@ maybeAutoShowOnboarding();
       <div class="opsTab" id="opsTab-facebook" style="display:none;">
         <div class="opsCard">
           <h4>Facebook inactive friend review</h4>
-          <div class="opsTiny">Semi-auto only. Paste visible profile notes, friend list snippets, or manual review notes. The app scores candidates, then you review them manually inside Facebook before removing anyone.</div>
+          <div class="opsTiny">Semi-auto only. Paste your Facebook friends-list link first. The app will save a guided review session, open the link in a new tab when you want, and then score any friend rows or profile notes you paste back in. Final keep or remove decisions still happen manually inside Facebook.</div>
           <div style="margin-top:10px;">
+            <label class="opsTiny">Facebook friends-list or review URL</label>
+            <input class="opsInput" id="opsFacebookUrl" placeholder="https://www.facebook.com/friends/list/..." />
+          </div>
+          <div class="opsActions">
+            <button class="opsActionBtn primary" id="opsStartGuidedReviewBtn">Start guided review</button>
+          </div>
+          <div id="opsFacebookSession" class="opsList" style="margin-top:12px;"></div>
+          <div style="margin-top:12px;">
+            <label class="opsTiny">Paste copied friend rows or review notes</label>
             <textarea class="opsTextarea" id="opsFacebookRaw" placeholder="Paste copied friend rows, profile notes, or manual inactivity notes here. Separate people with blank lines for best results."></textarea>
           </div>
           <div class="opsActions">
@@ -12516,7 +12526,8 @@ Reactions: 72"></textarea>
     safeMode: false,
     dashboard: null,
     tasks: [],
-    notes: []
+    notes: [],
+    friendSession: null
   };
 
   function ops$(id){ return document.getElementById(id); }
@@ -12528,8 +12539,23 @@ Reactions: 72"></textarea>
   }
   async function opsFetch(url, options){
     const res = await fetch(url, Object.assign({headers: {"Content-Type":"application/json"}}, options || {}));
-    const data = await res.json().catch(()=>({ok:false, error:"Invalid server response"}));
-    if(!res.ok || !data.ok) throw new Error(data && data.error ? data.error : ("Request failed: " + res.status));
+    const rawText = await res.text();
+    let data = null;
+    try{
+      data = rawText ? JSON.parse(rawText) : {};
+    }catch(_){
+      data = null;
+    }
+    if(!res.ok){
+      const fallback = res.status === 401 ? "You need to log in again." : (rawText && rawText.trim() ? rawText.slice(0, 220) : ("Request failed: " + res.status));
+      throw new Error((data && data.error) ? data.error : fallback);
+    }
+    if(!data || typeof data !== "object"){
+      throw new Error("Invalid server response");
+    }
+    if(data.ok === false){
+      throw new Error(data.error || "Request failed");
+    }
     return data;
   }
   function saveOpsState(){
@@ -12604,9 +12630,11 @@ Reactions: 72"></textarea>
   }
   function taskButtons(task){
     const id = String(task.id || "");
+    const launch = task && task.target_url ? `<a class="opsActionBtn primary" href="${escapeHtml(task.target_url)}" target="_blank" rel="noopener noreferrer">Open target</a>` : "";
     return `
       <div class="opsActions">
-        <button class="opsActionBtn" data-task-action="start" data-task-id="${escapeHtml(id)}">Start</button>
+        ${launch}
+        <button class="opsActionBtn" data-task-action="start" data-task-id="${escapeHtml(id)}">Run</button>
         <button class="opsActionBtn" data-task-action="review" data-task-id="${escapeHtml(id)}">Needs review</button>
         <button class="opsActionBtn" data-task-action="done" data-task-id="${escapeHtml(id)}">Done</button>
         <button class="opsActionBtn" data-task-action="reset" data-task-id="${escapeHtml(id)}">Reset</button>
@@ -12629,6 +12657,7 @@ Reactions: 72"></textarea>
             <div class="opsScore">${escapeHtml(task.status || "queued")}</div>
           </div>
           <div class="opsReason">${escapeHtml(task.type || "general")} • ${escapeHtml(task.updated_at || task.created_at || "")}</div>
+          ${task.target_url ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(task.target_url)}</div>` : ''}
           ${task.notes ? `<div class="opsPre" style="margin-top:8px;">${escapeHtml(task.notes)}</div>` : ''}
           ${steps.length ? `<div class="opsList" style="margin-top:8px;">${steps.map((step, idx)=>`
             <div class="opsItem" style="padding:8px 10px;">
@@ -12657,6 +12686,30 @@ Reactions: 72"></textarea>
       </div>
     `).join("");
   }
+
+  function renderFriendSession(session){
+    const el = ops$("opsFacebookSession");
+    if(!el) return;
+    if(!session){
+      el.innerHTML = '<div class="opsTiny">No guided review session yet. Paste your Facebook link above and click Start guided review.</div>';
+      return;
+    }
+    const instructions = Array.isArray(session.instructions) ? session.instructions : [];
+    const launchUrl = escapeHtml(session.target_url || "");
+    el.innerHTML = `
+      <div class="opsItem">
+        <div class="opsRow" style="justify-content:space-between;">
+          <div class="opsItemTitle">Guided review ready</div>
+          <div class="opsScore">${escapeHtml(session.status || "ready")}</div>
+        </div>
+        <div class="opsReason">${escapeHtml(session.created_at || "")}</div>
+        <div class="opsPre" style="margin-top:8px;">${launchUrl}</div>
+        ${launchUrl ? `<div class="opsActions"><a class="opsActionBtn primary" href="${launchUrl}" target="_blank" rel="noopener noreferrer">Open Facebook review tab</a></div>` : ""}
+        ${instructions.length ? `<div class="opsList" style="margin-top:8px;">${instructions.map(x => `<div class="opsItem">${escapeHtml(x)}</div>`).join("")}</div>` : ""}
+      </div>
+    `;
+  }
+
   function renderCandidates(items){
     const el = ops$("opsFacebookCandidates");
     if(!el) return;
@@ -12722,10 +12775,12 @@ Reactions: 72"></textarea>
   async function loadDashboard(){
     const payload = await opsFetch("/api/ops/dashboard");
     state.dashboard = payload;
+    state.friendSession = payload.friend_session || null;
     renderChecks("opsSystemChecks", (payload.self_test && payload.self_test.checks) || []);
     renderChecks("opsStartupChecks", (payload.startup && payload.startup.checks) || []);
     renderEvents(payload.events || []);
     renderQuickStats(payload);
+    renderFriendSession(state.friendSession);
   }
   async function loadTasks(){
     const payload = await opsFetch("/api/ops/tasks");
@@ -12804,10 +12859,26 @@ Reactions: 72"></textarea>
     await loadDashboard();
     try{ if(window.showToast) window.showToast("Memory saved"); }catch(_){}
   }
+  async function startGuidedReview(){
+    const targetUrl = ((ops$("opsFacebookUrl")||{}).value || "").trim();
+    const payload = await opsFetch("/api/facebook/friend_review_session", {method:"POST", body: JSON.stringify({target_url: targetUrl})});
+    state.friendSession = payload.session || null;
+    renderFriendSession(state.friendSession);
+    await loadTasks();
+    await loadDashboard();
+    showTab("facebook");
+    try{ if(window.showToast) window.showToast("Guided review ready"); }catch(_){}
+    return payload;
+  }
   async function runFriendScan(){
     const raw = (ops$("opsFacebookRaw")||{}).value || "";
-    const payload = await opsFetch("/api/facebook/friend_scan", {method:"POST", body: JSON.stringify({raw_text: raw})});
+    const targetUrl = ((ops$("opsFacebookUrl")||{}).value || "").trim();
+    const payload = await opsFetch("/api/facebook/friend_scan", {method:"POST", body: JSON.stringify({raw_text: raw, target_url: targetUrl})});
     renderCandidates(payload.candidates || []);
+    if(payload.session){
+      state.friendSession = payload.session;
+      renderFriendSession(state.friendSession);
+    }
     await loadTasks();
     await loadDashboard();
     showTab("facebook");
@@ -12881,8 +12952,10 @@ Reactions: 72"></textarea>
     if(createBtn) createBtn.addEventListener("click", ()=> createTaskFromForm());
     const memBtn = ops$("opsSaveMemoryBtn");
     if(memBtn) memBtn.addEventListener("click", saveMemory);
+    const reviewBtn = ops$("opsStartGuidedReviewBtn");
+    if(reviewBtn) reviewBtn.addEventListener("click", async ()=>{ try{ await startGuidedReview(); }catch(err){ try{ if(window.showToast) window.showToast(err.message || "Could not start guided review"); }catch(_){} } });
     const scanBtn = ops$("opsRunFriendScanBtn");
-    if(scanBtn) scanBtn.addEventListener("click", runFriendScan);
+    if(scanBtn) scanBtn.addEventListener("click", async ()=>{ try{ await runFriendScan(); }catch(err){ try{ if(window.showToast) window.showToast(err.message || "Friend scan failed"); }catch(_){} } });
     const insightBtn = ops$("opsAnalyzeInsightsBtn");
     if(insightBtn) insightBtn.addEventListener("click", runPostInsights);
 
@@ -13000,6 +13073,71 @@ def _ops_recent_events(username: str, limit: int = 50) -> List[Dict[str, Any]]:
     if not isinstance(items, list):
         return []
     return items[-max(1, min(limit, 200)):]
+
+
+def _load_ops_friend_sessions(username: str) -> Dict[str, Any]:
+    data = _ops_user_json(username, "friend_sessions", {"sessions": [], "updated_at": None})
+    sessions = data.get("sessions")
+    if not isinstance(sessions, list):
+        sessions = []
+    data["sessions"] = sessions
+    return data
+
+def _save_ops_friend_sessions(username: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    data["updated_at"] = now_iso()
+    return _ops_save_user_json(username, "friend_sessions", data)
+
+def _normalize_facebook_url(raw_url: str) -> str:
+    raw_url = (raw_url or "").strip()
+    if not raw_url:
+        return ""
+    try:
+        parsed = urlparse(raw_url)
+        if parsed.scheme not in ("http", "https"):
+            return ""
+        host = (parsed.netloc or "").lower().strip()
+        if host.startswith("www."):
+            host = host[4:]
+        allowed = {
+            "facebook.com",
+            "m.facebook.com",
+            "mbasic.facebook.com",
+            "web.facebook.com",
+            "fb.com",
+        }
+        if host not in allowed and not host.endswith(".facebook.com"):
+            return ""
+        return parsed.geturl()[:500]
+    except Exception:
+        return ""
+
+def _latest_friend_session(username: str) -> Optional[Dict[str, Any]]:
+    data = _load_ops_friend_sessions(username)
+    sessions = [s for s in (data.get("sessions") or []) if isinstance(s, dict)]
+    return sessions[-1] if sessions else None
+
+def _new_friend_review_session(username: str, target_url: str) -> Dict[str, Any]:
+    clean_url = _normalize_facebook_url(target_url)
+    if not clean_url:
+        raise ValueError("Paste a valid Facebook friends-list or profile-review URL")
+    session_id = "fbscan_" + uuid.uuid4().hex[:10]
+    session_obj = {
+        "id": session_id,
+        "target_url": clean_url,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "status": "ready",
+        "instructions": [
+            "Open the Facebook link in a real browser tab while logged in.",
+            "Scroll naturally and review one profile at a time.",
+            "Copy visible friend rows, profile notes, or your own inactivity notes back into the analyzer box.",
+            "Use the scored candidates as a review aid only, then remove manually inside Facebook if you choose.",
+        ],
+    }
+    data = _load_ops_friend_sessions(username)
+    data["sessions"] = (data.get("sessions") or [])[-49:] + [session_obj]
+    _save_ops_friend_sessions(username, data)
+    return session_obj
 
 def _new_ops_task(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     now = now_iso()
@@ -13244,6 +13382,14 @@ def _facebook_post_insights(raw_text: str) -> Dict[str, Any]:
         "summary": "Conversation-led signal looks promising." if comments or shares else "This looks more passive than conversational so far.",
     }
 
+
+def _ops_json_error(username: str, kind: str, exc: Exception, user_message: str, status: int = 500):
+    try:
+        _append_ops_event(username or "anon", kind, user_message, {"error": str(exc)}, "error")
+    except Exception:
+        pass
+    return jsonify({"ok": False, "error": user_message, "detail": str(exc)}), status
+
 def _ops_dashboard_payload(username: str, user_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     user_obj = user_obj or {}
     self_test = _run_system_self_test_for_user(user_obj) if isinstance(user_obj, dict) else {"ok": False, "checks": []}
@@ -13265,7 +13411,8 @@ def _ops_dashboard_payload(username: str, user_obj: Optional[Dict[str, Any]]) ->
             "memory_notes": True,
             "task_engine": True,
             "post_insights": True,
-        }
+        },
+        "friend_session": _latest_friend_session(username),
     }
 
 @app.get("/api/ops/dashboard")
@@ -13293,14 +13440,18 @@ def api_ops_tasks_post():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    task = _new_ops_task(username, payload)
-    data = _load_ops_tasks(username)
-    data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
-    _save_ops_tasks(username, data)
-    _append_ops_event(username, "task_created", f"Task created: {task.get('title')}", {"task_id": task.get("id"), "type": task.get("type")})
-    append_task_log("ops_task_created", {"task": task}, teammate=task.get("teammate") or "", status="success")
-    return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+    try:
+        payload = request.get_json(silent=True) or {}
+        task = _new_ops_task(username, payload)
+        data = _load_ops_tasks(username)
+        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
+        _save_ops_tasks(username, data)
+        _append_ops_event(username, "ops_task_created", f"Task created: {task.get('title')}", {"task_id": task.get("id"), "type": task.get("type")})
+        append_task_log("ops_task_created", {"task": task}, teammate=task.get("teammate") or "", status="success")
+        return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+    except Exception as e:
+        return _ops_json_error(username, "ops_task_create_error", e, "Task creation failed")
+
 
 @app.post("/api/ops/tasks/<task_id>/action")
 def api_ops_task_action(task_id: str):
@@ -13308,41 +13459,50 @@ def api_ops_task_action(task_id: str):
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    action = (payload.get("action") or "").strip().lower()
-    task, data, idx = _find_ops_task(username, task_id)
-    if not task:
-        return jsonify({"ok": False, "error": "Task not found"}), 404
-    if action == "start":
-        task["status"] = "running"
-    elif action == "review":
-        task["status"] = "needs_review"
-    elif action == "done":
-        task["status"] = "done"
-        task["completed_at"] = now_iso()
-    elif action == "reset":
-        task["status"] = "queued"
-        task["completed_at"] = None
-        for step in (task.get("checklist") or []):
-            if isinstance(step, dict):
-                step["done"] = False
-    elif action == "toggle_step":
-        step_index = int(payload.get("step_index") or 0)
-        steps = task.get("checklist") or []
-        if 0 <= step_index < len(steps) and isinstance(steps[step_index], dict):
-            steps[step_index]["done"] = not bool(steps[step_index].get("done"))
-    elif action == "note":
-        note = (payload.get("note") or "").strip()
-        task["notes"] = (task.get("notes") or "")
-        if note:
-            task["notes"] = ((task.get("notes") or "").strip() + ("\n\n" if (task.get("notes") or "").strip() else "") + note)[:4000]
-    else:
-        return jsonify({"ok": False, "error": "Unsupported action"}), 400
-    task["updated_at"] = now_iso()
-    data["tasks"][idx] = task
-    _save_ops_tasks(username, data)
-    _append_ops_event(username, "task_updated", f"{task.get('title')} → {task.get('status')}", {"task_id": task_id, "action": action})
-    return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+    try:
+        payload = request.get_json(silent=True) or {}
+        action = (payload.get("action") or "").strip().lower()
+        task, data, idx = _find_ops_task(username, task_id)
+        if not task:
+            return jsonify({"ok": False, "error": "Task not found"}), 404
+        if action == "start":
+            task["status"] = "running"
+        elif action == "review":
+            task["status"] = "needs_review"
+        elif action == "done":
+            task["status"] = "done"
+            task["completed_at"] = now_iso()
+        elif action == "reset":
+            task["status"] = "queued"
+            task["completed_at"] = None
+            for step in (task.get("checklist") or []):
+                if isinstance(step, dict):
+                    step["done"] = False
+        elif action == "toggle_step":
+            step_index = int(payload.get("step_index") or 0)
+            steps = task.get("checklist") or []
+            if 0 <= step_index < len(steps) and isinstance(steps[step_index], dict):
+                steps[step_index]["done"] = not bool(steps[step_index].get("done"))
+        elif action == "note":
+            note = (payload.get("note") or "").strip()
+            task["notes"] = (task.get("notes") or "")
+            if note:
+                task["notes"] = ((task.get("notes") or "").strip() + ("\n\n" if (task.get("notes") or "").strip() else "") + note)[:4000]
+        else:
+            return jsonify({"ok": False, "error": "Unsupported action"}), 400
+        task["updated_at"] = now_iso()
+        if not isinstance(data.get("tasks"), list):
+            data["tasks"] = []
+        if idx < 0 or idx >= len(data["tasks"]):
+            return jsonify({"ok": False, "error": "Task storage is out of sync"}), 409
+        data["tasks"][idx] = task
+        _save_ops_tasks(username, data)
+        _append_ops_event(username, "task_updated", f"{task.get('title')} → {task.get('status')}", {"task_id": task_id, "action": action})
+        return jsonify({"ok": True, "task": task, "counts": _task_counts(data.get("tasks") or [])})
+    except Exception as e:
+        return _ops_json_error(username, "task_update_error", e, "Task action failed")
+
+
 
 @app.get("/api/ops/memory")
 def api_ops_memory_get():
@@ -13398,40 +13558,83 @@ def api_ops_event():
     )
     return jsonify({"ok": True, "event": evt})
 
+@app.post("/api/facebook/friend_review_session")
+def api_facebook_friend_review_session():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    username = (u.get("username") or "").strip() or _get_session_username()
+    try:
+        payload = request.get_json(silent=True) or {}
+        target_url = (payload.get("target_url") or "").strip()
+        session_obj = _new_friend_review_session(username, target_url)
+        task = _new_ops_task(username, {
+            "title": "Facebook guided friend review",
+            "type": "facebook_cleanup",
+            "status": "running",
+            "semi_auto": True,
+            "source": "facebook_guided_review",
+            "target_url": session_obj.get("target_url"),
+            "notes": "Open the Facebook tab from this task, review people naturally, then paste copied friend rows or profile notes back into the analyzer for scoring. Final keep or remove decisions stay manual.",
+            "checklist": session_obj.get("instructions") or [],
+            "result": {"session_id": session_obj.get("id")},
+        })
+        data = _load_ops_tasks(username)
+        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
+        _save_ops_tasks(username, data)
+        _append_ops_event(username, "facebook_guided_review", "Facebook guided review session created", {"task_id": task.get("id"), "session_id": session_obj.get("id")})
+        return jsonify({"ok": True, "session": session_obj, "task": task})
+    except Exception as e:
+        return _ops_json_error(username, "facebook_guided_review_error", e, "Could not start the Facebook guided review")
+
 @app.post("/api/facebook/friend_scan")
 def api_facebook_friend_scan():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    raw_text = (payload.get("raw_text") or "").strip()
-    if not raw_text:
-        return jsonify({"ok": False, "error": "Paste friend activity text or notes to scan"}), 400
-    candidates = _parse_friend_scan_text(raw_text)
-    if not candidates:
-        return jsonify({"ok": False, "error": "No candidate lines were recognized"}), 400
-    task = _new_ops_task(username, {
-        "title": "Facebook inactive friend review",
-        "type": "facebook_cleanup",
-        "status": "needs_review",
-        "semi_auto": True,
-        "source": "facebook_scan",
-        "notes": "Semi-auto safety flow only. Review candidates manually in Facebook before removing anyone.",
-        "checklist": [
-            "Open Facebook friends list in a real browser",
-            "Review the highest-score candidates first",
-            "Open each profile before any remove action",
-            "Remove manually only after confirming inactivity",
-            "Mark the task done after the review pass"
-        ],
-        "result": {"candidate_count": len(candidates), "top_candidates": candidates[:25]},
-    })
-    data = _load_ops_tasks(username)
-    data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
-    _save_ops_tasks(username, data)
-    _append_ops_event(username, "facebook_scan", f"Facebook inactivity scan produced {len(candidates)} candidates", {"task_id": task.get("id")})
-    return jsonify({"ok": True, "task": task, "candidates": candidates[:80]})
+    try:
+        payload = request.get_json(silent=True) or {}
+        raw_text = (payload.get("raw_text") or "").strip()
+        target_url = (payload.get("target_url") or "").strip()
+        session_obj = None
+        if target_url:
+            clean_url = _normalize_facebook_url(target_url)
+            if not clean_url:
+                return jsonify({"ok": False, "error": "Paste a valid Facebook URL before scanning"}), 400
+            session_obj = _latest_friend_session(username)
+            if not session_obj or session_obj.get("target_url") != clean_url:
+                session_obj = _new_friend_review_session(username, clean_url)
+        if not raw_text:
+            return jsonify({"ok": False, "error": "Paste friend rows, profile notes, or review notes to scan"}), 400
+        candidates = _parse_friend_scan_text(raw_text)
+        if not candidates:
+            return jsonify({"ok": False, "error": "No candidate lines were recognized"}), 400
+        task = _new_ops_task(username, {
+            "title": "Facebook inactive friend review",
+            "type": "facebook_cleanup",
+            "status": "needs_review",
+            "semi_auto": True,
+            "source": "facebook_scan",
+            "target_url": session_obj.get("target_url") if session_obj else "",
+            "notes": "Semi-auto safety flow only. Use the scored candidates as a review aid, then confirm manually inside Facebook before removing anyone.",
+            "checklist": [
+                "Open the Facebook review tab or your friends list in a real browser",
+                "Review the highest-score candidates first",
+                "Open each profile before any remove action",
+                "Remove manually only after confirming inactivity",
+                "Mark the task done after the review pass"
+            ],
+            "result": {"candidate_count": len(candidates), "top_candidates": candidates[:25], "session_id": session_obj.get("id") if session_obj else None},
+        })
+        data = _load_ops_tasks(username)
+        data["tasks"] = (data.get("tasks") or [])[-199:] + [task]
+        _save_ops_tasks(username, data)
+        _append_ops_event(username, "facebook_scan", f"Facebook inactivity scan produced {len(candidates)} candidates", {"task_id": task.get("id")})
+        return jsonify({"ok": True, "task": task, "session": session_obj, "candidates": candidates[:80]})
+    except Exception as e:
+        return _ops_json_error(username, "facebook_scan_error", e, "Friend scan failed")
+
 
 @app.post("/api/facebook/post_insights")
 def api_facebook_post_insights():
@@ -13439,13 +13642,17 @@ def api_facebook_post_insights():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") or "").strip() or _get_session_username()
-    payload = request.get_json(silent=True) or {}
-    raw_text = (payload.get("raw_text") or "").strip()
-    if not raw_text:
-        return jsonify({"ok": False, "error": "Paste the post text and any metrics you have"}), 400
-    analysis = _facebook_post_insights(raw_text)
-    _append_ops_event(username, "facebook_post_insights", "Facebook post insights generated", {"summary": analysis.get("summary")})
-    return jsonify({"ok": True, "analysis": analysis})
+    try:
+        payload = request.get_json(silent=True) or {}
+        raw_text = (payload.get("raw_text") or "").strip()
+        if not raw_text:
+            return jsonify({"ok": False, "error": "Paste the post text and any metrics you have"}), 400
+        analysis = _facebook_post_insights(raw_text)
+        _append_ops_event(username, "facebook_post_insights", "Facebook post insights generated", {"summary": analysis.get("summary")})
+        return jsonify({"ok": True, "analysis": analysis})
+    except Exception as e:
+        return _ops_json_error(username, "facebook_post_insights_error", e, "Post insights failed")
+
 
 
 @app.get("/")
