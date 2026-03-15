@@ -12623,6 +12623,157 @@ maybeAutoShowOnboarding();
 })();
 </script>
 
+
+<style>
+/* ===== FINAL MOBILE LOCK FIT v3 ===== */
+@media (max-width: 700px){
+  html, body{
+    width:100vw !important;
+    max-width:100vw !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow-x:hidden !important;
+    position:relative !important;
+  }
+
+  body{
+    left:0 !important;
+    right:0 !important;
+  }
+
+  .container{
+    width:100% !important;
+    max-width:100% !important;
+    margin:0 !important;
+    padding-left:12px !important;
+    padding-right:12px !important;
+    box-sizing:border-box !important;
+    overflow-x:hidden !important;
+  }
+
+  .stage{
+    display:flex !important;
+    flex-direction:column !important;
+    grid-template-columns:none !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    margin:0 !important;
+    padding:0 !important;
+    overflow-x:hidden !important;
+  }
+
+  .stage > div,
+  .arena,
+  .underTable,
+  .side,
+  .sideCard,
+  .groupCard{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    margin-left:0 !important;
+    margin-right:0 !important;
+    box-sizing:border-box !important;
+  }
+
+  .arena{
+    justify-content:center !important;
+    padding:8px 0 12px 0 !important;
+    overflow:hidden !important;
+  }
+
+  .underTable{
+    width:100% !important;
+    max-width:100% !important;
+    margin:0 0 14px 0 !important;
+    padding:0 !important;
+  }
+
+  .side{
+    position:relative !important;
+    top:auto !important;
+    left:auto !important;
+    right:auto !important;
+    height:auto !important;
+    border-left:none !important;
+    padding:0 !important;
+    overflow:hidden !important;
+  }
+
+  .sideHead{
+    display:flex !important;
+    flex-wrap:wrap !important;
+    align-items:flex-start !important;
+    justify-content:space-between !important;
+    gap:8px !important;
+  }
+
+  .sideTitle{
+    flex:1 1 160px !important;
+    min-width:0 !important;
+    max-width:calc(100% - 110px) !important;
+  }
+
+  #refreshThread{
+    flex:0 0 auto !important;
+    margin-left:auto !important;
+    align-self:flex-start !important;
+  }
+
+  .passRow,
+  .pillRow{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+  }
+
+  .passRow .btn,
+  .pillRow .btn,
+  .sideHead .btn{
+    max-width:100% !important;
+  }
+
+  .groupReplies,
+  #thread,
+  #groupConsole{
+    width:100% !important;
+    max-width:100% !important;
+    min-width:0 !important;
+    box-sizing:border-box !important;
+  }
+
+  #tableViewport{
+    width:100% !important;
+    max-width:100% !important;
+    padding-left:0 !important;
+    padding-right:0 !important;
+    overflow:hidden !important;
+    display:flex !important;
+    justify-content:center !important;
+  }
+
+  .tableWrap#tableWrap{
+    width:min(92vw, 560px) !important;
+    height:min(92vw, 560px) !important;
+    min-height:min(92vw, 560px) !important;
+    margin:0 auto !important;
+    overflow:hidden !important;
+  }
+
+  .table{
+    position:relative !important;
+    left:auto !important;
+    top:auto !important;
+    inset:auto !important;
+    margin:0 auto !important;
+    transform:translateX(0) scale(0.68) !important;
+    transform-origin:center top !important;
+    zoom:normal !important;
+  }
+}
+</style>
+
 </body>
 </html>
 """
