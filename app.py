@@ -645,11 +645,11 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "preferred_ai", "title": "Connect Chat GPT or Claude"},
+    {"key": "openai_key", "title": "Add OpenAI key"},
+    {"key": "operator_profile", "title": "Fill out Operator Profile"},
     {"key": "full_team", "title": "Install full team"},
-    {"key": "email_connected", "title": "Connect Email"},
-    {"key": "calendar_connected", "title": "Connect Calendar"},
     {"key": "first_prompt", "title": "Send first prompt"},
+    {"key": "gmail_connected", "title": "Connect Gmail"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -702,18 +702,24 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 1: Preferred AI connected (OpenAI or Claude)
+    # Step 1: OpenAI key
     try:
-        settings = ((u or {}).get("settings") or {})
-        openai_key = (settings.get("openai_key") or "").strip()
-        claude_key = (settings.get("claude_key") or settings.get("anthropic_key") or "").strip()
-        provider = (settings.get("ai_provider") or settings.get("provider") or "").strip().lower()
-        if openai_key or claude_key or provider in ("openai", "claude"):
-            _mark_onboarding_step(username, "preferred_ai", True)
+        key = (((u or {}).get("settings") or {}).get("openai_key") or "").strip()
+        if key:
+            _mark_onboarding_step(username, "openai_key", True)
     except Exception:
         pass
 
-    # Step 2: Full team installed
+    # Step 2: Operator profile
+    try:
+        op = _load_operator_profile(username) or {}
+        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
+        if any(((op.get(k) or "").strip() for k in meaningful)):
+            _mark_onboarding_step(username, "operator_profile", True)
+    except Exception:
+        pass
+
+    # Step 3: Full team installed
     try:
         reg = load_registry()
         installed = reg.get("installed") or {}
@@ -728,21 +734,10 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     except Exception:
         pass
 
-    # Step 3: Email connected (Gmail OAuth OR SMTP)
+    # Step 5: Gmail connected
     try:
-        settings = ((u or {}).get("settings") or {})
-        smtp = (settings.get("smtp") or {})
-        smtp_ready = bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
-        gmail_ready = bool(_user_gmail_oauth(u))
-        if smtp_ready or gmail_ready:
-            _mark_onboarding_step(username, "email_connected", True)
-    except Exception:
-        pass
-
-    # Step 4: Calendar connected
-    try:
-        if _user_calendar_oauth(u):
-            _mark_onboarding_step(username, "calendar_connected", True)
+        if _user_gmail_oauth(u):
+            _mark_onboarding_step(username, "gmail_connected", True)
     except Exception:
         pass
 
@@ -4079,151 +4074,6 @@ LOGIN_HTML = r"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
-
-/* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
-<style>
-@media (max-width: 900px){
-  html, body{
-    width:100% !important;
-    max-width:100% !important;
-    overflow-x:hidden !important;
-  }
-
-  *, *::before, *::after{
-    box-sizing:border-box !important;
-  }
-
-  .container,
-  .stage,
-  .arena,
-  .underTable,
-  .side,
-  .sideCard,
-  .groupCard{
-    width:100% !important;
-    max-width:100% !important;
-  }
-
-  .stage{
-    display:flex !important;
-    flex-direction:column !important;
-    align-items:stretch !important;
-    min-height:auto !important;
-  }
-
-  .arena{
-    padding-left:0 !important;
-    padding-right:0 !important;
-    overflow:visible !important;
-  }
-
-  .underTable{
-    margin:0 auto 18px auto !important;
-    padding-left:0 !important;
-    padding-right:0 !important;
-  }
-
-  .side{
-    position:relative !important;
-    top:auto !important;
-    height:auto !important;
-    overflow:visible !important;
-    border-left:none !important;
-    padding:0 !important;
-    background:transparent !important;
-    backdrop-filter:none !important;
-  }
-
-  .sideCard,
-  .groupCard{
-    margin-left:0 !important;
-    margin-right:0 !important;
-  }
-
-  .sideHead{
-    flex-wrap:wrap !important;
-    align-items:flex-start !important;
-    justify-content:space-between !important;
-  }
-
-  .sideTitle{
-    min-width:0 !important;
-    flex:1 1 180px !important;
-  }
-
-  .sideHead .btn{
-    flex:0 0 auto !important;
-    max-width:100% !important;
-  }
-
-  .passRow,
-  .pillRow{
-    width:100% !important;
-    max-width:100% !important;
-    overflow:visible !important;
-  }
-
-  .passRow .btn,
-  .pillRow .btn{
-    max-width:100% !important;
-  }
-
-  textarea, input, select{
-    max-width:100% !important;
-  }
-}
-
-@media (max-width: 700px){
-  .container{
-    padding-left:12px !important;
-    padding-right:12px !important;
-    padding-bottom:88px !important;
-  }
-
-  .groupCard,
-  .sideCard{
-    padding:10px !important;
-    border-radius:14px !important;
-  }
-
-  .sideHead{
-    gap:8px !important;
-  }
-
-  .sideHead .btn{
-    align-self:flex-start !important;
-  }
-
-  .h1, #seatTitle{
-    max-width:100% !important;
-    word-break:break-word !important;
-  }
-
-  #refreshThread{
-    margin-left:auto !important;
-  }
-
-  .tableWrap#tableWrap{
-    width:min(94vw, 620px) !important;
-    height:min(94vw, 620px) !important;
-    min-height:min(94vw, 620px) !important;
-  }
-
-  #tableViewport{
-    padding-left:0 !important;
-    padding-right:0 !important;
-    overflow-x:hidden !important;
-  }
-
-  .table{
-    transform:translateX(0) !important;
-    zoom:var(--tableZoom, 0.70) !important;
-    margin-left:auto !important;
-    margin-right:auto !important;
-  }
-}
-</style>
-
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -5099,7 +4949,7 @@ HTML = r"""
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: both;
+      resize: none;
       overflow: hidden;
       min-width: 560px;
       min-height: 420px;
@@ -6242,14 +6092,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
-    <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
-    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
-    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
-    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
-    <button class="btn btnMini" id="crmTabPlaybooks">Growth Playbooks</button>
-    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
-    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
-    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -6342,7 +6184,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <!-- Pipeline -->
   <div id="crmViewPipeline" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages and manage a visual deal board. Drag cards between stages to keep your pipeline current.</div>
+    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages (one per line). This controls filtering, sequences, and followups.</div>
     <label>Stages</label>
     <textarea id="crmStagesText" style="height:180px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6350,8 +6192,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
     </div>
     <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
-    <div class="tiny" style="margin:12px 0 8px;">Live pipeline board</div>
-    <div id="crmPipelineBoard" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;"></div>
   </div>
 
   <!-- Broadcast -->
@@ -6527,112 +6367,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
     </div>
     <div class="tiny" id="crmCalStatus" style="margin-top:8px;"></div>
-  </div>
-
-  <!-- Lead Lab -->
-  <div id="crmViewLeadLab" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Turn raw lead notes into structured leads. Paste rows as: Name | Company | Domain | Title. If you only know the company and domain, the system will still suggest likely contact paths.</div>
-    <div class="grid">
-      <div>
-        <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" />
-      </div>
-      <div>
-        <label>Location</label>
-        <input id="leadLabLocation" placeholder="New Jersey" />
-      </div>
-    </div>
-    <label style="margin-top:10px;">Lead source text</label>
-    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="leadLabSampleBtn">Sample</button>
-      <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
-    </div>
-    <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
-    <div id="leadLabResults" style="margin-top:12px;"></div>
-  </div>
-
-  <!-- Social Studio -->
-  <div id="crmViewSocialStudio" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
-    <div class="grid">
-      <div>
-        <label>Platform</label>
-        <select id="socialStudioPlatform">
-          <option value="Facebook">Facebook</option>
-          <option value="LinkedIn">LinkedIn</option>
-          <option value="Instagram">Instagram</option>
-          <option value="X">X</option>
-        </select>
-      </div>
-      <div>
-        <label>Asset set</label>
-        <select id="socialStudioAsset">
-          <option value="content_pack">Content pack</option>
-          <option value="dm_pack">DM pack</option>
-          <option value="comment_pack">Comment pack</option>
-          <option value="launch_pack">Launch pack</option>
-        </select>
-      </div>
-    </div>
-    <label style="margin-top:10px;">Audience</label>
-    <input id="socialStudioAudience" placeholder="solo real estate agents" />
-    <label style="margin-top:10px;">Offer / angle</label>
-    <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
-    </div>
-    <div class="tiny" id="socialStudioStatus" style="margin-top:8px;"></div>
-    <div id="socialStudioResults" style="margin-top:12px;"></div>
-  </div>
-
-  <!-- Offer Builder -->
-  <div id="crmViewOfferBuilder" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
-    <label>Who do you help?</label>
-    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
-    <label style="margin-top:10px;">What result do you help them get?</label>
-    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
-    <label style="margin-top:10px;">How do you deliver it?</label>
-    <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
-    </div>
-    <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;"></div>
-    <div id="offerBuilderResults" style="margin-top:12px;"></div>
-  </div>
-
-  <!-- Playbooks -->
-  <div id="crmViewPlaybooks" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
-    <div class="grid">
-      <div>
-        <label>Goal</label>
-        <select id="playbookGoal">
-          <option value="get_clients">Get clients</option>
-          <option value="grow_audience">Grow audience</option>
-          <option value="launch_offer">Launch an offer</option>
-          <option value="reactivate_leads">Reactivate old leads</option>
-          <option value="book_calls">Book more calls</option>
-        </select>
-      </div>
-      <div>
-        <label>Timeline</label>
-        <select id="playbookTimeline">
-          <option value="7 days">7 days</option>
-          <option value="14 days">14 days</option>
-          <option value="30 days">30 days</option>
-          <option value="90 days">90 days</option>
-        </select>
-      </div>
-    </div>
-    <label style="margin-top:10px;">Business context</label>
-    <textarea id="playbookContext" rows="4" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
-    </div>
-    <div class="tiny" id="playbookStatus" style="margin-top:8px;"></div>
-    <div id="playbookResults" style="margin-top:12px;"></div>
   </div>
 </div>
 
@@ -9848,7 +9582,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -9863,7 +9597,7 @@ Challenge weak assumptions. Surface risks.`;
         const res = await fetch('/api/crm/state');
         const data = await res.json();
         if(data.ok){
-          crmCache.pipeline = (((data.pipeline||{}).stages) || data.pipeline_stages || []);
+          crmCache.pipeline = (data.pipeline_stages || []);
           return data;
         }
       }catch(e){}
@@ -9965,7 +9699,6 @@ Challenge weak assumptions. Surface risks.`;
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchClients();
         crmRenderClients();
-        crmRenderPipelineBoard();
         showToast('Client deleted');
       }catch(e){
         showToast('Delete failed');
@@ -9999,7 +9732,6 @@ Challenge weak assumptions. Surface risks.`;
         crmEditingClientId = null;
         await crmFetchClients();
         crmRenderClients();
-        crmRenderPipelineBoard();
         showToast('Saved');
       }catch(e){
         if(st) st.innerText = 'Save failed';
@@ -10010,10 +9742,8 @@ Challenge weak assumptions. Surface risks.`;
       const st = $("crmPipelineStatus");
       if(st) st.innerText = 'Loading...';
       const data = await crmFetchState();
-      const stages = (data && (((data.pipeline||{}).stages)||data.pipeline_stages)) ? (((data.pipeline||{}).stages)||data.pipeline_stages) : (crmCache.pipeline||[]);
+      const stages = (data && data.pipeline_stages) ? data.pipeline_stages : (crmCache.pipeline||[]);
       $("crmStagesText").value = (stages||[]).join('\n');
-      try{ await crmFetchClients(); }catch(e){}
-      crmRenderPipelineBoard();
       if(st) st.innerText = 'Ready';
     }
 
@@ -10507,208 +10237,6 @@ async function crmFetchTasks(){
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
 
     // CRM tab binds (safe if missing)
-
-    function crmRenderRichBlocks(text){
-      const raw = (text||'').trim();
-      if(!raw) return '<div class="tiny" style="opacity:.8;">Nothing generated yet.</div>';
-      const parts = raw.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
-      return parts.map(part=>{
-        const lines = part.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-        const title = lines[0] || '';
-        const body = lines.slice(1);
-        const isBullet = body.every(x=>/^[\-\*\d]/.test(x));
-        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
-          <div style="font-weight:800; margin-bottom:6px;">${escapeHtml(title)}</div>
-          ${isBullet ? `<ul style="margin:0 0 0 18px; padding:0;">${body.map(x=>`<li style="margin:6px 0;">${escapeHtml(x.replace(/^[\-\*\d\.\s]+/,''))}</li>`).join('')}</ul>` :
-          `<div style="white-space:pre-wrap; line-height:1.45;">${escapeHtml(body.join('\n'))}</div>`}
-        </div>`;
-      }).join('');
-    }
-
-    function crmGuessEmails(name, domain){
-      const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
-      const nm = (name||'').trim().toLowerCase();
-      const bits = nm.split(/\s+/).filter(Boolean);
-      if(!cleanDomain) return [];
-      const first = bits[0] || 'hello';
-      const last = bits.length > 1 ? bits[bits.length-1] : '';
-      const fi = first ? first[0] : '';
-      const li = last ? last[0] : '';
-      const out = [];
-      const push = (local, score)=> out.push({email:`${local}@${cleanDomain}`, confidence:score});
-      push(first, 0.62);
-      if(last) push(`${first}.${last}`, 0.76);
-      if(last) push(`${fi}${last}`, 0.71);
-      if(last) push(`${first}${li}`, 0.66);
-      push('hello', 0.48);
-      push('info', 0.42);
-      const seen = new Set();
-      return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
-    }
-
-    function crmRenderLeadResults(items){
-      const box = $("leadLabResults");
-      if(!box) return;
-      if(!Array.isArray(items) || !items.length){
-        box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
-        return;
-      }
-      box.innerHTML = items.map((item, idx)=>{
-        const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
-        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
-          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-            <div>
-              <div style="font-weight:800;">${escapeHtml(item.name || '(no name)')}</div>
-              <div class="tiny" style="opacity:.85;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
-              <div class="tiny" style="opacity:.85; margin-top:4px;">${escapeHtml(item.domain || '')}</div>
-            </div>
-            <div class="tiny" style="opacity:.9;">Match score ${(item.score || 0)}%</div>
-          </div>
-          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnMini" data-lead-copy="${idx}">Copy top email</button>
-            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
-          </div>
-        </div>`;
-      }).join('');
-      box.querySelectorAll('[data-lead-copy]').forEach(btn=>{
-        btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy'))] || {};
-          const email = (((item.email_candidates||[])[0]||{}).email) || '';
-          if(!email) return;
-          try{ await navigator.clipboard.writeText(email); showToast('Copied'); }catch(e){}
-        };
-      });
-      box.querySelectorAll('[data-lead-add]').forEach(btn=>{
-        btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
-          const top = ((item.email_candidates||[])[0]||{}).email || '';
-          try{
-            const res = await fetch('/api/crm/clients', {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({
-                name: item.name || item.company || 'New lead',
-                company: item.company || '',
-                email: top,
-                status: 'lead',
-                pipeline_stage: 'Lead',
-                tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
-              })
-            });
-            const data = await res.json();
-            if(!data.ok) throw new Error(data.error||'Add failed');
-            showToast('Lead added to CRM');
-            try{ await crmFetchClients(); }catch(e){}
-          }catch(e){
-            showToast('Could not add lead');
-          }
-        };
-      });
-    }
-
-    async function crmRunLeadLab(){
-      const st = $("leadLabStatus");
-      if(st) st.innerText = 'Building lead list...';
-      try{
-        const res = await fetch('/api/crm/lead_lab', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            niche: ($("leadLabNiche")?.value || '').trim(),
-            location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim()
-          })
-        });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'Lead build failed');
-        crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads`;
-      }catch(e){
-        if(st) st.innerText = e.message || 'Lead build failed';
-      }
-    }
-
-    function crmSampleLeadLab(){
-      const ta = $("leadLabInput");
-      if(!ta) return;
-      ta.value = [
-        'Jamie Cole | Garden State Realty | gardenstaterealty.com | Broker',
-        'Morgan Lee | BrightPath Investors | brightpathinvestors.com | Founder',
-        'Taylor Adams | Northshore Lending | northshorelending.com | Loan Officer'
-      ].join('\n');
-      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
-      if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
-    }
-
-    async function crmRunGenerator(endpoint, payload, statusId, resultsId){
-      const st = $(statusId), box = $(resultsId);
-      if(st) st.innerText = 'Generating...';
-      if(box) box.innerHTML = '';
-      try{
-        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Generation failed');
-        if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
-        if(st) st.innerText = 'Ready';
-      }catch(e){
-        if(st) st.innerText = e.message || 'Generation failed';
-      }
-    }
-
-    function crmRenderPipelineBoard(){
-      const box = $("crmPipelineBoard");
-      if(!box) return;
-      const stages = (crmCache.pipeline||[]).length ? (crmCache.pipeline||[]) : ['Lead','Conversation','Interested','Call booked','Client'];
-      const clients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
-      box.innerHTML = stages.map(stage=>{
-        const cards = clients.filter(c => (c.pipeline_stage||'Lead') === stage);
-        return `<div class="diagCard" data-stage="${escapeHtml(stage)}" style="padding:10px; min-height:180px;">
-          <div style="font-weight:800; margin-bottom:8px; display:flex; justify-content:space-between; gap:8px;">
-            <span>${escapeHtml(stage)}</span>
-            <span class="pill">${cards.length}</span>
-          </div>
-          <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px; display:flex; flex-direction:column; gap:8px;">
-            ${cards.map(c=>`<div class="pill" draggable="true" data-client-drag="${escapeHtml(c.id||'')}" style="display:block; cursor:grab;">
-                <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
-                <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
-              </div>`).join('')}
-          </div>
-        </div>`;
-      }).join('');
-
-      box.querySelectorAll('[data-client-drag]').forEach(el=>{
-        el.addEventListener('dragstart', ev=>{
-          ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
-        });
-      });
-      box.querySelectorAll('[data-stage-drop]').forEach(el=>{
-        el.addEventListener('dragover', ev=> ev.preventDefault());
-        el.addEventListener('drop', async ev=>{
-          ev.preventDefault();
-          const clientId = ev.dataTransfer.getData('text/plain');
-          const stage = el.getAttribute('data-stage-drop')||'Lead';
-          if(!clientId) return;
-          try{
-            const client = (crmCache.clients||[]).find(x=>x.id===clientId);
-            if(!client) return;
-            const payload = {...client, pipeline_stage: stage};
-            const res = await fetch('/api/crm/clients/' + encodeURIComponent(clientId), {
-              method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            if(!data.ok) throw new Error(data.error||'Move failed');
-            await crmFetchClients();
-            crmRenderPipelineBoard();
-            showToast('Pipeline updated');
-          }catch(e){
-            showToast('Move failed');
-          }
-        });
-      });
-    }
-
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
@@ -10718,10 +10246,6 @@ async function crmFetchTasks(){
       b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
-      b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
-      b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
-      b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
-      b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
@@ -10733,24 +10257,6 @@ async function crmFetchTasks(){
 
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
-      b('leadLabSampleBtn', crmSampleLeadLab);
-      b('leadLabRunBtn', crmRunLeadLab);
-      b('socialStudioRunBtn', ()=>crmRunGenerator('/api/crm/social_studio', {
-        platform: ($("socialStudioPlatform")?.value || 'Facebook'),
-        asset_type: ($("socialStudioAsset")?.value || 'content_pack'),
-        audience: ($("socialStudioAudience")?.value || '').trim(),
-        offer: ($("socialStudioOffer")?.value || '').trim()
-      }, 'socialStudioStatus', 'socialStudioResults'));
-      b('offerBuilderRunBtn', ()=>crmRunGenerator('/api/crm/offer_builder', {
-        audience: ($("offerBuilderAudience")?.value || '').trim(),
-        result: ($("offerBuilderResult")?.value || '').trim(),
-        method: ($("offerBuilderMethod")?.value || '').trim()
-      }, 'offerBuilderStatus', 'offerBuilderResults'));
-      b('playbookRunBtn', ()=>crmRunGenerator('/api/crm/playbooks', {
-        goal: ($("playbookGoal")?.value || 'get_clients'),
-        timeline: ($("playbookTimeline")?.value || '30 days'),
-        context: ($("playbookContext")?.value || '').trim()
-      }, 'playbookStatus', 'playbookResults'));
 
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
@@ -12308,8 +11814,8 @@ maybeAutoShowOnboarding();
 
 
 <!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; left:calc(50% + 290px); top:96px; right:auto; bottom:auto; z-index:9999; width:340px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 24px); min-width:280px; min-height:230px; resize:both; overflow:hidden; display:none;">
-  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden; display:flex; flex-direction:column; height:100%;">
+<div id="onboardingPanel" style="position:fixed; right:16px; bottom:16px; z-index:9999; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 32px); min-width:260px; min-height:220px; resize:both; overflow:auto; display:none;">
+  <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden;">
     <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
       <div style="display:flex; gap:10px; align-items:center;">
         <div style="width:10px; height:10px; border-radius:999px; background:linear-gradient(135deg,#7c3aed,#22c55e); box-shadow:0 0 18px rgba(124,58,237,0.55);"></div>
@@ -12319,18 +11825,15 @@ maybeAutoShowOnboarding();
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
-        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Close</button>
+        <button id="onbExit" class="btn btnMini" style="padding:6px 10px;">Exit</button>
+        <button id="onbHide" class="btn btnMini" style="padding:6px 10px;">Hide</button>
       </div>
     </div>
-    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; overflow-x:hidden; flex:1 1 auto; min-height:0;"></div>
+    <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px;"></div>
   </div>
 </div>
 
 <style>
-  #onboardingPanel{ scrollbar-width:none; -ms-overflow-style:none; }
-  #onboardingPanel::-webkit-scrollbar{ width:0; height:0; }
-  #onbList{ scrollbar-width:none; -ms-overflow-style:none; }
-  #onbList::-webkit-scrollbar{ width:0; height:0; }
   .onbItem{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.03); cursor:pointer; }
   .onbItem:hover{ background:rgba(255,255,255,0.06); }
   .onbDot{ width:12px; height:12px; border-radius:999px; border:1px solid rgba(255,255,255,0.35); flex:0 0 auto; }
@@ -12379,6 +11882,7 @@ maybeAutoShowOnboarding();
 
   async function openOnboarding(){
     try{
+      // Undismiss (if previously hidden)
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -12388,26 +11892,14 @@ maybeAutoShowOnboarding();
     try{
       await fetchOnboarding();
       const panel = onb$("onboardingPanel");
-      if(panel){
-        const hasPos = !!(panel.style.left || panel.style.top);
-        if(!hasPos){
-          try{
-            const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
-            const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-            const width = Math.min(340, Math.max(280, panel.offsetWidth || 340));
-            const x = Math.max(12, Math.min(vw - width - 12, Math.round(vw * 0.64)));
-            const y = 96;
-            setPanelPos(x, y);
-          }catch(_){}
-        }
-        panel.style.display = "block";
-      }
+      if(panel) panel.style.display = "block";
     }catch(e){}
   }
 
   function closeOnboarding(){
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
+    // Do not dismiss. User can reopen via "Next step" button.
   }
 
 
@@ -12523,46 +12015,26 @@ maybeAutoShowOnboarding();
     if(alreadyDone) return;
 
     try{
-      if(key === "preferred_ai"){
+      if(key === "openai_key"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          focusEl("aiProvider") || focusEl("providerSelect") || focusEl("openaiKey") || focusEl("apiKey");
-        }, 150);
+        setTimeout(()=>{ focusEl("openaiKey") || focusEl("apiKey"); }, 150);
+        return;
+      }
+
+      if(key === "operator_profile"){
+        if(typeof selectSeat === "function"){ await selectSeat("Operator"); }
+        setTimeout(()=>{ focusEl("op_display_name"); }, 250);
         return;
       }
 
       if(key === "full_team"){
         try{
-          const btn = document.getElementById("installFullBtn");
-          if(btn){
-            btn.click();
-          }else{
-            const r = await fetch("/api/install/full", {method:"POST"});
-            const d = await r.json();
-            if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
-            else{ if(typeof showToast === "function") showToast("Install failed"); }
-          }
-        }catch(e){
-          if(typeof showToast === "function") showToast("Install failed");
-        }
-        setTimeout(fetchOnboarding, 500);
-        return;
-      }
-
-      if(key === "email_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          focusEl("gmailConnectBtn") || focusEl("smtpHost") || focusEl("smtpUser");
-        }, 180);
-        return;
-      }
-
-      if(key === "calendar_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("calendarConnectBtn");
-          if(btn) btn.focus();
-        }, 180);
+          const r = await fetch("/api/install/full", {method:"POST"});
+          const d = await r.json();
+          if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
+          else{ if(typeof showToast === "function") showToast("Install failed"); }
+        }catch(e){ if(typeof showToast === "function") showToast("Install failed"); }
+        setTimeout(fetchOnboarding, 300);
         return;
       }
 
@@ -12571,8 +12043,18 @@ maybeAutoShowOnboarding();
         try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
         return;
       }
+
+      if(key === "gmail_connected"){
+        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
+        setTimeout(()=>{
+          const btn = document.getElementById("gmailConnectBtn");
+          if(btn){ btn.click(); }
+          else{ window.location = "/gmail/connect"; }
+        }, 200);
+        return;
+      }
     }finally{
-      setTimeout(fetchOnboarding, 700);
+      setTimeout(fetchOnboarding, 600);
     }
   }
 
@@ -12605,6 +12087,10 @@ maybeAutoShowOnboarding();
     });
   }
 
+  function wireHide(){
+    const btn = onb$("onbHide");
+    if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } dismissOnboarding(); });
+  }
 
   function wireExit(){
     const btn = onb$("onbExit");
@@ -12615,6 +12101,7 @@ maybeAutoShowOnboarding();
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
 
     wireDrag();
+    wireHide();
     wireExit();
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
@@ -12624,385 +12111,170 @@ maybeAutoShowOnboarding();
 </script>
 
 
-<style>
-/* ===== FINAL MOBILE LOCK FIT v3 ===== */
-@media (max-width: 700px){
-  html, body{
-    width:100vw !important;
-    max-width:100vw !important;
-    margin:0 !important;
-    padding:0 !important;
-    overflow-x:hidden !important;
-    position:relative !important;
-  }
-
-  body{
-    left:0 !important;
-    right:0 !important;
-  }
-
-  .container{
-    width:100% !important;
-    max-width:100% !important;
-    margin:0 !important;
-    padding-left:12px !important;
-    padding-right:12px !important;
-    box-sizing:border-box !important;
-    overflow-x:hidden !important;
-  }
-
-  .stage{
+<!-- Mobile layout + onboarding hotfix -->
+<style id="mobileRoundTableCenterAndOnboardingFix">
+@media (max-width: 720px){
+  #tableWrap{
     display:flex !important;
     flex-direction:column !important;
-    grid-template-columns:none !important;
+    align-items:center !important;
+    justify-content:flex-start !important;
+    gap:18px !important;
     width:100% !important;
     max-width:100% !important;
-    min-width:0 !important;
-    margin:0 !important;
-    padding:0 !important;
-    overflow-x:hidden !important;
+    overflow:visible !important;
+    padding: 0 8px 8px 8px !important;
+    margin: 0 auto !important;
   }
-
-  .stage > div,
-  .arena,
-  .underTable,
-  .side,
-  .sideCard,
-  .groupCard{
-    width:100% !important;
-    max-width:100% !important;
-    min-width:0 !important;
-    margin-left:0 !important;
-    margin-right:0 !important;
-    box-sizing:border-box !important;
-  }
-
-  .arena{
-    justify-content:center !important;
-    padding:8px 0 12px 0 !important;
-    overflow:hidden !important;
-  }
-
-  .underTable{
-    width:100% !important;
-    max-width:100% !important;
-    margin:0 0 14px 0 !important;
-    padding:0 !important;
-  }
-
-  .side{
-    position:relative !important;
-    top:auto !important;
-    left:auto !important;
-    right:auto !important;
-    height:auto !important;
-    border-left:none !important;
-    padding:0 !important;
-    overflow:hidden !important;
-  }
-
-  .sideHead{
-    display:flex !important;
-    flex-wrap:wrap !important;
-    align-items:flex-start !important;
-    justify-content:space-between !important;
-    gap:8px !important;
-  }
-
-  .sideTitle{
-    flex:1 1 160px !important;
-    min-width:0 !important;
-    max-width:calc(100% - 110px) !important;
-  }
-
-  #refreshThread{
+  #tableCore,
+  #tableCore.table{
+    order:1 !important;
     flex:0 0 auto !important;
-    margin-left:auto !important;
-    align-self:flex-start !important;
-  }
-
-  .passRow,
-  .pillRow{
-    width:100% !important;
-    max-width:100% !important;
-    min-width:0 !important;
-  }
-
-  .passRow .btn,
-  .pillRow .btn,
-  .sideHead .btn{
-    max-width:100% !important;
-  }
-
-  .groupReplies,
-  #thread,
-  #groupConsole{
-    width:100% !important;
-    max-width:100% !important;
-    min-width:0 !important;
-    box-sizing:border-box !important;
-  }
-
-  #tableViewport{
-    width:100% !important;
-    max-width:100% !important;
-    padding-left:0 !important;
-    padding-right:0 !important;
-    overflow:hidden !important;
-    display:flex !important;
-    justify-content:center !important;
-  }
-
-  .tableWrap#tableWrap{
-    width:min(92vw, 560px) !important;
-    height:min(92vw, 560px) !important;
-    min-height:min(92vw, 560px) !important;
     margin:0 auto !important;
-    overflow:hidden !important;
   }
-
-  .table{
+  #operator,
+  #operator.operator{
+    order:2 !important;
     position:relative !important;
     left:auto !important;
     top:auto !important;
-    inset:auto !important;
-    margin:0 auto !important;
-    transform:translateX(0) scale(0.68) !important;
-    transform-origin:center top !important;
-    zoom:normal !important;
+    transform:none !important;
+    width:min(100%, 560px) !important;
+    max-width:min(100%, 560px) !important;
+    min-width:0 !important;
+    margin:0 auto 10px auto !important;
+    z-index:25 !important;
   }
+  #onboardingPanel{
+    left:12px !important;
+    right:12px !important;
+    top:auto !important;
+    bottom:calc(86px + env(safe-area-inset-bottom)) !important;
+    width:auto !important;
+    max-width:none !important;
+    min-width:0 !important;
+    max-height:min(72vh, 640px) !important;
+    resize:none !important;
+    z-index:9999 !important;
+  }
+  #onbHeader{ cursor:default !important; }
 }
 </style>
 
-
-<style>
-/* ===== MOBILE ROUND TABLE RESTORE v4 ===== */
-@media (max-width: 700px){
-  .arena{
-    overflow: visible !important;
-    padding: 8px 0 18px 0 !important;
+<script id="mobileRoundTableCenterAndOnboardingFixScript">
+(function(){
+  function isMobileFix(){
+    try{ return window.matchMedia && window.matchMedia("(max-width: 720px)").matches; }catch(e){ return window.innerWidth <= 720; }
   }
 
-  #tableViewport{
-    width: 100% !important;
-    max-width: 100% !important;
-    display: block !important;
-    overflow: visible !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+  function applyRoundTableFix(){
+    if(!isMobileFix()) return;
+    try{
+      var wrap = document.getElementById("tableWrap");
+      var table = document.getElementById("tableCore");
+      var op = document.getElementById("operator");
+      if(!wrap || !table || !op) return;
+
+      if(wrap.firstElementChild !== table){
+        wrap.insertBefore(table, wrap.firstChild);
+      }
+      if(op.previousElementSibling !== table){
+        wrap.insertBefore(table, op);
+      }
+
+      wrap.style.display = "flex";
+      wrap.style.flexDirection = "column";
+      wrap.style.alignItems = "center";
+      wrap.style.justifyContent = "flex-start";
+      wrap.style.gap = "18px";
+      wrap.style.overflow = "visible";
+      wrap.style.marginLeft = "auto";
+      wrap.style.marginRight = "auto";
+
+      table.style.order = "1";
+      table.style.marginLeft = "auto";
+      table.style.marginRight = "auto";
+
+      op.style.order = "2";
+      op.style.position = "relative";
+      op.style.left = "auto";
+      op.style.top = "auto";
+      op.style.transform = "none";
+      op.style.margin = "0 auto 10px auto";
+      op.style.width = "min(100%, 560px)";
+      op.style.maxWidth = "min(100%, 560px)";
+      op.style.minWidth = "0";
+    }catch(e){}
   }
 
-  .tableWrap#tableWrap{
-    width: min(94vw, 620px) !important;
-    height: min(94vw, 620px) !important;
-    min-height: min(94vw, 620px) !important;
-    margin: 0 auto 8px auto !important;
-    position: relative !important;
-    overflow: visible !important;
+  function applyOnboardingPanelFix(){
+    if(!isMobileFix()) return;
+    try{
+      var panel = document.getElementById("onboardingPanel");
+      if(!panel) return;
+      panel.style.left = "12px";
+      panel.style.right = "12px";
+      panel.style.top = "auto";
+      panel.style.bottom = "calc(86px + env(safe-area-inset-bottom))";
+      panel.style.width = "auto";
+      panel.style.maxWidth = "none";
+      panel.style.minWidth = "0";
+      panel.style.maxHeight = "min(72vh, 640px)";
+      panel.style.resize = "none";
+      panel.style.zIndex = "9999";
+    }catch(e){}
   }
 
-  #rtStage{
-    position: absolute !important;
-    inset: 0 !important;
-    transform: none !important;
-    transform-origin: 0 0 !important;
-    will-change: auto !important;
+  function forceOpenOnboarding(){
+    try{
+      if(window.onboardingOpen){
+        window.onboardingOpen();
+      }
+    }catch(e){}
+    setTimeout(function(){
+      try{
+        applyOnboardingPanelFix();
+        var panel = document.getElementById("onboardingPanel");
+        if(panel){
+          panel.style.display = "block";
+          panel.scrollTop = 0;
+        }
+      }catch(e){}
+    }, 80);
+    setTimeout(function(){
+      try{
+        if(window.onboardingRefresh) window.onboardingRefresh();
+      }catch(e){}
+    }, 180);
   }
 
-  #rtStage .table,
-  .table{
-    position: absolute !important;
-    inset: auto !important;
-    left: 50% !important;
-    top: 50% !important;
-    margin: 0 !important;
-    transform: translate(-50%, -50%) scale(0.72) !important;
-    transform-origin: center center !important;
-    zoom: normal !important;
+  function bindButtons(){
+    ["onboardingBtn", "mobileOnboardingBtn"].forEach(function(id){
+      var btn = document.getElementById(id);
+      if(!btn || btn.dataset.mobileFixBound === "1") return;
+      btn.dataset.mobileFixBound = "1";
+      btn.addEventListener("click", function(){
+        forceOpenOnboarding();
+      }, true);
+    });
   }
 
-  .underTable,
-  .side{
-    overflow: visible !important;
-  }
-}
-</style>
-
-
-<style>
-/* ===== MOBILE COMMAND CENTER CLEANUP v5 ===== */
-@media (max-width: 700px){
-  html, body{
-    overflow-x: hidden !important;
+  function runFixes(){
+    applyRoundTableFix();
+    applyOnboardingPanelFix();
+    bindButtons();
   }
 
-  .container{
-    padding-left: 12px !important;
-    padding-right: 12px !important;
-    padding-bottom: 88px !important;
-    overflow-x: hidden !important;
-  }
+  document.addEventListener("DOMContentLoaded", function(){
+    runFixes();
+    setTimeout(runFixes, 250);
+    setTimeout(runFixes, 900);
+  });
 
-  .stage{
-    display: flex !important;
-    flex-direction: column !important;
-    grid-template-columns: none !important;
-    gap: 14px !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-  }
-
-  .arena,
-  .underTable,
-  .side{
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    overflow: visible !important;
-  }
-
-  .side{
-    position: relative !important;
-    top: auto !important;
-    height: auto !important;
-    border-left: none !important;
-    padding: 0 !important;
-    background: transparent !important;
-    backdrop-filter: none !important;
-  }
-
-  .sideCard,
-  .groupCard{
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    padding: 10px !important;
-    border-radius: 14px !important;
-  }
-
-  .sideHead{
-    display: flex !important;
-    flex-wrap: wrap !important;
-    align-items: flex-start !important;
-    justify-content: space-between !important;
-    gap: 8px !important;
-  }
-
-  .sideTitle{
-    flex: 1 1 160px !important;
-    min-width: 0 !important;
-    max-width: calc(100% - 96px) !important;
-  }
-
-  #refreshThread{
-    flex: 0 0 auto !important;
-    margin-left: auto !important;
-    align-self: flex-start !important;
-  }
-
-  #tableViewport{
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: visible !important;
-    padding: 0 !important;
-    display: block !important;
-  }
-
-  .tableWrap#tableWrap{
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: auto !important;
-    min-height: unset !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    margin: 0 auto !important;
-    overflow: visible !important;
-    position: relative !important;
-  }
-
-  #rtStage{
-    position: relative !important;
-    inset: auto !important;
-    width: min(94vw, 620px) !important;
-    height: min(94vw, 620px) !important;
-    min-height: min(94vw, 620px) !important;
-    margin: 0 auto !important;
-    transform: none !important;
-    transform-origin: center top !important;
-    will-change: auto !important;
-    overflow: visible !important;
-  }
-
-  #rtStage .table,
-  .table{
-    position: absolute !important;
-    left: 50% !important;
-    top: 50% !important;
-    inset: auto !important;
-    margin: 0 !important;
-    transform: translate(-50%, -50%) scale(0.72) !important;
-    transform-origin: center center !important;
-    zoom: normal !important;
-  }
-
-  .operator{
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: min(96vw, 560px) !important;
-    margin: 14px auto 0 auto !important;
-    z-index: 5 !important;
-  }
-
-  .opHead{
-    flex-wrap: wrap !important;
-    align-items: flex-start !important;
-  }
-
-  .opTitle{
-    min-width: 0 !important;
-    flex: 1 1 180px !important;
-  }
-
-  .opText{
-    height: 110px !important;
-  }
-
-  .passRow,
-  .pillRow{
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-  }
-
-  .passRow .btn,
-  .pillRow .btn,
-  .opHead .btn,
-  .sideHead .btn{
-    max-width: 100% !important;
-  }
-
-  .groupReplies,
-  #thread,
-  .followBox,
-  textarea,
-  input,
-  select{
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-  }
-}
-</style>
+  window.addEventListener("resize", runFixes);
+  window.addEventListener("orientationchange", function(){ setTimeout(runFixes, 120); });
+})();
+</script>
 
 </body>
 </html>
@@ -14169,230 +13441,6 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-# =========================
-# CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
-# =========================
-
-def _crm_extract_domain(s: str) -> str:
-    s = (s or "").strip().lower()
-    s = re.sub(r"^https?://", "", s)
-    s = re.sub(r"^www\.", "", s)
-    s = s.split("/")[0].strip()
-    return s
-
-def _crm_name_bits(name: str) -> Tuple[str, str]:
-    bits = [x for x in re.split(r"\s+", (name or "").strip()) if x]
-    if not bits:
-        return ("", "")
-    first = re.sub(r"[^a-z]", "", bits[0].lower())
-    last = re.sub(r"[^a-z]", "", bits[-1].lower()) if len(bits) > 1 else ""
-    return first, last
-
-def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
-    domain = _crm_extract_domain(domain)
-    if not domain:
-        return []
-    first, last = _crm_name_bits(name)
-    if not first and not last:
-        first = "hello"
-    fi = first[:1]
-    li = last[:1]
-    vals = []
-    def add(local: str, score: float):
-        if local:
-            vals.append({"email": f"{local}@{domain}", "confidence": round(float(score), 2), "status": "estimated"})
-    add(first, 0.62)
-    add(f"{first}.{last}" if first and last else "", 0.76)
-    add(f"{fi}{last}" if fi and last else "", 0.71)
-    add(f"{first}{li}" if first and li else "", 0.66)
-    add("hello", 0.48)
-    add("info", 0.42)
-    out = []
-    seen = set()
-    for row in sorted(vals, key=lambda x: x["confidence"], reverse=True):
-        email = row["email"]
-        if email in seen:
-            continue
-        seen.add(email)
-        out.append(row)
-    return out
-
-def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
-    rows = []
-    for raw in (source_text or "").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if "|" in line:
-            parts = [p.strip() for p in line.split("|")]
-        else:
-            parts = [p.strip() for p in re.split(r",|\t", line)]
-        parts = [p for p in parts if p]
-        item = {"name": "", "company": "", "domain": "", "title": "", "notes": ""}
-        if len(parts) == 1:
-            item["company"] = parts[0]
-        elif len(parts) == 2:
-            item["company"], item["domain"] = parts[0], parts[1]
-        elif len(parts) == 3:
-            item["name"], item["company"], item["domain"] = parts[0], parts[1], parts[2]
-        else:
-            item["name"], item["company"], item["domain"], item["title"] = parts[0], parts[1], parts[2], parts[3]
-            if len(parts) > 4:
-                item["notes"] = " | ".join(parts[4:])
-        rows.append(item)
-    return rows
-
-def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
-    try:
-        reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
-        reply = (reply or "").strip()
-        if reply:
-            return reply
-    except Exception:
-        pass
-    return fallback
-
-@app.post("/api/crm/lead_lab")
-def api_crm_lead_lab():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    niche = (payload.get("niche") or "").strip()
-    location = (payload.get("location") or "").strip()
-    source_text = (payload.get("source_text") or "").strip()
-    if not source_text:
-        return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
-
-    rows = _crm_parse_lead_source_rows(source_text)
-    items = []
-    for row in rows[:200]:
-        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
-        name = (row.get("name") or "").strip()
-        company = (row.get("company") or "").strip() or domain.split(".")[0].replace("-", " ").title()
-        title = (row.get("title") or "").strip()
-        if not name and company:
-            name = company
-        email_candidates = _crm_email_candidates(name, domain)
-        score = 55
-        if domain:
-            score += 15
-        if name and name != company:
-            score += 15
-        if title:
-            score += 5
-        if niche:
-            score += 5
-        score = max(1, min(99, score))
-        notes = []
-        if niche:
-            notes.append(f"Niche target: {niche}")
-        if location:
-            notes.append(f"Location target: {location}")
-        if not domain:
-            notes.append("Add company domain for better email confidence.")
-        items.append({
-            "name": name,
-            "company": company,
-            "domain": domain,
-            "title": title,
-            "score": score,
-            "notes": " ".join(notes).strip(),
-            "email_candidates": email_candidates,
-        })
-    return jsonify({"ok": True, "items": items, "count": len(items)})
-
-@app.post("/api/crm/social_studio")
-def api_crm_social_studio():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    platform = (payload.get("platform") or "Facebook").strip()
-    asset_type = (payload.get("asset_type") or "content_pack").strip()
-    audience = (payload.get("audience") or "entrepreneurs").strip()
-    offer = (payload.get("offer") or "").strip()
-    if not offer:
-        return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
-
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
-    fallback = (
-        f"Content pack for {platform}\n"
-        f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
-        f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
-        f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
-        f"Comments\n"
-        f"- Curious what part of this feels hardest right now?\n"
-        f"- This is the part most people skip, and it costs them momentum.\n"
-        f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
-        f"DM openers\n"
-        f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
-        f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
-        f"CTA ideas\n"
-        f"- Want the exact workflow? Comment \"system\".\n"
-        f"- If this is relevant to your business, message me and I will show you the simple version."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
-
-@app.post("/api/crm/offer_builder")
-def api_crm_offer_builder():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    audience = (payload.get("audience") or "").strip()
-    result = (payload.get("result") or "").strip()
-    method = (payload.get("method") or "").strip()
-    if not audience or not result or not method:
-        return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
-
-    system = "You are an offer strategist. Build clear, practical offers with concise sections."
-    prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
-    fallback = (
-        f"Offer statement\n"
-        f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
-        f"Core promise\n"
-        f"- Faster clarity\n"
-        f"- Less guesswork\n"
-        f"- More consistent execution\n\n"
-        f"Why it stands out\n"
-        f"- Done with you structure instead of generic advice\n"
-        f"- Clear next steps instead of random tactics\n"
-        f"- Built for speed and consistency\n\n"
-        f"CTA\n"
-        f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
-        f"DM pitch\n"
-        f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
-
-@app.post("/api/crm/playbooks")
-def api_crm_playbooks():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    goal = (payload.get("goal") or "get_clients").strip()
-    timeline = (payload.get("timeline") or "30 days").strip()
-    context = (payload.get("context") or "").strip()
-    system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
-    prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
-    fallback = (
-        f"Playbook for {goal.replace('_',' ')}\n"
-        f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
-        f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
-        f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
-        f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
-        f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
-        f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
 
 
 if __name__ == "__main__":
