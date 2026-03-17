@@ -5871,6 +5871,83 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   box-shadow: 0 0 10px rgba(59,130,246,.22);
 }
 
+
+/* ===== FINAL ADDITIVE: Mobile Seat Flow Lock v1 =====
+   Goal: the command center prompt box stays first, and teammate cards begin below it.
+   This only affects mobile and does not remove any existing features. */
+@media (max-width: 720px){
+  #tableWrap{
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding-bottom: 18px !important;
+  }
+
+  #tableWrap > .operator{
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 0 4px 0 !important;
+    order: 1 !important;
+    z-index: 6 !important;
+  }
+
+  #tableWrap > .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: min(560px, 100%) !important;
+    height: 92px !important;
+    aspect-ratio: auto !important;
+    margin: 0 auto !important;
+    order: 2 !important;
+    overflow: hidden !important;
+  }
+
+  #tableWrap > .seat{
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 118px !important;
+    height: auto !important;
+    margin: 0 !important;
+    order: 3 !important;
+    z-index: 2 !important;
+  }
+
+  #tableWrap > .seat:hover,
+  #tableWrap > .seat.dragging,
+  #tableWrap > .seat:active{
+    transform: none !important;
+  }
+
+  #tableWrap > .seat .seatTools{
+    position: absolute !important;
+    right: 8px !important;
+    bottom: 8px !important;
+  }
+
+  #tableWrap > .operator .opText{
+    min-height: 124px !important;
+  }
+}
+
 </style>
 </head>
 <body>
