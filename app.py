@@ -3801,7 +3801,7 @@ def api_calendar_events():
 
 AUTH_BASE_CSS = r"""
 <style>
-  :root{ --text:#122033; --muted:#50607b; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
+  :root{ --text:#13233a; --muted:#526581; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
   *{box-sizing:border-box}
   body{
     margin:0;
@@ -3810,7 +3810,7 @@ AUTH_BASE_CSS = r"""
       radial-gradient(1100px 760px at 50% 18%, rgba(247,211,106,.22), transparent 55%),
       radial-gradient(980px 720px at 50% 34%, rgba(124,58,237,.12), transparent 56%),
       radial-gradient(860px 620px at 50% 28%, rgba(59,130,246,.12), transparent 58%),
-      linear-gradient(180deg, #f7f9ff 0%, #eef4ff 48%, #e8f1ff 100%);
+      linear-gradient(180deg, #f8f7ff 0%, #f1efff 30%, #edf3ff 68%, #e7f0ff 100%);
     color:var(--text);
     min-height:100vh;
     display:flex;
@@ -3821,11 +3821,11 @@ AUTH_BASE_CSS = r"""
   .card{
     width: 520px;
     max-width: calc(100vw - 22px);
-    background: rgba(255,255,255,.94);
-    border:1px solid rgba(42,58,106,.9);
+    background: linear-gradient(180deg, rgba(255,255,255,.985), rgba(247,244,255,.97));
+    border:1px solid rgba(117,95,191,.34);
     border-radius: 18px;
     padding: 16px;
-    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    box-shadow: 0 24px 70px rgba(70,86,150,.18), 0 10px 28px rgba(124,58,237,.10);
     backdrop-filter: blur(10px);
     position: relative;
     overflow: hidden;
@@ -3848,18 +3848,19 @@ AUTH_BASE_CSS = r"""
     background: radial-gradient(circle at 30% 30%, #fff, #60a5fa);
     box-shadow: 0 0 14px rgba(124,58,237,.55);
   }
-  .muted{ color: var(--muted); font-size: 14px; }
-  label{ display:block; font-size: 13px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  .muted{ color: var(--muted); font-size: 15px; line-height:1.45; }
+  label{ display:block; font-size: 14px; color: #3f5070; margin: 10px 0 6px 0; font-weight: 800; letter-spacing:.2px; }
   input{
     width:100%;
     border-radius: 12px;
-    border:1px solid rgba(42,58,106,.9);
+    border:1px solid rgba(117,95,191,.34);
     background: rgba(255,255,255,.98);
     color: var(--text);
     padding:10px;
     outline:none;
-    font-size:15px;
-    line-height:1.3;
+    font-size:16px;
+    line-height:1.4;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.85);
   }
   .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
   .btn{
@@ -3871,13 +3872,13 @@ AUTH_BASE_CSS = r"""
     cursor:pointer;
     font-size:15px;
   }
-  .btn:hover{ background: #f3f7ff; }
+  .btn:hover{ background: #eef4ff; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.55);
     background: linear-gradient(180deg, rgba(124,58,237,.16), rgba(59,130,246,.10));
     box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
-  a{ color: #c7d2fe; text-decoration:none; }
+  a{ color: #5b3fd0; text-decoration:none; font-weight:700; }
   a:hover{ text-decoration: underline; }
   .err{ margin-top: 10px; color: #c43d3d; font-size: 14px; white-space: pre-wrap; }
   .ok{ margin-top: 10px; color: #157347; font-size: 14px; white-space: pre-wrap; }
@@ -4056,16 +4057,16 @@ AUTH_BASE_CSS = r"""
 
 LOGIN_AUTH_BASE_CSS = r"""
 <style>
-  :root{ --text:#e6edff; --muted:#b8c4ffcc; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
+  :root{ --text:#f6f4ff; --muted:#ddd3ff; --gold:#f7d36a; --gold2:#d7a93a; --blue:#60a5fa; --purple:#8b5cf6; }
   *{box-sizing:border-box}
   body{
     margin:0;
     font-family: Arial, sans-serif;
     background:
-      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
-      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
-      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
-      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+      radial-gradient(980px 640px at 50% 28%, rgba(247,211,106,.14), transparent 58%),
+      radial-gradient(960px 700px at 50% 46%, rgba(139,92,246,.34), transparent 54%),
+      radial-gradient(820px 620px at 50% 38%, rgba(96,165,250,.18), transparent 56%),
+      linear-gradient(180deg, #19142d 0%, #241a44 42%, #20183c 72%, #151126 100%);
     color:var(--text);
     min-height:100vh;
     display:flex;
@@ -4076,11 +4077,11 @@ LOGIN_AUTH_BASE_CSS = r"""
   .card{
     width: 520px;
     max-width: calc(100vw - 22px);
-    background: rgba(14,22,48,.82);
+    background: linear-gradient(180deg, rgba(49,34,95,.92), rgba(28,22,56,.94));
     border:1px solid rgba(42,58,106,.9);
     border-radius: 18px;
     padding: 16px;
-    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    box-shadow: 0 26px 70px rgba(6,8,18,.42), 0 0 34px rgba(139,92,246,.22);
     backdrop-filter: blur(10px);
     position: relative;
     overflow: hidden;
@@ -4103,18 +4104,19 @@ LOGIN_AUTH_BASE_CSS = r"""
     background: radial-gradient(circle at 30% 30%, #fff, #60a5fa);
     box-shadow: 0 0 14px rgba(124,58,237,.55);
   }
-  .muted{ color: var(--muted); font-size: 12px; }
-  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  .muted{ color: var(--muted); font-size: 15px; line-height:1.45; }
+  label{ display:block; font-size: 14px; color: #efe7ff; margin: 10px 0 6px 0; font-weight: 800; letter-spacing:.2px; }
   input{
     width:100%;
     border-radius: 12px;
     border:1px solid rgba(42,58,106,.9);
-    background: rgba(11,16,36,.92);
+    background: rgba(250,248,255,.12);
     color: var(--text);
     padding:10px;
     outline:none;
-    font-size:15px;
-    line-height:1.3;
+    font-size:16px;
+    line-height:1.4;
+    border-color: rgba(196,181,253,.44);
   }
   .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
   .btn{
@@ -4126,16 +4128,16 @@ LOGIN_AUTH_BASE_CSS = r"""
     cursor:pointer;
     font-size:15px;
   }
-  .btn:hover{ background: #f3f7ff; }
+  .btn:hover{ background: rgba(255,255,255,.16); }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.55);
     background: linear-gradient(180deg, rgba(124,58,237,.16), rgba(59,130,246,.10));
     box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
-  a{ color: #c7d2fe; text-decoration:none; }
+  a{ color: #f5d97d; text-decoration:none; font-weight:700; }
   a:hover{ text-decoration: underline; }
-  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
-  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
+  .err{ margin-top: 10px; color: #ffd6d6; font-size: 14px; white-space: pre-wrap; font-weight:700; }
+  .ok{ margin-top: 10px; color: #c8ffd9; font-size: 14px; white-space: pre-wrap; font-weight:700; }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -4834,7 +4836,7 @@ HTML = r"""
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <title>{{app_title}}</title>
   <style>
-    :root{ --text:#112031; --muted:#5d6c84; --panel:#ffffff; --panel2:#f7faff; --line:#cfdaf0; --soft:#eef4ff; }
+    :root{ --text:#112031; --muted:#5d6c84; --panel:#ffffff; --panel2:#f7faff; --line:#cfdaf0; --soft:#eef4ff; --deepText:#f8fbff; --deepMuted:#d9e5ff; --purpleLine:#a78bfa; --glassLight:rgba(255,255,255,.92); }
     *{box-sizing:border-box}
     html, body{ height:auto; min-height:100%; overflow-y:auto; }
     ::placeholder{ color:#7a879d; opacity:1; }
@@ -4845,7 +4847,7 @@ HTML = r"""
         radial-gradient(980px 680px at 50% 20%, rgba(247,211,106,.18), transparent 56%),
         radial-gradient(920px 680px at 50% 30%, rgba(124,58,237,.10), transparent 58%),
         radial-gradient(880px 620px at 50% 24%, rgba(59,130,246,.10), transparent 58%),
-        linear-gradient(180deg, #f5f8ff 0%, #edf3ff 48%, #e7f0ff 100%);
+        linear-gradient(180deg, #f9f8ff 0%, #f3f0ff 24%, #eef4ff 58%, #e9f2ff 100%);
       color:var(--text);
       font-size:16px;
     }
@@ -4872,7 +4874,7 @@ HTML = r"""
       padding:10px 12px;
       border-radius:12px;
       cursor:pointer;
-      font-size:13px;
+      font-size:15px;
     }
     .btn:hover{ background: #f3f7ff; }
     .btnPrimary{
@@ -4881,13 +4883,13 @@ HTML = r"""
       box-shadow: 0 8px 28px rgba(82,120,185,.12);
     }
     .btnMini{
-      padding:8px 10px;
-      font-size:12px;
+      padding:9px 11px;
+      font-size:13px;
       border-radius:10px;
     }
     .btnTiny{
-      padding:6px 8px;
-      font-size:11px;
+      padding:7px 9px;
+      font-size:12px;
       border-radius:10px;
     }
 
@@ -4954,11 +4956,11 @@ HTML = r"""
       width: 44%;
       min-width: 340px;
       max-width: 520px;
-      background: rgba(14,22,48,.82);
+      background: linear-gradient(180deg, rgba(255,255,255,.97), rgba(245,241,255,.96));
       border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
       padding: 12px;
-      box-shadow: 0 0 28px rgba(0,0,0,.38);
+      box-shadow: 0 18px 40px rgba(86,103,160,.14), 0 8px 22px rgba(124,58,237,.08);
       backdrop-filter: blur(10px);
       z-index: 20;
     }
@@ -4969,20 +4971,20 @@ HTML = r"""
     }
     .opTitle{ display:flex; flex-direction:column; gap:2px; }
     .opTitle .t1{ font-weight:800; font-size:16px; }
-    .opTitle .t2{ font-size:14px; color:var(--muted); }
+    .opTitle .t2{ font-size:16px; color:#4b5f81; font-weight:600; }
 
     .opText{
       width:100%;
-      height: 118px;
+      height: 138px;
       resize:none;
       border-radius: 14px;
       border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.92);
+      background: rgba(250,248,255,.12);
       color: var(--text);
       padding:10px;
       outline:none;
-      font-size:13px;
-      line-height:1.3;
+      font-size:17px;
+      line-height:1.55;
     }
 
     .opRow{
@@ -5096,7 +5098,7 @@ HTML = r"""
       position:absolute;
       width: 190px;
       height: 124px;
-      background: rgba(14,22,48,.78);
+      background: linear-gradient(180deg, rgba(255,255,255,.97), rgba(244,240,255,.95));
       border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
       padding: 10px;
@@ -5106,7 +5108,7 @@ HTML = r"""
       align-items:flex-start;
       transition: transform .12s ease, border-color .12s ease, background .12s ease;
       backdrop-filter: blur(10px);
-      box-shadow: 0 0 22px rgba(0,0,0,.28);
+      box-shadow: 0 16px 34px rgba(86,103,160,.14), 0 7px 20px rgba(124,58,237,.08);
       user-select:none;
       touch-action: manipulation;
       z-index: 12;
@@ -5115,7 +5117,7 @@ HTML = r"""
     .seat:hover{
       transform: translateY(-2px);
       border-color: rgba(124,58,237,.55);
-      background: rgba(16,26,58,.84);
+      background: linear-gradient(180deg, rgba(255,255,255,1), rgba(243,238,255,.98));
     }
     .seat.dragging{
       transform: none;
@@ -5151,9 +5153,9 @@ HTML = r"""
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:16px; }
-    .seatRole{ font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:13px; color:var(--muted); opacity:.95; }
+    .seatName{ font-weight:800; font-size:18px; color:#13233a; }
+    .seatRole{ font-size:14px; color:#516784; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+    .seatStatus{ font-size:14px; color:#4b617e; opacity:.98; font-weight:600; }
 
     .seatTools{
       position:absolute;
@@ -5166,11 +5168,11 @@ HTML = r"""
     }
     .seatToolBtn{
       border:1px solid rgba(42,58,106,.85);
-      background: rgba(7,10,20,.65);
-      color: var(--text);
+      background: rgba(255,255,255,.98);
+      color: #102236;
       padding: 6px 8px;
       border-radius: 10px;
-      font-size: 11px;
+      font-size: 12px;
       cursor:pointer;
       pointer-events:auto;
     }
@@ -5186,7 +5188,7 @@ HTML = r"""
       height: calc(100vh - 56px);
       overflow:auto;
       border-left:1px solid rgba(34,49,90,.8);
-      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
+      background: linear-gradient(180deg, rgba(247,243,255,.96), rgba(238,243,255,.96));
       backdrop-filter: blur(10px);
       padding: 12px;
       display:flex;
@@ -5195,11 +5197,11 @@ HTML = r"""
     }
 
     .sideCard{
-      background: rgba(11,16,36,.92);
+      background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,242,255,.96));
       border:1px solid rgba(42,58,106,.9);
       border-radius: 16px;
       padding: 12px;
-      box-shadow: 0 0 24px rgba(0,0,0,.24);
+      box-shadow: 0 16px 36px rgba(86,103,160,.12), 0 7px 18px rgba(124,58,237,.06);
     }
 
     .sideHead{
@@ -5208,17 +5210,18 @@ HTML = r"""
     }
     .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
     .sideTitle .h1{ font-weight:800; }
-    .sideTitle .h2{ font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sideTitle .h2{ font-size:15px; color:#526682; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
 
     .thread{
       height: 40vh;
       overflow:auto;
-      background: rgba(7,10,20,.65);
-      border:1px solid rgba(42,58,106,.6);
+      background: rgba(255,255,255,.98);
+      border:1px solid rgba(164,180,212,.72);
       border-radius: 14px;
-      padding: 10px;
-      font-size: 13px;
-      line-height: 1.35;
+      padding: 12px;
+      font-size: 17px;
+      line-height: 1.62;
+      color:#112031;
       white-space: pre-wrap;
     }
 
@@ -5227,12 +5230,12 @@ HTML = r"""
       padding: 10px;
       border-radius: 14px;
       border:1px solid rgba(42,58,106,.55);
-      background: rgba(14,22,48,.55);
+      background: rgba(250,247,255,.98);
     }
     .msg.user{ border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.08); }
     .msg.assistant{ border-color: rgba(124,58,237,.35); background: rgba(124,58,237,.08); }
     .msg .who{
-      font-size: 11px;
+      font-size: 13px;
       color: var(--muted);
       margin-bottom: 6px;
       font-weight: 700;
@@ -5244,14 +5247,14 @@ HTML = r"""
       resize:none;
       border-radius: 14px;
       border:1px solid rgba(42,58,106,.9);
-      background: rgba(7,10,20,.75);
-      color: var(--text);
+      background: rgba(255,255,255,.98);
+      color: #102236;
       padding:10px;
       outline:none;
-      font-size:13px;
-      line-height:1.3;
+      font-size:16px;
+      line-height:1.5;
     }
-    .followBox{ height: 92px; }
+    .followBox{ height: 112px; }
 
     .underTable{
       width: min(860px, 92vw);
@@ -5264,22 +5267,22 @@ HTML = r"""
       border:1px solid rgba(42,58,106,.9);
       border-radius: 16px;
       padding: 12px;
-      box-shadow: 0 0 24px rgba(0,0,0,.24);
+      box-shadow: 0 16px 36px rgba(86,103,160,.12), 0 7px 18px rgba(124,58,237,.06);
       margin-top: 16px;
     }
 
     .groupReplies{
       max-height: 52vh;
       overflow:auto;
-      background: rgba(7,10,20,.65);
-      border:1px solid rgba(42,58,106,.6);
+      background: rgba(255,255,255,.98);
+      border:1px solid rgba(164,180,212,.72);
       border-radius: 14px;
       padding: 10px;
     }
 
     .replyItem{
       border:1px solid rgba(42,58,106,.55);
-      background: rgba(14,22,48,.55);
+      background: rgba(250,247,255,.98);
       border-radius: 14px;
       padding:10px;
       margin-bottom:10px;
@@ -5298,9 +5301,10 @@ HTML = r"""
     .replyBtns{ display:flex; gap:8px; flex-wrap:wrap; }
     .replyBody{
       white-space: pre-wrap;
-      font-size:16px;
-      line-height:1.6;
-      color: var(--text);
+      font-size:18px;
+      line-height:1.7;
+      color: #112031;
+      font-weight:500;
     }
 
     .row2{
@@ -5330,7 +5334,7 @@ HTML = r"""
       max-width: calc(100vw - 22px);
       height: 680px;
       max-height: calc(100vh - 90px);
-      background: rgba(14,22,48,.92);
+      background: linear-gradient(180deg, rgba(255,255,255,.99), rgba(244,240,255,.97));
       border: 1px solid rgba(42,58,106,.9);
       border-radius: 18px;
       padding: 12px;
@@ -5352,13 +5356,13 @@ HTML = r"""
       padding: 8px 10px;
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.7);
-      background: rgba(7,10,20,.45);
+      background: rgba(246,248,255,.98);
       cursor: move;
       user-select:none;
     }
 
     .modalBarTitle{
-      font-size: 13px;
+      font-size: 16px;
       font-weight: 800;
       white-space: nowrap;
       overflow: hidden;
@@ -5379,7 +5383,7 @@ HTML = r"""
       overflow: auto;
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.6);
-      background: rgba(7,10,20,.45);
+      background: rgba(246,248,255,.98);
       padding: 10px;
     }
 
@@ -5390,16 +5394,17 @@ HTML = r"""
       background: transparent;
       border: 0;
       padding: 0;
-      font-size: 13px;
-      line-height: 1.35;
+      font-size: 17px;
+      line-height: 1.62;
+      color:#112031;
     }
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .modalForm label{
       display:block;
-      font-size: 11px;
-      color: var(--muted);
+      font-size: 13px;
+      color: #4d637f;
       margin: 0 0 6px 0;
       font-weight: 700;
       letter-spacing: .2px;
@@ -5408,8 +5413,8 @@ HTML = r"""
       width:100%;
       border-radius: 12px;
       border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.92);
-      color: var(--text);
+      background: rgba(255,255,255,.98);
+      color: #122033;
       padding:10px;
       outline:none;
       font-size:13px;
@@ -5442,8 +5447,8 @@ HTML = r"""
       background: rgba(14,22,48,.45);
       padding:8px 10px;
       border-radius:999px;
-      font-size:12px;
-      color: var(--text);
+      font-size:14px;
+      color: #112031;
     }
     .pill button{
       border:0;
