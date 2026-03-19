@@ -450,39 +450,31 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"):
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
-        # transparently restore a local owner user so the app remains usable without
-        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # Local-first bootstrap on the main app page as well.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            if not has_any_user():
-                return redirect(url_for("setup"))
-            return redirect(url_for("login"))
+        if not has_any_user():
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
-    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
+    g.openai_client = OpenAI(api_key=user_key) if user_key else None
 
     return None
 
 def get_openai_client():
     c = getattr(g, "openai_client", None)
-    return c or _get_global_openai_client()
+    if c is None:
+        raise RuntimeError("No OpenAI API key found for this account. Open Settings and paste your own OpenAI key.")
+    return c
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
@@ -2506,7 +2498,8 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
 def _get_openai_client_for_username(username: str):
     """
     Background jobs cannot rely on Flask request/g context.
-    Build an OpenAI client directly from the user's saved settings, with a global-key fallback.
+    Build an OpenAI client directly from the user's saved settings only.
+    Each user must supply their own OpenAI API key.
     """
     key = ""
     try:
@@ -2516,9 +2509,8 @@ def _get_openai_client_for_username(username: str):
         key = (settings.get("openai_key") or "").strip()
     except Exception:
         key = ""
-    key = key or (OPENAI_API_KEY or "")
     if not key:
-        raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
+        raise RuntimeError("No OpenAI API key found for this account. Add your own OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
@@ -2906,17 +2898,15 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -2926,11 +2916,6 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2964,11 +2949,6 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3821,6 +3801,261 @@ def api_calendar_events():
 
 AUTH_BASE_CSS = r"""
 <style>
+  :root{ --text:#122033; --muted:#50607b; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: Arial, sans-serif;
+    background:
+      radial-gradient(1100px 760px at 50% 18%, rgba(247,211,106,.22), transparent 55%),
+      radial-gradient(980px 720px at 50% 34%, rgba(124,58,237,.12), transparent 56%),
+      radial-gradient(860px 620px at 50% 28%, rgba(59,130,246,.12), transparent 58%),
+      linear-gradient(180deg, #f7f9ff 0%, #eef4ff 48%, #e8f1ff 100%);
+    color:var(--text);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 26px 14px;
+  }
+  .card{
+    width: 520px;
+    max-width: calc(100vw - 22px);
+    background: rgba(255,255,255,.94);
+    border:1px solid rgba(42,58,106,.9);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    padding:1px;
+    border-radius:18px;
+    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events:none;
+  }
+  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
+  .dot{
+    width:10px;height:10px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #60a5fa);
+    box-shadow: 0 0 14px rgba(124,58,237,.55);
+  }
+  .muted{ color: var(--muted); font-size: 14px; }
+  label{ display:block; font-size: 13px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  input{
+    width:100%;
+    border-radius: 12px;
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(255,255,255,.98);
+    color: var(--text);
+    padding:10px;
+    outline:none;
+    font-size:15px;
+    line-height:1.3;
+  }
+  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
+  .btn{
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(255,255,255,.98);
+    color:var(--text);
+    padding:10px 12px;
+    border-radius:12px;
+    cursor:pointer;
+    font-size:15px;
+  }
+  .btn:hover{ background: #f3f7ff; }
+  .btnPrimary{
+    border:1px solid rgba(247,211,106,.55);
+    background: linear-gradient(180deg, rgba(124,58,237,.16), rgba(59,130,246,.10));
+    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
+  }
+  a{ color: #c7d2fe; text-decoration:none; }
+  a:hover{ text-decoration: underline; }
+  .err{ margin-top: 10px; color: #c43d3d; font-size: 14px; white-space: pre-wrap; }
+  .ok{ margin-top: 10px; color: #157347; font-size: 14px; white-space: pre-wrap; }
+
+    /* ===== NEW: Coach marks (first-run guidance) ===== */
+    .coachGlow{
+      position: relative;
+      z-index: 90;
+      border-color: rgba(124,58,237,.95) !important;
+      box-shadow: 0 0 0 3px rgba(124,58,237,.22), 0 0 26px rgba(59,130,246,.22);
+      animation: coachPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes coachPulse{
+      0%{ box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(59,130,246,.16); }
+      50%{ box-shadow: 0 0 0 4px rgba(124,58,237,.26), 0 0 30px rgba(59,130,246,.22); }
+      100%{ box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(59,130,246,.16); }
+    }
+    .coachBubble{
+      position: fixed;
+      z-index: 140;
+      width: min(360px, calc(100vw - 24px));
+      background: rgba(10,14,30,.94);
+      border:1px solid rgba(42,58,106,.8);
+      border-radius:16px;
+      padding:12px 12px 10px 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.45), 0 0 24px rgba(124,58,237,.12);
+      backdrop-filter: blur(10px);
+    }
+    .coachTitle{ font-weight: 800; font-size: 13px; margin-bottom: 6px; }
+    .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
+    .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+
+  /* Mobile responsiveness */
+@media (max-width: 640px){
+  body{ overflow-x:hidden; }
+  .container{ padding: 12px; padding-bottom: 40px; }
+  .row{ flex-wrap: wrap; gap: 10px; }
+  .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
+  .seatToolBtn{ font-size: 13px; }
+  .actions{ flex-wrap: wrap; }
+  .grid{ grid-template-columns: 1fr !important; gap: 10px; }
+  #modalWin{ width: calc(100vw - 16px) !important; left: 8px !important; right: 8px !important; top: 8px !important; height: calc(100vh - 16px) !important; max-height: calc(100vh - 16px) !important; }
+  #modalScroll{ max-height: calc(100vh - 120px) !important; }
+  .seatTools{ flex-wrap: wrap; gap: 8px; }
+  .seat{ min-width: 160px; }
+  textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
+}
+
+
+/* UI polish */
+.seat{ box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+.modalWin{ box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.btnPrimary{ filter: saturate(1.05); }
+.pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
+
+
+/* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
+@media (max-width: 640px){
+  /* Allow horizontal pan if anything still overflows */
+  html, body{ overflow-x: auto !important; }
+  .container{ overflow-x: auto !important; }
+
+  /* Force the round table region to behave like a centered block */
+  .tableWrap{
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: unset !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: flex !important;
+    justify-content: center !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Lock the table itself: no absolute centering math on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+
+    width: min(92vw, 520px) !important;
+    max-width: min(92vw, 520px) !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+
+    /* Zoom + nudge, without translate(-50%,-50%) */
+    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
+    transform-origin: center center !important;
+  }
+}
+
+
+/* ===== NEW: Mobile Round Table Viewport Lock v3 (no clipping, true center, pinch zoom enabled) ===== */
+@media (max-width: 700px){
+  /* Create a dedicated viewport for the round table that can pan if needed */
+  #tableViewport{
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    padding-left: max(8px, env(safe-area-inset-left)) !important;
+    padding-right: max(8px, env(safe-area-inset-right)) !important;
+    box-sizing: border-box !important;
+    scroll-snap-type: x mandatory;
+  }
+  #tableViewport::-webkit-scrollbar{ display:none; }
+
+  /* Force the table to behave like a normal centered block on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 auto !important;
+    transform: translateX(var(--tableShiftX, 0px)) !important; /* no centering math here */
+    transform-origin: center top !important;
+    zoom: var(--tableZoom, 0.72) !important; /* zoom affects layout, so centering + scrolling works */
+    scroll-snap-align: center;
+  }
+
+  /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
+  html, body{ overflow-x: auto !important; }
+}
+
+
+/* ===== ADDITIVE UPGRADE: Mobile Round Table Stage v4 (true center, no cut-off, seats visible, pinch zoom) ===== */
+@media (max-width: 700px){
+  /* Keep the tableWrap square on mobile (prevents half-table cut-off from height:auto overrides) */
+  .tableWrap#tableWrap{
+    width: min(96vw, 620px) !important;
+    height: min(96vw, 620px) !important;
+    min-height: min(96vw, 620px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: hidden !important;
+    position: relative !important;
+    touch-action: none !important; /* required for custom pinch/pan */
+  }
+
+  /* Stage that pans/zooms the table + seats */
+  #rtStage{
+    position:absolute !important;
+    inset:0 !important;
+    transform-origin: 0 0 !important;
+    will-change: transform;
+  }
+
+  /* Preserve original desktop-style table centering on mobile */
+  #rtStage .table{
+    position:absolute !important;
+    inset: 50% 50% !important;
+    transform: translate(-50%,-50%) !important;
+  }
+
+  /* Prevent text clipping inside seat cards */
+  .seatMeta{ min-width: 0 !important; }
+  .seatName, .seatRole{
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+}
+</style>
+"""
+
+LOGIN_AUTH_BASE_CSS = r"""
+<style>
   :root{ --text:#e6edff; --muted:#b8c4ffcc; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
   *{box-sizing:border-box}
   body{
@@ -3865,7 +4100,7 @@ AUTH_BASE_CSS = r"""
   .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
   .dot{
     width:10px;height:10px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
+    background: radial-gradient(circle at 30% 30%, #fff, #60a5fa);
     box-shadow: 0 0 14px rgba(124,58,237,.55);
   }
   .muted{ color: var(--muted); font-size: 12px; }
@@ -3878,7 +4113,7 @@ AUTH_BASE_CSS = r"""
     color: var(--text);
     padding:10px;
     outline:none;
-    font-size:13px;
+    font-size:15px;
     line-height:1.3;
   }
   .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
@@ -3889,12 +4124,12 @@ AUTH_BASE_CSS = r"""
     padding:10px 12px;
     border-radius:12px;
     cursor:pointer;
-    font-size:13px;
+    font-size:15px;
   }
-  .btn:hover{ background: rgba(20,28,60,.92); }
+  .btn:hover{ background: #f3f7ff; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.55);
-    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
+    background: linear-gradient(180deg, rgba(124,58,237,.16), rgba(59,130,246,.10));
     box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
   a{ color: #c7d2fe; text-decoration:none; }
@@ -4599,25 +4834,28 @@ HTML = r"""
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <title>{{app_title}}</title>
   <style>
-    :root{ --text:#e6edff; --muted:#b8c4ffcc; }
+    :root{ --text:#112031; --muted:#5d6c84; --panel:#ffffff; --panel2:#f7faff; --line:#cfdaf0; --soft:#eef4ff; }
     *{box-sizing:border-box}
     html, body{ height:auto; min-height:100%; overflow-y:auto; }
+    ::placeholder{ color:#7a879d; opacity:1; }
     body{
       margin:0;
       font-family: Arial, sans-serif;
       background:
-        radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
-        radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
-        radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+        radial-gradient(980px 680px at 50% 20%, rgba(247,211,106,.18), transparent 56%),
+        radial-gradient(920px 680px at 50% 30%, rgba(124,58,237,.10), transparent 58%),
+        radial-gradient(880px 620px at 50% 24%, rgba(59,130,246,.10), transparent 58%),
+        linear-gradient(180deg, #f5f8ff 0%, #edf3ff 48%, #e7f0ff 100%);
       color:var(--text);
+      font-size:16px;
     }
 
     .topbar{
       position: sticky; top: 0; z-index: 60;
       height:56px; display:flex; align-items:center; justify-content:space-between;
       padding:0 14px;
-      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(14,22,48,.60));
-      border-bottom:1px solid rgba(34,49,90,.8);
+      background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(245,249,255,.92));
+      border-bottom:1px solid var(--line);
       backdrop-filter: blur(10px);
     }
     .brand{ display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.2px; }
@@ -4626,21 +4864,21 @@ HTML = r"""
       background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
       box-shadow: 0 0 14px rgba(124,58,237,.55);
     }
-    .rightmeta{ display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; }
+    .rightmeta{ display:flex; gap:10px; align-items:center; font-size:14px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; }
     .btn{
-      border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.9);
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.95);
       color:var(--text);
       padding:10px 12px;
       border-radius:12px;
       cursor:pointer;
       font-size:13px;
     }
-    .btn:hover{ background: rgba(20,28,60,.92); }
+    .btn:hover{ background: #f3f7ff; }
     .btnPrimary{
       border:1px solid rgba(124,58,237,.75);
       background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
-      box-shadow: 0 0 24px rgba(124,58,237,.18);
+      box-shadow: 0 8px 28px rgba(82,120,185,.12);
     }
     .btnMini{
       padding:8px 10px;
@@ -4730,8 +4968,8 @@ HTML = r"""
       margin-bottom:8px;
     }
     .opTitle{ display:flex; flex-direction:column; gap:2px; }
-    .opTitle .t1{ font-weight:700; font-size:13px; }
-    .opTitle .t2{ font-size:12px; color:var(--muted); }
+    .opTitle .t1{ font-weight:800; font-size:16px; }
+    .opTitle .t2{ font-size:14px; color:var(--muted); }
 
     .opText{
       width:100%;
@@ -4913,9 +5151,9 @@ HTML = r"""
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:13px; }
-    .seatRole{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:11px; color:var(--muted); opacity:.95; }
+    .seatName{ font-weight:800; font-size:16px; }
+    .seatRole{ font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .seatStatus{ font-size:13px; color:var(--muted); opacity:.95; }
 
     .seatTools{
       position:absolute;
@@ -4970,7 +5208,7 @@ HTML = r"""
     }
     .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
     .sideTitle .h1{ font-weight:800; }
-    .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sideTitle .h2{ font-size:14px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .thread{
       height: 40vh;
@@ -5055,13 +5293,13 @@ HTML = r"""
     }
     .replyName{
       font-weight:800;
-      font-size:13px;
+      font-size:16px;
     }
     .replyBtns{ display:flex; gap:8px; flex-wrap:wrap; }
     .replyBody{
       white-space: pre-wrap;
-      font-size:13px;
-      line-height:1.35;
+      font-size:16px;
+      line-height:1.6;
       color: var(--text);
     }
 
@@ -5071,7 +5309,7 @@ HTML = r"""
       gap: 10px;
     }
 
-    .tiny{ font-size: 11px; color:var(--muted); }
+    .tiny{ font-size: 13px; color:var(--muted); }
 
     .overlay{
       position:fixed; inset:0; display:none;
