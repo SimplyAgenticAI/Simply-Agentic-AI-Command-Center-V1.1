@@ -450,16 +450,26 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"):
+    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
+        # transparently restore a local owner user so the app remains usable without
+        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
+        try:
+            session["user"] = ensure_local_owner_user()
+        except Exception:
+            return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        if not has_any_user():
-            return redirect(url_for("setup"))
-        return redirect(url_for("login"))
+        # Local-first bootstrap on the main app page as well.
+        try:
+            session["user"] = ensure_local_owner_user()
+        except Exception:
+            if not has_any_user():
+                return redirect(url_for("setup"))
+            return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -2496,7 +2506,7 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
 def _get_openai_client_for_username(username: str):
     """
     Background jobs cannot rely on Flask request/g context.
-    Build an OpenAI client directly from the user's saved settings only.
+    Build an OpenAI client directly from the user's saved settings, with a global-key fallback.
     """
     key = ""
     try:
@@ -2506,8 +2516,9 @@ def _get_openai_client_for_username(username: str):
         key = (settings.get("openai_key") or "").strip()
     except Exception:
         key = ""
+    key = key or (OPENAI_API_KEY or "")
     if not key:
-        raise RuntimeError("No user OpenAI API key found. Open Settings and add your own OpenAI key.")
+        raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
@@ -2895,15 +2906,17 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u and not has_any_user():
+        session["user"] = ensure_local_owner_user()
+        u = current_user()
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -2913,6 +2926,11 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2946,6 +2964,11 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
+    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
+    # so Settings remains usable and the OpenAI key can always be saved.
+    if not u:
+        session['user'] = ensure_local_owner_user()
+        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3159,6 +3182,12 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
+    if not u:
+        try:
+            session["user"] = ensure_local_owner_user()
+            u = current_user()
+        except Exception:
+            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3792,34 +3821,32 @@ def api_calendar_events():
 
 AUTH_BASE_CSS = r"""
 <style>
-  :root{ --text:#f5efff; --muted:#d9cef8; --gold:#f7d36a; --gold2:#d7a93a; --blue:#67a5ff; --purple:#9b5cf5; --panel:#17182d; --panel2:#201d3c; --line:rgba(183,155,255,.28); }
+  :root{ --text:#e6edff; --muted:#b8c4ffcc; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
   *{box-sizing:border-box}
   body{
     margin:0;
     font-family: Arial, sans-serif;
     background:
-      radial-gradient(1000px 680px at 50% 16%, rgba(168,85,247,.24), transparent 58%),
-      radial-gradient(760px 560px at 14% 10%, rgba(236,72,153,.10), transparent 60%),
-      radial-gradient(820px 580px at 86% 14%, rgba(96,165,250,.13), transparent 58%),
-      linear-gradient(180deg, #0b0d18 0%, #121427 42%, #0e1020 100%);
+      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
+      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
+      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
+      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
     color:var(--text);
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
     padding: 26px 14px;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
   }
   .card{
-    width: 540px;
+    width: 520px;
     max-width: calc(100vw - 22px);
-    background: linear-gradient(180deg, rgba(29,24,56,.96), rgba(18,20,38,.97));
-    border:1px solid var(--line);
-    border-radius: 20px;
-    padding: 20px;
-    box-shadow: 0 28px 80px rgba(0,0,0,.46), 0 0 0 1px rgba(255,255,255,.03) inset;
-    backdrop-filter: blur(12px);
+    background: rgba(14,22,48,.82);
+    border:1px solid rgba(42,58,106,.9);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
     position: relative;
     overflow: hidden;
   }
@@ -3828,62 +3855,52 @@ AUTH_BASE_CSS = r"""
     position:absolute;
     inset:0;
     padding:1px;
-    border-radius:20px;
-    background: linear-gradient(135deg, rgba(247,211,106,.58), rgba(168,85,247,.58), rgba(96,165,250,.34));
+    border-radius:18px;
+    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events:none;
   }
-  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; font-size:18px; letter-spacing:.2px; margin-bottom: 10px; }
+  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
   .dot{
-    width:11px;height:11px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #9b5cf5);
-    box-shadow: 0 0 18px rgba(155,92,245,.65);
+    width:10px;height:10px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
+    box-shadow: 0 0 14px rgba(124,58,237,.55);
   }
-  .muted{ color: var(--muted); font-size: 14px; line-height:1.55; font-weight: 500; }
-  label{ display:block; font-size: 13px; color: var(--muted); margin: 14px 0 7px 0; font-weight: 800; letter-spacing:.22px; }
+  .muted{ color: var(--muted); font-size: 12px; }
+  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
   input{
     width:100%;
-    border-radius: 14px;
-    border:1px solid rgba(200,184,255,.26);
-    background: linear-gradient(180deg, rgba(24,27,47,.96), rgba(15,18,33,.98));
+    border-radius: 12px;
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(11,16,36,.92);
     color: var(--text);
-    padding:13px 14px;
+    padding:10px;
     outline:none;
-    font-size:15px;
-    font-weight:600;
-    line-height:1.45;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    font-size:13px;
+    line-height:1.3;
   }
-  input::placeholder{ color: rgba(217,206,248,.74); }
-  input:focus{
-    border-color: rgba(196,181,253,.72);
-    box-shadow: 0 0 0 3px rgba(155,92,245,.18), inset 0 0 0 1px rgba(255,255,255,.04);
-  }
-  .row{ display:flex; gap:12px; align-items:center; justify-content:space-between; margin-top: 14px; flex-wrap:wrap; }
+  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
   .btn{
-    border:1px solid rgba(194,176,255,.28);
-    background: linear-gradient(180deg, rgba(31,35,61,.96), rgba(18,20,38,.98));
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(11,16,36,.9);
     color:var(--text);
-    padding:12px 15px;
-    border-radius:13px;
+    padding:10px 12px;
+    border-radius:12px;
     cursor:pointer;
-    font-size:15px;
-    font-weight:700;
-    letter-spacing:.18px;
-    box-shadow: 0 10px 24px rgba(0,0,0,.24), inset 0 0 0 1px rgba(255,255,255,.03);
+    font-size:13px;
   }
-  .btn:hover{ background: linear-gradient(180deg, rgba(41,46,80,.98), rgba(22,25,46,.98)); }
+  .btn:hover{ background: rgba(20,28,60,.92); }
   .btnPrimary{
-    border:1px solid rgba(247,211,106,.60);
-    background: linear-gradient(180deg, rgba(155,92,245,.48), rgba(84,98,255,.18));
-    box-shadow: 0 0 28px rgba(155,92,245,.24), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.22);
+    border:1px solid rgba(247,211,106,.55);
+    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
+    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
-  a{ color: #e5ddff; text-decoration:none; font-weight:600; }
+  a{ color: #c7d2fe; text-decoration:none; }
   a:hover{ text-decoration: underline; }
-  .err{ margin-top: 12px; color: #ffc7c7; font-size: 13px; font-weight: 700; white-space: pre-wrap; }
-  .ok{ margin-top: 12px; color: #b8ffd1; font-size: 13px; font-weight: 700; white-space: pre-wrap; }
+  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
+  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -4582,31 +4599,33 @@ HTML = r"""
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <title>{{app_title}}</title>
   <style>
-    :root{ --text:#f5efff; --muted:#d8cef6; --panel:#17192c; --panel2:#20233b; --panel3:#262a45; --line:rgba(188,169,255,.24); --lineStrong:rgba(218,206,255,.34); --shadow:rgba(5,8,18,.58); }
+    :root{ --text:#e6edff; --muted:#b8c4ffcc; }
     *{box-sizing:border-box}
     html, body{ height:auto; min-height:100%; overflow-y:auto; }
     body{
       margin:0;
       font-family: Arial, sans-serif;
       background:
-        radial-gradient(1100px 720px at 50% 0%, rgba(168,85,247,.22), transparent 58%),
-        radial-gradient(860px 620px at 12% 10%, rgba(236,72,153,.08), transparent 60%),
-        radial-gradient(900px 640px at 86% 12%, rgba(96,165,250,.12), transparent 58%),
-        linear-gradient(180deg, #0d0f1d 0%, #131628 44%, #0f1222 100%);
+        radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
+        radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
+        radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
       color:var(--text);
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-      font-size:15px;
     }
 
     .topbar{
-      position: sticky; top: 0; z-index: 60;
-      height:60px; display:flex; align-items:center; justify-content:space-between;
-      padding:0 16px;
-      background: linear-gradient(180deg, rgba(26,28,46,.94), rgba(18,20,35,.88));
-      border-bottom:1px solid var(--line);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 10px 30px rgba(5,8,18,.22);
+      position: relative;
+      z-index: 20;
+      padding: 14px 16px 12px 16px;
+      background: linear-gradient(180deg, rgba(14,22,48,.96), rgba(14,22,48,.88));
+      border-bottom:1px solid rgba(34,49,90,.8);
+      backdrop-filter: blur(10px);
+    }
+    .topbarMain{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      flex-wrap:wrap;
     }
     .brand{ display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.2px; }
     .dot{
@@ -4614,81 +4633,65 @@ HTML = r"""
       background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
       box-shadow: 0 0 14px rgba(124,58,237,.55);
     }
-    .rightmeta{ display:flex; gap:10px; align-items:center; font-size:14px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; font-weight:600; }
-    .btn{
-      border:1px solid var(--line);
-      background: linear-gradient(180deg, rgba(33,37,63,.96), rgba(19,21,37,.98));
-      color:var(--text);
-      padding:12px 14px;
-      border-radius:13px;
-      cursor:pointer;
-      font-size:15px;
-      font-weight:700;
-      letter-spacing:.18px;
-      box-shadow: 0 10px 24px rgba(5,8,18,.24), inset 0 0 0 1px rgba(255,255,255,.03);
+    .rightmeta{ display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; }
+    .commandHeader{
+      margin-top: 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
     }
-    .btn:hover{ background: linear-gradient(180deg, rgba(44,48,80,.98), rgba(24,27,46,.98)); }
+    .commandRow{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap:10px;
+      align-items:stretch;
+    }
+    .commandRow.secondary{
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      max-width: 980px;
+    }
+    .commandRow .btn, .commandRow a.btn{
+      width:100%;
+      min-height:46px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      white-space:normal;
+      line-height:1.2;
+      font-size:14px;
+      font-weight:700;
+    }
+    .btn{
+      border:1px solid rgba(42,58,106,.9);
+      background: rgba(11,16,36,.9);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      font-size:13px;
+    }
+    .btn:hover{ background: rgba(20,28,60,.92); }
     .btnPrimary{
-      border:1px solid rgba(247,211,106,.54);
-      background: linear-gradient(180deg, rgba(155,92,245,.46), rgba(84,98,255,.18));
-      box-shadow: 0 0 24px rgba(155,92,245,.20), 0 0 16px rgba(247,211,106,.10), inset 0 0 0 1px rgba(255,255,255,.03);
+      border:1px solid rgba(124,58,237,.75);
+      background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
+      box-shadow: 0 0 24px rgba(124,58,237,.18);
     }
     .btnMini{
-      padding:9px 11px;
-      font-size:13px;
-      border-radius:10px;
-      font-weight:700;
-    }
-    .btnTiny{
-      padding:7px 9px;
+      padding:8px 10px;
       font-size:12px;
       border-radius:10px;
-      font-weight:700;
     }
-
-
-    /* ===== READABILITY + VISUAL FLOW UPGRADE ===== */
-    .brand{ font-size:18px; font-weight:800; }
-    .card, .sideCard, .groupCard, .operator, .seat, .side, #modalWin, .modalWin, .panel, .panelCard, .table, .topbar{ color: var(--text) !important; }
-    .card, .sideCard, .groupCard, .side, #modalWin, .modalWin, .panel, .panelCard{
-      background: linear-gradient(180deg, rgba(30,32,55,.96), rgba(18,20,37,.98)) !important;
-      border-color: var(--line) !important;
-      box-shadow: 0 18px 42px rgba(5,8,18,.30), inset 0 0 0 1px rgba(255,255,255,.025) !important;
-    }
-    .muted, label, .tiny, .rightmeta, .seatRole, .seatStatus, .opTitle .t2, .panelSub, .sideSub, .fieldHelp, .helper, .hint, .subtle{
-      color: var(--muted) !important;
-      opacity: 1 !important;
-    }
-    input, textarea, select, .opText, .msgText, .replyText, .promptText, .responseText, .threadText, .composer textarea, .composer input{
-      color: var(--text) !important;
-      background: linear-gradient(180deg, rgba(23,26,45,.98), rgba(16,18,33,.99)) !important;
-      border-color: var(--lineStrong) !important;
-      font-size: 16px !important;
-      font-weight: 600 !important;
-      line-height: 1.58 !important;
-    }
-    ::placeholder{ color: rgba(216,206,246,.72) !important; opacity:1 !important; }
-    .tab, .pill, .seatToolBtn, .btn, .btnMini, .btnTiny, .toolbar button, .sideHead .btn{
-      font-weight: 700 !important;
-      letter-spacing: .14px;
-    }
-    .tab, .pill, .seatToolBtn{ font-size: 13px !important; }
-    .sideTitle, .panelHead, .cardHead, .h1, h1, h2, h3{ font-weight: 800 !important; color: var(--text) !important; }
-    .thread, .threadItem, .msg, .message, .reply, .resp, .response, .bubble, .chatBubble, .output, .markdown, .rendered, pre, code{
-      color: var(--text) !important;
-      font-size: 15px !important;
-      line-height: 1.62 !important;
-    }
-    .threadMeta, .msgMeta, .meta, .smallMeta{
-      color: var(--muted) !important;
-      font-size: 13px !important;
-      font-weight: 600 !important;
+    .btnTiny{
+      padding:6px 8px;
+      font-size:11px;
+      border-radius:10px;
     }
 
     .stage{
-      min-height: calc(100vh - 56px);
+      min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: 1fr 420px;
+      grid-template-columns: minmax(0, 1fr) 380px;
       align-items:start;
     }
 
@@ -4748,12 +4751,12 @@ HTML = r"""
       width: 44%;
       min-width: 340px;
       max-width: 520px;
-      background: linear-gradient(180deg, rgba(31,33,58,.96), rgba(19,21,38,.98));
-      border:1px solid var(--line);
+      background: rgba(14,22,48,.82);
+      border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
-      padding: 14px;
-      box-shadow: 0 18px 42px rgba(5,8,18,.34), 0 0 0 1px rgba(255,255,255,.03) inset;
-      backdrop-filter: blur(12px);
+      padding: 12px;
+      box-shadow: 0 0 28px rgba(0,0,0,.38);
+      backdrop-filter: blur(10px);
       z-index: 20;
     }
 
@@ -4762,23 +4765,21 @@ HTML = r"""
       margin-bottom:8px;
     }
     .opTitle{ display:flex; flex-direction:column; gap:2px; }
-    .opTitle .t1{ font-weight:800; font-size:16px; }
-    .opTitle .t2{ font-size:14px; color:var(--muted); font-weight:600; }
+    .opTitle .t1{ font-weight:700; font-size:13px; }
+    .opTitle .t2{ font-size:12px; color:var(--muted); }
 
     .opText{
       width:100%;
-      height: 132px;
+      height: 118px;
       resize:none;
       border-radius: 14px;
-      border:1px solid var(--lineStrong);
-      background: linear-gradient(180deg, rgba(22,25,44,.98), rgba(16,18,33,.99));
+      border:1px solid rgba(42,58,106,.9);
+      background: rgba(11,16,36,.92);
       color: var(--text);
-      padding:13px 14px;
+      padding:10px;
       outline:none;
-      font-size:16px;
-      font-weight:600;
-      line-height:1.55;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      font-size:13px;
+      line-height:1.3;
     }
 
     .opRow{
@@ -4890,19 +4891,19 @@ HTML = r"""
 
     .seat{
       position:absolute;
-      width: 196px;
-      height: 132px;
-      background: linear-gradient(180deg, rgba(31,33,58,.95), rgba(18,20,36,.98));
-      border: 1px solid var(--line);
+      width: 190px;
+      height: 124px;
+      background: rgba(14,22,48,.78);
+      border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
-      padding: 11px;
+      padding: 10px;
       cursor: grab;
       display:flex;
       gap:10px;
       align-items:flex-start;
       transition: transform .12s ease, border-color .12s ease, background .12s ease;
       backdrop-filter: blur(10px);
-      box-shadow: 0 14px 30px rgba(5,8,18,.28), inset 0 0 0 1px rgba(255,255,255,.02);
+      box-shadow: 0 0 22px rgba(0,0,0,.28);
       user-select:none;
       touch-action: manipulation;
       z-index: 12;
@@ -4947,9 +4948,9 @@ HTML = r"""
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:15px; line-height:1.3; }
-    .seatRole{ font-size:13px; color:var(--muted); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:13px; color:var(--muted); font-weight:600; opacity:1; }
+    .seatName{ font-weight:800; font-size:13px; }
+    .seatRole{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .seatStatus{ font-size:11px; color:var(--muted); opacity:.95; }
 
     .seatTools{
       position:absolute;
@@ -4977,9 +4978,9 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 56px;
+      top: 12px;
       align-self:start;
-      height: calc(100vh - 56px);
+      height: calc(100vh - 24px);
       overflow:auto;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
@@ -5250,6 +5251,13 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
+
+    @media (max-width: 1280px){
+      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
+      .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+      .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
+    }
+
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
@@ -5266,8 +5274,9 @@ HTML = r"""
     @media (max-width: 720px){
       body{ overflow-x:hidden; }
       .topbar{ height:auto; }
-      .topbarInner{ flex-wrap:wrap; height:auto; gap:10px; padding:10px 12px; }
+      .topbarMain{ gap:10px; }
       .rightmeta{ justify-content:flex-start; }
+      .commandRow, .commandRow.secondary{ grid-template-columns: repeat(2, minmax(0, 1fr)); max-width:none; }
       .stage{ grid-template-columns: 1fr !important; }
       .side{ padding: 0 12px 22px 12px; }
       .sideCard{ position: relative; top:auto; max-height:none; }
@@ -5986,24 +5995,32 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">
-      <div class="dot"></div>
-      <div>{{app_title}}</div>
+    <div class="topbarMain">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>{{app_title}}</div>
+      </div>
+      <div class="rightmeta">
+        <div id="modelTag">Model: {{model}}</div>
+      </div>
     </div>
-    <div class="rightmeta">
-      <div id="modelTag">Model: {{model}}</div>
-      <button class="btn" id="assembleBtn">Assemble all</button>
-      <button class="btn" id="frameworkBtn">Core framework</button>
-      <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
-      <button class="btn" id="createTeamBtn">Create teammate</button>
-      <button class="btn" id="installFullBtn">Install full team</button>
-      <button class="btn" id="settingsBtn">Settings</button>
-            <button class="btn" id="calendarBtn">Calendar</button>
-<button class="btn" id="crmBtn">Client Center</button>
-<button class="btn" id="imageLibBtn">Image Library</button>
-      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
-            <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
-      <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
+    <div class="commandHeader">
+      <div class="commandRow primary">
+        <button class="btn" id="assembleBtn">Assemble all</button>
+        <button class="btn" id="frameworkBtn">Core framework</button>
+        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
+        <button class="btn" id="createTeamBtn">Create teammate</button>
+        <button class="btn" id="installFullBtn">Install full team</button>
+        <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="calendarBtn">Calendar</button>
+        <button class="btn" id="crmBtn">Client Center</button>
+      </div>
+      <div class="commandRow secondary">
+        <button class="btn" id="imageLibBtn">Image Library</button>
+        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
+        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
+      </div>
     </div>
   </div>
 
