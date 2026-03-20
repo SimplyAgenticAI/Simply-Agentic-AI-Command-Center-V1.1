@@ -3827,26 +3827,29 @@ AUTH_BASE_CSS = r"""
     margin:0;
     font-family: Arial, sans-serif;
     background:
-      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
-      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
-      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
-      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+      radial-gradient(1200px 820px at 50% 22%, rgba(247,211,106,.18), transparent 56%),
+      radial-gradient(1200px 900px at 50% 38%, rgba(124,58,237,.28), transparent 58%),
+      radial-gradient(1000px 760px at 50% 46%, rgba(59,130,246,.16), transparent 56%),
+      linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
     color:var(--text);
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 26px 14px;
+    padding: 28px 18px;
   }
   .card{
-    width: 520px;
-    max-width: calc(100vw - 22px);
-    background: rgba(14,22,48,.82);
-    border:1px solid rgba(42,58,106,.9);
-    border-radius: 18px;
-    padding: 16px;
-    box-shadow: 0 0 60px rgba(0,0,0,.45);
-    backdrop-filter: blur(10px);
+    width: min(860px, calc(100vw - 36px));
+    min-height: min(84vh, 820px);
+    max-width: calc(100vw - 36px);
+    background:
+      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
+      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
+    border:1px solid rgba(76,92,148,.72);
+    border-radius: 26px;
+    padding: 34px 34px 30px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
+    backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
   }
@@ -3854,53 +3857,69 @@ AUTH_BASE_CSS = r"""
     content:"";
     position:absolute;
     inset:0;
-    padding:1px;
-    border-radius:18px;
-    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
+    padding:2px;
+    border-radius:26px;
+    background: linear-gradient(135deg, rgba(247,211,106,.95), rgba(226,181,73,.65) 26%, rgba(124,58,237,.78) 58%, rgba(59,130,246,.52) 100%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events:none;
   }
-  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
-  .dot{
-    width:10px;height:10px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
-    box-shadow: 0 0 14px rgba(124,58,237,.55);
+  .card::after{
+    content:"";
+    position:absolute;
+    inset:16px;
+    border-radius:20px;
+    border:1px solid rgba(247,211,106,.12);
+    pointer-events:none;
+    box-shadow: inset 0 0 24px rgba(247,211,106,.04);
   }
-  .muted{ color: var(--muted); font-size: 12px; }
-  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  .brand{ display:flex; gap:12px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 14px; font-size: 28px; }
+  .dot{
+    width:16px;height:16px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #c4b5fd 28%, #7c3aed 72%);
+    box-shadow: 0 0 18px rgba(124,58,237,.62), 0 0 28px rgba(247,211,106,.18);
+    flex: 0 0 auto;
+  }
+  .muted{ color: var(--muted); font-size: 15px; line-height: 1.5; }
+  label{ display:block; font-size: 14px; color: #d8defd; margin: 14px 0 8px 0; font-weight: 800; letter-spacing:.2px; }
   input{
     width:100%;
-    border-radius: 12px;
-    border:1px solid rgba(42,58,106,.9);
-    background: rgba(11,16,36,.92);
+    border-radius: 16px;
+    border:1px solid rgba(82,98,156,.92);
+    background: rgba(8,12,27,.92);
     color: var(--text);
-    padding:10px;
+    padding:16px 18px;
     outline:none;
-    font-size:13px;
-    line-height:1.3;
+    font-size:16px;
+    line-height:1.4;
+    min-height: 54px;
+    box-shadow: inset 0 0 0 1px rgba(247,211,106,.04);
   }
-  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
+  input:focus{ border-color: rgba(247,211,106,.82); box-shadow: 0 0 0 3px rgba(247,211,106,.14), 0 0 22px rgba(124,58,237,.12); }
+  .row{ display:flex; gap:14px; align-items:center; justify-content:space-between; margin-top: 18px; flex-wrap:wrap; }
   .btn{
-    border:1px solid rgba(42,58,106,.9);
-    background: rgba(11,16,36,.9);
+    border:1px solid rgba(82,98,156,.9);
+    background: rgba(11,16,36,.92);
     color:var(--text);
-    padding:10px 12px;
-    border-radius:12px;
+    padding:14px 18px;
+    border-radius:16px;
     cursor:pointer;
-    font-size:13px;
+    font-size:16px;
+    font-weight:700;
+    min-height: 52px;
   }
-  .btn:hover{ background: rgba(20,28,60,.92); }
+  .btn:hover{ background: rgba(20,28,60,.96); }
+  .card form{ max-width: 640px; }
   .btnPrimary{
-    border:1px solid rgba(247,211,106,.55);
-    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
-    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
+    border:1px solid rgba(247,211,106,.72);
+    background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
+    box-shadow: 0 0 24px rgba(124,58,237,.22), 0 0 24px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22);
   }
-  a{ color: #c7d2fe; text-decoration:none; }
+  a{ color: #ddd6fe; text-decoration:none; font-size: 15px; }
   a:hover{ text-decoration: underline; }
-  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
-  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
+  .err{ margin-top: 14px; color: #ffb4b4; font-size: 14px; white-space: pre-wrap; }
+  .ok{ margin-top: 14px; color: #9effc2; font-size: 14px; white-space: pre-wrap; }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -3932,10 +3951,10 @@ AUTH_BASE_CSS = r"""
 
   /* Mobile responsiveness */
 @media (max-width: 640px){
-  body{ overflow-x:hidden; }
+  body{ overflow-x:hidden; padding: 16px 10px; }
   .container{ padding: 12px; padding-bottom: 40px; }
   .row{ flex-wrap: wrap; gap: 10px; }
-  .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
+  .btn, .seatToolBtn{ padding: 12px 14px; border-radius: 14px; }
   .seatToolBtn{ font-size: 13px; }
   .actions{ flex-wrap: wrap; }
   .grid{ grid-template-columns: 1fr !important; gap: 10px; }
@@ -3944,6 +3963,9 @@ AUTH_BASE_CSS = r"""
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
+  .card{ width: calc(100vw - 18px) !important; min-height: auto !important; padding: 22px 18px !important; border-radius: 20px !important; }
+  .brand{ font-size: 22px !important; }
+  .muted{ font-size: 14px !important; }
 }
 
 
@@ -4671,7 +4693,8 @@ HTML = r"""
       cursor:pointer;
       font-size:13px;
     }
-    .btn:hover{ background: rgba(20,28,60,.92); }
+    .btn:hover{ background: rgba(20,28,60,.96); }
+  .card form{ max-width: 640px; }
     .btnPrimary{
       border:1px solid rgba(124,58,237,.75);
       background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
