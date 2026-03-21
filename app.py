@@ -174,6 +174,7 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
     return token_info.get("access_token"), None, ""
 
 
+
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = None  # lazy init to avoid import time crashes
@@ -204,6 +205,7 @@ def serve_upload(relpath):
     except Exception:
         return abort(404)
 
+
 # =========================
 # OAuth state helpers (additive)
 # =========================
@@ -230,6 +232,7 @@ def _oauth_state_matches(key: str, incoming: str) -> bool:
     except Exception:
         pass
     return False
+
 
 # Quiet noisy request logs (especially the stack tick poll)
 import logging
@@ -485,8 +488,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
+
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
 
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -496,8 +501,10 @@ def load_json(path: Path, default: Any) -> Any:
     except Exception:
         return default
 
+
 def save_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -615,6 +622,7 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
     except Exception:
         return []
 
+
 # =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
 # =========================
@@ -627,6 +635,7 @@ ACTION_STACKS_DIR = DATA / "action_stacks"
 ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
 OPERATOR_PROFILE_DIR = DATA / "operator_profile"
+
 
 
 # =========================
@@ -1163,6 +1172,7 @@ def _resume_due_runs_once() -> None:
             runs_data["runs"] = runs
             _save_runs(u, runs_data)
 
+
 # =========================
 # CORE FRAMEWORK (ENFORCED)
 # =========================
@@ -1208,6 +1218,7 @@ When user says "All teammates to the round table" or similar:
 - Wait for next instruction
 """.strip()
 
+
 def load_core_framework() -> str:
     try:
         if FRAMEWORK_PATH.exists():
@@ -1216,6 +1227,7 @@ def load_core_framework() -> str:
     except Exception:
         pass
     return DEFAULT_CORE_FRAMEWORK_TEXT
+
 
 def save_core_framework(text: str) -> None:
     cleaned = (text or "").strip()
@@ -1229,6 +1241,7 @@ try:
         FRAMEWORK_PATH.write_text(DEFAULT_CORE_FRAMEWORK_TEXT, encoding="utf-8")
 except Exception:
     pass
+
 
 # =========================
 # LOCKED PREBUILT TEAMMATES
@@ -1428,12 +1441,14 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
 
+
 # =========================
 # REGISTRY + THREADS
 # =========================
 
 def _registry_defaults() -> Dict[str, Any]:
     return {"installed": {}, "installed_order": [], "active_order": [], "updated_at": None}
+
 
 def load_registry() -> Dict[str, Any]:
     reg = load_json(REGISTRY_PATH, _registry_defaults())
@@ -1473,9 +1488,11 @@ def load_registry() -> Dict[str, Any]:
 
     return reg
 
+
 def save_registry(reg: Dict[str, Any]) -> None:
     reg["updated_at"] = now_iso()
     save_json(REGISTRY_PATH, reg)
+
 
 def install_full_team() -> Dict[str, Any]:
     reg = load_registry()
@@ -1499,15 +1516,19 @@ def install_full_team() -> Dict[str, Any]:
     save_registry(reg)
     return reg
 
+
 def thread_path(teammate_name: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
     return THREADS_DIR / f"{safe}.json"
 
+
 def load_thread(teammate_name: str) -> List[Dict[str, str]]:
     return load_json(thread_path(teammate_name), [])
 
+
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]]) -> None:
     save_json(thread_path(teammate_name), msgs)
+
 
 def _normalize_lines_to_list(val: Any) -> List[str]:
     if val is None:
@@ -1524,6 +1545,7 @@ def _normalize_lines_to_list(val: Any) -> List[str]:
     s = str(val)
     lines = [ln.strip() for ln in s.splitlines()]
     return [ln for ln in lines if ln]
+
 
 def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
     allowed_str_fields = ["job_title", "version", "mission", "thinking_style", "goal"]
@@ -1556,10 +1578,12 @@ def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) 
 
     return updated
 
+
 def _clean_teammate_name(name: str) -> str:
     n = (name or "").strip()
     n = re.sub(r"\s+", " ", n)
     return n
+
 
 def _make_avatar_for(name: str) -> Dict[str, str]:
     palette = [
@@ -1578,6 +1602,7 @@ def _make_avatar_for(name: str) -> Dict[str, str]:
     bg, fg = palette[idx]
     sigil = (name[:1] or "T").upper()
     return {"bg": bg, "fg": fg, "sigil": sigil}
+
 
 def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     name = _clean_teammate_name(payload.get("name", ""))
@@ -1627,6 +1652,7 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     save_registry(reg)
     return t
 
+
 def set_active_order(active_order: List[str]) -> List[str]:
     reg = load_registry()
     installed = reg.get("installed") or {}
@@ -1653,6 +1679,7 @@ def set_active_order(active_order: List[str]) -> List[str]:
     save_registry(reg)
     return final
 
+
 # =========================
 # UPLOADS
 # =========================
@@ -1660,9 +1687,11 @@ def set_active_order(active_order: List[str]) -> List[str]:
 def load_upload_index() -> Dict[str, Any]:
     return load_json(UPLOAD_INDEX_PATH, {"files": {}, "updated_at": None})
 
+
 def save_upload_index(idx: Dict[str, Any]) -> None:
     idx["updated_at"] = now_iso()
     save_json(UPLOAD_INDEX_PATH, idx)
+
 
 def add_upload_record(file_id: str, rec: Dict[str, Any]) -> None:
     idx = load_upload_index()
@@ -1670,10 +1699,12 @@ def add_upload_record(file_id: str, rec: Dict[str, Any]) -> None:
     idx["files"][file_id] = rec
     save_upload_index(idx)
 
+
 def get_upload_record(file_id: str) -> Optional[Dict[str, Any]]:
     idx = load_upload_index()
     rec = (idx.get("files") or {}).get(file_id)
     return rec if isinstance(rec, dict) else None
+
 
 def image_state_path(teammate_name: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
@@ -1854,6 +1885,7 @@ def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
         return None
     return None
 
+
 def safe_read_text_file(path: Path, max_bytes: int = MAX_INLINE_TEXT_BYTES) -> Optional[str]:
     try:
         if not path.exists():
@@ -1865,6 +1897,7 @@ def safe_read_text_file(path: Path, max_bytes: int = MAX_INLINE_TEXT_BYTES) -> O
     except Exception:
         return None
 
+
 def safe_read_binary_file(path: Path, max_bytes: int) -> Optional[bytes]:
     try:
         if not path.exists():
@@ -1875,12 +1908,14 @@ def safe_read_binary_file(path: Path, max_bytes: int) -> Optional[bytes]:
     except Exception:
         return None
 
+
 def _guess_data_url(mimetype: str, raw: bytes) -> Optional[str]:
     mt = (mimetype or "").lower().strip()
     if not mt.startswith("image/"):
         return None
     b64 = base64.b64encode(raw).decode("ascii")
     return f"data:{mt};base64,{b64}"
+
 
 def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     meta_list: List[Dict[str, Any]] = []
@@ -1935,6 +1970,7 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
         context = "ATTACHMENTS (user provided)\n" + "\n".join(lines).strip() + "\n"
     return context, meta_list, vision_images
 
+
 # =========================
 # EMAIL
 # =========================
@@ -1958,6 +1994,7 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
     # Disabled global SMTP fallback
     return False, "No SMTP connected. Add your email in Settings."
     return False, "No SMTP connected. Add your email in Settings."
+
 
 
 def _google_oauth_ready() -> Tuple[bool, str]:
@@ -1995,6 +2032,7 @@ def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any
 # GOOGLE CALENDAR OAUTH
 # =========================
 
+
 def _calendar_libs_ready() -> Tuple[bool, str]:
     # Backward-compatible name used by older code paths.
     return _google_oauth_ready()
@@ -2018,6 +2056,7 @@ def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, 
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
+
 
 def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _calendar_libs_ready()
@@ -2092,6 +2131,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         })
     return out
 
+
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
     if not ok:
@@ -2128,6 +2168,7 @@ def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str
         data = r.json() if r.content else {}
         raise Exception(f"Gmail API error: {data}")
 
+
 def _email_capability_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     # Returns what can be used right now
     gmail_connected = bool(_user_gmail_oauth(u))
@@ -2160,6 +2201,7 @@ def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
+
 
 def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
     if not text:
@@ -2207,6 +2249,7 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
         return None
 
     return {"to": to_val, "subject": subject_val, "body": body_val}
+
 
 # =========================
 # PROMPTS + LLM
@@ -2299,7 +2342,9 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
 
+
 ContentType = Union[str, List[Dict[str, Any]]]
+
 
 def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> ContentType:
     if not vision_images:
@@ -2312,6 +2357,7 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
             "image_url": {"url": img["data_url"]}
         })
     return parts
+
 
 
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
@@ -2363,6 +2409,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             raise e2
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -2454,6 +2501,7 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
     add_upload_record(file_id, rec)
     append_log("ai_image", {"teammate": teammate, "owner": username, "file": rec})
     return rec
+
 
 def _get_openai_client_for_username(username: str):
     """
@@ -2558,12 +2606,14 @@ def is_assembly(prompt: str) -> bool:
     ]
     return any(t in p for t in triggers)
 
+
 def build_prompt_with_attachments(user_prompt: str, file_ids: List[str]) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     attach_text, meta, vision_images = summarize_attachments_for_prompt(file_ids or [])
     if attach_text:
         combined = (user_prompt.strip() + "\n\n" + attach_text).strip()
         return combined, meta, vision_images
     return user_prompt.strip(), meta, vision_images
+
 
 # =========================
 # API
@@ -2614,6 +2664,7 @@ def api_state():
     })
 
 
+
 @app.get("/api/diagnostics")
 def api_diagnostics():
     """Lightweight, read-only diagnostics for debugging UI state.
@@ -2658,6 +2709,7 @@ def api_diagnostics():
             }
         }
     })
+
 
 @app.get("/api/task_log")
 def api_task_log():
@@ -2755,6 +2807,7 @@ def api_action_stack_run_resume(run_id: str):
     run2 = _run_action_stack_engine(run)
     return jsonify({"ok": True, "run": run2})
 
+
 @app.get("/api/teammates/<teammate>/stacks/schedules")
 def api_action_stacks_schedules_list(teammate: str):
     u = current_user()
@@ -2830,6 +2883,7 @@ def api_action_stack_schedules_tick():
 
 
 
+
 @app.get("/api/me")
 def api_me():
     u = current_user()
@@ -2847,6 +2901,7 @@ def api_me():
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
+
 
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
@@ -2905,6 +2960,7 @@ def api_get_user_settings():
     })
 
 
+
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
@@ -2924,6 +2980,7 @@ def api_set_user_settings():
             _mark_onboarding_step(uname, "openai_key", True)
     except Exception:
         pass
+
 
     data = request.get_json(force=True) or {}
     openai_key_in = (data.get("openai_key") or "")
@@ -2966,9 +3023,11 @@ def api_set_user_settings():
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     return jsonify({"ok": True})
 
+
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
+
 
 @app.post("/api/framework")
 def api_set_framework():
@@ -2977,6 +3036,7 @@ def api_set_framework():
     save_core_framework(fw)
     append_log("framework_updated", {"updated_at": now_iso(), "length": len(load_core_framework())})
     return jsonify({"ok": True, "length": len(load_core_framework())})
+
 
 @app.post("/api/install/full")
 def api_install_full():
@@ -2988,7 +3048,9 @@ def api_install_full():
     except Exception:
         pass
 
+
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
+
 
 @app.post("/api/active_order")
 def api_set_active_order():
@@ -2999,6 +3061,7 @@ def api_set_active_order():
     final = set_active_order(order)
     append_log("active_order_set", {"active_order": final, "updated_at": now_iso()})
     return jsonify({"ok": True, "active_order": final})
+
 
 @app.post("/api/teammate/create")
 def api_create_teammate():
@@ -3015,6 +3078,7 @@ def api_create_teammate():
         "created_at": now_iso()
     })
     return jsonify({"ok": True, "teammate": t})
+
 
 @app.get("/api/teammate/<name>")
 def api_get_teammate(name: str):
@@ -3036,6 +3100,7 @@ def api_get_teammate(name: str):
             "goal": t.get("goal", ""),
         }
     })
+
 
 @app.post("/api/teammate/<name>")
 def api_update_teammate(name: str):
@@ -3068,6 +3133,7 @@ def api_update_teammate(name: str):
     })
 
     return jsonify({"ok": True})
+
 
 @app.post("/api/upload")
 def api_upload():
@@ -3160,6 +3226,7 @@ def api_images_list():
     out.sort(key=lambda r: (r.get("uploaded_at") or ""), reverse=True)
     return jsonify({"ok": True, "images": out})
 
+
 @app.get("/api/images/job/<job_id>")
 def api_image_job_status(job_id: str):
     u = current_user()
@@ -3169,6 +3236,7 @@ def api_image_job_status(job_id: str):
     if not st:
         return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": st})
+
 
 @app.post("/api/convene")
 def api_convene():
@@ -3305,6 +3373,7 @@ def api_convene():
         "attachment_meta": attach_meta
     })
 
+
 @app.post("/api/followup")
 def api_followup():
     data = request.get_json(force=True)
@@ -3361,6 +3430,7 @@ def api_followup():
         return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
 
 
+
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
@@ -3382,6 +3452,7 @@ def api_followup():
         "response": text,
         "email_draft": draft
     })
+
 
     # Task log (append-only)
     append_task_log(
@@ -3406,7 +3477,9 @@ def api_followup():
         pass
 
 
+
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -3451,6 +3524,7 @@ def api_teammate_approve_current_image(name: str):
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     st = approve_current_image_for_teammate(name)
     return jsonify({"ok": True, "image_state": st})
+
 
 @app.post("/api/send_email")
 def api_send_email():
@@ -3543,6 +3617,7 @@ def api_send_email():
     return jsonify({"ok": True, "provider": provider})
 
 
+
 # =========================
 # GMAIL OAUTH ROUTES (Option C)
 # =========================
@@ -3564,6 +3639,7 @@ def api_gmail_disconnect():
     append_log("gmail_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
 
+
 @app.get("/gmail/connect")
 def gmail_connect():
     u = current_user()
@@ -3578,6 +3654,7 @@ def gmail_connect():
     _push_oauth_state("gmail_oauth_states", state)
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
+
 
 @app.get("/gmail/callback")
 def gmail_callback():
@@ -3614,7 +3691,9 @@ def gmail_callback():
     except Exception:
         pass
 
+
     return redirect("/#settings")
+
 
 
 # =========================
@@ -3638,6 +3717,7 @@ def api_calendar_disconnect():
     append_log("calendar_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
 
+
 @app.get("/calendar/connect")
 def calendar_connect():
     u = current_user()
@@ -3651,6 +3731,7 @@ def calendar_connect():
     session["calendar_oauth_state"] = state
     auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
     return redirect(auth_url)
+
 
 @app.get("/calendar/callback")
 def calendar_callback():
@@ -3887,11 +3968,13 @@ AUTH_BASE_CSS = r"""
   .muted{ font-size: 14px !important; }
 }
 
+
 /* UI polish */
 .seat{ box-shadow: 0 10px 24px rgba(0,0,0,.25); }
 .modalWin{ box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .btnPrimary{ filter: saturate(1.05); }
 .pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
+
 
 /* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
 @media (max-width: 640px){
@@ -3934,6 +4017,7 @@ AUTH_BASE_CSS = r"""
   }
 }
 
+
 /* ===== NEW: Mobile Round Table Viewport Lock v3 (no clipping, true center, pinch zoom enabled) ===== */
 @media (max-width: 700px){
   /* Create a dedicated viewport for the round table that can pan if needed */
@@ -3969,6 +4053,7 @@ AUTH_BASE_CSS = r"""
   /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
   html, body{ overflow-x: auto !important; }
 }
+
 
 /* ===== ADDITIVE UPGRADE: Mobile Round Table Stage v4 (true center, no cut-off, seats visible, pinch zoom) ===== */
 @media (max-width: 700px){
@@ -4194,6 +4279,7 @@ LOGIN_HTML = r"""
 </body></html>
 """
 
+
 REGISTER_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -4362,6 +4448,7 @@ def login_post():
     return redirect(url_for("index"))
 
 
+
 # ===== NEW: Account registration (additive) =====
 def _signup_enabled() -> bool:
     # Allow signups if explicitly enabled, or if there are no users yet (first run).
@@ -4475,6 +4562,7 @@ def reset_password_post():
 
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
 
+
 # =========================
 # Operator Profile (shared context)
 # =========================
@@ -4516,7 +4604,9 @@ def api_operator_profile_set():
     except Exception:
         pass
 
+
     return jsonify({"ok": True, "profile": prof})
+
 
 
 # =========================
@@ -5184,6 +5274,7 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
+
     @media (max-width: 1280px){
       .stage{ grid-template-columns: minmax(0,1fr) 340px; }
       .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
@@ -5250,6 +5341,7 @@ HTML = r"""
       /* Prevent any long labels from forcing overlap */
       .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 
+
 /* Mobile: make modal truly full-screen so it never covers seats awkwardly */
 .overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
 #modalWin{
@@ -5266,6 +5358,7 @@ HTML = r"""
       /* iOS: prevent zoom on focus */
       textarea, input, select{ font-size: 16px; }
     }
+
 
 /* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
 
@@ -5359,6 +5452,7 @@ HTML = r"""
     bottom: calc(86px + env(safe-area-inset-bottom)) !important;
   }
 }
+
 
 /* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
 @media (max-width: 640px) and (orientation: portrait){
@@ -5639,6 +5733,7 @@ HTML = r"""
 }
 #diagFab button:active{ transform: translateY(1px); }
 
+
 /* ===== NEW: Mobile Diagnostics Button Placement v1 (avoid overlap with bottom bar) ===== */
 @media (max-width: 640px){
   #diagFab{
@@ -5748,6 +5843,7 @@ HTML = r"""
   }
 }
 
+
 /* === V5: RIGHT-EDGE + BUTTON TRIM FIX (ADDITIVE) === */
 /* Stop any tiny horizontal overflow that causes right-side clipping in mobile webviews (Messenger, etc.) */
 *, *::before, *::after{ box-sizing:border-box; }
@@ -5841,6 +5937,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   box-shadow: 0 0 10px rgba(59,130,246,.22);
 }
 
+
 /* ===== FINAL ADDITIVE: Mobile Seat Flow Lock v1 =====
    Goal: the command center prompt box stays first, and teammate cards begin below it.
    This only affects mobile and does not remove any existing features. */
@@ -5932,6 +6029,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="commandHeader">
       <div class="commandRow primary">
+        <button class="btn" id="assembleBtn">Assemble all</button>
         <button class="btn" id="frameworkBtn">Core framework</button>
         <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
         <button class="btn" id="createTeamBtn">Create teammate</button>
@@ -5939,14 +6037,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="settingsBtn">Settings</button>
         <button class="btn" id="calendarBtn">Calendar</button>
         <button class="btn" id="crmBtn">Client Center</button>
-        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
+      </div>
+      <div class="commandRow secondary">
         <button class="btn" id="leadLabBtn">Lead Lab</button>
         <button class="btn" id="socialStudioBtn">Social Studio</button>
         <button class="btn" id="offerBuilderBtn">Offer Builder</button>
-      </div>
-      <div class="commandRow secondary">
+        <button class="btn" id="playbookBtn">Growth Playbook</button>
         <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="emailConsoleBtn">Email Console</button>
         <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
         <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
@@ -5957,6 +6054,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
+    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -5972,6 +6070,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
 
       <div class="mobileDrawerGrid">
+        <button class="btn" data-click="assembleBtn">Assemble all</button>
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
@@ -5979,12 +6078,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="settingsBtn">Settings</button>
         <button class="btn" data-click="calendarBtn">Calendar</button>
         <button class="btn" data-click="crmBtn">Client Center</button>
-        <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
         <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
+        <button class="btn" data-click="playbookBtn">Growth Playbook</button>
         <button class="btn" data-click="imageLibBtn">Image Library</button>
-        <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -5996,6 +6094,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
     </div>
   </div>
+
 
   <div class="stage">
     <div>
@@ -6013,6 +6112,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
+
 
 <div id="stackForm" class="modalForm" style="display:none;">
   <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
@@ -6061,6 +6161,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
   <div id="stackSchedules" style="margin-top:8px;"></div>
 </div>
+
 
               <div class="modalForm" id="modalForm">
                 <div class="tiny" id="editHint" style="margin-bottom:10px;">
@@ -6134,25 +6235,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-<div class="modalForm" id="emailConsoleForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
-  <div class="tiny" id="smtpStatus">SMTP: checking...</div>
-  <div style="height:10px"></div>
-  <div class="row2">
-    <input class="field" id="emailFrom" placeholder="From" readonly/>
-    <input class="field" id="emailTo" placeholder="To: name@email.com"/>
-  </div>
-  <div style="height:10px"></div>
-  <input class="field" id="emailSubject" placeholder="Subject"/>
-  <div style="height:10px"></div>
-  <textarea class="field" id="emailBody" style="height:280px" placeholder="Email body"></textarea>
-  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-    <button class="btn" id="draftWithSelected">Draft with selected</button>
-    <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
-  </div>
-  <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
-</div>
-
               <div class="modalForm" id="manageForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Toggle who is present at the table. Installed teammates stay installed.
@@ -6160,7 +6242,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div id="manageList"></div>
                 <div class="actions">
                   <button class="btn" id="cancelManage">Cancel</button>
-                  <button class="btn" id="assembleInManageBtn">Assemble All</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
@@ -6235,6 +6316,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" id="frameworkStatus" style="margin-top:10px;"></div>
               </div>
 
+
               <div class="modalForm" id="settingsForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
@@ -6264,6 +6346,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
 
+
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
                 <label>SMTP Host</label>
@@ -6280,6 +6363,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <label>From Name</label>
                 <input id="smtpFromName" placeholder="Your Name" />
+
 
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
@@ -6315,7 +6399,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
-  <div class="pillRow" id="crmNavRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+  <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
@@ -6456,11 +6540,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
   </div>
 
+
 <!-- Broadcast SMS -->
 <div id="crmViewBroadcastSMS" style="display:none;">
   <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
 
   
+
 
   <div class="grid">
     <div>
@@ -6800,6 +6886,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
@@ -6892,9 +6979,45 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
+      <div class="sideCard">
+        <div class="sideHead">
+          <div class="sideTitle">
+            <div class="h1">Email Console</div>
+            <div class="h2">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
           </div>
+        </div>
+
+        <div class="tiny" id="smtpStatus">SMTP: checking...</div>
+        <div style="height:10px"></div>
+
+        <div class="row2">
+          <input class="field" id="emailFrom" placeholder="From" readonly/>
+          <input class="field" id="emailTo" placeholder="To: name@email.com"/>
+        </div>
+
+        <div style="height:10px"></div>
+        <input class="field" id="emailSubject" placeholder="Subject"/>
+
+        <div style="height:10px"></div>
+        <textarea class="field" id="emailBody" style="height:150px" placeholder="Email body"></textarea>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+          <button class="btn" id="draftWithSelected">Draft with selected</button>
+          <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
+        </div>
+
+        <div class="tiny" style="margin-top:8px;">
+          Sending is always manual. The teammate drafts. You approve.
+        </div>
+      </div>
+    </div>
   </div>
 
+  <!-- NEW: Diagnostics Panel v1 (additive) -->
+  <div id="diagFab" title="Diagnostics">
+    <button id="diagOpenBtn" type="button">Diag</button>
+  </div>
+  <div 
   <!-- NEW: Mobile table zoom controls (additive) -->
   <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
     <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
@@ -6904,6 +7027,30 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
   </div>
 
+id="diagOverlay"></div>
+  <div id="diagPanel" role="dialog" aria-modal="true" aria-label="Diagnostics Panel">
+    <div id="diagHeader">
+      <div class="title">System Diagnostics</div>
+      <div class="actions">
+        <button class="diagBtn" id="diagRefreshBtn" type="button">Refresh</button>
+        <button class="diagBtn" id="diagCopyBtn" type="button">Copy</button>
+        <button class="diagBtn" id="diagCloseBtn" type="button">Close</button>
+      </div>
+    </div>
+    <div id="diagBody">
+      <div id="diagGrid">
+        <div class="diagCard"><div class="diagLabel">Active teammates (detected)</div><div class="diagValue" id="diagActive">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Installed teammates</div><div class="diagValue" id="diagInstalled">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Email capability</div><div class="diagValue" id="diagEmail">…</div></div>
+        <div class="diagCard"><div class="diagLabel">Calendar capability</div><div class="diagValue" id="diagCal">…</div></div>
+      </div>
+      <div class="diagLabel">Raw payload</div>
+      <pre id="diagPre">Loading…</pre>
+    </div>
+  </div>
+
+
+  
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
     <div style="position:absolute; top:14px; right:14px;">
@@ -6947,6 +7094,7 @@ if (typeof window.showToast !== "function") {
     }
   };
 }
+
 
     const POS = [
       {x: 50, y: 4},
@@ -7008,6 +7156,7 @@ if (typeof window.showToast !== "function") {
         .replace(/"/g,'&quot;')
         .replace(/'/g,'&#39;');
     }
+
 
     function isAssemblyPhrase(p){
       const s = (p || "").trim().toLowerCase();
@@ -7570,6 +7719,7 @@ function showStackTab(title){
 }
 
 
+
 function renderRunOutputs(run){
   const box = $("stackStatus");
   if(!box || !run) return;
@@ -8027,6 +8177,7 @@ function makeSeat(defn, idx){
         console.error("Operator seat failed to render:", err);
       }
 
+
       const order = activeOrder();
       const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
@@ -8211,6 +8362,7 @@ function makeSeat(defn, idx){
 
       return seat;
     }
+
 
 
     async function loadState(){
@@ -8527,6 +8679,7 @@ function makeSeat(defn, idx){
     }
 
 
+
     async function refreshThread(){
       if(!selectedSeat) return;
 
@@ -8787,6 +8940,7 @@ function makeSeat(defn, idx){
     $("screenGroupBtn").onclick = () => captureAndAttach("group");
     $("screenDmBtn").onclick = () => captureAndAttach("dm");
 
+
     // --- Voice / Mic reliability patch (ADD v6) ---
     // Some mobile in-app browsers (Messenger/FB/IG webviews) partially support SpeechRecognition but fail to start.
     // We preflight microphone permissions via getUserMedia, and provide clearer error feedback.
@@ -8933,6 +9087,7 @@ function makeSeat(defn, idx){
       }
     }catch(_){}
     // ----- end Lighting Mode -----
+
 
 
     function updateAlwaysButtons(){
@@ -9317,7 +9472,8 @@ function makeSeat(defn, idx){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
     }
-    if($("assembleInManageBtn")) $("assembleInManageBtn").onclick = assembleAll;
+    $("assembleBtn").onclick = assembleAll;
+    $("assembleBtn2").onclick = assembleAll;
 
     
 async function pollImageJob(jobId, seatName){
@@ -9481,6 +9637,7 @@ async function sendFollow(){
     bind("passGroupFail",   () => runTacticalPass("failure", "group"));
     bind("passGroupConstr", () => runTacticalPass("constraints", "group"));
     bind("passGroupOpt",    () => runTacticalPass("optimize", "group"));
+
 
 $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
@@ -9833,60 +9990,6 @@ Challenge weak assumptions. Surface risks.`;
 
     
 
-    function showEmailConsoleModal(titleText="Email Console"){
-      showModal();
-      try{ ensureModalMinSize(900, 720); }catch(e){}
-      hideAllModalForms();
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
-      if($("modalTitle")) $("modalTitle").innerText = titleText;
-      try{ updateSmtpStatus(); }catch(e){}
-    }
-
-    function showCRMSoloView(viewId, titleText){
-      showModal();
-      try{ ensureModalMinSize(900, 720); }catch(e){}
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
-      if($("modalForm")) $("modalForm").style.display = "none";
-      if($("manageForm")) $("manageForm").style.display = "none";
-      if($("createForm")) $("createForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-      if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.display = "block";
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("modalImg")) $("modalImg").style.display = "none";
-      if($("crmNavRow")) $("crmNavRow").style.display = "none";
-      if($("crmStatus")) $("crmStatus").style.display = "none";
-      if($("modalTitle")) $("modalTitle").innerText = titleText || "Workspace";
-      crmHideViews();
-      const view = $(viewId);
-      if(view) view.style.display = "block";
-      try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
-    }
-
-    function showGrowthPlaybookModal(){
-      showCRMSoloView('crmViewPlaybooks', 'Growth Playbook');
-      if($("playbookStatus")) $("playbookStatus").innerText = '';
-    }
-
-    function showLeadLabModal(){
-      showCRMSoloView('crmViewLeadLab', 'Lead Lab');
-      if($("leadLabStatus")) $("leadLabStatus").innerText = '';
-    }
-
-    function showSocialStudioModal(){
-      showCRMSoloView('crmViewSocialStudio', 'Social Studio');
-      if($("socialStudioStatus")) $("socialStudioStatus").innerText = '';
-    }
-
-    function showOfferBuilderModal(){
-      showCRMSoloView('crmViewOfferBuilder', 'Offer Builder');
-      if($("offerBuilderStatus")) $("offerBuilderStatus").innerText = '';
-    }
-
     // =========================
     // CRM UI (Client Command Center)
     // =========================
@@ -10183,6 +10286,7 @@ async function crmBroadcastSMS(dry_run=false){
 
 
 
+
 async function settingsLoadSmsSettings(){
   const st = $("twilioStatus");
   if(st) st.innerText = "Loading...";
@@ -10321,6 +10425,7 @@ async function crmTestSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
+
 
 async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
@@ -10517,7 +10622,9 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(){
+    function showCRMModal(initialView, titleText){
+      const viewId = initialView || 'crmViewClients';
+      const modalTitle = titleText || 'Client Command Center';
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10528,25 +10635,35 @@ async function crmFetchTasks(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
-      if($("crmNavRow")) $("crmNavRow").style.display = "flex";
-      if($("crmStatus")) $("crmStatus").style.display = "block";
 
-      $("modalTitle").innerText = "Client Command Center";
+      $("modalTitle").innerText = modalTitle;
       crmSetStatus('Loading...');
+      crmShowView(viewId);
 
-      // default view
-      crmShowView('crmViewClients');
-
-      // load
       (async()=>{
         try{
           await crmFetchState();
           await crmFetchClients();
           crmRenderClients();
+          if(viewId === 'crmViewPipeline'){
+            await crmLoadPipelineIntoBox();
+          }else if(viewId === 'crmViewLeadLab'){
+            if($("leadLabStatus")) $("leadLabStatus").innerText = '';
+          }else if(viewId === 'crmViewSocialStudio'){
+            if($("socialStudioStatus")) $("socialStudioStatus").innerText = '';
+          }else if(viewId === 'crmViewOfferBuilder'){
+            if($("offerBuilderStatus")) $("offerBuilderStatus").innerText = '';
+          }else if(viewId === 'crmViewPlaybooks'){
+            if($("playbookStatus")) $("playbookStatus").innerText = '';
+          }else if(viewId === 'crmViewBroadcast'){
+            if($("crmBroadcastStatus")) $("crmBroadcastStatus").innerText = '';
+          }else if(viewId === 'crmViewBroadcastSMS'){
+            if($("crmSmsStatus")) $("crmSmsStatus").innerText = '';
+            try{ await crmLoadSmsSettings(); }catch(e){}
+          }
           crmSetStatus('Ready');
         }catch(e){
           crmSetStatus('Load failed');
@@ -10554,12 +10671,11 @@ async function crmFetchTasks(){
       })();
     }
 
-    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
-    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
-    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
-    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
-    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
-    if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
+    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal('crmViewClients', 'Client Command Center');
+    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showCRMModal('crmViewLeadLab', 'Lead Lab');
+    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showCRMModal('crmViewSocialStudio', 'Social Studio');
+    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showCRMModal('crmViewOfferBuilder', 'Offer Builder');
+    if($("playbookBtn")) $("playbookBtn").onclick = ()=> showCRMModal('crmViewPlaybooks', 'Growth Playbook');
 
     // CRM tab binds (safe if missing)
 
@@ -11156,8 +11272,10 @@ async function showImageLibraryModal(){
   }
 }
 
+
 if($("lightboxCloseBtn")) $("lightboxCloseBtn").onclick = ()=> closeLightbox();
 if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id==="lightbox") closeLightbox(); };
+
 
 if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
 if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
@@ -11187,6 +11305,7 @@ try{
   if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
   if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
 }catch(e){}
+
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
@@ -11399,6 +11518,7 @@ $("saveFramework").onclick = async () => {
     loadState();
   loadState();
 
+
 // ===== ONE BLOCK ENTER-TO-SEND (ADD v1) =====
 
 (function(){
@@ -11420,6 +11540,7 @@ $("saveFramework").onclick = async () => {
   enableEnterSend("followMsg", sendFollow);
 
 })();
+
 
 // -------- Client Memory Profiles (UI) --------
 const ClientStore = { list: [], active_id: "", current: null };
@@ -11573,6 +11694,7 @@ if(!window.__stackTickInterval){
 if($("openApiKeyHelpBtn")) $("openApiKeyHelpBtn").onclick = () => openApiKeyHelp();
 if($("closeApiKeyHelpBtn")) $("closeApiKeyHelpBtn").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
 
+
 // Client form bindings (safe)
 if($("activeClientSelect")) $("activeClientSelect").onchange = () => setActiveClient($("activeClientSelect").value);
 if($("clientSearch")) $("clientSearch").oninput = () => _renderClientSelect($("clientSearch").value);
@@ -11642,7 +11764,9 @@ if(t.id === "openApiKeyHelpBtn"){
   }
 });
 
+
 // ===== NEW: Mobile Vertical UI v2 wiring (additive) =====
+
 
 // ===== NEW: Mobile Auto-Center v1 (additive) =====
 function autoCenterTableV1(){
@@ -11674,6 +11798,7 @@ function autoCenterTableV1(){
     }
   }catch(e){}
 }
+
 
 // ===== NEW: Mobile Table Zoom v1 (additive) =====
 function _isMobileV1(){
@@ -11722,6 +11847,7 @@ function initTableZoomV1(){
   }catch(e){}
 }
 
+
 function bindAutoCenterTableV1(){
   try{
     // Run after layout settles
@@ -11769,6 +11895,8 @@ function initMobileUIv2(){
   if(closeBtn2) closeBtn2.onclick = () => closeMenu();
 
   // Bottom bar shortcuts
+  const mAssemble = $("mobileAssembleBtn");
+  if(mAssemble) mAssemble.onclick = () => { closeMenu(); if($("assembleBtn")) $("assembleBtn").click(); };
   const mManage = $("mobileManageBtn");
   if(mManage) mManage.onclick = () => { closeMenu(); if($("manageTeamBtn")) $("manageTeamBtn").click(); };
   const mSettings = $("mobileSettingsBtn");
@@ -11808,6 +11936,7 @@ function initMobileUIv2(){
   const topBtn = $("mobileScrollTopBtn");
   if(topBtn) topBtn.onclick = () => { try{ window.scrollTo({top:0, behavior:"smooth"}); }catch(_){ window.scrollTo(0,0); } closeMenu(); };
 }
+
 
 /* NEW: Diagnostics Panel v1 (additive) */
 function initDiagnosticsPanelV1(){
@@ -11887,6 +12016,7 @@ function initDiagnosticsPanelV1(){
 try{ initMobileUIv2(); }catch(e){}
 
 try{ initDiagnosticsPanelV1(); }catch(e){}
+
 
 // ===== NEW: Mobile Round Table Viewport + AutoFit v3 (additive, fixes right-side clipping) =====
 function ensureTableViewportV3(){
@@ -11973,6 +12103,7 @@ function bindMobileViewportV3(){
     window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
   }catch(e){}
 }
+
 
 // ===== ADDITIVE UPGRADE: Mobile Pan + Pinch Zoom for Round Table v4 =====
 (function(){
@@ -12232,6 +12363,7 @@ function applyRTTransformV4(){
   }catch(e){}
 })();
 
+
 maybeAutoShowOnboarding();
 
     // ===== Client Center: Pipeline (FlowChat-like columns) =====
@@ -12334,11 +12466,14 @@ maybeAutoShowOnboarding();
       }
     }
 
+
     const ccTabPipeline = document.getElementById("ccTabPipeline");
     if(ccTabPipeline){
       ccTabPipeline.onclick = async ()=>{ ccSelectTab("Pipeline"); await renderPipelineBoard(); };
     }
 </script>
+
+
 
 
 
@@ -12445,6 +12580,7 @@ maybeAutoShowOnboarding();
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
+
 
   function wireOnboardingButtons(){
     try{
@@ -12640,6 +12776,7 @@ maybeAutoShowOnboarding();
     });
   }
 
+
   function wireExit(){
     const btn = onb$("onbExit");
     if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
@@ -12656,6 +12793,7 @@ maybeAutoShowOnboarding();
   }catch(e){}
 })();
 </script>
+
 
 <style>
 /* ===== FINAL MOBILE LOCK FIT v3 ===== */
@@ -12807,6 +12945,7 @@ maybeAutoShowOnboarding();
 }
 </style>
 
+
 <style>
 /* ===== MOBILE ROUND TABLE RESTORE v4 ===== */
 @media (max-width: 700px){
@@ -12867,6 +13006,9 @@ maybeAutoShowOnboarding();
 @app.get("/")
 def index():
     return render_template_string(HTML, app_title=APP_TITLE, model=MODEL)
+
+
+
 
 
 
@@ -12963,6 +13105,8 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
+
+
 
 
 
@@ -13170,6 +13314,7 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         return False, str(e)
 
 
+
 @app.get("/api/crm/settings/sms")
 def api_crm_sms_settings_get():
     u = current_user()
@@ -13188,6 +13333,7 @@ def api_crm_sms_settings_get():
 @app.get("/api/settings/sms")
 def api_settings_sms_get():
     return api_crm_sms_settings_get()
+
 
 @app.post("/api/crm/settings/sms")
 def api_crm_sms_settings_set():
@@ -13220,6 +13366,7 @@ def api_crm_sms_settings_set():
 def api_settings_sms_set():
     return api_crm_sms_settings_set()
 
+
 @app.post("/api/crm/settings/sms/test")
 def api_crm_sms_settings_test():
     u = current_user()
@@ -13233,6 +13380,7 @@ def api_crm_sms_settings_test():
         return jsonify({"ok": False, "error": "Missing 'to' phone"}), 400
     ok_send, err = _crm_try_send_sms(uname, to_phone, body)
     return jsonify({"ok": bool(ok_send), "error": err})
+
 
 
 def _crm_tick_once() -> None:
@@ -13392,6 +13540,7 @@ def _crm_tick_once() -> None:
 @app.post("/api/settings/sms/test")
 def api_settings_sms_test():
     return api_crm_sms_settings_test()
+
 
 @app.get("/api/crm/state")
 def api_crm_state():
@@ -13693,6 +13842,7 @@ def api_crm_broadcast_sms():
 
 
 
+
 @app.post("/api/crm/tasks")
 def api_crm_task_create():
     u = current_user()
@@ -13887,6 +14037,7 @@ def api_crm_calendar_create_event():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
 @app.route("/api/passes/run", methods=["POST"])
 def api_passes_run():
     username = _get_session_username()
@@ -13968,6 +14119,7 @@ def api_passes_run():
         code, msg = _map_openai_error(e)
         return jsonify({"ok": False, "error": msg}), code
 
+
 def _load_operator_profile(username: str) -> Dict[str, Any]:
     """Per-user operator profile teammates can reference."""
     try:
@@ -14012,6 +14164,7 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 # =========================
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
@@ -14236,8 +14389,10 @@ def api_crm_playbooks():
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
 
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
 
 # === Additive Patch: Move Diagnostics Panel Into Settings ===
 ADD_DIAG_PATCH = r'''
@@ -14268,6 +14423,7 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 </script>
 '''
+
 
 
 # === Additive Patch v8: UX polish (voice ring, idle breath, spotlight, autoscroll, remember seat) + Diagnostics moved into Settings ===
@@ -14695,8 +14851,10 @@ ADD_UI_POLISH_V8 = r'''
   });
 })();
 
+
 </script>
 '''
+
 
 
 
