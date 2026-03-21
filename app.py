@@ -6929,8 +6929,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
+                                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
@@ -7023,11 +7022,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
 
 
-  <!-- NEW: Diagnostics Panel v1 (additive) -->
-  <div id="diagFab" title="Diagnostics">
-    <button id="diagOpenBtn" type="button">Diag</button>
-  </div>
-  <div 
   <!-- NEW: Mobile table zoom controls (additive) -->
   <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
     <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
@@ -7037,30 +7031,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
   </div>
 
-id="diagOverlay"></div>
-  <div id="diagPanel" role="dialog" aria-modal="true" aria-label="Diagnostics Panel">
-    <div id="diagHeader">
-      <div class="title">System Diagnostics</div>
-      <div class="actions">
-        <button class="diagBtn" id="diagRefreshBtn" type="button">Refresh</button>
-        <button class="diagBtn" id="diagCopyBtn" type="button">Copy</button>
-        <button class="diagBtn" id="diagCloseBtn" type="button">Close</button>
-      </div>
-    </div>
-    <div id="diagBody">
-      <div id="diagGrid">
-        <div class="diagCard"><div class="diagLabel">Active teammates (detected)</div><div class="diagValue" id="diagActive">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Installed teammates</div><div class="diagValue" id="diagInstalled">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Email capability</div><div class="diagValue" id="diagEmail">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Calendar capability</div><div class="diagValue" id="diagCal">…</div></div>
-      </div>
-      <div class="diagLabel">Raw payload</div>
-      <pre id="diagPre">Loading…</pre>
-    </div>
-  </div>
-
-
-  
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
     <div style="position:absolute; top:14px; right:14px;">
