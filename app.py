@@ -1,11 +1,10 @@
 import os
 import json
 import re
-import csv
-import io
 import smtplib
 import uuid
 import base64
+import csv
 import secrets
 import hashlib
 import hmac
@@ -3829,26 +3828,29 @@ AUTH_BASE_CSS = r"""
     margin:0;
     font-family: Arial, sans-serif;
     background:
-      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
-      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
-      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
-      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+      radial-gradient(1200px 820px at 50% 22%, rgba(247,211,106,.18), transparent 56%),
+      radial-gradient(1200px 900px at 50% 38%, rgba(124,58,237,.28), transparent 58%),
+      radial-gradient(1000px 760px at 50% 46%, rgba(59,130,246,.16), transparent 56%),
+      linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
     color:var(--text);
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 26px 14px;
+    padding: 28px 18px;
   }
   .card{
-    width: 520px;
-    max-width: calc(100vw - 22px);
-    background: rgba(14,22,48,.82);
-    border:1px solid rgba(42,58,106,.9);
-    border-radius: 18px;
-    padding: 16px;
-    box-shadow: 0 0 60px rgba(0,0,0,.45);
-    backdrop-filter: blur(10px);
+    width: min(860px, calc(100vw - 36px));
+    min-height: min(84vh, 820px);
+    max-width: calc(100vw - 36px);
+    background:
+      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
+      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
+    border:1px solid rgba(76,92,148,.72);
+    border-radius: 26px;
+    padding: 34px 34px 30px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
+    backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
   }
@@ -3856,53 +3858,69 @@ AUTH_BASE_CSS = r"""
     content:"";
     position:absolute;
     inset:0;
-    padding:1px;
-    border-radius:18px;
-    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
+    padding:2px;
+    border-radius:26px;
+    background: linear-gradient(135deg, rgba(247,211,106,.95), rgba(226,181,73,.65) 26%, rgba(124,58,237,.78) 58%, rgba(59,130,246,.52) 100%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events:none;
   }
-  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
-  .dot{
-    width:10px;height:10px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
-    box-shadow: 0 0 14px rgba(124,58,237,.55);
+  .card::after{
+    content:"";
+    position:absolute;
+    inset:16px;
+    border-radius:20px;
+    border:1px solid rgba(247,211,106,.12);
+    pointer-events:none;
+    box-shadow: inset 0 0 24px rgba(247,211,106,.04);
   }
-  .muted{ color: var(--muted); font-size: 12px; }
-  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
+  .brand{ display:flex; gap:12px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 14px; font-size: 28px; }
+  .dot{
+    width:16px;height:16px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #c4b5fd 28%, #7c3aed 72%);
+    box-shadow: 0 0 18px rgba(124,58,237,.62), 0 0 28px rgba(247,211,106,.18);
+    flex: 0 0 auto;
+  }
+  .muted{ color: var(--muted); font-size: 15px; line-height: 1.5; }
+  label{ display:block; font-size: 14px; color: #d8defd; margin: 14px 0 8px 0; font-weight: 800; letter-spacing:.2px; }
   input{
     width:100%;
-    border-radius: 12px;
-    border:1px solid rgba(42,58,106,.9);
-    background: rgba(11,16,36,.92);
+    border-radius: 16px;
+    border:1px solid rgba(82,98,156,.92);
+    background: rgba(8,12,27,.92);
     color: var(--text);
-    padding:10px;
+    padding:16px 18px;
     outline:none;
-    font-size:13px;
-    line-height:1.3;
+    font-size:16px;
+    line-height:1.4;
+    min-height: 54px;
+    box-shadow: inset 0 0 0 1px rgba(247,211,106,.04);
   }
-  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
+  input:focus{ border-color: rgba(247,211,106,.82); box-shadow: 0 0 0 3px rgba(247,211,106,.14), 0 0 22px rgba(124,58,237,.12); }
+  .row{ display:flex; gap:14px; align-items:center; justify-content:space-between; margin-top: 18px; flex-wrap:wrap; }
   .btn{
-    border:1px solid rgba(42,58,106,.9);
-    background: rgba(11,16,36,.9);
+    border:1px solid rgba(82,98,156,.9);
+    background: rgba(11,16,36,.92);
     color:var(--text);
-    padding:10px 12px;
-    border-radius:12px;
+    padding:14px 18px;
+    border-radius:16px;
     cursor:pointer;
-    font-size:13px;
+    font-size:16px;
+    font-weight:700;
+    min-height: 52px;
   }
-  .btn:hover{ background: rgba(20,28,60,.92); }
+  .btn:hover{ background: rgba(20,28,60,.96); }
+  .card form{ max-width: 640px; }
   .btnPrimary{
-    border:1px solid rgba(247,211,106,.55);
-    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
-    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
+    border:1px solid rgba(247,211,106,.72);
+    background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
+    box-shadow: 0 0 24px rgba(124,58,237,.22), 0 0 24px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22);
   }
-  a{ color: #c7d2fe; text-decoration:none; }
+  a{ color: #ddd6fe; text-decoration:none; font-size: 15px; }
   a:hover{ text-decoration: underline; }
-  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
-  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
+  .err{ margin-top: 14px; color: #ffb4b4; font-size: 14px; white-space: pre-wrap; }
+  .ok{ margin-top: 14px; color: #9effc2; font-size: 14px; white-space: pre-wrap; }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -3934,10 +3952,10 @@ AUTH_BASE_CSS = r"""
 
   /* Mobile responsiveness */
 @media (max-width: 640px){
-  body{ overflow-x:hidden; }
+  body{ overflow-x:hidden; padding: 16px 10px; }
   .container{ padding: 12px; padding-bottom: 40px; }
   .row{ flex-wrap: wrap; gap: 10px; }
-  .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
+  .btn, .seatToolBtn{ padding: 12px 14px; border-radius: 14px; }
   .seatToolBtn{ font-size: 13px; }
   .actions{ flex-wrap: wrap; }
   .grid{ grid-template-columns: 1fr !important; gap: 10px; }
@@ -3946,6 +3964,9 @@ AUTH_BASE_CSS = r"""
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
+  .card{ width: calc(100vw - 18px) !important; min-height: auto !important; padding: 22px 18px !important; border-radius: 20px !important; }
+  .brand{ font-size: 22px !important; }
+  .muted{ font-size: 14px !important; }
 }
 
 
@@ -4615,12 +4636,19 @@ HTML = r"""
     }
 
     .topbar{
-      position: sticky; top: 0; z-index: 60;
-      height:56px; display:flex; align-items:center; justify-content:space-between;
-      padding:0 14px;
-      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(14,22,48,.60));
+      position: relative;
+      z-index: 20;
+      padding: 14px 16px 12px 16px;
+      background: linear-gradient(180deg, rgba(14,22,48,.96), rgba(14,22,48,.88));
       border-bottom:1px solid rgba(34,49,90,.8);
       backdrop-filter: blur(10px);
+    }
+    .topbarMain{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      flex-wrap:wrap;
     }
     .brand{ display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.2px; }
     .dot{
@@ -4629,6 +4657,34 @@ HTML = r"""
       box-shadow: 0 0 14px rgba(124,58,237,.55);
     }
     .rightmeta{ display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; }
+    .commandHeader{
+      margin-top: 14px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .commandRow{
+      display:grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap:10px;
+      align-items:stretch;
+    }
+    .commandRow.secondary{
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      max-width: 980px;
+    }
+    .commandRow .btn, .commandRow a.btn{
+      width:100%;
+      min-height:46px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      white-space:normal;
+      line-height:1.2;
+      font-size:14px;
+      font-weight:700;
+    }
     .btn{
       border:1px solid rgba(42,58,106,.9);
       background: rgba(11,16,36,.9);
@@ -4638,7 +4694,8 @@ HTML = r"""
       cursor:pointer;
       font-size:13px;
     }
-    .btn:hover{ background: rgba(20,28,60,.92); }
+    .btn:hover{ background: rgba(20,28,60,.96); }
+  .card form{ max-width: 640px; }
     .btnPrimary{
       border:1px solid rgba(124,58,237,.75);
       background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
@@ -4656,9 +4713,9 @@ HTML = r"""
     }
 
     .stage{
-      min-height: calc(100vh - 56px);
+      min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: 1fr 420px;
+      grid-template-columns: minmax(0, 1fr) 380px;
       align-items:start;
     }
 
@@ -4945,9 +5002,9 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 56px;
+      top: 12px;
       align-self:start;
-      height: calc(100vh - 56px);
+      height: calc(100vh - 24px);
       overflow:auto;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
@@ -5077,38 +5134,51 @@ HTML = r"""
 
     .overlay{
       position:fixed; inset:0; display:none;
-      align-items:stretch; justify-content:stretch;
-      padding: 12px;
-      background: rgba(7,10,20,.72);
-      backdrop-filter: blur(10px);
+      align-items:flex-start; justify-content:center;
+      padding-top: 68px;
+      background: rgba(7,10,20,.65);
+      backdrop-filter: blur(8px);
       z-index: 80;
     }
     .overlay.show{ display:flex; }
 
     .modal{
       position: fixed;
-      inset: 12px;
-      left: 12px;
-      top: 12px;
-      right: 12px;
-      bottom: 12px;
-      transform: none;
-      width: auto;
-      max-width: none;
-      height: auto;
-      max-height: none;
-      background: rgba(14,22,48,.96);
+      left: 50%;
+      top: 64px;
+      transform: translateX(-50%);
+      width: 860px;
+      max-width: calc(100vw - 22px);
+      height: 680px;
+      max-height: calc(100vh - 90px);
+      background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.9);
-      border-radius: 20px;
+      border-radius: 18px;
       padding: 12px;
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: none;
+      resize: both;
       overflow: hidden;
-      min-width: 0;
-      min-height: 0;
+      min-width: 560px;
+      min-height: 420px;
       z-index: 90;
+    }
+
+    .modal.workspaceModal{
+      left: 12px;
+      top: 68px;
+      transform: none;
+      width: calc(100vw - 24px);
+      max-width: calc(100vw - 24px);
+      height: calc(100vh - 92px);
+      max-height: calc(100vh - 92px);
+      resize: none;
+    }
+    .overlay.workspaceOverlay{
+      justify-content: flex-start;
+      padding-top: 0;
+      background: rgba(7,10,20,.55);
     }
 
     .modalBar{
@@ -5120,7 +5190,7 @@ HTML = r"""
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.7);
       background: rgba(7,10,20,.45);
-      cursor: default;
+      cursor: move;
       user-select:none;
     }
 
@@ -5139,9 +5209,6 @@ HTML = r"""
       align-items:center;
       flex-wrap:wrap;
     }
-
-
-    #minModal, #restoreModal{ display:none !important; }
 
     .modalBodyWrap{
       margin-top: 10px;
@@ -5224,6 +5291,13 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
+
+    @media (max-width: 1280px){
+      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
+      .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+      .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
+    }
+
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
@@ -5240,8 +5314,9 @@ HTML = r"""
     @media (max-width: 720px){
       body{ overflow-x:hidden; }
       .topbar{ height:auto; }
-      .topbarInner{ flex-wrap:wrap; height:auto; gap:10px; padding:10px 12px; }
+      .topbarMain{ gap:10px; }
       .rightmeta{ justify-content:flex-start; }
+      .commandRow, .commandRow.secondary{ grid-template-columns: repeat(2, minmax(0, 1fr)); max-width:none; }
       .stage{ grid-template-columns: 1fr !important; }
       .side{ padding: 0 12px 22px 12px; }
       .sideCard{ position: relative; top:auto; max-height:none; }
@@ -5960,29 +6035,40 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </head>
 <body>
   <div class="topbar">
-    <div class="brand">
-      <div class="dot"></div>
-      <div>{{app_title}}</div>
+    <div class="topbarMain">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>{{app_title}}</div>
+      </div>
+      <div class="rightmeta">
+        <div id="modelTag">Model: {{model}}</div>
+      </div>
     </div>
-    <div class="rightmeta">
-      <div id="modelTag">Model: {{model}}</div>
-      <button class="btn" id="frameworkBtn">Core framework</button>
-      <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
-      <button class="btn" id="createTeamBtn">Create teammate</button>
-      <button class="btn" id="installFullBtn">Install full team</button>
-      <button class="btn" id="settingsBtn">Settings</button>
-            <button class="btn" id="calendarBtn">Calendar</button>
-<button class="btn" id="crmBtn">Client Center</button>
-<button class="btn" id="imageLibBtn">Image Library</button>
-      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
-            <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
-      <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
+    <div class="commandHeader">
+      <div class="commandRow primary">
+        <button class="btn" id="frameworkBtn">Core framework</button>
+        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
+        <button class="btn" id="createTeamBtn">Create teammate</button>
+        <button class="btn" id="installFullBtn">Install full team</button>
+        <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="calendarBtn">Calendar</button>
+        <button class="btn" id="crmBtn">Client Center</button>
+        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
+      </div>
+      <div class="commandRow secondary">
+        <button class="btn" id="imageLibBtn">Image Library</button>
+        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+        <button class="btn" id="emailConsoleBtn">Email Console</button>
+        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
+        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
+      </div>
     </div>
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
+    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -6005,7 +6091,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="imageLibBtn">Image Library</button>
+        <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -6162,11 +6250,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" style="margin-bottom:10px;">
                   Toggle who is present at the table. Installed teammates stay installed.
                 </div>
-                <div class="actions" style="justify-content:flex-start; margin:0 0 12px 0;">
-                  <button class="btn" id="assembleBtn">Assemble all active teammates</button>
-                </div>
                 <div id="manageList"></div>
                 <div class="actions">
+                  <button class="btn" id="manageAssembleAllBtn">Assemble all</button>
                   <button class="btn" id="cancelManage">Cancel</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                 </div>
@@ -6322,6 +6408,31 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               
 
+<div class="modalForm" id="emailConsoleForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
+  <div class="tiny" id="smtpStatus">SMTP: checking...</div>
+  <div class="tiny" id="emailConsoleStatus" style="margin-top:8px;"></div>
+  <div style="height:10px"></div>
+
+  <div class="row2">
+    <input class="field" id="emailFrom" placeholder="From" readonly/>
+    <input class="field" id="emailTo" placeholder="To: name@email.com"/>
+  </div>
+
+  <div style="height:10px"></div>
+  <input class="field" id="emailSubject" placeholder="Subject"/>
+
+  <div style="height:10px"></div>
+  <textarea class="field" id="emailBody" style="height:240px" placeholder="Email body"></textarea>
+
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <button class="btn" id="draftWithSelected">Draft with selected</button>
+    <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
+  </div>
+
+  <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
+</div>
+
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
@@ -6367,11 +6478,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="actions" style="justify-content:flex-start; margin-top:10px;">
       <button class="btn" id="crmRefreshClients">Refresh</button>
       <button class="btn" id="crmImportCsvBtn">Import CSV</button>
-      <input id="crmImportCsvFile" type="file" accept=".csv,text/csv" style="display:none;" />
+      <input type="file" id="crmImportCsvFile" accept=",.csv,text/csv" style="display:none;" />
       <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
     </div>
-    <div class="tiny" style="margin-top:8px;">Import CSV columns like name, full name, email, phone, tags, status, pipeline stage, stage, and notes. New prospects will be added straight into the pipeline.</div>
-    <div class="tiny" id="crmImportStatus" style="margin-top:6px;"></div>
+    <div class="tiny" id="crmImportStatus" style="margin-top:8px;">Import a CSV with columns like name, email, phone, stage, status, tags, company, and notes.</div>
 
     <div id="crmClientsList" style="margin-top:10px;"></div>
 
@@ -6912,39 +7022,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
-      <div class="sideCard">
-        <div class="sideHead">
-          <div class="sideTitle">
-            <div class="h1">Email Console</div>
-            <div class="h2">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
-          </div>
-        </div>
-
-        <div class="tiny" id="smtpStatus">SMTP: checking...</div>
-        <div style="height:10px"></div>
-
-        <div class="row2">
-          <input class="field" id="emailFrom" placeholder="From" readonly/>
-          <input class="field" id="emailTo" placeholder="To: name@email.com"/>
-        </div>
-
-        <div style="height:10px"></div>
-        <input class="field" id="emailSubject" placeholder="Subject"/>
-
-        <div style="height:10px"></div>
-        <textarea class="field" id="emailBody" style="height:150px" placeholder="Email body"></textarea>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-          <button class="btn" id="draftWithSelected">Draft with selected</button>
-          <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
-        </div>
-
-        <div class="tiny" style="margin-top:8px;">
-          Sending is always manual. The teammate drafts. You approve.
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- NEW: Diagnostics Panel v1 (additive) -->
   <div id="diagFab" title="Diagnostics">
@@ -7136,15 +7213,9 @@ if (typeof window.showToast !== "function") {
     }
 
     
-    const FULLSCREEN_MODAL = true;
-
     function ensureModalMinSize(minW, minH){
       const win = $("modalWin");
       if(!win) return;
-      if(FULLSCREEN_MODAL){
-        applyModalPos();
-        return;
-      }
       const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
       const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
       const w = Math.max(curW, minW || 0);
@@ -7157,18 +7228,6 @@ if (typeof window.showToast !== "function") {
 function applyModalPos(){
       const win = $("modalWin");
       if(!win) return;
-      if(FULLSCREEN_MODAL){
-        win.style.transform = "none";
-        win.style.left = "12px";
-        win.style.top = "12px";
-        win.style.right = "12px";
-        win.style.bottom = "12px";
-        win.style.width = "auto";
-        win.style.height = "auto";
-        win.style.maxWidth = "none";
-        win.style.maxHeight = "none";
-        return;
-      }
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
@@ -7230,11 +7289,36 @@ function applyModalPos(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
     
+
+    function setWorkspaceModal(on){
+      const win = $("modalWin");
+      const overlay = $("overlay");
+      if(!win || !overlay) return;
+      win.classList.toggle("workspaceModal", !!on);
+      overlay.classList.toggle("workspaceOverlay", !!on);
+      if(on){
+        win.style.left = "12px";
+        win.style.top = "68px";
+        win.style.transform = "none";
+        win.style.width = `calc(100vw - 24px)`;
+        win.style.height = `calc(100vh - 92px)`;
+      }
+    }
+
+    function openWorkspaceModal(title){
+      openWorkspaceModal("Calendar");
+      setWorkspaceModal(true);
+      if(title) $("modalTitle").innerText = title;
+      const sc = $("modalScroll");
+      if(sc) sc.scrollTop = 0;
+    }
+
     // Fullscreen image viewer (additive)
     function openLightbox(url){
       const lb = $("lightbox");
@@ -7251,6 +7335,7 @@ function applyModalPos(){
     }
 
 function showModal(title, body, imgUrl){
+      setWorkspaceModal(false);
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
@@ -7273,7 +7358,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "none";
+      $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7284,6 +7369,7 @@ function showModal(title, body, imgUrl){
     }
 
     function showEditModal(title){
+      setWorkspaceModal(false);
       $("modalTitle").innerText = title || "Edit teammate";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7292,7 +7378,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "none";
+      $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7303,6 +7389,7 @@ function showModal(title, body, imgUrl){
     }
 
     function showManageModal(){
+      setWorkspaceModal(false);
       $("modalTitle").innerText = "Add or dismiss teammates";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7312,7 +7399,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "none";
+      $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7323,6 +7410,7 @@ function showModal(title, body, imgUrl){
     }
 
     function showCreateModal(){
+      setWorkspaceModal(false);
       $("modalTitle").innerText = "Create teammate";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7341,7 +7429,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "none";
+      $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7352,6 +7440,7 @@ function showModal(title, body, imgUrl){
     }
 
     function showFrameworkModal(){
+      setWorkspaceModal(false);
       $("modalTitle").innerText = "Core framework";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7361,7 +7450,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "none";
+      $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7385,12 +7474,21 @@ function showModal(title, body, imgUrl){
       if(e.target.id === "overlay") hideModal();
     });
 
-    $("minModal").onclick = () => {};
+    $("minModal").onclick = () => {
+      modalMinimized = true;
+      $("modalWin").classList.add("minimized");
+      $("minModal").style.display = "none";
+      $("restoreModal").style.display = "inline-block";
+    };
 
-    $("restoreModal").onclick = () => {};
+    $("restoreModal").onclick = () => {
+      modalMinimized = false;
+      $("modalWin").classList.remove("minimized");
+      $("minModal").style.display = "inline-block";
+      $("restoreModal").style.display = "none";
+    };
 
     (function initModalDrag(){
-      if(FULLSCREEN_MODAL) return;
       const bar = $("modalBar");
       const win = $("modalWin");
       if(!bar || !win) return;
@@ -7403,6 +7501,7 @@ function showModal(title, body, imgUrl){
         const t = e.target;
         if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal")) return;
 
+        if(win.classList.contains("workspaceModal")) return;
         modalDragging = true;
         bar.setPointerCapture(e.pointerId);
 
@@ -7447,7 +7546,6 @@ function showModal(title, body, imgUrl){
     })();
 
     (function initModalResizePersist(){
-      if(FULLSCREEN_MODAL) return;
       const win = $("modalWin");
       if(!win) return;
       try{
@@ -7565,6 +7663,24 @@ function showModal(title, body, imgUrl){
       }
     }
 
+
+    function showEmailConsoleModal(statusText){
+      openWorkspaceModal("Email Console");
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("stackForm")) $("stackForm").style.display = "none";
+      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("crmForm")) $("crmForm").style.display = "none";
+      if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
+      if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = statusText || "";
+    }
+
     function applyEmailDraft(draft, teammateName){
       if(!draft) return;
 
@@ -7576,10 +7692,7 @@ function showModal(title, body, imgUrl){
 
       setEmailFrom(lastEmailDraftBy);
 
-      showModal(
-        "Email draft ready",
-        "Fields were auto filled in the Email Console.\n\nReview them, then click Approve and send."
-      );
+      showEmailConsoleModal("Fields were auto filled from the teammate draft. Review them, then click Approve and send.");
     }
 
     async function openEditForTeammate(name){
@@ -9656,10 +9769,12 @@ $("draftWithSelected").onclick = async () => {
 
       const data = await res.json();
       if(!data.ok){
+        if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = data.error || "Send failed";
         showModal("Email failed", data.error || "Send failed");
         return;
       }
 
+      if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = "Email sent successfully.";
       showModal("Email sent", "Email sent successfully.");
     };
 
@@ -9747,6 +9862,8 @@ $("draftWithSelected").onclick = async () => {
         list.appendChild(row);
       });
     }
+
+    if($("manageAssembleAllBtn")) $("manageAssembleAllBtn").onclick = async () => { await assembleAll(); };
 
     $("manageTeamBtn").onclick = async () => {
       await loadState();
@@ -9913,8 +10030,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function showSettingsModal(auto=false){
-      showModal();
-      try{ ensureModalMinSize(900, 720); }catch(e){}
+      openWorkspaceModal("Settings");
       // ensure all other forms are hidden (avoid null errors that can break the Settings button)
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
@@ -9925,10 +10041,7 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
       try{ settingsLoadSmsSettings(); }catch(e){}
-      if(auto){
-        // slight UI nudge so first-time users know what to do
-        $("modalTitle").innerText = "Settings: connect your key + email";
-      }
+      $("modalTitle").innerText = auto ? "Settings: connect your key + email" : "Settings";
     }
 
     
@@ -9971,26 +10084,6 @@ Challenge weak assumptions. Surface risks.`;
       if(!data.ok) throw new Error(data.error||'clients load failed');
       crmCache.clients = data.clients || [];
       return crmCache.clients;
-    }
-
-    async function crmImportCsvText(csvText){
-      const status = $("crmImportStatus");
-      try{
-        if(status) status.innerText = 'Importing...';
-        const res = await fetch('/api/crm/import_csv', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({csv_text: csvText || ''})
-        });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'Import failed');
-        await crmFetchState();
-        await crmFetchClients();
-        crmRenderClients();
-        if(status) status.innerText = `Imported ${data.created||0} prospects`;
-      }catch(e){
-        if(status) status.innerText = e.message || 'Import failed';
-      }
     }
 
     function crmMatchFilter(c, q, filt){
@@ -10119,6 +10212,28 @@ Challenge weak assumptions. Surface risks.`;
       }catch(e){
         if(st) st.innerText = 'Save failed';
       }
+    }
+
+
+    async function crmImportCsv(file){
+      const st = $("crmImportStatus");
+      if(!file){ if(st) st.innerText = 'No file selected'; return; }
+      if(st) st.innerText = 'Importing...';
+      try{
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/api/crm/import_csv', { method:'POST', body: fd });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Import failed');
+        if(st) st.innerText = `Imported ${data.imported || 0}, updated ${data.updated || 0}, skipped ${data.skipped || 0}.`;
+        await crmFetchClients();
+        crmRenderClients();
+        crmRenderPipelineBoard();
+        showToast('CSV imported');
+      }catch(e){
+        if(st) st.innerText = (e && e.message) ? e.message : 'Import failed';
+      }
+      try{ if($("crmImportCsvFile")) $("crmImportCsvFile").value = ''; }catch(e){}
     }
 
     async function crmLoadPipelineIntoBox(){
@@ -10585,9 +10700,8 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(){
-      showModal();
-      try{ ensureModalMinSize(900, 720); }catch(e){}
+    function showCRMModal(defaultViewId, customTitle){
+      openWorkspaceModal("Client Command Center");
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
@@ -10596,15 +10710,16 @@ async function crmFetchTasks(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
-      $("modalTitle").innerText = "Client Command Center";
+      $("modalTitle").innerText = customTitle || "Client Command Center";
       crmSetStatus('Loading...');
 
       // default view
-      crmShowView('crmViewClients');
+      crmShowView(defaultViewId || 'crmViewClients');
 
       // load
       (async()=>{
@@ -10620,6 +10735,8 @@ async function crmFetchTasks(){
     }
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
+    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+    if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
 
@@ -10827,6 +10944,8 @@ async function crmFetchTasks(){
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
+      b('crmImportCsvBtn', ()=>{ const el=$("crmImportCsvFile"); if(el) el.click(); });
+      if($("crmImportCsvFile")) $("crmImportCsvFile").addEventListener('change', (e)=>{ const f=(e.target && e.target.files && e.target.files[0]) ? e.target.files[0] : null; if(f) crmImportCsv(f); });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
       b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; crmLoadSmsSettings(); });
@@ -10838,14 +10957,7 @@ async function crmFetchTasks(){
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
       b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
-      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); if($("crmImportStatus")) $("crmImportStatus").innerText=''; });
-      b('crmImportCsvBtn', ()=>{ const el=$("crmImportCsvFile"); if(el){ el.value=''; el.click(); } });
-      if($("crmImportCsvFile")) $("crmImportCsvFile").addEventListener('change', async (e)=>{
-        const file = e.target && e.target.files && e.target.files[0];
-        if(!file) return;
-        const csvText = await file.text();
-        await crmImportCsvText(csvText);
-      });
+      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
@@ -11106,7 +11218,7 @@ async function calCreateCall(){
 }
 
 function showCalendarModal(){
-  showModal();
+  openWorkspaceModal("Calendar");
   if($("frameworkForm")) $("frameworkForm").style.display = "none";
   if($("modalForm")) $("modalForm").style.display = "none";
   if($("manageForm")) $("manageForm").style.display = "none";
@@ -11115,6 +11227,7 @@ function showCalendarModal(){
   if($("stackForm")) $("stackForm").style.display = "none";
   if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
   if($("crmForm")) $("crmForm").style.display = "none";
+  if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
   if($("calendarForm")) $("calendarForm").style.display = "block";
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("modalImg")) $("modalImg").style.display = "none";
@@ -13570,84 +13683,6 @@ def api_crm_clients_create():
     _crm_save(uname, crm)
     return jsonify({"ok": True, "client": client})
 
-@app.post("/api/crm/import_csv")
-def api_crm_import_csv():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    _crm_migrate_from_client_memory_if_empty(uname)
-    crm = _load_crm(uname)
-    payload = request.get_json(silent=True) or {}
-    csv_text = str(payload.get("csv_text") or "")
-    if not csv_text.strip():
-        return jsonify({"ok": False, "error": "Missing CSV text"}), 400
-
-    def _norm(s: str) -> str:
-        s = (s or '').strip().lower()
-        s = re.sub(r'[^a-z0-9]+', '', s)
-        return s
-
-    f = io.StringIO(csv_text)
-    try:
-        reader = csv.DictReader(f)
-    except Exception:
-        return jsonify({"ok": False, "error": "Could not read CSV"}), 400
-    headers = reader.fieldnames or []
-    if not headers:
-        return jsonify({"ok": False, "error": "CSV needs a header row"}), 400
-    hmap = {_norm(h): h for h in headers}
-
-    def pick(row, *keys):
-        for k in keys:
-            hk = hmap.get(_norm(k))
-            if hk and str(row.get(hk) or '').strip():
-                return str(row.get(hk) or '').strip()
-        return ''
-
-    valid_stages = crm.get("pipeline", {}).get("stages") or _default_pipeline_stages()
-    created = 0
-    skipped = 0
-    for row in reader:
-        if not isinstance(row, dict):
-            continue
-        name = pick(row, 'name', 'fullname', 'full name', 'first name', 'firstname', 'contact name')
-        email = pick(row, 'email', 'email address')
-        phone = pick(row, 'phone', 'mobile', 'cell', 'phone number')
-        tags_raw = pick(row, 'tags', 'tag')
-        status = (pick(row, 'status') or 'lead').strip().lower()
-        stage = pick(row, 'pipeline stage', 'pipelinestage', 'stage', 'pipeline') or 'Lead'
-        notes = pick(row, 'notes', 'note', 'comments', 'comment')
-        company = pick(row, 'company', 'brokerage', 'business')
-        if company:
-            notes = (notes + ('\n' if notes else '') + f'Company: {company}').strip()
-        if not (name or email or phone):
-            skipped += 1
-            continue
-        if not name:
-            name = email or phone or 'Prospect'
-        if stage not in valid_stages:
-            stage = 'Lead'
-        tags = [t.strip() for t in re.split(r'[,;|]', tags_raw) if t and t.strip()]
-        cid = 'client_' + uuid.uuid4().hex[:10]
-        client = {
-            'id': cid,
-            'name': name,
-            'email': email,
-            'phone': phone,
-            'tags': tags,
-            'status': status if status in ['lead','active','vip','past','cold'] else 'lead',
-            'pipeline_stage': stage,
-            'notes': notes,
-            'created_at': now_iso(),
-            'updated_at': now_iso(),
-        }
-        crm.setdefault('clients', {})[cid] = client
-        created += 1
-    _save_crm(uname, crm)
-    append_log('crm_import_csv', {'user': uname, 'created': created, 'skipped': skipped, 'at': now_iso()})
-    return jsonify({"ok": True, "created": created, "skipped": skipped, "pipeline": crm.get("pipeline") or {}})
-
 @app.post("/api/crm/clients/<client_id>")
 def api_crm_clients_update(client_id: str):
     u = current_user()
@@ -13693,6 +13728,150 @@ def api_crm_clients_delete(client_id: str):
     crm["clients"] = clients
     _crm_save(uname, crm)
     return jsonify({"ok": True})
+
+
+
+def _crm_norm_header(v: str) -> str:
+    try:
+        return re.sub(r"[^a-z0-9]+", "", str(v or "").strip().lower())
+    except Exception:
+        return ""
+
+
+@app.post("/api/crm/import_csv")
+def api_crm_import_csv():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    up = request.files.get("file")
+    if not up:
+        return jsonify({"ok": False, "error": "CSV file is required"}), 400
+    try:
+        raw = up.read() or b""
+    except Exception:
+        raw = b""
+    if not raw:
+        return jsonify({"ok": False, "error": "Uploaded CSV is empty"}), 400
+
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except Exception:
+            continue
+    if text is None:
+        return jsonify({"ok": False, "error": "Could not read CSV text"}), 400
+
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;	|")
+    except Exception:
+        class _D(csv.excel):
+            delimiter = ","
+        dialect = _D
+
+    try:
+        reader = csv.DictReader(text.splitlines(), dialect=dialect)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"CSV parse failed: {e}"}), 400
+
+    if not reader.fieldnames:
+        return jsonify({"ok": False, "error": "CSV needs a header row"}), 400
+
+    hdr = {_crm_norm_header(h): h for h in reader.fieldnames if h is not None}
+    crm = _crm_load(uname)
+    clients = crm.get("clients") or {}
+    stages = crm.get("pipeline", {}).get("stages") or ["Lead"]
+
+    def pick(row, keys):
+        for key in keys:
+            actual = hdr.get(key)
+            if actual and row.get(actual) not in (None, ""):
+                return str(row.get(actual) or "").strip()
+        return ""
+
+    existing_by_email = {}
+    for cid, c in clients.items():
+        em = str((c or {}).get("email") or "").strip().lower()
+        if em:
+            existing_by_email[em] = cid
+
+    imported = updated = skipped = 0
+    now = now_iso()
+
+    for row in reader:
+        if not isinstance(row, dict):
+            skipped += 1
+            continue
+        name = pick(row, ["name", "fullname", "full_name", "clientname", "contactname"])
+        email = pick(row, ["email", "emailaddress", "email1"])
+        phone = pick(row, ["phone", "phonenumber", "mobile", "cell", "telephone"])
+        company = pick(row, ["company", "brokerage", "business", "organization"])
+        stage = pick(row, ["stage", "pipelinestage", "pipeline_stage"]) or "Lead"
+        status = pick(row, ["status", "clientstatus"]) or "lead"
+        tags_text = pick(row, ["tags", "tag", "labels"])
+        notes = pick(row, ["notes", "note", "description", "summary"])
+
+        if not name and email:
+            name = email.split("@", 1)[0].replace(".", " ").replace("_", " ").strip().title()
+        if not any([name, email, phone, company]):
+            skipped += 1
+            continue
+
+        if stage not in stages:
+            stage = "Lead"
+
+        tags = [t.strip() for t in re.split(r"[,;|]", tags_text) if t.strip()] if tags_text else []
+        email_key = email.strip().lower() if email else ""
+        existing_id = existing_by_email.get(email_key) if email_key else None
+
+        payload = {
+            "name": name or "Unnamed prospect",
+            "company": company,
+            "email": email,
+            "phone": phone,
+            "tags": tags,
+            "status": status,
+            "pipeline_stage": stage,
+            "notes": notes,
+            "updated_at": now,
+        }
+
+        if existing_id and existing_id in clients:
+            cur = clients.get(existing_id) or {}
+            cur.update({k: v for k, v in payload.items() if v not in (None, "", [])})
+            cur["updated_at"] = now
+            clients[existing_id] = cur
+            updated += 1
+        else:
+            cid = _crm_new_id("c")
+            client = {
+                "id": cid,
+                "name": payload["name"],
+                "company": company,
+                "email": email,
+                "phone": phone,
+                "tags": tags,
+                "status": status,
+                "pipeline_stage": stage,
+                "last_contact": "",
+                "next_followup": "",
+                "notes": notes,
+                "last_summary": "",
+                "custom_fields": {},
+                "created_at": now,
+                "updated_at": now,
+            }
+            clients[cid] = client
+            if email_key:
+                existing_by_email[email_key] = cid
+            imported += 1
+
+    crm["clients"] = clients
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "imported": imported, "updated": updated, "skipped": skipped})
 
 @app.post("/api/crm/pipeline")
 def api_crm_pipeline_set():
