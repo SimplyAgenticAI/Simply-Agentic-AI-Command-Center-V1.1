@@ -6039,11 +6039,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="crmBtn">Client Center</button>
       </div>
       <div class="commandRow secondary">
+        <button class="btn" id="imageLibBtn">Image Library</button>
+        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
         <button class="btn" id="socialStudioBtn">Social Studio</button>
         <button class="btn" id="offerBuilderBtn">Offer Builder</button>
-        <button class="btn" id="playbookBtn">Growth Playbook</button>
-        <button class="btn" id="imageLibBtn">Image Library</button>
         <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
         <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
@@ -6078,11 +6078,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="settingsBtn">Settings</button>
         <button class="btn" data-click="calendarBtn">Calendar</button>
         <button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="imageLibBtn">Image Library</button>
+        <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
         <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
-        <button class="btn" data-click="playbookBtn">Growth Playbook</button>
-        <button class="btn" data-click="imageLibBtn">Image Library</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -10622,9 +10622,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(initialView, titleText){
-      const viewId = initialView || 'crmViewClients';
-      const modalTitle = titleText || 'Client Command Center';
+    function showCRMModal(){
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10639,31 +10637,18 @@ async function crmFetchTasks(){
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
-      $("modalTitle").innerText = modalTitle;
+      $("modalTitle").innerText = "Client Command Center";
       crmSetStatus('Loading...');
-      crmShowView(viewId);
 
+      // default view
+      crmShowView('crmViewClients');
+
+      // load
       (async()=>{
         try{
           await crmFetchState();
           await crmFetchClients();
           crmRenderClients();
-          if(viewId === 'crmViewPipeline'){
-            await crmLoadPipelineIntoBox();
-          }else if(viewId === 'crmViewLeadLab'){
-            if($("leadLabStatus")) $("leadLabStatus").innerText = '';
-          }else if(viewId === 'crmViewSocialStudio'){
-            if($("socialStudioStatus")) $("socialStudioStatus").innerText = '';
-          }else if(viewId === 'crmViewOfferBuilder'){
-            if($("offerBuilderStatus")) $("offerBuilderStatus").innerText = '';
-          }else if(viewId === 'crmViewPlaybooks'){
-            if($("playbookStatus")) $("playbookStatus").innerText = '';
-          }else if(viewId === 'crmViewBroadcast'){
-            if($("crmBroadcastStatus")) $("crmBroadcastStatus").innerText = '';
-          }else if(viewId === 'crmViewBroadcastSMS'){
-            if($("crmSmsStatus")) $("crmSmsStatus").innerText = '';
-            try{ await crmLoadSmsSettings(); }catch(e){}
-          }
           crmSetStatus('Ready');
         }catch(e){
           crmSetStatus('Load failed');
@@ -10671,11 +10656,43 @@ async function crmFetchTasks(){
       })();
     }
 
-    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal('crmViewClients', 'Client Command Center');
-    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showCRMModal('crmViewLeadLab', 'Lead Lab');
-    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showCRMModal('crmViewSocialStudio', 'Social Studio');
-    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showCRMModal('crmViewOfferBuilder', 'Offer Builder');
-    if($("playbookBtn")) $("playbookBtn").onclick = ()=> showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
+
+    async function showCRMWorkspaceSection(title, viewId){
+      showModal();
+      try{ ensureModalMinSize(980, 760); }catch(e){}
+      if($("frameworkForm")) $("frameworkForm").style.display = "none";
+      if($("modalForm")) $("modalForm").style.display = "none";
+      if($("manageForm")) $("manageForm").style.display = "none";
+      if($("createForm")) $("createForm").style.display = "none";
+      if($("settingsForm")) $("settingsForm").style.display = "none";
+      if($("stackForm")) $("stackForm").style.display = "none";
+      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+      if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("crmForm")) $("crmForm").style.display = "block";
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("modalImg")) $("modalImg").style.display = "none";
+
+      $("modalTitle").innerText = title || "Workspace";
+      crmSetStatus('Loading...');
+      crmShowView(viewId);
+
+      try{
+        await crmFetchState();
+        if(viewId === 'crmViewClients'){
+          await crmFetchClients();
+          crmRenderClients();
+        }
+        crmSetStatus('Ready');
+      }catch(e){
+        crmSetStatus('Load failed');
+      }
+    }
+
+    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showCRMWorkspaceSection("Growth Playbook", "crmViewPlaybooks");
+    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showCRMWorkspaceSection("Lead Lab", "crmViewLeadLab");
+    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showCRMWorkspaceSection("Social Studio", "crmViewSocialStudio");
+    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showCRMWorkspaceSection("Offer Builder", "crmViewOfferBuilder");
 
     // CRM tab binds (safe if missing)
 
