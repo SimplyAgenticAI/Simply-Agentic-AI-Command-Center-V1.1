@@ -454,22 +454,12 @@ def _auth_guard():
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
-        # transparently restore a local owner user so the app remains usable without
-        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # Local-first bootstrap on the main app page as well.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            if not has_any_user():
-                return redirect(url_for("setup"))
-            return redirect(url_for("login"))
+        if not has_any_user():
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -2906,17 +2896,15 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -2926,11 +2914,6 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2964,11 +2947,6 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3182,12 +3160,6 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
-    if not u:
-        try:
-            session["user"] = ensure_local_owner_user()
-            u = current_user()
-        except Exception:
-            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -6014,6 +5986,25 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   }
 }
 
+
+/* ===== Full-workspace app windows ===== */
+#overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
+#modalWin{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+  inset:0 !important;
+  left:0 !important;
+  top:0 !important;
+  right:0 !important;
+  bottom:0 !important;
+  transform:none !important;
+  border-radius:0 !important;
+  resize:none !important;
+}
+#modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
+
 </style>
 </head>
 <body>
@@ -6029,7 +6020,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="commandHeader">
       <div class="commandRow primary">
-        <button class="btn" id="assembleBtn">Assemble all</button>
         <button class="btn" id="frameworkBtn">Core framework</button>
         <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
         <button class="btn" id="createTeamBtn">Create teammate</button>
@@ -6037,13 +6027,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="settingsBtn">Settings</button>
         <button class="btn" id="calendarBtn">Calendar</button>
         <button class="btn" id="crmBtn">Client Center</button>
+        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
       </div>
       <div class="commandRow secondary">
         <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
-        <button class="btn" id="leadLabBtn">Lead Lab</button>
-        <button class="btn" id="socialStudioBtn">Social Studio</button>
-        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
+        <button class="btn" id="emailConsoleBtn">Email Console</button>
         <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
         <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
@@ -6054,7 +6042,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -6070,19 +6057,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
 
       <div class="mobileDrawerGrid">
-        <button class="btn" data-click="assembleBtn">Assemble all</button>
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" data-click="calendarBtn">Calendar</button>
-        <button class="btn" data-click="crmBtn">Client Center</button>
-        <button class="btn" data-click="imageLibBtn">Image Library</button>
+                <button class="btn" data-click="calendarBtn">Calendar</button>
+<button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
-        <button class="btn" data-click="leadLabBtn">Lead Lab</button>
-        <button class="btn" data-click="socialStudioBtn">Social Studio</button>
-        <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
+        <button class="btn" data-click="imageLibBtn">Image Library</button>
+        <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
@@ -6242,6 +6226,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div id="manageList"></div>
                 <div class="actions">
                   <button class="btn" id="cancelManage">Cancel</button>
+                  <button class="btn" id="assembleInManageBtn">Assemble All</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
@@ -6396,12 +6381,34 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               
 
+<div class="modalForm" id="emailConsoleForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
+  <div class="tiny" id="smtpStatus">SMTP: checking...</div>
+  <div style="height:10px"></div>
+  <div class="row2">
+    <input class="field" id="emailFrom" placeholder="From" readonly/>
+    <input class="field" id="emailTo" placeholder="To: name@email.com"/>
+  </div>
+  <div style="height:10px"></div>
+  <input class="field" id="emailSubject" placeholder="Subject"/>
+  <div style="height:10px"></div>
+  <textarea class="field" id="emailBody" style="height:280px" placeholder="Email body"></textarea>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <button class="btn" id="draftWithSelected">Draft with selected</button>
+    <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
+  </div>
+  <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
+</div>
+
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
+    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
+    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
+    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -6438,7 +6445,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="actions" style="justify-content:flex-start; margin-top:10px;">
       <button class="btn" id="crmRefreshClients">Refresh</button>
       <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
+      <input type="file" id="crmCsvFile" accept=".csv,text/csv" style="display:none" />
+      <button class="btn" id="crmPickCsvBtn">Import CSV</button>
     </div>
+    <div class="tiny" id="crmCsvStatus" style="margin-top:8px;">Upload a CSV to add prospects into the pipeline.</div>
 
     <div id="crmClientsList" style="margin-top:10px;"></div>
 
@@ -6979,78 +6989,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
-      <div class="sideCard">
-        <div class="sideHead">
-          <div class="sideTitle">
-            <div class="h1">Email Console</div>
-            <div class="h2">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
-          </div>
-        </div>
-
-        <div class="tiny" id="smtpStatus">SMTP: checking...</div>
-        <div style="height:10px"></div>
-
-        <div class="row2">
-          <input class="field" id="emailFrom" placeholder="From" readonly/>
-          <input class="field" id="emailTo" placeholder="To: name@email.com"/>
-        </div>
-
-        <div style="height:10px"></div>
-        <input class="field" id="emailSubject" placeholder="Subject"/>
-
-        <div style="height:10px"></div>
-        <textarea class="field" id="emailBody" style="height:150px" placeholder="Email body"></textarea>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-          <button class="btn" id="draftWithSelected">Draft with selected</button>
-          <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
-        </div>
-
-        <div class="tiny" style="margin-top:8px;">
-          Sending is always manual. The teammate drafts. You approve.
-        </div>
-      </div>
     </div>
-  </div>
-
-  <!-- NEW: Diagnostics Panel v1 (additive) -->
-  <div id="diagFab" title="Diagnostics">
-    <button id="diagOpenBtn" type="button">Diag</button>
-  </div>
-  <div 
-  <!-- NEW: Mobile table zoom controls (additive) -->
-  <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
-    <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
-    <button class="zbtn" id="zoomFitBtn" title="Fit to screen">Fit</button>
-    <button class="zbtn" id="zoomCenterBtn" title="Center table">⦿</button>
-    <button class="zbtn" id="tableLockBtn" title="Lock table so you can scroll">🔒</button>
-    <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
-  </div>
-
-id="diagOverlay"></div>
-  <div id="diagPanel" role="dialog" aria-modal="true" aria-label="Diagnostics Panel">
-    <div id="diagHeader">
-      <div class="title">System Diagnostics</div>
-      <div class="actions">
-        <button class="diagBtn" id="diagRefreshBtn" type="button">Refresh</button>
-        <button class="diagBtn" id="diagCopyBtn" type="button">Copy</button>
-        <button class="diagBtn" id="diagCloseBtn" type="button">Close</button>
-      </div>
-    </div>
-    <div id="diagBody">
-      <div id="diagGrid">
-        <div class="diagCard"><div class="diagLabel">Active teammates (detected)</div><div class="diagValue" id="diagActive">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Installed teammates</div><div class="diagValue" id="diagInstalled">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Email capability</div><div class="diagValue" id="diagEmail">…</div></div>
-        <div class="diagCard"><div class="diagLabel">Calendar capability</div><div class="diagValue" id="diagCal">…</div></div>
-      </div>
-      <div class="diagLabel">Raw payload</div>
-      <pre id="diagPre">Loading…</pre>
-    </div>
-  </div>
 
 
-  
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
     <div style="position:absolute; top:14px; right:14px;">
@@ -7280,6 +7221,7 @@ function applyModalPos(){
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -9472,8 +9414,9 @@ function makeSeat(defn, idx){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
     }
-    $("assembleBtn").onclick = assembleAll;
-    $("assembleBtn2").onclick = assembleAll;
+    const assembleBtnMain = $("assembleBtn"); if(assembleBtnMain) assembleBtnMain.onclick = assembleAll;
+    const assembleBtnSeat = $("assembleBtn2"); if(assembleBtnSeat) assembleBtnSeat.onclick = assembleAll;
+    const assembleInManageBtn = $("assembleInManageBtn"); if(assembleInManageBtn) assembleInManageBtn.onclick = assembleAll;
 
     
 async function pollImageJob(jobId, seatName){
@@ -9977,6 +9920,7 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -9988,7 +9932,19 @@ Challenge weak assumptions. Surface risks.`;
       }
     }
 
-    
+    function showEmailConsoleModal(titleText="Email Console"){
+      showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = titleText;
+      try{ updateSmtpStatus(); }catch(e){}
+    }
+
+    function showGrowthPlaybookModal(){
+      showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+    }
 
     // =========================
     // CRM UI (Client Command Center)
@@ -10028,6 +9984,31 @@ Challenge weak assumptions. Surface risks.`;
       if(!data.ok) throw new Error(data.error||'clients load failed');
       crmCache.clients = data.clients || [];
       return crmCache.clients;
+    }
+
+    async function crmImportCsv(){
+      const inp = $("crmCsvFile");
+      const st = $("crmCsvStatus");
+      const file = inp && inp.files && inp.files[0] ? inp.files[0] : null;
+      if(!file) return;
+      if(st) st.innerText = 'Importing...';
+      try{
+        const txt = await file.text();
+        const res = await fetch('/api/crm/clients/import_csv', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({csv_text: txt, filename: file.name || 'prospects.csv'})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Import failed');
+        await crmFetchClients();
+        crmRenderClients();
+        if(st) st.innerText = `Imported ${data.imported || 0} prospects${data.skipped ? `, skipped ${data.skipped}` : ''}.`;
+        try{ showToast(`Imported ${data.imported || 0} prospects`); }catch(e){}
+      }catch(e){
+        if(st) st.innerText = e.message || 'Import failed';
+      }
+      try{ inp.value = ''; }catch(e){}
     }
 
     function crmMatchFilter(c, q, filt){
@@ -10622,7 +10603,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center'){
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10633,15 +10614,16 @@ async function crmFetchTasks(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
-      $("modalTitle").innerText = "Client Command Center";
+      $("modalTitle").innerText = titleText;
       crmSetStatus('Loading...');
 
       // default view
-      crmShowView('crmViewClients');
+      crmShowView(defaultViewId || 'crmViewClients');
 
       // load
       (async()=>{
@@ -10657,42 +10639,8 @@ async function crmFetchTasks(){
     }
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
-
-    async function showCRMWorkspaceSection(title, viewId){
-      showModal();
-      try{ ensureModalMinSize(980, 760); }catch(e){}
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
-      if($("modalForm")) $("modalForm").style.display = "none";
-      if($("manageForm")) $("manageForm").style.display = "none";
-      if($("createForm")) $("createForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-      if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.display = "block";
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("modalImg")) $("modalImg").style.display = "none";
-
-      $("modalTitle").innerText = title || "Workspace";
-      crmSetStatus('Loading...');
-      crmShowView(viewId);
-
-      try{
-        await crmFetchState();
-        if(viewId === 'crmViewClients'){
-          await crmFetchClients();
-          crmRenderClients();
-        }
-        crmSetStatus('Ready');
-      }catch(e){
-        crmSetStatus('Load failed');
-      }
-    }
-
-    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showCRMWorkspaceSection("Growth Playbook", "crmViewPlaybooks");
-    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showCRMWorkspaceSection("Lead Lab", "crmViewLeadLab");
-    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showCRMWorkspaceSection("Social Studio", "crmViewSocialStudio");
-    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showCRMWorkspaceSection("Offer Builder", "crmViewOfferBuilder");
+    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
+    if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
 
@@ -10903,9 +10851,6 @@ async function crmFetchTasks(){
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
       b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; crmLoadSmsSettings(); });
-      b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
-      b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
-      b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
       b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
       b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
@@ -10913,6 +10858,8 @@ async function crmFetchTasks(){
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
+      b('crmPickCsvBtn', ()=>{ const f=$("crmCsvFile"); if(f) f.click(); });
+      if($("crmCsvFile")) $("crmCsvFile").addEventListener('change', crmImportCsv);
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
 
@@ -11181,6 +11128,7 @@ function showCalendarModal(){
   if($("stackForm")) $("stackForm").style.display = "none";
   if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
   if($("crmForm")) $("crmForm").style.display = "none";
+  if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
   if($("calendarForm")) $("calendarForm").style.display = "block";
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("modalImg")) $("modalImg").style.display = "none";
@@ -11211,6 +11159,7 @@ async function showImageLibraryModal(){
     const imgs = data.images || [];
     showModal("Image Library", "");
     if($("calendarForm")) $("calendarForm").style.display = "none";
+    if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
     const body = $("modalBody");
     if(!body) return;
 
@@ -13681,6 +13630,82 @@ def api_crm_clients_delete(client_id: str):
     crm["clients"] = clients
     _crm_save(uname, crm)
     return jsonify({"ok": True})
+
+@app.post("/api/crm/clients/import_csv")
+def api_crm_clients_import_csv():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    csv_text = (payload.get("csv_text") or "")
+    if not csv_text.strip():
+        return jsonify({"ok": False, "error": "CSV text is required"}), 400
+
+    import csv
+    from io import StringIO
+
+    crm = _crm_load(uname)
+    stages = crm.get("pipeline", {}).get("stages") or ["Lead"]
+    default_stage = stages[0] if stages else "Lead"
+    imported = 0
+    skipped = 0
+
+    def pick(row, *names):
+        lowered = {str(k).strip().lower(): v for k, v in row.items()}
+        for name in names:
+            val = lowered.get(name)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+        return ""
+
+    try:
+        reader = csv.DictReader(StringIO(csv_text))
+        if not reader.fieldnames:
+            return jsonify({"ok": False, "error": "CSV must include a header row"}), 400
+        for row in reader:
+            if not isinstance(row, dict):
+                skipped += 1
+                continue
+            name = pick(row, "name", "full name", "fullname", "contact", "client", "prospect")
+            email = pick(row, "email", "email address", "e-mail")
+            phone = pick(row, "phone", "phone number", "mobile", "cell")
+            company = pick(row, "company", "brokerage", "business")
+            notes = pick(row, "notes", "note", "source")
+            stage = pick(row, "pipeline_stage", "pipeline stage", "stage") or default_stage
+            if stage not in stages:
+                stage = default_stage
+            if not name and not email and not phone:
+                skipped += 1
+                continue
+            if not name:
+                name = email or phone or "Imported prospect"
+            now = now_iso()
+            cid = _crm_new_id("c")
+            crm.setdefault("clients", {})[cid] = {
+                "id": cid,
+                "name": name,
+                "company": company,
+                "email": email,
+                "phone": phone,
+                "tags": [],
+                "status": "lead",
+                "pipeline_stage": stage,
+                "last_contact": "",
+                "next_followup": "",
+                "notes": notes,
+                "last_summary": "",
+                "custom_fields": {},
+                "created_at": now,
+                "updated_at": now,
+            }
+            imported += 1
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"CSV import failed: {e}"}), 400
+
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "imported": imported, "skipped": skipped, "total_clients": len(crm.get("clients") or {})})
+
 
 @app.post("/api/crm/pipeline")
 def api_crm_pipeline_set():
