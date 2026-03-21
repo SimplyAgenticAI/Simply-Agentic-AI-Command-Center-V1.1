@@ -4,7 +4,6 @@ import re
 import smtplib
 import uuid
 import base64
-import csv
 import secrets
 import hashlib
 import hmac
@@ -455,22 +454,12 @@ def _auth_guard():
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        # Local-first bootstrap: if the session is missing (common after redeploy/restart),
-        # transparently restore a local owner user so the app remains usable without
-        # breaking Settings, Core Framework, Image Library, teammate editing, onboarding, etc.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
-        # Local-first bootstrap on the main app page as well.
-        try:
-            session["user"] = ensure_local_owner_user()
-        except Exception:
-            if not has_any_user():
-                return redirect(url_for("setup"))
-            return redirect(url_for("login"))
+        if not has_any_user():
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -2907,17 +2896,15 @@ def api_me():
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
 
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
-    if not u and not has_any_user():
-        session["user"] = ensure_local_owner_user()
-        u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
@@ -2927,11 +2914,6 @@ def api_onboarding_dismiss():
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
@@ -2965,11 +2947,6 @@ def api_get_user_settings():
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
-    # If session was lost (common after redeploy) we auto-bootstrap a local owner session
-    # so Settings remains usable and the OpenAI key can always be saved.
-    if not u:
-        session['user'] = ensure_local_owner_user()
-        u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -3183,12 +3160,6 @@ def api_upload():
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
-    if not u:
-        try:
-            session["user"] = ensure_local_owner_user()
-            u = current_user()
-        except Exception:
-            u = None
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
@@ -5165,22 +5136,6 @@ HTML = r"""
       z-index: 90;
     }
 
-    .modal.workspaceModal{
-      left: 12px;
-      top: 68px;
-      transform: none;
-      width: calc(100vw - 24px);
-      max-width: calc(100vw - 24px);
-      height: calc(100vh - 92px);
-      max-height: calc(100vh - 92px);
-      resize: none;
-    }
-    .overlay.workspaceOverlay{
-      justify-content: flex-start;
-      padding-top: 0;
-      background: rgba(7,10,20,.55);
-    }
-
     .modalBar{
       display:flex;
       align-items:center;
@@ -6031,6 +5986,25 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   }
 }
 
+
+/* ===== Full-workspace app windows ===== */
+#overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
+#modalWin{
+  width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+  inset:0 !important;
+  left:0 !important;
+  top:0 !important;
+  right:0 !important;
+  bottom:0 !important;
+  transform:none !important;
+  border-radius:0 !important;
+  resize:none !important;
+}
+#modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
+
 </style>
 </head>
 <body>
@@ -6057,8 +6031,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div class="commandRow secondary">
         <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
         <button class="btn" id="emailConsoleBtn">Email Console</button>
+        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
         <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
       </div>
@@ -6068,7 +6042,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -6252,8 +6225,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 </div>
                 <div id="manageList"></div>
                 <div class="actions">
-                  <button class="btn" id="manageAssembleAllBtn">Assemble all</button>
                   <button class="btn" id="cancelManage">Cancel</button>
+                  <button class="btn" id="assembleInManageBtn">Assemble All</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
@@ -6411,25 +6384,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
   <div class="tiny" id="smtpStatus">SMTP: checking...</div>
-  <div class="tiny" id="emailConsoleStatus" style="margin-top:8px;"></div>
   <div style="height:10px"></div>
-
   <div class="row2">
     <input class="field" id="emailFrom" placeholder="From" readonly/>
     <input class="field" id="emailTo" placeholder="To: name@email.com"/>
   </div>
-
   <div style="height:10px"></div>
   <input class="field" id="emailSubject" placeholder="Subject"/>
-
   <div style="height:10px"></div>
-  <textarea class="field" id="emailBody" style="height:240px" placeholder="Email body"></textarea>
-
+  <textarea class="field" id="emailBody" style="height:280px" placeholder="Email body"></textarea>
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
     <button class="btn" id="draftWithSelected">Draft with selected</button>
     <button class="btn btnPrimary" id="sendEmailBtn">Approve and send</button>
   </div>
-
   <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
 </div>
 
@@ -6477,11 +6444,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
     <div class="actions" style="justify-content:flex-start; margin-top:10px;">
       <button class="btn" id="crmRefreshClients">Refresh</button>
-      <button class="btn" id="crmImportCsvBtn">Import CSV</button>
-      <input type="file" id="crmImportCsvFile" accept=",.csv,text/csv" style="display:none;" />
       <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
+      <input type="file" id="crmCsvFile" accept=".csv,text/csv" style="display:none" />
+      <button class="btn" id="crmPickCsvBtn">Import CSV</button>
     </div>
-    <div class="tiny" id="crmImportStatus" style="margin-top:8px;">Import a CSV with columns like name, email, phone, stage, status, tags, company, and notes.</div>
+    <div class="tiny" id="crmCsvStatus" style="margin-top:8px;">Upload a CSV to add prospects into the pipeline.</div>
 
     <div id="crmClientsList" style="margin-top:10px;"></div>
 
@@ -6929,7 +6896,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
+                <button class="btn btnMini" id="assembleBtn2">Assemble</button>
+                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
@@ -7021,15 +6989,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
+    </div>
 
-  <!-- NEW: Mobile table zoom controls (additive) -->
-  <div id="tableZoomFab" aria-label="Table zoom controls" style="display:none">
-    <button class="zbtn" id="zoomOutBtn" title="Zoom out">−</button>
-    <button class="zbtn" id="zoomFitBtn" title="Fit to screen">Fit</button>
-    <button class="zbtn" id="zoomCenterBtn" title="Center table">⦿</button>
-    <button class="zbtn" id="tableLockBtn" title="Lock table so you can scroll">🔒</button>
-    <button class="zbtn" id="zoomInBtn" title="Zoom in">+</button>
-  </div>
 
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
@@ -7259,36 +7220,12 @@ function applyModalPos(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
     
-
-    function setWorkspaceModal(on){
-      const win = $("modalWin");
-      const overlay = $("overlay");
-      if(!win || !overlay) return;
-      win.classList.toggle("workspaceModal", !!on);
-      overlay.classList.toggle("workspaceOverlay", !!on);
-      if(on){
-        win.style.left = "12px";
-        win.style.top = "68px";
-        win.style.transform = "none";
-        win.style.width = `calc(100vw - 24px)`;
-        win.style.height = `calc(100vh - 92px)`;
-      }
-    }
-
-    function openWorkspaceModal(title){
-      openWorkspaceModal("Calendar");
-      setWorkspaceModal(true);
-      if(title) $("modalTitle").innerText = title;
-      const sc = $("modalScroll");
-      if(sc) sc.scrollTop = 0;
-    }
-
     // Fullscreen image viewer (additive)
     function openLightbox(url){
       const lb = $("lightbox");
@@ -7305,7 +7242,6 @@ function applyModalPos(){
     }
 
 function showModal(title, body, imgUrl){
-      setWorkspaceModal(false);
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
@@ -7339,7 +7275,6 @@ function showModal(title, body, imgUrl){
     }
 
     function showEditModal(title){
-      setWorkspaceModal(false);
       $("modalTitle").innerText = title || "Edit teammate";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7359,7 +7294,6 @@ function showModal(title, body, imgUrl){
     }
 
     function showManageModal(){
-      setWorkspaceModal(false);
       $("modalTitle").innerText = "Add or dismiss teammates";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7380,7 +7314,6 @@ function showModal(title, body, imgUrl){
     }
 
     function showCreateModal(){
-      setWorkspaceModal(false);
       $("modalTitle").innerText = "Create teammate";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7410,7 +7343,6 @@ function showModal(title, body, imgUrl){
     }
 
     function showFrameworkModal(){
-      setWorkspaceModal(false);
       $("modalTitle").innerText = "Core framework";
       $("modalBody").innerText = "";
       hideAllModalForms();
@@ -7471,7 +7403,6 @@ function showModal(title, body, imgUrl){
         const t = e.target;
         if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal")) return;
 
-        if(win.classList.contains("workspaceModal")) return;
         modalDragging = true;
         bar.setPointerCapture(e.pointerId);
 
@@ -7633,24 +7564,6 @@ function showModal(title, body, imgUrl){
       }
     }
 
-
-    function showEmailConsoleModal(statusText){
-      openWorkspaceModal("Email Console");
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
-      if($("modalForm")) $("modalForm").style.display = "none";
-      if($("manageForm")) $("manageForm").style.display = "none";
-      if($("createForm")) $("createForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.display = "none";
-      if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
-      if($("modalBody")) $("modalBody").style.display = "none";
-      if($("modalImg")) $("modalImg").style.display = "none";
-      if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = statusText || "";
-    }
-
     function applyEmailDraft(draft, teammateName){
       if(!draft) return;
 
@@ -7662,7 +7575,10 @@ function showModal(title, body, imgUrl){
 
       setEmailFrom(lastEmailDraftBy);
 
-      showEmailConsoleModal("Fields were auto filled from the teammate draft. Review them, then click Approve and send.");
+      showModal(
+        "Email draft ready",
+        "Fields were auto filled in the Email Console.\n\nReview them, then click Approve and send."
+      );
     }
 
     async function openEditForTeammate(name){
@@ -9498,8 +9414,9 @@ function makeSeat(defn, idx){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
     }
-    if($("assembleBtn")) $("assembleBtn").onclick = assembleAll;
-    if($("assembleBtn2")) $("assembleBtn2").onclick = assembleAll;
+    const assembleBtnMain = $("assembleBtn"); if(assembleBtnMain) assembleBtnMain.onclick = assembleAll;
+    const assembleBtnSeat = $("assembleBtn2"); if(assembleBtnSeat) assembleBtnSeat.onclick = assembleAll;
+    const assembleInManageBtn = $("assembleInManageBtn"); if(assembleInManageBtn) assembleInManageBtn.onclick = assembleAll;
 
     
 async function pollImageJob(jobId, seatName){
@@ -9739,12 +9656,10 @@ $("draftWithSelected").onclick = async () => {
 
       const data = await res.json();
       if(!data.ok){
-        if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = data.error || "Send failed";
         showModal("Email failed", data.error || "Send failed");
         return;
       }
 
-      if($("emailConsoleStatus")) $("emailConsoleStatus").innerText = "Email sent successfully.";
       showModal("Email sent", "Email sent successfully.");
     };
 
@@ -9832,8 +9747,6 @@ $("draftWithSelected").onclick = async () => {
         list.appendChild(row);
       });
     }
-
-    if($("manageAssembleAllBtn")) $("manageAssembleAllBtn").onclick = async () => { await assembleAll(); };
 
     $("manageTeamBtn").onclick = async () => {
       await loadState();
@@ -10000,21 +9913,38 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function showSettingsModal(auto=false){
-      openWorkspaceModal("Settings");
+      showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
       // ensure all other forms are hidden (avoid null errors that can break the Settings button)
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
       try{ settingsLoadSmsSettings(); }catch(e){}
-      $("modalTitle").innerText = auto ? "Settings: connect your key + email" : "Settings";
+      if(auto){
+        // slight UI nudge so first-time users know what to do
+        $("modalTitle").innerText = "Settings: connect your key + email";
+      }
     }
 
-    
+    function showEmailConsoleModal(titleText="Email Console"){
+      showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = titleText;
+      try{ updateSmtpStatus(); }catch(e){}
+    }
+
+    function showGrowthPlaybookModal(){
+      showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+    }
 
     // =========================
     // CRM UI (Client Command Center)
@@ -10054,6 +9984,31 @@ Challenge weak assumptions. Surface risks.`;
       if(!data.ok) throw new Error(data.error||'clients load failed');
       crmCache.clients = data.clients || [];
       return crmCache.clients;
+    }
+
+    async function crmImportCsv(){
+      const inp = $("crmCsvFile");
+      const st = $("crmCsvStatus");
+      const file = inp && inp.files && inp.files[0] ? inp.files[0] : null;
+      if(!file) return;
+      if(st) st.innerText = 'Importing...';
+      try{
+        const txt = await file.text();
+        const res = await fetch('/api/crm/clients/import_csv', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({csv_text: txt, filename: file.name || 'prospects.csv'})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Import failed');
+        await crmFetchClients();
+        crmRenderClients();
+        if(st) st.innerText = `Imported ${data.imported || 0} prospects${data.skipped ? `, skipped ${data.skipped}` : ''}.`;
+        try{ showToast(`Imported ${data.imported || 0} prospects`); }catch(e){}
+      }catch(e){
+        if(st) st.innerText = e.message || 'Import failed';
+      }
+      try{ inp.value = ''; }catch(e){}
     }
 
     function crmMatchFilter(c, q, filt){
@@ -10182,28 +10137,6 @@ Challenge weak assumptions. Surface risks.`;
       }catch(e){
         if(st) st.innerText = 'Save failed';
       }
-    }
-
-
-    async function crmImportCsv(file){
-      const st = $("crmImportStatus");
-      if(!file){ if(st) st.innerText = 'No file selected'; return; }
-      if(st) st.innerText = 'Importing...';
-      try{
-        const fd = new FormData();
-        fd.append('file', file);
-        const res = await fetch('/api/crm/import_csv', { method:'POST', body: fd });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Import failed');
-        if(st) st.innerText = `Imported ${data.imported || 0}, updated ${data.updated || 0}, skipped ${data.skipped || 0}.`;
-        await crmFetchClients();
-        crmRenderClients();
-        crmRenderPipelineBoard();
-        showToast('CSV imported');
-      }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : 'Import failed';
-      }
-      try{ if($("crmImportCsvFile")) $("crmImportCsvFile").value = ''; }catch(e){}
     }
 
     async function crmLoadPipelineIntoBox(){
@@ -10670,8 +10603,9 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId, customTitle){
-      openWorkspaceModal("Client Command Center");
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center'){
+      showModal();
+      try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
@@ -10685,7 +10619,7 @@ async function crmFetchTasks(){
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
-      $("modalTitle").innerText = customTitle || "Client Command Center";
+      $("modalTitle").innerText = titleText;
       crmSetStatus('Loading...');
 
       // default view
@@ -10705,7 +10639,7 @@ async function crmFetchTasks(){
     }
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
-    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
@@ -10914,14 +10848,9 @@ async function crmFetchTasks(){
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
-      b('crmImportCsvBtn', ()=>{ const el=$("crmImportCsvFile"); if(el) el.click(); });
-      if($("crmImportCsvFile")) $("crmImportCsvFile").addEventListener('change', (e)=>{ const f=(e.target && e.target.files && e.target.files[0]) ? e.target.files[0] : null; if(f) crmImportCsv(f); });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
       b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; crmLoadSmsSettings(); });
-      b('crmTabTasks', async()=>{ crmShowView('crmViewTasks'); try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
-      b('crmTabSequences', async()=>{ crmShowView('crmViewSequences'); try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
-      b('crmTabCalendar', ()=>{ crmShowView('crmViewCalendar'); });
       b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
       b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
@@ -10929,6 +10858,8 @@ async function crmFetchTasks(){
 
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
+      b('crmPickCsvBtn', ()=>{ const f=$("crmCsvFile"); if(f) f.click(); });
+      if($("crmCsvFile")) $("crmCsvFile").addEventListener('change', crmImportCsv);
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
 
@@ -11188,7 +11119,7 @@ async function calCreateCall(){
 }
 
 function showCalendarModal(){
-  openWorkspaceModal("Calendar");
+  showModal();
   if($("frameworkForm")) $("frameworkForm").style.display = "none";
   if($("modalForm")) $("modalForm").style.display = "none";
   if($("manageForm")) $("manageForm").style.display = "none";
@@ -11228,6 +11159,7 @@ async function showImageLibraryModal(){
     const imgs = data.images || [];
     showModal("Image Library", "");
     if($("calendarForm")) $("calendarForm").style.display = "none";
+    if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
     const body = $("modalBody");
     if(!body) return;
 
@@ -13699,132 +13631,65 @@ def api_crm_clients_delete(client_id: str):
     _crm_save(uname, crm)
     return jsonify({"ok": True})
 
-
-
-def _crm_norm_header(v: str) -> str:
-    try:
-        return re.sub(r"[^a-z0-9]+", "", str(v or "").strip().lower())
-    except Exception:
-        return ""
-
-
-@app.post("/api/crm/import_csv")
-def api_crm_import_csv():
+@app.post("/api/crm/clients/import_csv")
+def api_crm_clients_import_csv():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    up = request.files.get("file")
-    if not up:
-        return jsonify({"ok": False, "error": "CSV file is required"}), 400
-    try:
-        raw = up.read() or b""
-    except Exception:
-        raw = b""
-    if not raw:
-        return jsonify({"ok": False, "error": "Uploaded CSV is empty"}), 400
+    payload = request.get_json(silent=True) or {}
+    csv_text = (payload.get("csv_text") or "")
+    if not csv_text.strip():
+        return jsonify({"ok": False, "error": "CSV text is required"}), 400
 
-    text = None
-    for enc in ("utf-8-sig", "utf-8", "latin-1"):
-        try:
-            text = raw.decode(enc)
-            break
-        except Exception:
-            continue
-    if text is None:
-        return jsonify({"ok": False, "error": "Could not read CSV text"}), 400
+    import csv
+    from io import StringIO
 
-    sample = text[:4096]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;	|")
-    except Exception:
-        class _D(csv.excel):
-            delimiter = ","
-        dialect = _D
-
-    try:
-        reader = csv.DictReader(text.splitlines(), dialect=dialect)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"CSV parse failed: {e}"}), 400
-
-    if not reader.fieldnames:
-        return jsonify({"ok": False, "error": "CSV needs a header row"}), 400
-
-    hdr = {_crm_norm_header(h): h for h in reader.fieldnames if h is not None}
     crm = _crm_load(uname)
-    clients = crm.get("clients") or {}
     stages = crm.get("pipeline", {}).get("stages") or ["Lead"]
+    default_stage = stages[0] if stages else "Lead"
+    imported = 0
+    skipped = 0
 
-    def pick(row, keys):
-        for key in keys:
-            actual = hdr.get(key)
-            if actual and row.get(actual) not in (None, ""):
-                return str(row.get(actual) or "").strip()
+    def pick(row, *names):
+        lowered = {str(k).strip().lower(): v for k, v in row.items()}
+        for name in names:
+            val = lowered.get(name)
+            if val is not None and str(val).strip():
+                return str(val).strip()
         return ""
 
-    existing_by_email = {}
-    for cid, c in clients.items():
-        em = str((c or {}).get("email") or "").strip().lower()
-        if em:
-            existing_by_email[em] = cid
-
-    imported = updated = skipped = 0
-    now = now_iso()
-
-    for row in reader:
-        if not isinstance(row, dict):
-            skipped += 1
-            continue
-        name = pick(row, ["name", "fullname", "full_name", "clientname", "contactname"])
-        email = pick(row, ["email", "emailaddress", "email1"])
-        phone = pick(row, ["phone", "phonenumber", "mobile", "cell", "telephone"])
-        company = pick(row, ["company", "brokerage", "business", "organization"])
-        stage = pick(row, ["stage", "pipelinestage", "pipeline_stage"]) or "Lead"
-        status = pick(row, ["status", "clientstatus"]) or "lead"
-        tags_text = pick(row, ["tags", "tag", "labels"])
-        notes = pick(row, ["notes", "note", "description", "summary"])
-
-        if not name and email:
-            name = email.split("@", 1)[0].replace(".", " ").replace("_", " ").strip().title()
-        if not any([name, email, phone, company]):
-            skipped += 1
-            continue
-
-        if stage not in stages:
-            stage = "Lead"
-
-        tags = [t.strip() for t in re.split(r"[,;|]", tags_text) if t.strip()] if tags_text else []
-        email_key = email.strip().lower() if email else ""
-        existing_id = existing_by_email.get(email_key) if email_key else None
-
-        payload = {
-            "name": name or "Unnamed prospect",
-            "company": company,
-            "email": email,
-            "phone": phone,
-            "tags": tags,
-            "status": status,
-            "pipeline_stage": stage,
-            "notes": notes,
-            "updated_at": now,
-        }
-
-        if existing_id and existing_id in clients:
-            cur = clients.get(existing_id) or {}
-            cur.update({k: v for k, v in payload.items() if v not in (None, "", [])})
-            cur["updated_at"] = now
-            clients[existing_id] = cur
-            updated += 1
-        else:
+    try:
+        reader = csv.DictReader(StringIO(csv_text))
+        if not reader.fieldnames:
+            return jsonify({"ok": False, "error": "CSV must include a header row"}), 400
+        for row in reader:
+            if not isinstance(row, dict):
+                skipped += 1
+                continue
+            name = pick(row, "name", "full name", "fullname", "contact", "client", "prospect")
+            email = pick(row, "email", "email address", "e-mail")
+            phone = pick(row, "phone", "phone number", "mobile", "cell")
+            company = pick(row, "company", "brokerage", "business")
+            notes = pick(row, "notes", "note", "source")
+            stage = pick(row, "pipeline_stage", "pipeline stage", "stage") or default_stage
+            if stage not in stages:
+                stage = default_stage
+            if not name and not email and not phone:
+                skipped += 1
+                continue
+            if not name:
+                name = email or phone or "Imported prospect"
+            now = now_iso()
             cid = _crm_new_id("c")
-            client = {
+            crm.setdefault("clients", {})[cid] = {
                 "id": cid,
-                "name": payload["name"],
+                "name": name,
                 "company": company,
                 "email": email,
                 "phone": phone,
-                "tags": tags,
-                "status": status,
+                "tags": [],
+                "status": "lead",
                 "pipeline_stage": stage,
                 "last_contact": "",
                 "next_followup": "",
@@ -13834,14 +13699,13 @@ def api_crm_import_csv():
                 "created_at": now,
                 "updated_at": now,
             }
-            clients[cid] = client
-            if email_key:
-                existing_by_email[email_key] = cid
             imported += 1
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"CSV import failed: {e}"}), 400
 
-    crm["clients"] = clients
     _crm_save(uname, crm)
-    return jsonify({"ok": True, "imported": imported, "updated": updated, "skipped": skipped})
+    return jsonify({"ok": True, "imported": imported, "skipped": skipped, "total_clients": len(crm.get("clients") or {})})
+
 
 @app.post("/api/crm/pipeline")
 def api_crm_pipeline_set():
