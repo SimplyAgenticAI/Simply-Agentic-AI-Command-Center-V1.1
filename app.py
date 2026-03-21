@@ -6028,6 +6028,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="calendarBtn">Calendar</button>
         <button class="btn" id="crmBtn">Client Center</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
+        <button class="btn" id="leadLabBtn">Lead Lab</button>
+        <button class="btn" id="socialStudioBtn">Social Studio</button>
+        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
       </div>
       <div class="commandRow secondary">
         <button class="btn" id="imageLibBtn">Image Library</button>
@@ -6065,6 +6068,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
+        <button class="btn" data-click="leadLabBtn">Lead Lab</button>
+        <button class="btn" data-click="socialStudioBtn">Social Studio</button>
+        <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
         <button class="btn" data-click="imageLibBtn">Image Library</button>
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
@@ -6403,12 +6409,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
-  <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+  <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
-    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
-    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
-    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -9943,7 +9946,19 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function showGrowthPlaybookModal(){
-      showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+      showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
+    }
+
+    function showLeadLabModal(){
+      showCRMModal('crmViewLeadLab', 'Lead Lab', {standalone:true});
+    }
+
+    function showSocialStudioModal(){
+      showCRMModal('crmViewSocialStudio', 'Social Studio', {standalone:true});
+    }
+
+    function showOfferBuilderModal(){
+      showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
     }
 
     // =========================
@@ -10603,7 +10618,8 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center'){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
+      const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10620,6 +10636,8 @@ async function crmFetchTasks(){
       if($("modalImg")) $("modalImg").style.display = "none";
 
       $("modalTitle").innerText = titleText;
+      const nav = $("crmNavTabs");
+      if(nav) nav.style.display = standalone ? "none" : "flex";
       crmSetStatus('Loading...');
 
       // default view
@@ -10640,6 +10658,9 @@ async function crmFetchTasks(){
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
+    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
+    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
+    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
