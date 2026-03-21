@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import csv
+import io
 import smtplib
 import uuid
 import base64
@@ -3827,29 +3829,26 @@ AUTH_BASE_CSS = r"""
     margin:0;
     font-family: Arial, sans-serif;
     background:
-      radial-gradient(1200px 820px at 50% 22%, rgba(247,211,106,.18), transparent 56%),
-      radial-gradient(1200px 900px at 50% 38%, rgba(124,58,237,.28), transparent 58%),
-      radial-gradient(1000px 760px at 50% 46%, rgba(59,130,246,.16), transparent 56%),
-      linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
+      radial-gradient(900px 600px at 50% 40%, rgba(247,211,106,.12), transparent 58%),
+      radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
+      radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
+      radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
     color:var(--text);
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 28px 18px;
+    padding: 26px 14px;
   }
   .card{
-    width: min(860px, calc(100vw - 36px));
-    min-height: min(84vh, 820px);
-    max-width: calc(100vw - 36px);
-    background:
-      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
-      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
-    border:1px solid rgba(76,92,148,.72);
-    border-radius: 26px;
-    padding: 34px 34px 30px;
-    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
-    backdrop-filter: blur(14px);
+    width: 520px;
+    max-width: calc(100vw - 22px);
+    background: rgba(14,22,48,.82);
+    border:1px solid rgba(42,58,106,.9);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 0 60px rgba(0,0,0,.45);
+    backdrop-filter: blur(10px);
     position: relative;
     overflow: hidden;
   }
@@ -3857,69 +3856,53 @@ AUTH_BASE_CSS = r"""
     content:"";
     position:absolute;
     inset:0;
-    padding:2px;
-    border-radius:26px;
-    background: linear-gradient(135deg, rgba(247,211,106,.95), rgba(226,181,73,.65) 26%, rgba(124,58,237,.78) 58%, rgba(59,130,246,.52) 100%);
+    padding:1px;
+    border-radius:18px;
+    background: linear-gradient(135deg, rgba(247,211,106,.70), rgba(124,58,237,.40), rgba(59,130,246,.35));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events:none;
   }
-  .card::after{
-    content:"";
-    position:absolute;
-    inset:16px;
-    border-radius:20px;
-    border:1px solid rgba(247,211,106,.12);
-    pointer-events:none;
-    box-shadow: inset 0 0 24px rgba(247,211,106,.04);
-  }
-  .brand{ display:flex; gap:12px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 14px; font-size: 28px; }
+  .brand{ display:flex; gap:10px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 10px; }
   .dot{
-    width:16px;height:16px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #c4b5fd 28%, #7c3aed 72%);
-    box-shadow: 0 0 18px rgba(124,58,237,.62), 0 0 28px rgba(247,211,106,.18);
-    flex: 0 0 auto;
+    width:10px;height:10px;border-radius:999px;
+    background: radial-gradient(circle at 30% 30%, #fff, #7c3aed);
+    box-shadow: 0 0 14px rgba(124,58,237,.55);
   }
-  .muted{ color: var(--muted); font-size: 15px; line-height: 1.5; }
-  label{ display:block; font-size: 14px; color: #d8defd; margin: 14px 0 8px 0; font-weight: 800; letter-spacing:.2px; }
+  .muted{ color: var(--muted); font-size: 12px; }
+  label{ display:block; font-size: 11px; color: var(--muted); margin: 10px 0 6px 0; font-weight: 700; letter-spacing:.2px; }
   input{
     width:100%;
-    border-radius: 16px;
-    border:1px solid rgba(82,98,156,.92);
-    background: rgba(8,12,27,.92);
-    color: var(--text);
-    padding:16px 18px;
-    outline:none;
-    font-size:16px;
-    line-height:1.4;
-    min-height: 54px;
-    box-shadow: inset 0 0 0 1px rgba(247,211,106,.04);
-  }
-  input:focus{ border-color: rgba(247,211,106,.82); box-shadow: 0 0 0 3px rgba(247,211,106,.14), 0 0 22px rgba(124,58,237,.12); }
-  .row{ display:flex; gap:14px; align-items:center; justify-content:space-between; margin-top: 18px; flex-wrap:wrap; }
-  .btn{
-    border:1px solid rgba(82,98,156,.9);
+    border-radius: 12px;
+    border:1px solid rgba(42,58,106,.9);
     background: rgba(11,16,36,.92);
+    color: var(--text);
+    padding:10px;
+    outline:none;
+    font-size:13px;
+    line-height:1.3;
+  }
+  .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top: 12px; flex-wrap:wrap; }
+  .btn{
+    border:1px solid rgba(42,58,106,.9);
+    background: rgba(11,16,36,.9);
     color:var(--text);
-    padding:14px 18px;
-    border-radius:16px;
+    padding:10px 12px;
+    border-radius:12px;
     cursor:pointer;
-    font-size:16px;
-    font-weight:700;
-    min-height: 52px;
+    font-size:13px;
   }
-  .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+  .btn:hover{ background: rgba(20,28,60,.92); }
   .btnPrimary{
-    border:1px solid rgba(247,211,106,.72);
-    background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
-    box-shadow: 0 0 24px rgba(124,58,237,.22), 0 0 24px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22);
+    border:1px solid rgba(247,211,106,.55);
+    background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
+    box-shadow: 0 0 24px rgba(124,58,237,.18), 0 0 18px rgba(247,211,106,.12), inset 0 0 0 1px rgba(247,211,106,.18);
   }
-  a{ color: #ddd6fe; text-decoration:none; font-size: 15px; }
+  a{ color: #c7d2fe; text-decoration:none; }
   a:hover{ text-decoration: underline; }
-  .err{ margin-top: 14px; color: #ffb4b4; font-size: 14px; white-space: pre-wrap; }
-  .ok{ margin-top: 14px; color: #9effc2; font-size: 14px; white-space: pre-wrap; }
+  .err{ margin-top: 10px; color: #ffb4b4; font-size: 12px; white-space: pre-wrap; }
+  .ok{ margin-top: 10px; color: #9effc2; font-size: 12px; white-space: pre-wrap; }
 
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
@@ -3951,10 +3934,10 @@ AUTH_BASE_CSS = r"""
 
   /* Mobile responsiveness */
 @media (max-width: 640px){
-  body{ overflow-x:hidden; padding: 16px 10px; }
+  body{ overflow-x:hidden; }
   .container{ padding: 12px; padding-bottom: 40px; }
   .row{ flex-wrap: wrap; gap: 10px; }
-  .btn, .seatToolBtn{ padding: 12px 14px; border-radius: 14px; }
+  .btn, .seatToolBtn{ padding: 10px 12px; border-radius: 12px; }
   .seatToolBtn{ font-size: 13px; }
   .actions{ flex-wrap: wrap; }
   .grid{ grid-template-columns: 1fr !important; gap: 10px; }
@@ -3963,9 +3946,6 @@ AUTH_BASE_CSS = r"""
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
-  .card{ width: calc(100vw - 18px) !important; min-height: auto !important; padding: 22px 18px !important; border-radius: 20px !important; }
-  .brand{ font-size: 22px !important; }
-  .muted{ font-size: 14px !important; }
 }
 
 
@@ -4635,19 +4615,12 @@ HTML = r"""
     }
 
     .topbar{
-      position: relative;
-      z-index: 20;
-      padding: 14px 16px 12px 16px;
-      background: linear-gradient(180deg, rgba(14,22,48,.96), rgba(14,22,48,.88));
+      position: sticky; top: 0; z-index: 60;
+      height:56px; display:flex; align-items:center; justify-content:space-between;
+      padding:0 14px;
+      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(14,22,48,.60));
       border-bottom:1px solid rgba(34,49,90,.8);
       backdrop-filter: blur(10px);
-    }
-    .topbarMain{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      flex-wrap:wrap;
     }
     .brand{ display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.2px; }
     .dot{
@@ -4656,34 +4629,6 @@ HTML = r"""
       box-shadow: 0 0 14px rgba(124,58,237,.55);
     }
     .rightmeta{ display:flex; gap:10px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; justify-content:flex-end; }
-    .commandHeader{
-      margin-top: 14px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .commandRow{
-      display:grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
-      gap:10px;
-      align-items:stretch;
-    }
-    .commandRow.secondary{
-      grid-template-columns: repeat(4, minmax(180px, 1fr));
-      max-width: 980px;
-    }
-    .commandRow .btn, .commandRow a.btn{
-      width:100%;
-      min-height:46px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      text-align:center;
-      white-space:normal;
-      line-height:1.2;
-      font-size:14px;
-      font-weight:700;
-    }
     .btn{
       border:1px solid rgba(42,58,106,.9);
       background: rgba(11,16,36,.9);
@@ -4693,8 +4638,7 @@ HTML = r"""
       cursor:pointer;
       font-size:13px;
     }
-    .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+    .btn:hover{ background: rgba(20,28,60,.92); }
     .btnPrimary{
       border:1px solid rgba(124,58,237,.75);
       background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
@@ -4712,9 +4656,9 @@ HTML = r"""
     }
 
     .stage{
-      min-height: calc(100vh - 24px);
+      min-height: calc(100vh - 56px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      grid-template-columns: 1fr 420px;
       align-items:start;
     }
 
@@ -5001,9 +4945,9 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 12px;
+      top: 56px;
       align-self:start;
-      height: calc(100vh - 24px);
+      height: calc(100vh - 56px);
       overflow:auto;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
@@ -5133,34 +5077,37 @@ HTML = r"""
 
     .overlay{
       position:fixed; inset:0; display:none;
-      align-items:flex-start; justify-content:center;
-      padding-top: 68px;
-      background: rgba(7,10,20,.65);
-      backdrop-filter: blur(8px);
+      align-items:stretch; justify-content:stretch;
+      padding: 12px;
+      background: rgba(7,10,20,.72);
+      backdrop-filter: blur(10px);
       z-index: 80;
     }
     .overlay.show{ display:flex; }
 
     .modal{
       position: fixed;
-      left: 50%;
-      top: 64px;
-      transform: translateX(-50%);
-      width: 860px;
-      max-width: calc(100vw - 22px);
-      height: 680px;
-      max-height: calc(100vh - 90px);
-      background: rgba(14,22,48,.92);
+      inset: 12px;
+      left: 12px;
+      top: 12px;
+      right: 12px;
+      bottom: 12px;
+      transform: none;
+      width: auto;
+      max-width: none;
+      height: auto;
+      max-height: none;
+      background: rgba(14,22,48,.96);
       border: 1px solid rgba(42,58,106,.9);
-      border-radius: 18px;
+      border-radius: 20px;
       padding: 12px;
       box-shadow: 0 0 60px rgba(0,0,0,.45);
       display: flex;
       flex-direction: column;
-      resize: both;
+      resize: none;
       overflow: hidden;
-      min-width: 560px;
-      min-height: 420px;
+      min-width: 0;
+      min-height: 0;
       z-index: 90;
     }
 
@@ -5173,7 +5120,7 @@ HTML = r"""
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.7);
       background: rgba(7,10,20,.45);
-      cursor: move;
+      cursor: default;
       user-select:none;
     }
 
@@ -5192,6 +5139,9 @@ HTML = r"""
       align-items:center;
       flex-wrap:wrap;
     }
+
+
+    #minModal, #restoreModal{ display:none !important; }
 
     .modalBodyWrap{
       margin-top: 10px;
@@ -5274,13 +5224,6 @@ HTML = r"""
     }
     .pill button:hover{ color: var(--text); }
 
-
-    @media (max-width: 1280px){
-      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
-      .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
-      .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
-    }
-
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
@@ -5297,9 +5240,8 @@ HTML = r"""
     @media (max-width: 720px){
       body{ overflow-x:hidden; }
       .topbar{ height:auto; }
-      .topbarMain{ gap:10px; }
+      .topbarInner{ flex-wrap:wrap; height:auto; gap:10px; padding:10px 12px; }
       .rightmeta{ justify-content:flex-start; }
-      .commandRow, .commandRow.secondary{ grid-template-columns: repeat(2, minmax(0, 1fr)); max-width:none; }
       .stage{ grid-template-columns: 1fr !important; }
       .side{ padding: 0 12px 22px 12px; }
       .sideCard{ position: relative; top:auto; max-height:none; }
@@ -6018,39 +5960,29 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </head>
 <body>
   <div class="topbar">
-    <div class="topbarMain">
-      <div class="brand">
-        <div class="dot"></div>
-        <div>{{app_title}}</div>
-      </div>
-      <div class="rightmeta">
-        <div id="modelTag">Model: {{model}}</div>
-      </div>
+    <div class="brand">
+      <div class="dot"></div>
+      <div>{{app_title}}</div>
     </div>
-    <div class="commandHeader">
-      <div class="commandRow primary">
-        <button class="btn" id="assembleBtn">Assemble all</button>
-        <button class="btn" id="frameworkBtn">Core framework</button>
-        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
-        <button class="btn" id="createTeamBtn">Create teammate</button>
-        <button class="btn" id="installFullBtn">Install full team</button>
-        <button class="btn" id="settingsBtn">Settings</button>
-        <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="crmBtn">Client Center</button>
-      </div>
-      <div class="commandRow secondary">
-        <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
-        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
-        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
-      </div>
+    <div class="rightmeta">
+      <div id="modelTag">Model: {{model}}</div>
+      <button class="btn" id="frameworkBtn">Core framework</button>
+      <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
+      <button class="btn" id="createTeamBtn">Create teammate</button>
+      <button class="btn" id="installFullBtn">Install full team</button>
+      <button class="btn" id="settingsBtn">Settings</button>
+            <button class="btn" id="calendarBtn">Calendar</button>
+<button class="btn" id="crmBtn">Client Center</button>
+<button class="btn" id="imageLibBtn">Image Library</button>
+      <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+            <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
+      <a class="btn" href="/logout" style="text-decoration:none; display:inline-block;">Logout</a>
     </div>
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn btnPrimary" id="mobileAssembleBtn">Assemble</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
@@ -6066,7 +5998,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
 
       <div class="mobileDrawerGrid">
-        <button class="btn" data-click="assembleBtn">Assemble all</button>
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
@@ -6230,6 +6161,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               <div class="modalForm" id="manageForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Toggle who is present at the table. Installed teammates stay installed.
+                </div>
+                <div class="actions" style="justify-content:flex-start; margin:0 0 12px 0;">
+                  <button class="btn" id="assembleBtn">Assemble all active teammates</button>
                 </div>
                 <div id="manageList"></div>
                 <div class="actions">
@@ -6397,10 +6331,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
     <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
     <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
-    <button class="btn btnMini" id="crmTabPlaybooks">Growth Playbooks</button>
-    <button class="btn btnMini" id="crmTabTasks">Tasks</button>
-    <button class="btn btnMini" id="crmTabSequences">Sequences</button>
-    <button class="btn btnMini" id="crmTabCalendar">Calendar</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -6436,8 +6366,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
     <div class="actions" style="justify-content:flex-start; margin-top:10px;">
       <button class="btn" id="crmRefreshClients">Refresh</button>
+      <button class="btn" id="crmImportCsvBtn">Import CSV</button>
+      <input id="crmImportCsvFile" type="file" accept=".csv,text/csv" style="display:none;" />
       <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
     </div>
+    <div class="tiny" style="margin-top:8px;">Import CSV columns like name, full name, email, phone, tags, status, pipeline stage, stage, and notes. New prospects will be added straight into the pipeline.</div>
+    <div class="tiny" id="crmImportStatus" style="margin-top:6px;"></div>
 
     <div id="crmClientsList" style="margin-top:10px;"></div>
 
@@ -7202,9 +7136,15 @@ if (typeof window.showToast !== "function") {
     }
 
     
+    const FULLSCREEN_MODAL = true;
+
     function ensureModalMinSize(minW, minH){
       const win = $("modalWin");
       if(!win) return;
+      if(FULLSCREEN_MODAL){
+        applyModalPos();
+        return;
+      }
       const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
       const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
       const w = Math.max(curW, minW || 0);
@@ -7217,6 +7157,18 @@ if (typeof window.showToast !== "function") {
 function applyModalPos(){
       const win = $("modalWin");
       if(!win) return;
+      if(FULLSCREEN_MODAL){
+        win.style.transform = "none";
+        win.style.left = "12px";
+        win.style.top = "12px";
+        win.style.right = "12px";
+        win.style.bottom = "12px";
+        win.style.width = "auto";
+        win.style.height = "auto";
+        win.style.maxWidth = "none";
+        win.style.maxHeight = "none";
+        return;
+      }
 
       const saved = loadModalPos();
       const savedSize = loadModalSize();
@@ -7321,7 +7273,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
+      $("minModal").style.display = "none";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7340,7 +7292,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
+      $("minModal").style.display = "none";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7360,7 +7312,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
+      $("minModal").style.display = "none";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7389,7 +7341,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
+      $("minModal").style.display = "none";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7409,7 +7361,7 @@ function showModal(title, body, imgUrl){
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
+      $("minModal").style.display = "none";
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
@@ -7433,21 +7385,12 @@ function showModal(title, body, imgUrl){
       if(e.target.id === "overlay") hideModal();
     });
 
-    $("minModal").onclick = () => {
-      modalMinimized = true;
-      $("modalWin").classList.add("minimized");
-      $("minModal").style.display = "none";
-      $("restoreModal").style.display = "inline-block";
-    };
+    $("minModal").onclick = () => {};
 
-    $("restoreModal").onclick = () => {
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-    };
+    $("restoreModal").onclick = () => {};
 
     (function initModalDrag(){
+      if(FULLSCREEN_MODAL) return;
       const bar = $("modalBar");
       const win = $("modalWin");
       if(!bar || !win) return;
@@ -7504,6 +7447,7 @@ function showModal(title, body, imgUrl){
     })();
 
     (function initModalResizePersist(){
+      if(FULLSCREEN_MODAL) return;
       const win = $("modalWin");
       if(!win) return;
       try{
@@ -9471,8 +9415,8 @@ function makeSeat(defn, idx){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
     }
-    $("assembleBtn").onclick = assembleAll;
-    $("assembleBtn2").onclick = assembleAll;
+    if($("assembleBtn")) $("assembleBtn").onclick = assembleAll;
+    if($("assembleBtn2")) $("assembleBtn2").onclick = assembleAll;
 
     
 async function pollImageJob(jobId, seatName){
@@ -10027,6 +9971,26 @@ Challenge weak assumptions. Surface risks.`;
       if(!data.ok) throw new Error(data.error||'clients load failed');
       crmCache.clients = data.clients || [];
       return crmCache.clients;
+    }
+
+    async function crmImportCsvText(csvText){
+      const status = $("crmImportStatus");
+      try{
+        if(status) status.innerText = 'Importing...';
+        const res = await fetch('/api/crm/import_csv', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({csv_text: csvText || ''})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'Import failed');
+        await crmFetchState();
+        await crmFetchClients();
+        crmRenderClients();
+        if(status) status.innerText = `Imported ${data.created||0} prospects`;
+      }catch(e){
+        if(status) status.innerText = e.message || 'Import failed';
+      }
     }
 
     function crmMatchFilter(c, q, filt){
@@ -10874,7 +10838,14 @@ async function crmFetchTasks(){
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
       b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
-      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
+      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); if($("crmImportStatus")) $("crmImportStatus").innerText=''; });
+      b('crmImportCsvBtn', ()=>{ const el=$("crmImportCsvFile"); if(el){ el.value=''; el.click(); } });
+      if($("crmImportCsvFile")) $("crmImportCsvFile").addEventListener('change', async (e)=>{
+        const file = e.target && e.target.files && e.target.files[0];
+        if(!file) return;
+        const csvText = await file.text();
+        await crmImportCsvText(csvText);
+      });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
@@ -13598,6 +13569,84 @@ def api_crm_clients_create():
     crm["clients"][cid] = client
     _crm_save(uname, crm)
     return jsonify({"ok": True, "client": client})
+
+@app.post("/api/crm/import_csv")
+def api_crm_import_csv():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    _crm_migrate_from_client_memory_if_empty(uname)
+    crm = _load_crm(uname)
+    payload = request.get_json(silent=True) or {}
+    csv_text = str(payload.get("csv_text") or "")
+    if not csv_text.strip():
+        return jsonify({"ok": False, "error": "Missing CSV text"}), 400
+
+    def _norm(s: str) -> str:
+        s = (s or '').strip().lower()
+        s = re.sub(r'[^a-z0-9]+', '', s)
+        return s
+
+    f = io.StringIO(csv_text)
+    try:
+        reader = csv.DictReader(f)
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not read CSV"}), 400
+    headers = reader.fieldnames or []
+    if not headers:
+        return jsonify({"ok": False, "error": "CSV needs a header row"}), 400
+    hmap = {_norm(h): h for h in headers}
+
+    def pick(row, *keys):
+        for k in keys:
+            hk = hmap.get(_norm(k))
+            if hk and str(row.get(hk) or '').strip():
+                return str(row.get(hk) or '').strip()
+        return ''
+
+    valid_stages = crm.get("pipeline", {}).get("stages") or _default_pipeline_stages()
+    created = 0
+    skipped = 0
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        name = pick(row, 'name', 'fullname', 'full name', 'first name', 'firstname', 'contact name')
+        email = pick(row, 'email', 'email address')
+        phone = pick(row, 'phone', 'mobile', 'cell', 'phone number')
+        tags_raw = pick(row, 'tags', 'tag')
+        status = (pick(row, 'status') or 'lead').strip().lower()
+        stage = pick(row, 'pipeline stage', 'pipelinestage', 'stage', 'pipeline') or 'Lead'
+        notes = pick(row, 'notes', 'note', 'comments', 'comment')
+        company = pick(row, 'company', 'brokerage', 'business')
+        if company:
+            notes = (notes + ('\n' if notes else '') + f'Company: {company}').strip()
+        if not (name or email or phone):
+            skipped += 1
+            continue
+        if not name:
+            name = email or phone or 'Prospect'
+        if stage not in valid_stages:
+            stage = 'Lead'
+        tags = [t.strip() for t in re.split(r'[,;|]', tags_raw) if t and t.strip()]
+        cid = 'client_' + uuid.uuid4().hex[:10]
+        client = {
+            'id': cid,
+            'name': name,
+            'email': email,
+            'phone': phone,
+            'tags': tags,
+            'status': status if status in ['lead','active','vip','past','cold'] else 'lead',
+            'pipeline_stage': stage,
+            'notes': notes,
+            'created_at': now_iso(),
+            'updated_at': now_iso(),
+        }
+        crm.setdefault('clients', {})[cid] = client
+        created += 1
+    _save_crm(uname, crm)
+    append_log('crm_import_csv', {'user': uname, 'created': created, 'skipped': skipped, 'at': now_iso()})
+    return jsonify({"ok": True, "created": created, "skipped": skipped, "pipeline": crm.get("pipeline") or {}})
 
 @app.post("/api/crm/clients/<client_id>")
 def api_crm_clients_update(client_id: str):
