@@ -5169,44 +5169,25 @@ HTML = r"""
       margin-top: 10px;
       flex: 1 1 auto;
       overflow: auto;
-      border-radius: 16px;
-      border: 1px solid rgba(77,101,167,.68);
-      background: linear-gradient(180deg, rgba(10,15,32,.84), rgba(7,10,20,.72));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 34px rgba(0,0,0,.20);
-      padding: 18px;
-    }
-
-    #modalScroll > .modalForm,
-    #modalScroll > pre,
-    #modalScroll > img,
-    #modalScroll > div.modalForm{
-      width: min(980px, 100%);
-      margin-left: auto;
-      margin-right: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(42,58,106,.6);
+      background: rgba(7,10,20,.45);
+      padding: 10px;
     }
 
     .modal pre{
-      margin:0 auto;
-      width:100%;
+      margin:0;
       white-space: pre-wrap;
       color: var(--text);
       background: transparent;
       border: 0;
       padding: 0;
       font-size: 13px;
-      line-height: 1.5;
+      line-height: 1.35;
     }
 
-    .modalForm{
-      display:none;
-      width:100%;
-      background: rgba(255,255,255,.02);
-      border:1px solid rgba(255,255,255,.06);
-      border-radius:18px;
-      padding:18px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
-    }
-    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
+    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -5228,15 +5209,6 @@ HTML = r"""
     }
     .modalForm textarea{ height: 96px; resize: vertical; }
     .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; justify-content:flex-end; }
-    .modalForm > .tiny,
-    .modalForm > .pill,
-    .modalForm > ol,
-    .modalForm > div,
-    .modalForm > label,
-    .modalForm > input,
-    .modalForm > textarea{
-      max-width: 100%;
-    }
 
     .imgPreview{
       width:100%;
@@ -6015,23 +5987,47 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 
 
-/* ===== Full-workspace app windows ===== */
-#overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
+/* ===== Desktop window polish: centered, draggable, resizable, less wasted space ===== */
+#overlay{ align-items:flex-start !important; justify-content:center !important; padding:68px 16px 16px !important; }
 #modalWin{
-  width:100% !important;
-  height:100% !important;
-  max-width:none !important;
-  max-height:none !important;
-  inset:0 !important;
-  left:0 !important;
-  top:0 !important;
-  right:0 !important;
-  bottom:0 !important;
-  transform:none !important;
-  border-radius:0 !important;
-  resize:none !important;
+  width:min(980px, calc(100vw - 32px)) !important;
+  height:min(760px, calc(100vh - 92px)) !important;
+  max-width:calc(100vw - 32px) !important;
+  max-height:calc(100vh - 92px) !important;
+  inset:auto !important;
+  left:50% !important;
+  top:68px !important;
+  right:auto !important;
+  bottom:auto !important;
+  transform:translateX(-50%) !important;
+  border-radius:18px !important;
+  resize:both !important;
+  min-width:640px !important;
+  min-height:440px !important;
 }
-#modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
+#modalScroll{
+  height:auto !important;
+  max-height:none !important;
+}
+.modalBodyWrap,
+#modalScroll{
+  width:100% !important;
+}
+.modalBodyWrap > *,
+#modalScroll > *{
+  max-width:960px;
+  margin-left:auto !important;
+  margin-right:auto !important;
+}
+.modalForm,
+#modalBody,
+#manageForm,
+#createForm,
+#frameworkForm,
+#calendarForm{
+  max-width:960px;
+  margin:0 auto !important;
+}
 
 </style>
 </head>
@@ -7429,6 +7425,16 @@ function showModal(title, body, imgUrl){
       let startX = 0, startY = 0;
       let startLeft = 0, startTop = 0;
       function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+      function keepModalInView(){
+        const r = win.getBoundingClientRect();
+        const maxLeft = Math.max(8, window.innerWidth - r.width - 8);
+        const maxTop = Math.max(8, window.innerHeight - r.height - 8);
+        win.style.left = clamp(r.left, 8, maxLeft) + "px";
+        win.style.top = clamp(r.top, 8, maxTop) + "px";
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.style.transform = "none";
+      }
 
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
@@ -9547,7 +9553,6 @@ async function sendFollow(){
       }
       await loadState();
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-      try{ if(window.showToast) window.showToast("Full team installed", "success"); }catch(_){ }
     };
 
     $("clearGroup").onclick = () => {
@@ -12543,6 +12548,7 @@ maybeAutoShowOnboarding();
 (function(){
   let onbData = null;
   let drag = {active:false, dx:0, dy:0};
+  let suppressAutoOpen = false;
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
 
@@ -12564,6 +12570,7 @@ maybeAutoShowOnboarding();
   }
 
   async function openOnboarding(){
+    suppressAutoOpen = false;
     try{
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
@@ -12587,11 +12594,13 @@ maybeAutoShowOnboarding();
           }catch(_){}
         }
         panel.style.display = "block";
+        keepPanelInView();
       }
     }catch(e){}
   }
 
   function closeOnboarding(){
+    suppressAutoOpen = true;
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
@@ -12623,6 +12632,28 @@ maybeAutoShowOnboarding();
     panel.style.top = Math.max(8, y) + "px";
   }
 
+  function clampPanelSize(){
+    const panel = onb$("onboardingPanel");
+    if(!panel) return;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    panel.style.width = Math.min(Math.max(panel.offsetWidth || 340, 280), vw - 16) + "px";
+    panel.style.height = Math.min(Math.max(panel.offsetHeight || 360, 230), vh - 16) + "px";
+  }
+
+  function keepPanelInView(){
+    const panel = onb$("onboardingPanel");
+    if(!panel) return;
+    clampPanelSize();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    const width = panel.offsetWidth || 340;
+    const height = panel.offsetHeight || 360;
+    const left = parseFloat(panel.style.left || "0") || 0;
+    const top = parseFloat(panel.style.top || "0") || 0;
+    setPanelPos(Math.min(Math.max(8, left), Math.max(8, vw - width - 8)), Math.min(Math.max(8, top), Math.max(8, vh - height - 8)));
+  }
+
   async function fetchOnboarding(){
     try{
       const res = await fetch("/api/onboarding/status");
@@ -12641,7 +12672,7 @@ maybeAutoShowOnboarding();
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
 
-    if(onbData.dismissed || onbData.all_done){
+    if(onbData.dismissed || onbData.all_done || suppressAutoOpen){
       panel.style.display = "none";
       return;
     }
@@ -12782,13 +12813,23 @@ maybeAutoShowOnboarding();
     header.addEventListener("pointermove", (e)=>{
       if(!drag.active) return;
       setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
+      keepPanelInView();
     });
 
-    header.addEventListener("pointerup", (e)=>{
+    const endDrag = (e)=>{
       drag.active = false;
       header.style.cursor = "grab";
+      keepPanelInView();
       try{ header.releasePointerCapture(e.pointerId); }catch(err){}
-    });
+    };
+
+    header.addEventListener("pointerup", endDrag);
+    header.addEventListener("pointercancel", endDrag);
+
+    try{
+      new ResizeObserver(()=> keepPanelInView()).observe(panel);
+    }catch(_){ }
+    window.addEventListener("resize", keepPanelInView);
   }
 
 
