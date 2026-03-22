@@ -9510,10 +9510,7 @@ Best,`) || '';
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '
-Top email: ' + top : '') + (phone ? '
-Phone: ' + phone : '') + ((item.website || item.domain) ? '
-Website: ' + (item.website || item.domain) : '')
+                notes: (item.notes || '') + (top ? '\nTop email: ' + top : '') + (phone ? '\nPhone: ' + phone : '') + ((item.website || item.domain) ? '\nWebsite: ' + (item.website || item.domain) : '')
               })
             });
             const data = await res.json();
