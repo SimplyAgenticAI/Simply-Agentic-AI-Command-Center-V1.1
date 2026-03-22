@@ -5169,25 +5169,44 @@ HTML = r"""
       margin-top: 10px;
       flex: 1 1 auto;
       overflow: auto;
-      border-radius: 14px;
-      border: 1px solid rgba(42,58,106,.6);
-      background: rgba(7,10,20,.45);
-      padding: 10px;
+      border-radius: 16px;
+      border: 1px solid rgba(77,101,167,.68);
+      background: linear-gradient(180deg, rgba(10,15,32,.84), rgba(7,10,20,.72));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 34px rgba(0,0,0,.20);
+      padding: 18px;
+    }
+
+    #modalScroll > .modalForm,
+    #modalScroll > pre,
+    #modalScroll > img,
+    #modalScroll > div.modalForm{
+      width: min(980px, 100%);
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .modal pre{
-      margin:0;
+      margin:0 auto;
+      width:100%;
       white-space: pre-wrap;
       color: var(--text);
       background: transparent;
       border: 0;
       padding: 0;
       font-size: 13px;
-      line-height: 1.35;
+      line-height: 1.5;
     }
 
-    .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
-    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .modalForm{
+      display:none;
+      width:100%;
+      background: rgba(255,255,255,.02);
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:18px;
+      padding:18px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -5209,6 +5228,15 @@ HTML = r"""
     }
     .modalForm textarea{ height: 96px; resize: vertical; }
     .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; justify-content:flex-end; }
+    .modalForm > .tiny,
+    .modalForm > .pill,
+    .modalForm > ol,
+    .modalForm > div,
+    .modalForm > label,
+    .modalForm > input,
+    .modalForm > textarea{
+      max-width: 100%;
+    }
 
     .imgPreview{
       width:100%;
@@ -9518,8 +9546,8 @@ async function sendFollow(){
         return;
       }
       await loadState();
-      showModal("Installed", "Full team installed.");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+      try{ if(window.showToast) window.showToast("Full team installed", "success"); }catch(_){ }
     };
 
     $("clearGroup").onclick = () => {
