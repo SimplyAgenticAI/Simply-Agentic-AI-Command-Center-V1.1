@@ -6029,8 +6029,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="crmBtn">Client Center</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
-        <button class="btn" id="socialStudioBtn">Social Studio</button>
-        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
       </div>
       <div class="commandRow secondary">
         <button class="btn" id="imageLibBtn">Image Library</button>
@@ -6069,8 +6067,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
-        <button class="btn" data-click="socialStudioBtn">Social Studio</button>
-        <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
         <button class="btn" data-click="imageLibBtn">Image Library</button>
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
@@ -6409,9 +6405,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
-  <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+  <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
+    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
+    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
+    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -6696,24 +6695,97 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Turn raw lead notes into structured leads. Paste rows as: Name | Company | Domain | Title. If you only know the company and domain, the system will still suggest likely contact paths.</div>
-    <div class="grid">
-      <div>
-        <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" />
+    <div class="tiny" style="margin-bottom:8px;">Generate and organize lead lists right here. You can search the web for companies, enrich contact details, estimate best-fit likelihood, save leads into CRM, and send email or SMS from the same window.</div>
+
+    <div class="diagCard" style="padding:12px; margin-bottom:12px;">
+      <div class="grid">
+        <div>
+          <label>List name</label>
+          <input id="leadLabListName" placeholder="NJ Investor Leads" />
+        </div>
+        <div>
+          <label>Lead count</label>
+          <input id="leadLabCount" type="number" min="1" max="50" value="10" />
+        </div>
       </div>
-      <div>
-        <label>Location</label>
-        <input id="leadLabLocation" placeholder="New Jersey" />
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Target niche</label>
+          <input id="leadLabNiche" placeholder="real estate investors" />
+        </div>
+        <div>
+          <label>Location</label>
+          <input id="leadLabLocation" placeholder="New Jersey" />
+        </div>
+      </div>
+      <label style="margin-top:10px;">Search query</label>
+      <input id="leadLabQuery" placeholder="hard money lenders in New Jersey" />
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn" id="leadLabSampleBtn">Sample</button>
+        <button class="btn btnPrimary" id="leadLabSearchBtn">Generate leads from web</button>
       </div>
     </div>
-    <label style="margin-top:10px;">Lead source text</label>
-    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="leadLabSampleBtn">Sample</button>
-      <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
+
+    <details class="diagCard" style="padding:12px; margin-bottom:12px;">
+      <summary style="cursor:pointer; user-select:none;">Optional raw lead rows</summary>
+      <div class="tiny" style="margin:10px 0 8px;">Paste rows as: Name | Company | Domain | Title. This is useful if you already have company names and want the app to enrich them.</div>
+      <textarea id="leadLabInput" style="height:160px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn btnPrimary" id="leadLabRunBtn">Enrich pasted leads</button>
+      </div>
+    </details>
+
+    <div class="diagCard" style="padding:12px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:end;">
+        <div style="flex:1 1 320px;">
+          <label>Saved lists</label>
+          <select id="leadLabSavedLists">
+            <option value="">Select a saved lead list</option>
+          </select>
+        </div>
+        <div class="actions" style="justify-content:flex-end;">
+          <button class="btn" id="leadLabRefreshListsBtn">Refresh lists</button>
+          <button class="btn" id="leadLabLoadListBtn">Load list</button>
+          <button class="btn" id="leadLabExportBtn">Export CSV</button>
+        </div>
+      </div>
+      <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
     </div>
-    <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
+
+    <div class="diagCard" style="padding:12px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:end;">
+        <div style="flex:1 1 320px;">
+          <label>Selected leads actions</label>
+          <div class="tiny">Select leads below, then save them to CRM or reach out by email or SMS.</div>
+        </div>
+        <div class="actions" style="justify-content:flex-end;">
+          <button class="btn" id="leadLabSelectAllBtn">Select all</button>
+          <button class="btn" id="leadLabClearSelBtn">Clear</button>
+          <button class="btn btnPrimary" id="leadLabSaveSelectedBtn">Save selected to CRM</button>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:12px;">
+        <div>
+          <label>Email subject</label>
+          <input id="leadLabEmailSubject" placeholder="Quick question" />
+        </div>
+        <div>
+          <label>SMS body / quick note</label>
+          <input id="leadLabSmsBody" placeholder="Wanted to reach out about..." />
+        </div>
+      </div>
+      <label style="margin-top:10px;">Email body</label>
+      <textarea id="leadLabEmailBody" rows="6" placeholder="Write your email here..."></textarea>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn" id="leadLabDraftEmailBtn">AI draft email</button>
+        <button class="btn" id="leadLabDraftSmsBtn">AI draft SMS</button>
+        <button class="btn" id="leadLabSendSmsBtn">Send SMS</button>
+        <button class="btn btnPrimary" id="leadLabSendEmailBtn">Send Email</button>
+      </div>
+      <div class="tiny" id="leadLabActionStatus" style="margin-top:8px;"></div>
+    </div>
+
     <div id="leadLabResults" style="margin-top:12px;"></div>
   </div>
 
@@ -9946,19 +10018,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function showGrowthPlaybookModal(){
-      showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
-    }
-
-    function showLeadLabModal(){
-      showCRMModal('crmViewLeadLab', 'Lead Lab', {standalone:true});
-    }
-
-    function showSocialStudioModal(){
-      showCRMModal('crmViewSocialStudio', 'Social Studio', {standalone:true});
-    }
-
-    function showOfferBuilderModal(){
-      showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
+      showCRMModal('crmViewPlaybooks', 'Growth Playbook');
     }
 
     // =========================
@@ -10618,8 +10678,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
-      const standalone = !!(opts && opts.standalone);
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center'){
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10636,8 +10695,6 @@ async function crmFetchTasks(){
       if($("modalImg")) $("modalImg").style.display = "none";
 
       $("modalTitle").innerText = titleText;
-      const nav = $("crmNavTabs");
-      if(nav) nav.style.display = standalone ? "none" : "flex";
       crmSetStatus('Loading...');
 
       // default view
@@ -10659,8 +10716,6 @@ async function crmFetchTasks(){
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
-    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
-    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
@@ -10692,7 +10747,7 @@ async function crmFetchTasks(){
       const fi = first ? first[0] : '';
       const li = last ? last[0] : '';
       const out = [];
-      const push = (local, score)=> out.push({email:`${local}@${cleanDomain}`, confidence:score});
+      const push = (local, score, status='estimated')=> out.push({email:`${local}@${cleanDomain}`, confidence:score, status});
       push(first, 0.62);
       if(last) push(`${first}.${last}`, 0.76);
       if(last) push(`${fi}${last}`, 0.71);
@@ -10703,43 +10758,137 @@ async function crmFetchTasks(){
       return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
     }
 
-    function crmRenderLeadResults(items){
+    let leadLabCache = { list_id:'', list_name:'', items:[], selected:{} };
+
+    function leadLabSelectedItems(){
+      return (leadLabCache.items||[]).filter(x => !!leadLabCache.selected[(x.id||'').toString()]);
+    }
+
+    function leadLabResetSelection(selectAll=false){
+      leadLabCache.selected = {};
+      if(selectAll){
+        (leadLabCache.items||[]).forEach(item=>{ if(item && item.id) leadLabCache.selected[item.id] = true; });
+      }
+    }
+
+    function leadLabTopEmail(item){
+      return ((((item||{}).email_candidates||[])[0]||{}).email) || '';
+    }
+
+    function leadLabTopPhone(item){
+      return ((((item||{}).phone_candidates||[])[0]||{}).phone) || '';
+    }
+
+    function leadLabRenderSavedListOptions(lists){
+      const sel = $("leadLabSavedLists");
+      if(!sel) return;
+      const rows = Array.isArray(lists) ? lists : [];
+      sel.innerHTML = `<option value="">Select a saved lead list</option>` + rows.map(x=>{
+        const label = `${escapeHtml(x.name || 'Lead list')} • ${escapeHtml(String(x.count||0))} leads • ${escapeHtml((x.created_at||'').replace('T',' ').replace('Z',''))}`;
+        return `<option value="${escapeHtml(x.id||'')}">${label}</option>`;
+      }).join('');
+      if(leadLabCache.list_id) sel.value = leadLabCache.list_id;
+    }
+
+    async function leadLabLoadSavedLists(){
+      try{
+        const res = await fetch('/api/crm/lead_lab/lists');
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Could not load lead lists');
+        leadLabRenderSavedListOptions(data.lists || []);
+      }catch(e){}
+    }
+
+    function crmRenderLeadResults(items, meta={}){
       const box = $("leadLabResults");
       if(!box) return;
+      leadLabCache.items = Array.isArray(items) ? items : [];
+      leadLabCache.list_id = meta.list_id || leadLabCache.list_id || '';
+      leadLabCache.list_name = meta.list_name || leadLabCache.list_name || '';
+      if(!Object.keys(leadLabCache.selected||{}).length){
+        leadLabResetSelection(false);
+      }
+
       if(!Array.isArray(items) || !items.length){
         box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
         return;
       }
-      box.innerHTML = items.map((item, idx)=>{
-        const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
-        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
-          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-            <div>
-              <div style="font-weight:800;">${escapeHtml(item.name || '(no name)')}</div>
-              <div class="tiny" style="opacity:.85;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
-              <div class="tiny" style="opacity:.85; margin-top:4px;">${escapeHtml(item.domain || '')}</div>
+
+      const selectedCount = leadLabSelectedItems().length;
+      box.innerHTML = `
+        <div class="tiny" style="margin-bottom:10px;">Showing ${items.length} leads${leadLabCache.list_name ? ` • ${escapeHtml(leadLabCache.list_name)}` : ''}${leadLabCache.list_id ? ` • list ${escapeHtml(leadLabCache.list_id)}` : ''} • ${selectedCount} selected</div>
+        ${items.map((item, idx)=>{
+          const key = (item.id || `lead_${idx}`).toString();
+          const checked = !!leadLabCache.selected[key];
+          const emails = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,4) : [];
+          const phones = Array.isArray(item.phone_candidates) ? item.phone_candidates.slice(0,3) : [];
+          return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+              <div style="display:flex; gap:10px; align-items:flex-start; flex:1 1 480px;">
+                <input type="checkbox" data-lead-select="${escapeHtml(key)}" ${checked ? 'checked' : ''} style="margin-top:4px;" />
+                <div style="min-width:0;">
+                  <div style="font-weight:800; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    <span>${escapeHtml(item.company || item.name || '(no company)')}</span>
+                    <span class="pill">Likelyhood ${escapeHtml(String(item.score || 0))}%</span>
+                  </div>
+                  <div class="tiny" style="opacity:.88; margin-top:3px;">
+                    ${escapeHtml(item.name || '')}${item.title ? ' • ' + escapeHtml(item.title) : ''}${item.location ? ' • ' + escapeHtml(item.location) : ''}
+                  </div>
+                  <div class="tiny" style="opacity:.88; margin-top:3px;">
+                    ${item.website ? `<a href="${escapeHtml(item.website)}" target="_blank" rel="noopener">Website</a>` : ''}${item.domain ? ` ${item.website ? '• ' : ''}${escapeHtml(item.domain)}` : ''}${item.source_url ? ` • <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener">Source</a>` : ''}
+                  </div>
+                  ${item.source_snippet ? `<div class="tiny" style="opacity:.84; margin-top:6px; line-height:1.35;">${escapeHtml(item.source_snippet)}</div>` : ''}
+                  ${item.notes ? `<div class="tiny" style="opacity:.84; margin-top:6px; line-height:1.35;">${escapeHtml(item.notes)}</div>` : ''}
+                </div>
+              </div>
+              <div class="actions" style="justify-content:flex-end;">
+                <button class="btn btnMini" data-lead-copy-email="${escapeHtml(key)}">Copy email</button>
+                <button class="btn btnMini" data-lead-copy-phone="${escapeHtml(key)}">Copy phone</button>
+                <button class="btn btnPrimary btnMini" data-lead-add="${escapeHtml(key)}">Add to CRM</button>
+              </div>
             </div>
-            <div class="tiny" style="opacity:.9;">Match score ${(item.score || 0)}%</div>
-          </div>
-          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnMini" data-lead-copy="${idx}">Copy top email</button>
-            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
-          </div>
-        </div>`;
-      }).join('');
-      box.querySelectorAll('[data-lead-copy]').forEach(btn=>{
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              ${emails.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%${g.status ? ' • ' + escapeHtml(g.status) : ''}</span>`).join('')}
+              ${phones.map(g=>`<span class="pill">${escapeHtml(g.phone)}${g.confidence ? ' • ' + Math.round((g.confidence||0)*100) + '%' : ''}${g.status ? ' • ' + escapeHtml(g.status) : ''}</span>`).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      `;
+
+      box.querySelectorAll('[data-lead-select]').forEach(inp=>{
+        inp.onchange = ()=>{
+          const id = inp.getAttribute('data-lead-select') || '';
+          if(!id) return;
+          if(inp.checked) leadLabCache.selected[id] = true;
+          else delete leadLabCache.selected[id];
+          crmRenderLeadResults(leadLabCache.items, {list_id: leadLabCache.list_id, list_name: leadLabCache.list_name});
+        };
+      });
+
+      box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy'))] || {};
-          const email = (((item.email_candidates||[])[0]||{}).email) || '';
-          if(!email) return;
+          const id = btn.getAttribute('data-lead-copy-email') || '';
+          const item = (leadLabCache.items||[]).find(x => (x.id||'').toString() === id) || {};
+          const email = leadLabTopEmail(item);
+          if(!email) return showToast('No email found');
           try{ await navigator.clipboard.writeText(email); showToast('Copied'); }catch(e){}
         };
       });
+
+      box.querySelectorAll('[data-lead-copy-phone]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const id = btn.getAttribute('data-lead-copy-phone') || '';
+          const item = (leadLabCache.items||[]).find(x => (x.id||'').toString() === id) || {};
+          const phone = leadLabTopPhone(item);
+          if(!phone) return showToast('No phone found');
+          try{ await navigator.clipboard.writeText(phone); showToast('Copied'); }catch(e){}
+        };
+      });
+
       box.querySelectorAll('[data-lead-add]').forEach(btn=>{
         btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
-          const top = ((item.email_candidates||[])[0]||{}).email || '';
+          const id = btn.getAttribute('data-lead-add') || '';
+          const item = (leadLabCache.items||[]).find(x => (x.id||'').toString() === id) || {};
           try{
             const res = await fetch('/api/crm/clients', {
               method:'POST',
@@ -10747,11 +10896,17 @@ async function crmFetchTasks(){
               body: JSON.stringify({
                 name: item.name || item.company || 'New lead',
                 company: item.company || '',
-                email: top,
+                email: leadLabTopEmail(item),
+                phone: leadLabTopPhone(item),
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
+                notes: [item.notes || '', item.website ? ('Website: ' + item.website) : '', item.source_url ? ('Source: ' + item.source_url) : ''].filter(Boolean).join('\n'),
+                custom_fields: {
+                  likelyhood_percent: item.score || 0,
+                  title: item.title || '',
+                  domain: item.domain || ''
+                }
               })
             });
             const data = await res.json();
@@ -10765,38 +10920,198 @@ async function crmFetchTasks(){
       });
     }
 
-    async function crmRunLeadLab(){
+    async function crmRunLeadLab(mode='web'){
       const st = $("leadLabStatus");
-      if(st) st.innerText = 'Building lead list...';
+      if(st) st.innerText = mode === 'paste' ? 'Enriching leads...' : 'Searching the web and building leads...';
       try{
+        const payload = {
+          mode,
+          list_name: ($("leadLabListName")?.value || '').trim(),
+          niche: ($("leadLabNiche")?.value || '').trim(),
+          location: ($("leadLabLocation")?.value || '').trim(),
+          query: ($("leadLabQuery")?.value || '').trim(),
+          lead_count: parseInt(($("leadLabCount")?.value || '10').trim(), 10) || 10,
+          source_text: ($("leadLabInput")?.value || '').trim()
+        };
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            niche: ($("leadLabNiche")?.value || '').trim(),
-            location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim()
-          })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'Lead build failed');
-        crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads`;
+        leadLabCache.list_id = data.list_id || '';
+        leadLabCache.list_name = data.list_name || payload.list_name || '';
+        leadLabResetSelection(true);
+        crmRenderLeadResults(data.items || [], {list_id:data.list_id||'', list_name:data.list_name||''});
+        if(st) st.innerText = `Ready • ${(data.items||[]).length} leads`;
+        try{ await leadLabLoadSavedLists(); }catch(e){}
       }catch(e){
         if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
 
     function crmSampleLeadLab(){
-      const ta = $("leadLabInput");
-      if(!ta) return;
-      ta.value = [
+      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate investors';
+      if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
+      if($("leadLabQuery")) $("leadLabQuery").value = 'real estate investors in New Jersey';
+      if($("leadLabListName")) $("leadLabListName").value = 'Sample Investor Leads';
+      if($("leadLabInput")) $("leadLabInput").value = [
         'Jamie Cole | Garden State Realty | gardenstaterealty.com | Broker',
         'Morgan Lee | BrightPath Investors | brightpathinvestors.com | Founder',
         'Taylor Adams | Northshore Lending | northshorelending.com | Loan Officer'
       ].join('\n');
-      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
-      if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
+    }
+
+    async function leadLabLoadSavedList(){
+      const sel = $("leadLabSavedLists");
+      const listId = sel ? (sel.value||'').trim() : '';
+      if(!listId) return;
+      const st = $("leadLabStatus");
+      if(st) st.innerText = 'Loading saved list...';
+      try{
+        const res = await fetch('/api/crm/lead_lab/lists/' + encodeURIComponent(listId));
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Could not load list');
+        leadLabCache.list_id = data.list.id || '';
+        leadLabCache.list_name = data.list.name || '';
+        leadLabResetSelection(true);
+        crmRenderLeadResults(data.list.items || [], {list_id:data.list.id||'', list_name:data.list.name||''});
+        if($("leadLabListName")) $("leadLabListName").value = data.list.name || '';
+        if(st) st.innerText = `Loaded ${(data.list.items||[]).length} leads`;
+      }catch(e){
+        if(st) st.innerText = e.message || 'Could not load list';
+      }
+    }
+
+    async function leadLabSaveSelectedToCrm(){
+      const st = $("leadLabActionStatus");
+      const items = leadLabSelectedItems();
+      if(!items.length){
+        if(st) st.innerText = 'Select at least one lead';
+        return;
+      }
+      if(st) st.innerText = 'Saving selected leads to CRM...';
+      try{
+        const res = await fetch('/api/crm/lead_lab/save_to_crm', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({items})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Save failed');
+        if(st) st.innerText = `Saved ${data.saved || 0} leads to CRM`;
+        try{ await crmFetchClients(); }catch(e){}
+      }catch(e){
+        if(st) st.innerText = e.message || 'Save failed';
+      }
+    }
+
+    async function leadLabExportCsv(){
+      const st = $("leadLabStatus");
+      const items = leadLabSelectedItems().length ? leadLabSelectedItems() : (leadLabCache.items || []);
+      if(!items.length){
+        if(st) st.innerText = 'No leads to export';
+        return;
+      }
+      if(st) st.innerText = 'Preparing CSV...';
+      try{
+        const res = await fetch('/api/crm/lead_lab/export_csv', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            list_name: leadLabCache.list_name || ($("leadLabListName")?.value || '').trim() || 'lead_list',
+            items
+          })
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Export failed');
+        const csv = data.csv || '';
+        const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = data.filename || 'lead_list.csv';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+        if(st) st.innerText = 'CSV downloaded';
+      }catch(e){
+        if(st) st.innerText = e.message || 'Export failed';
+      }
+    }
+
+    async function leadLabDraftMessage(channel='email'){
+      const st = $("leadLabActionStatus");
+      const items = leadLabSelectedItems();
+      if(!items.length){
+        if(st) st.innerText = 'Select at least one lead';
+        return;
+      }
+      if(st) st.innerText = channel === 'sms' ? 'Drafting SMS...' : 'Drafting email...';
+      try{
+        const res = await fetch('/api/crm/lead_lab/generate_message', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            channel,
+            niche: ($("leadLabNiche")?.value || '').trim(),
+            location: ($("leadLabLocation")?.value || '').trim(),
+            query: ($("leadLabQuery")?.value || '').trim(),
+            items: items.slice(0,5)
+          })
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Draft failed');
+        if(channel === 'sms'){
+          if($("leadLabSmsBody")) $("leadLabSmsBody").value = data.body || '';
+        }else{
+          if($("leadLabEmailSubject")) $("leadLabEmailSubject").value = data.subject || '';
+          if($("leadLabEmailBody")) $("leadLabEmailBody").value = data.body || '';
+        }
+        if(st) st.innerText = channel === 'sms' ? 'SMS drafted' : 'Email drafted';
+      }catch(e){
+        if(st) st.innerText = e.message || 'Draft failed';
+      }
+    }
+
+    async function leadLabSendMessage(channel='email'){
+      const st = $("leadLabActionStatus");
+      const items = leadLabSelectedItems();
+      if(!items.length){
+        if(st) st.innerText = 'Select at least one lead';
+        return;
+      }
+      const payload = {items};
+      let endpoint = '';
+      if(channel === 'sms'){
+        payload.body = ($("leadLabSmsBody")?.value || '').trim();
+        endpoint = '/api/crm/lead_lab/send_sms';
+        if(!payload.body){
+          if(st) st.innerText = 'Write your SMS body first';
+          return;
+        }
+      }else{
+        payload.subject = ($("leadLabEmailSubject")?.value || '').trim();
+        payload.body = ($("leadLabEmailBody")?.value || '').trim();
+        endpoint = '/api/crm/lead_lab/send_email';
+        if(!payload.subject || !payload.body){
+          if(st) st.innerText = 'Add email subject and body first';
+          return;
+        }
+      }
+      if(st) st.innerText = channel === 'sms' ? 'Sending SMS...' : 'Sending email...';
+      try{
+        const res = await fetch(endpoint, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Send failed');
+        if(st) st.innerText = `Done • sent ${data.sent || 0}, failed ${data.failed || 0}`;
+      }catch(e){
+        if(st) st.innerText = e.message || 'Send failed';
+      }
     }
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
@@ -10890,7 +11205,18 @@ async function crmFetchTasks(){
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
       b('leadLabSampleBtn', crmSampleLeadLab);
-      b('leadLabRunBtn', crmRunLeadLab);
+      b('leadLabSearchBtn', ()=>crmRunLeadLab('web'));
+      b('leadLabRunBtn', ()=>crmRunLeadLab('paste'));
+      b('leadLabRefreshListsBtn', leadLabLoadSavedLists);
+      b('leadLabLoadListBtn', leadLabLoadSavedList);
+      b('leadLabExportBtn', leadLabExportCsv);
+      b('leadLabSelectAllBtn', ()=>{ leadLabResetSelection(true); crmRenderLeadResults(leadLabCache.items, {list_id: leadLabCache.list_id, list_name: leadLabCache.list_name}); });
+      b('leadLabClearSelBtn', ()=>{ leadLabResetSelection(false); crmRenderLeadResults(leadLabCache.items, {list_id: leadLabCache.list_id, list_name: leadLabCache.list_name}); });
+      b('leadLabSaveSelectedBtn', leadLabSaveSelectedToCrm);
+      b('leadLabDraftEmailBtn', ()=>leadLabDraftMessage('email'));
+      b('leadLabDraftSmsBtn', ()=>leadLabDraftMessage('sms'));
+      b('leadLabSendEmailBtn', ()=>leadLabSendMessage('email'));
+      b('leadLabSendSmsBtn', ()=>leadLabSendMessage('sms'));
       b('socialStudioRunBtn', ()=>crmRunGenerator('/api/crm/social_studio', {
         platform: ($("socialStudioPlatform")?.value || 'Facebook'),
         asset_type: ($("socialStudioAsset")?.value || 'content_pack'),
@@ -13133,6 +13459,7 @@ def _crm_default_state() -> Dict[str, Any]:
         "sequences": {},        # id -> sequence dict
         "enrollments": {},      # id -> enrollment dict
         "messages": [],         # recent message log (bounded)
+        "lead_lab": {"lists": {}, "last_list_id": "", "updated_at": None},
         "settings": {
             "sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""},
         },
@@ -13149,12 +13476,20 @@ def _crm_load(username: str) -> Dict[str, Any]:
     data.setdefault("sequences", {})
     data.setdefault("enrollments", {})
     data.setdefault("messages", [])
+    data.setdefault("lead_lab", {"lists": {}, "last_list_id": "", "updated_at": None})
     data.setdefault("settings", {"sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""}})
     # self-heal pipeline
     if not isinstance(data.get("pipeline"), dict):
         data["pipeline"] = {"stages": _default_pipeline_stages()}
     if not isinstance((data["pipeline"].get("stages")), list) or not data["pipeline"]["stages"]:
         data["pipeline"]["stages"] = _default_pipeline_stages()
+    # self-heal lead lab
+    if not isinstance(data.get("lead_lab"), dict):
+        data["lead_lab"] = {"lists": {}, "last_list_id": "", "updated_at": None}
+    if not isinstance((data["lead_lab"].get("lists")), dict):
+        data["lead_lab"]["lists"] = {}
+    if not isinstance(data["lead_lab"].get("last_list_id"), str):
+        data["lead_lab"]["last_list_id"] = ""
     # coerce maps
     for k in ["clients", "tasks", "sequences", "enrollments"]:
         if not isinstance(data.get(k), dict):
@@ -14312,55 +14647,612 @@ def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
         pass
     return fallback
 
+
+def _leadlab_slug_to_name(domain_or_url: str) -> str:
+    base = _crm_extract_domain(domain_or_url or "")
+    if not base:
+        return ""
+    parts = [p for p in re.split(r"[\.-]+", base) if p and p not in ("com","net","org","co","io","biz","us")]
+    if not parts:
+        return base.title()
+    return " ".join(parts[:3]).replace("_"," ").title()
+
+def _leadlab_extract_emails(text: str) -> List[str]:
+    raw = re.findall(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", text or "", flags=re.I)
+    out: List[str] = []
+    seen = set()
+    for e in raw:
+        e2 = e.strip().lower().rstrip(".,;:)")
+        if e2.endswith((".png",".jpg",".jpeg",".webp",".svg",".gif")):
+            continue
+        if e2 in seen:
+            continue
+        seen.add(e2)
+        out.append(e2)
+    return out[:20]
+
+def _leadlab_extract_phones(text: str) -> List[str]:
+    raw = re.findall(r"(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?)\d{3}[\s\-.]?\d{4}", text or "")
+    out: List[str] = []
+    seen = set()
+    for p in raw:
+        p2 = re.sub(r"\s+", " ", p.strip())
+        if p2 in seen:
+            continue
+        seen.add(p2)
+        out.append(p2)
+    return out[:20]
+
+def _leadlab_html_unescape(s: str) -> str:
+    try:
+        import html
+        return html.unescape(s or "")
+    except Exception:
+        return s or ""
+
+def _leadlab_strip_tags(html_text: str) -> str:
+    s = re.sub(r"(?is)<script.*?>.*?</script>", " ", html_text or "")
+    s = re.sub(r"(?is)<style.*?>.*?</style>", " ", s)
+    s = re.sub(r"(?is)<[^>]+>", " ", s)
+    s = _leadlab_html_unescape(s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def _leadlab_http_get(url: str, timeout: int = 12) -> Tuple[str, str, int]:
+    try:
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com/bot)"
+        }
+        r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        ctype = (r.headers.get("content-type") or "").lower()
+        if "text/html" not in ctype and "application/xhtml" not in ctype and not r.text:
+            return "", str(r.url), int(r.status_code or 0)
+        return r.text or "", str(r.url), int(r.status_code or 0)
+    except Exception:
+        return "", url, 0
+
+def _leadlab_parse_ddg_results(html_text: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if not html_text:
+        return out
+    blocks = re.findall(r'(?is)<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html_text)
+    snippets = re.findall(r'(?is)<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>|<div[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>', html_text)
+    snippet_texts: List[str] = []
+    for a, b in snippets:
+        snippet_texts.append(_leadlab_strip_tags(a or b or ""))
+    from urllib.parse import urlparse, parse_qs, unquote
+    for idx, (href, title_html) in enumerate(blocks[:max_results*2]):
+        url = href
+        try:
+            # duckduckgo often wraps actual url in uddg
+            qs = parse_qs(urlparse(href).query)
+            if "uddg" in qs and qs["uddg"]:
+                url = unquote(qs["uddg"][0])
+        except Exception:
+            pass
+        title = _leadlab_strip_tags(title_html)
+        snippet = snippet_texts[idx] if idx < len(snippet_texts) else ""
+        domain = _crm_extract_domain(url)
+        if not domain:
+            continue
+        out.append({
+            "title": title,
+            "url": url,
+            "domain": domain,
+            "snippet": snippet,
+        })
+        if len(out) >= max_results:
+            break
+    # unique by domain
+    dedup: List[Dict[str, Any]] = []
+    seen = set()
+    for row in out:
+        d = row.get("domain") or ""
+        if d in seen:
+            continue
+        seen.add(d)
+        dedup.append(row)
+    return dedup[:max_results]
+
+def _leadlab_search_web(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    if not query:
+        return []
+    from urllib.parse import quote_plus
+    urls = [
+        f"https://html.duckduckgo.com/html/?q={quote_plus(query)}",
+        f"https://duckduckgo.com/html/?q={quote_plus(query)}",
+    ]
+    for url in urls:
+        html_text, _, status = _leadlab_http_get(url, timeout=15)
+        if html_text and status and status < 500:
+            rows = _leadlab_parse_ddg_results(html_text, max_results=max_results)
+            if rows:
+                return rows
+    return []
+
+def _leadlab_extract_contact_links(html_text: str, base_url: str) -> List[str]:
+    links: List[str] = []
+    if not html_text or not base_url:
+        return links
+    try:
+        from urllib.parse import urljoin
+        hrefs = re.findall(r'(?is)<a[^>]+href="([^"]+)"', html_text)
+        for href in hrefs[:300]:
+            low = (href or "").lower()
+            if not any(k in low for k in ("/contact", "/about", "/team", "/staff", "/agent", "/loan", "/office")):
+                continue
+            absu = urljoin(base_url, href)
+            if absu not in links:
+                links.append(absu)
+    except Exception:
+        pass
+    return links[:4]
+
+def _leadlab_extract_title(html_text: str) -> str:
+    m = re.search(r'(?is)<title[^>]*>(.*?)</title>', html_text or "")
+    if not m:
+        return ""
+    t = _leadlab_strip_tags(m.group(1))
+    t = re.split(r"\||\-|–|—", t)[0].strip()
+    return t[:140]
+
+def _leadlab_enrich_domain(domain_or_url: str, query: str = "", location: str = "") -> Dict[str, Any]:
+    from urllib.parse import urljoin
+    domain = _crm_extract_domain(domain_or_url)
+    website = ""
+    source_url = ""
+    title = ""
+    snippet = ""
+    emails: List[Dict[str, Any]] = []
+    phones: List[Dict[str, Any]] = []
+    notes: List[str] = []
+
+    if not domain:
+        return {
+            "domain": "", "website": "", "company": "", "email_candidates": [], "phone_candidates": [],
+            "title": "", "source_url": "", "source_snippet": "", "notes": ""
+        }
+
+    candidates = [f"https://{domain}", f"http://{domain}"]
+    html_home = ""
+    for url in candidates:
+        html_text, final_url, status = _leadlab_http_get(url, timeout=12)
+        if html_text and status and status < 500:
+            html_home = html_text
+            website = final_url or url
+            source_url = website
+            break
+    if html_home:
+        title = _leadlab_extract_title(html_home)
+        home_text = _leadlab_strip_tags(html_home)
+        for e in _leadlab_extract_emails(home_text)[:6]:
+            emails.append({"email": e, "confidence": 0.94, "status": "found"})
+        for p in _leadlab_extract_phones(home_text)[:4]:
+            phones.append({"phone": p, "confidence": 0.93, "status": "found"})
+        for extra in _leadlab_extract_contact_links(html_home, website):
+            extra_html, extra_final, extra_status = _leadlab_http_get(extra, timeout=10)
+            if not extra_html or (extra_status and extra_status >= 500):
+                continue
+            extra_text = _leadlab_strip_tags(extra_html)
+            for e in _leadlab_extract_emails(extra_text)[:8]:
+                emails.append({"email": e, "confidence": 0.97, "status": "found"})
+            for p in _leadlab_extract_phones(extra_text)[:6]:
+                phones.append({"phone": p, "confidence": 0.96, "status": "found"})
+            if not source_url:
+                source_url = extra_final or extra
+    if not website:
+        # fall back to search result if homepage is unreachable
+        sr = _leadlab_search_web(f"site:{domain} {query} {location}".strip(), max_results=1)
+        if sr:
+            row = sr[0]
+            source_url = row.get("url") or source_url
+            snippet = row.get("snippet") or ""
+            title = title or row.get("title") or ""
+            website = website or f"https://{domain}"
+    # Deduplicate
+    dedup_emails: List[Dict[str, Any]] = []
+    seen = set()
+    for row in sorted(emails, key=lambda x: float(x.get("confidence") or 0), reverse=True):
+        k = row.get("email") or ""
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        dedup_emails.append(row)
+    dedup_phones: List[Dict[str, Any]] = []
+    seenp = set()
+    for row in sorted(phones, key=lambda x: float(x.get("confidence") or 0), reverse=True):
+        k = row.get("phone") or ""
+        if not k or k in seenp:
+            continue
+        seenp.add(k)
+        dedup_phones.append(row)
+
+    company = _leadlab_slug_to_name(title or domain)
+    if title and company.lower() not in title.lower():
+        notes.append(f"Homepage title: {title}")
+    if not dedup_emails:
+        notes.append("No public email found on quick scrape. Added estimated patterns if domain is valid.")
+    if not dedup_phones:
+        notes.append("No public phone found on quick scrape.")
+    return {
+        "domain": domain,
+        "website": website or (f"https://{domain}" if domain else ""),
+        "company": company,
+        "email_candidates": dedup_emails,
+        "phone_candidates": dedup_phones,
+        "title": title,
+        "source_url": source_url,
+        "source_snippet": snippet,
+        "notes": " ".join([n for n in notes if n]).strip(),
+    }
+
+def _leadlab_likelihood_score(item: Dict[str, Any], niche: str = "", location: str = "", query: str = "") -> int:
+    score = 35
+    if item.get("website"):
+        score += 12
+    if item.get("domain"):
+        score += 10
+    if (item.get("email_candidates") or []):
+        score += 18
+    if (item.get("phone_candidates") or []):
+        score += 10
+    if item.get("source_url"):
+        score += 5
+    hay = " ".join([
+        str(item.get("company") or ""),
+        str(item.get("title") or ""),
+        str(item.get("source_snippet") or ""),
+        str(item.get("notes") or ""),
+    ]).lower()
+    for tok in [niche, location, query]:
+        tok = (tok or "").strip().lower()
+        if tok and tok in hay:
+            score += 4
+    return max(1, min(99, score))
+
+def _leadlab_store_list(username: str, payload: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    crm = _crm_load(username)
+    crm.setdefault("lead_lab", {"lists": {}, "last_list_id": "", "updated_at": None})
+    crm["lead_lab"].setdefault("lists", {})
+    list_id = payload.get("id") or _crm_new_id("leadlist")
+    payload["id"] = list_id
+    payload["updated_at"] = now_iso()
+    crm["lead_lab"]["lists"][list_id] = payload
+    crm["lead_lab"]["last_list_id"] = list_id
+    # keep newest 30 lists
+    try:
+        lists = crm["lead_lab"]["lists"]
+        ordered = sorted(lists.values(), key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
+        keep = {x.get("id") for x in ordered[:30] if x.get("id")}
+        crm["lead_lab"]["lists"] = {k:v for k,v in lists.items() if k in keep}
+    except Exception:
+        pass
+    _crm_save(username, crm)
+    return list_id, crm["lead_lab"]["lists"][list_id]
+
+def _leadlab_build_items_from_rows(rows: List[Dict[str, Any]], niche: str = "", location: str = "", query: str = "") -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows[:200]):
+        base_domain = _crm_extract_domain(row.get("domain") or row.get("company") or row.get("website") or "")
+        enriched = _leadlab_enrich_domain(base_domain, query=query, location=location) if base_domain else {
+            "domain":"", "website":"", "company":"", "email_candidates":[], "phone_candidates":[], "title":"", "source_url":"", "source_snippet":"", "notes":""
+        }
+        company = (row.get("company") or "").strip() or enriched.get("company") or _leadlab_slug_to_name(base_domain)
+        name = (row.get("name") or "").strip()
+        title = (row.get("title") or "").strip()
+        domain = enriched.get("domain") or base_domain
+        email_candidates = list(enriched.get("email_candidates") or [])
+        if domain:
+            for g in _crm_email_candidates(name or company, domain)[:6]:
+                if not any((x.get("email") or "").lower() == (g.get("email") or "").lower() for x in email_candidates):
+                    email_candidates.append(g)
+        item = {
+            "id": _crm_new_id("lead"),
+            "name": name,
+            "company": company,
+            "domain": domain,
+            "website": enriched.get("website") or (f"https://{domain}" if domain else ""),
+            "title": title or row.get("title") or "",
+            "location": location,
+            "score": 0,
+            "notes": " ".join([str(row.get("notes") or "").strip(), str(enriched.get("notes") or "").strip()]).strip(),
+            "source_url": enriched.get("source_url") or row.get("source_url") or "",
+            "source_snippet": enriched.get("source_snippet") or "",
+            "email_candidates": email_candidates[:8],
+            "phone_candidates": list(enriched.get("phone_candidates") or [])[:6],
+        }
+        item["score"] = _leadlab_likelihood_score(item, niche=niche, location=location, query=query)
+        items.append(item)
+    return items
+
+def _leadlab_build_items_from_web(niche: str = "", location: str = "", query: str = "", lead_count: int = 10) -> List[Dict[str, Any]]:
+    if not query:
+        query = " ".join([x for x in [niche, location] if x]).strip()
+    if not query:
+        return []
+    seed_results = _leadlab_search_web(query, max_results=max(lead_count, 8))
+    rows: List[Dict[str, Any]] = []
+    for row in seed_results:
+        rows.append({
+            "name": "",
+            "company": _leadlab_slug_to_name(row.get("title") or row.get("domain") or ""),
+            "domain": row.get("domain") or "",
+            "title": "",
+            "notes": row.get("snippet") or "",
+            "source_url": row.get("url") or "",
+        })
+    items = _leadlab_build_items_from_rows(rows, niche=niche, location=location, query=query)
+    # Prefer rows that have some contact signal
+    items.sort(key=lambda x: (
+        len(x.get("email_candidates") or []),
+        len(x.get("phone_candidates") or []),
+        x.get("score") or 0
+    ), reverse=True)
+    return items[:max(1, min(50, int(lead_count or 10)))]
+
+@app.get("/api/crm/lead_lab/lists")
+def api_crm_lead_lab_lists():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    lists = list((((crm.get("lead_lab") or {}).get("lists")) or {}).values())
+    lists.sort(key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True)
+    out = [{
+        "id": x.get("id",""),
+        "name": x.get("name","Lead list"),
+        "count": len(x.get("items") or []),
+        "created_at": x.get("created_at") or x.get("updated_at") or "",
+        "updated_at": x.get("updated_at") or "",
+        "query": x.get("query",""),
+        "niche": x.get("niche",""),
+        "location": x.get("location",""),
+    } for x in lists]
+    return jsonify({"ok": True, "lists": out, "last_list_id": ((crm.get("lead_lab") or {}).get("last_list_id") or "")})
+
+@app.get("/api/crm/lead_lab/lists/<list_id>")
+def api_crm_lead_lab_list_get(list_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    item = ((((crm.get("lead_lab") or {}).get("lists")) or {}).get(list_id))
+    if not isinstance(item, dict):
+        return jsonify({"ok": False, "error": "Lead list not found"}), 404
+    return jsonify({"ok": True, "list": item})
+
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     payload = request.get_json(silent=True) or {}
     niche = (payload.get("niche") or "").strip()
     location = (payload.get("location") or "").strip()
     source_text = (payload.get("source_text") or "").strip()
-    if not source_text:
-        return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
+    query = (payload.get("query") or "").strip()
+    list_name = (payload.get("list_name") or "").strip()
+    mode = (payload.get("mode") or "").strip().lower() or ("paste" if source_text else "web")
+    lead_count = max(1, min(50, int(payload.get("lead_count") or 10)))
 
-    rows = _crm_parse_lead_source_rows(source_text)
-    items = []
-    for row in rows[:200]:
-        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
-        name = (row.get("name") or "").strip()
-        company = (row.get("company") or "").strip() or domain.split(".")[0].replace("-", " ").title()
-        title = (row.get("title") or "").strip()
-        if not name and company:
-            name = company
-        email_candidates = _crm_email_candidates(name, domain)
-        score = 55
-        if domain:
-            score += 15
-        if name and name != company:
-            score += 15
-        if title:
-            score += 5
-        if niche:
-            score += 5
-        score = max(1, min(99, score))
-        notes = []
-        if niche:
-            notes.append(f"Niche target: {niche}")
-        if location:
-            notes.append(f"Location target: {location}")
-        if not domain:
-            notes.append("Add company domain for better email confidence.")
-        items.append({
-            "name": name,
-            "company": company,
-            "domain": domain,
-            "title": title,
-            "score": score,
-            "notes": " ".join(notes).strip(),
-            "email_candidates": email_candidates,
-        })
-    return jsonify({"ok": True, "items": items, "count": len(items)})
+    if mode == "paste":
+        if not source_text:
+            return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
+        rows = _crm_parse_lead_source_rows(source_text)
+        items = _leadlab_build_items_from_rows(rows, niche=niche, location=location, query=query)
+    else:
+        if not query and not niche and not location:
+            return jsonify({"ok": False, "error": "Add a search query or niche/location"}), 400
+        items = _leadlab_build_items_from_web(niche=niche, location=location, query=query, lead_count=lead_count)
+
+    if not items:
+        return jsonify({"ok": False, "error": "No leads found. Try a broader search query or paste company rows."}), 400
+
+    if not list_name:
+        bits = [x for x in [niche or query or "Lead List", location] if x]
+        list_name = " | ".join(bits)[:120]
+
+    list_payload = {
+        "id": "",
+        "name": list_name,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "mode": mode,
+        "query": query,
+        "niche": niche,
+        "location": location,
+        "items": items,
+    }
+    list_id, saved = _leadlab_store_list(uname, list_payload)
+    return jsonify({"ok": True, "list_id": list_id, "list_name": saved.get("name") or list_name, "items": items, "count": len(items)})
+
+@app.post("/api/crm/lead_lab/save_to_crm")
+def api_crm_lead_lab_save_to_crm():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "No lead items provided"}), 400
+    crm = _crm_load(uname)
+    saved = 0
+    for item in items[:200]:
+        if not isinstance(item, dict):
+            continue
+        cid = _crm_new_id("c")
+        email = ((((item.get("email_candidates") or [])[0]) or {}).get("email") or "").strip()
+        phone = ((((item.get("phone_candidates") or [])[0]) or {}).get("phone") or "").strip()
+        crm.setdefault("clients", {})[cid] = {
+            "id": cid,
+            "name": (item.get("name") or item.get("company") or "Lead").strip(),
+            "company": (item.get("company") or "").strip(),
+            "email": email,
+            "phone": phone,
+            "tags": ["lead-lab"] + [x for x in [(item.get("location") or "").strip()] if x],
+            "status": "lead",
+            "pipeline_stage": "Lead",
+            "last_contact": "",
+            "next_followup": "",
+            "notes": "\n".join([x for x in [
+                str(item.get("notes") or "").strip(),
+                ("Website: " + str(item.get("website") or "").strip()) if item.get("website") else "",
+                ("Source: " + str(item.get("source_url") or "").strip()) if item.get("source_url") else "",
+            ] if x]),
+            "last_summary": "",
+            "custom_fields": {
+                "likelyhood_percent": int(item.get("score") or 0),
+                "title": (item.get("title") or "").strip(),
+                "domain": (item.get("domain") or "").strip(),
+            },
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        saved += 1
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "saved": saved})
+
+@app.post("/api/crm/lead_lab/export_csv")
+def api_crm_lead_lab_export_csv():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    items = payload.get("items") or []
+    list_name = (payload.get("list_name") or "lead_list").strip()
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "No lead items provided"}), 400
+    from io import StringIO
+    import csv
+    sio = StringIO()
+    writer = csv.writer(sio)
+    writer.writerow(["Company","Name","Title","Website","Domain","Top Email","Top Phone","Likelyhood %","Source URL","Notes"])
+    for item in items[:500]:
+        if not isinstance(item, dict):
+            continue
+        top_email = ((((item.get("email_candidates") or [])[0]) or {}).get("email") or "")
+        top_phone = ((((item.get("phone_candidates") or [])[0]) or {}).get("phone") or "")
+        writer.writerow([
+            item.get("company",""),
+            item.get("name",""),
+            item.get("title",""),
+            item.get("website",""),
+            item.get("domain",""),
+            top_email,
+            top_phone,
+            item.get("score",""),
+            item.get("source_url",""),
+            item.get("notes",""),
+        ])
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", list_name)[:80] or "lead_list"
+    return jsonify({"ok": True, "filename": f"{safe_name}.csv", "csv": sio.getvalue()})
+
+@app.post("/api/crm/lead_lab/generate_message")
+def api_crm_lead_lab_generate_message():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    channel = (payload.get("channel") or "email").strip().lower()
+    niche = (payload.get("niche") or "").strip()
+    location = (payload.get("location") or "").strip()
+    query = (payload.get("query") or "").strip()
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Select at least one lead"}), 400
+    sample = []
+    for item in items[:5]:
+        if not isinstance(item, dict):
+            continue
+        sample.append(f'- {item.get("company","")} | {item.get("title","")} | {item.get("website","")} | {item.get("source_snippet","")}')
+    system = "You write short, clear cold outreach that sounds human and professional. Avoid hype, spam language, fake familiarity, and exaggerated promises."
+    if channel == "sms":
+        prompt = f"Draft one short business SMS. Niche: {niche}. Location: {location}. Query: {query}. Leads:\n" + "\n".join(sample) + "\n\nReturn only the SMS body."
+        fallback_body = f"Hi, reaching out because I work with {niche or 'businesses'}{(' in ' + location) if location else ''}. I noticed your company and wanted to see if a quick conversation would be useful."
+        body = _crm_llm_or_fallback(system, prompt, fallback_body)
+        return jsonify({"ok": True, "body": body.strip()[:320]})
+    prompt = f"Draft one concise outreach email subject and body for these leads. Niche: {niche}. Location: {location}. Query: {query}. Leads:\n" + "\n".join(sample) + "\n\nFormat as:\nSubject: ...\nBody: ..."
+    fallback = "Subject: Quick question\nBody: Hi, I came across your business and wanted to reach out. I work with businesses like yours and thought it might make sense to compare notes. If relevant, I would be glad to send a quick overview."
+    raw = _crm_llm_or_fallback(system, prompt, fallback)
+    subject = "Quick question"
+    body = raw
+    m = re.search(r"(?is)subject\s*:\s*(.+?)\nbody\s*:\s*(.*)$", raw.strip())
+    if m:
+        subject = m.group(1).strip()
+        body = m.group(2).strip()
+    return jsonify({"ok": True, "subject": subject[:180], "body": body[:5000]})
+
+@app.post("/api/crm/lead_lab/send_email")
+def api_crm_lead_lab_send_email():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    subject = (payload.get("subject") or "").strip()
+    body = (payload.get("body") or "").strip()
+    items = payload.get("items") or []
+    if not subject or not body:
+        return jsonify({"ok": False, "error": "Email subject and body are required"}), 400
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Select at least one lead"}), 400
+    sent = 0
+    failed = 0
+    results = []
+    for item in items[:200]:
+        if not isinstance(item, dict):
+            continue
+        to_addr = ((((item.get("email_candidates") or [])[0]) or {}).get("email") or "").strip()
+        if not to_addr:
+            failed += 1
+            results.append({"company": item.get("company",""), "ok": False, "error": "No email found"})
+            continue
+        ok, provider, err = _crm_send_email_to(u, to_addr, subject, body)
+        results.append({"company": item.get("company",""), "email": to_addr, "ok": ok, "provider": provider, "error": err})
+        if ok:
+            sent += 1
+            uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+            _crm_log_message(uname, {"channel":"email", "to": to_addr, "subject": subject, "body": body, "company": item.get("company",""), "provider": provider})
+        else:
+            failed += 1
+    return jsonify({"ok": True, "sent": sent, "failed": failed, "results": results})
+
+@app.post("/api/crm/lead_lab/send_sms")
+def api_crm_lead_lab_send_sms():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    body = (payload.get("body") or "").strip()
+    items = payload.get("items") or []
+    if not body:
+        return jsonify({"ok": False, "error": "SMS body is required"}), 400
+    if not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "error": "Select at least one lead"}), 400
+    sent = 0
+    failed = 0
+    results = []
+    for item in items[:200]:
+        if not isinstance(item, dict):
+            continue
+        phone = ((((item.get("phone_candidates") or [])[0]) or {}).get("phone") or "").strip()
+        if not phone:
+            failed += 1
+            results.append({"company": item.get("company",""), "ok": False, "error": "No phone found"})
+            continue
+        ok, err = _crm_try_send_sms(uname, phone, body)
+        results.append({"company": item.get("company",""), "phone": phone, "ok": ok, "error": err})
+        if ok:
+            sent += 1
+            _crm_log_message(uname, {"channel":"sms", "to": phone, "body": body, "company": item.get("company",""), "provider": "twilio"})
+        else:
+            failed += 1
+    return jsonify({"ok": True, "sent": sent, "failed": failed, "results": results})
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
