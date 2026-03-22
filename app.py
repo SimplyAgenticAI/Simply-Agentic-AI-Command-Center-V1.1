@@ -5886,6 +5886,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <label>Location</label>
         <input id="leadLabLocation" placeholder="New Jersey" />
       </div>
+      <div>
+        <label>Lead count</label>
+        <select id="leadLabCount">
+          <option value="10">10 leads</option>
+          <option value="25" selected>25 leads</option>
+          <option value="50">50 leads</option>
+          <option value="75">75 leads</option>
+          <option value="100">100 leads</option>
+        </select>
+      </div>
     </div>
     <label style="margin-top:10px;">Lead source text (optional)</label>
     <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor&#10;&#10;Or leave this mostly blank and search by niche + location only."></textarea>
@@ -9533,7 +9543,8 @@ Best,`) || '';
           body: JSON.stringify({
             niche: ($("leadLabNiche")?.value || '').trim(),
             location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim()
+            source_text: ($("leadLabInput")?.value || '').trim(),
+            max_results: Number(($("leadLabCount")?.value || '25')) || 25
           })
         });
         const data = await res.json();
@@ -9554,6 +9565,7 @@ Best,`) || '';
       ].join('\n');
       if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
+      if($("leadLabCount")) $("leadLabCount").value = '25';
     }
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
       const st = $(statusId), box = $(resultsId);
@@ -12833,118 +12845,135 @@ def _crm_extract_emails_from_text(text: str, domain: str = "") -> List[Dict[str,
             conf = max(conf, 0.83 if domain and dom == domain else 0.69)
         found.append({"email": email, "confidence": round(conf, 2), "status": status})
     return sorted(found, key=lambda x: x.get('confidence', 0), reverse=True)[:10]
+def _crm_search_result_candidates_from_html(html: str) -> List[Dict[str, str]]:
+    html = html or ''
+    items: List[Dict[str, str]] = []
+    seen = set()
+    patterns = [
+        re.compile(r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>', re.IGNORECASE | re.DOTALL),
+        re.compile(r'<h2[^>]*>\s*<a[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>', re.IGNORECASE | re.DOTALL),
+        re.compile(r'<a[^>]+href="(?P<href>https?://[^"]+)"[^>]*>(?P<title>.*?)</a>', re.IGNORECASE | re.DOTALL),
+    ]
+    for rx in patterns:
+        for m in rx.finditer(html):
+            href = (m.group('href') or '').strip().replace('&amp;', '&')
+            title = _crm_clean_html_text((m.group('title') or '').strip())
+            if href.startswith('/l/?') or 'uddg=' in href:
+                try:
+                    from urllib.parse import urlparse, parse_qs, unquote
+                    base = 'https://duckduckgo.com' if href.startswith('/') else href
+                    parsed = urlparse(base)
+                    qs = parse_qs(parsed.query)
+                    href = unquote((qs.get('uddg') or [''])[0]) or href
+                except Exception:
+                    pass
+            href = _crm_normalize_url(href)
+            dom = _crm_extract_domain(href)
+            if not href or not dom:
+                continue
+            if any(skip in dom for skip in (
+                'duckduckgo.com', 'google.com', 'bing.com', 'facebook.com', 'instagram.com',
+                'linkedin.com', 'youtube.com', 'yelp.com', 'yellowpages.com', 'zillow.com',
+                'realtor.com', 'homes.com', 'redfin.com', 'mapquest.com', 'manta.com'
+            )):
+                continue
+            key = dom
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({'url': href, 'title': title, 'domain': dom})
+    return items
+
 def _crm_search_web(query: str, limit: int = 8) -> List[Dict[str, str]]:
-    q = (query or "").strip()
+    q = (query or '').strip()
     if not q:
         return []
     endpoints = [
-        ("https://html.duckduckgo.com/html/", {"q": q}),
-        ("https://duckduckgo.com/html/", {"q": q}),
+        ('GET', 'https://html.duckduckgo.com/html/', {'q': q}),
+        ('POST', 'https://html.duckduckgo.com/html/', {'q': q}),
+        ('GET', 'https://duckduckgo.com/html/', {'q': q}),
+        ('GET', 'https://www.bing.com/search', {'q': q}),
     ]
-    for endpoint, payload in endpoints:
+    merged: List[Dict[str, str]] = []
+    seen = set()
+    try:
+        import requests
+    except Exception:
+        return []
+    for method, endpoint, payload in endpoints:
         try:
-            import requests
-            r = requests.post(endpoint, data=payload, headers=CRM_WEB_HEADERS, timeout=CRM_WEB_TIMEOUT)
-            html = r.text or ""
+            if method == 'POST':
+                r = requests.post(endpoint, data=payload, headers=CRM_WEB_HEADERS, timeout=CRM_WEB_TIMEOUT)
+            else:
+                r = requests.get(endpoint, params=payload, headers=CRM_WEB_HEADERS, timeout=CRM_WEB_TIMEOUT)
+            html = r.text or ''
             if r.status_code >= 400 or not html:
                 continue
-            items: List[Dict[str, str]] = []
-            seen = set()
-            for m in CRM_SEARCH_RESULT_RE.finditer(html):
-                href = (m.group('href') or '').strip().replace('&amp;', '&')
-                title = _crm_clean_html_text((m.group('title') or '').strip())
-                if href.startswith('/l/?'):
-                    try:
-                        from urllib.parse import urlparse, parse_qs, unquote
-                        parsed = urlparse('https://duckduckgo.com' + href)
-                        qs = parse_qs(parsed.query)
-                        href = unquote((qs.get('uddg') or [''])[0]) or href
-                    except Exception:
-                        pass
-                href = _crm_normalize_url(href)
-                dom = _crm_extract_domain(href)
-                if not href or not dom:
+            for item in _crm_search_result_candidates_from_html(html):
+                dom = item.get('domain') or ''
+                if dom in seen:
                     continue
-                if any(skip in dom for skip in ('duckduckgo.com', 'google.com', 'bing.com', 'facebook.com', 'instagram.com', 'linkedin.com', 'youtube.com')):
-                    continue
-                if href in seen or dom in seen:
-                    continue
-                seen.add(href)
                 seen.add(dom)
-                items.append({"url": href, "title": title, "domain": dom})
-                if len(items) >= max(1, min(20, limit)):
-                    break
-            if items:
-                return items
+                merged.append(item)
+                if len(merged) >= max(1, min(40, limit)):
+                    return merged
         except Exception:
             continue
-    return []
-def _crm_contact_page_urls(site_url: str) -> List[str]:
-    site_url = _crm_normalize_url(site_url)
-    if not site_url:
-        return []
-    try:
-        from urllib.parse import urlparse, urljoin
-        parsed = urlparse(site_url)
-        root = f"{parsed.scheme}://{parsed.netloc}/"
-        paths = ['', 'contact', 'contact-us', 'about', 'team', 'our-team']
-        out = []
-        seen = set()
-        for p in paths:
-            u = urljoin(root, p)
-            if u in seen:
-                continue
-            seen.add(u)
-            out.append(u)
-        return out
-    except Exception:
-        return [site_url]
-def _crm_guess_company_from_domain(domain: str) -> str:
-    domain = _crm_extract_domain(domain)
-    if not domain:
-        return ''
-    core = domain.split('.')[0].replace('-', ' ').replace('_', ' ')
-    return ' '.join(x.capitalize() for x in core.split() if x)
-def _crm_best_title_from_text(title: str, text: str, company: str = '') -> str:
-    hay = ' '.join([title or '', text or ''])[:4000]
-    m = re.search(r'(?:owner|founder|broker(?:/owner)?|ceo|president|principal|agent|realtor|loan officer|manager|director)', hay, re.IGNORECASE)
-    return m.group(0).title() if m else ''
-def _crm_score_lead(name: str, company: str, domain: str, emails: List[Dict[str, Any]], phones: List[str], source_urls: List[str], title: str) -> int:
-    score = 35
-    if domain:
-        score += 18
-    if source_urls:
-        score += 10
-    if phones:
-        score += 12
-    if emails:
-        best = max(float(x.get('confidence') or 0) for x in emails)
-        score += int(round(best * 22))
-        if any((x.get('status') or '').startswith('verified') for x in emails):
-            score += 8
-    if name and company and name.lower() != company.lower():
-        score += 5
-    if title:
-        score += 4
-    return max(1, min(99, int(score)))
-def _crm_make_seed_rows(niche: str, location: str, source_text: str) -> List[Dict[str, Any]]:
+    return merged[:max(1, min(40, limit))]
+
+def _crm_build_search_queries(niche: str, location: str) -> List[str]:
+    niche = (niche or '').strip()
+    location = (location or '').strip()
+    q = []
+    def add(s: str):
+        s = re.sub(r'\s+', ' ', (s or '').strip())
+        if s and s not in q:
+            q.append(s)
+    base = ' '.join(x for x in [niche, location] if x).strip()
+    add(base)
+    if niche and location:
+        add(f'{location} {niche}')
+        add(f'best {niche} in {location}')
+        add(f'{niche} near {location}')
+        add(f'"{location}" {niche} contact')
+    low = f'{niche} {location}'.lower()
+    if any(k in low for k in ('realtor', 'real estate', 'realty', 'broker')):
+        place = location or 'United States'
+        add(f'{place} realtor')
+        add(f'{place} real estate agent')
+        add(f'{place} realty group')
+        add(f'independent realtor {place}')
+        add(f'brokerage {place}')
+    return [x for x in q if x][:10]
+
+def _crm_make_seed_rows(niche: str, location: str, source_text: str, wanted: int = 25) -> List[Dict[str, Any]]:
     rows = _crm_parse_lead_source_rows(source_text or '') if (source_text or '').strip() else []
     if rows:
-        return rows[:25]
+        return rows[:max(1, min(150, wanted))]
     if not niche and not location:
         return []
-    query = ' '.join(x for x in [niche, location] if x).strip()
-    hits = _crm_search_web(query, limit=12)
     out = []
-    for h in hits:
-        out.append({
-            'name': '',
-            'company': (h.get('title') or '').split(' - ')[0].split(' | ')[0].strip(),
-            'domain': h.get('domain') or '',
-            'title': '',
-            'notes': 'web_search_seed'
-        })
-    return out[:20]
+    seen = set()
+    overfetch = max(12, min(120, wanted * 3))
+    for query in _crm_build_search_queries(niche, location):
+        hits = _crm_search_web(query, limit=min(30, overfetch))
+        for h in hits:
+            dom = _crm_extract_domain(h.get('domain') or h.get('url') or '')
+            if not dom or dom in seen:
+                continue
+            seen.add(dom)
+            title = (h.get('title') or '').split(' - ')[0].split(' | ')[0].strip()
+            out.append({
+                'name': '',
+                'company': title or _crm_guess_company_from_domain(dom),
+                'domain': dom,
+                'title': '',
+                'notes': f'web_search_seed:{query}'
+            })
+            if len(out) >= overfetch:
+                return out
+    return out[:overfetch]
+
 def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dict[str, Any]:
     company = (row.get('company') or '').strip()
     name = (row.get('name') or '').strip()
@@ -12952,12 +12981,16 @@ def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dic
     domain = _crm_extract_domain(row.get('domain') or '')
     notes: List[str] = []
     source_urls: List[str] = []
-    search_query = ' '.join(x for x in [company or name, niche, location] if x).strip()
+    search_queries = []
+    if company or name:
+        search_queries.append(' '.join(x for x in [company or name, niche, location] if x).strip())
+    search_queries.extend(_crm_build_search_queries(company or niche, location))
     search_hits: List[Dict[str, str]] = []
     if domain:
-        search_hits.append({"url": _crm_normalize_url(domain), "title": company or _crm_guess_company_from_domain(domain), "domain": domain})
-    if search_query:
-        search_hits.extend(_crm_search_web(search_query, limit=6))
+        search_hits.append({'url': _crm_normalize_url(domain), 'title': company or _crm_guess_company_from_domain(domain), 'domain': domain})
+    for q in search_queries[:5]:
+        if q:
+            search_hits.extend(_crm_search_web(q, limit=8))
     pick = None
     for hit in search_hits:
         dom = _crm_extract_domain(hit.get('url') or hit.get('domain') or '')
@@ -12974,15 +13007,15 @@ def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dic
     if website and website not in source_urls:
         source_urls.append(website)
     pages: List[Dict[str, Any]] = []
-    for page_url in _crm_contact_page_urls(website)[:4]:
+    for page_url in _crm_contact_page_urls(website)[:5]:
         page = _crm_fetch_url(page_url)
         if page.get('ok'):
             pages.append(page)
             u = page.get('url') or page_url
             if u not in source_urls:
                 source_urls.append(u)
-    if (not pages) and search_query:
-        for hit in search_hits[:4]:
+    if (not pages):
+        for hit in search_hits[:8]:
             u = _crm_normalize_url(hit.get('url') or '')
             if not u:
                 continue
@@ -12990,7 +13023,11 @@ def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dic
             if page.get('ok'):
                 pages.append(page)
                 source_urls.append(page.get('url') or u)
-                break
+                if not website:
+                    website = page.get('url') or u
+                    domain = _crm_extract_domain(website)
+                if len(pages) >= 3:
+                    break
     email_hits: List[Dict[str, Any]] = []
     phone_hits: List[str] = []
     for page in pages:
@@ -13044,7 +13081,7 @@ def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dic
         'emails': [e.get('email') for e in best_emails if e.get('email')],
         'phones': uniq_phones,
         'source_urls': source_urls[:6],
-        'search_query': search_query,
+        'search_query': (search_queries[0] if search_queries else ''),
     }
 def _crm_ai_rank_leads(items: List[Dict[str, Any]], niche: str, location: str) -> List[Dict[str, Any]]:
     if not items:
@@ -13118,14 +13155,17 @@ def api_crm_lead_lab():
     niche = (payload.get("niche") or "").strip()
     location = (payload.get("location") or "").strip()
     source_text = (payload.get("source_text") or "").strip()
+    max_results = int(payload.get("max_results") or 25)
+    max_results = max(1, min(100, max_results))
     if not source_text and not niche and not location:
         return jsonify({"ok": False, "error": "Add a niche, a location, or paste source rows."}), 400
-    seeds = _crm_make_seed_rows(niche, location, source_text)
+    seeds = _crm_make_seed_rows(niche, location, source_text, wanted=max_results)
     if not seeds:
-        return jsonify({"ok": False, "error": "No leads found from your search inputs."}), 404
+        return jsonify({"ok": False, "error": "No leads found from your search inputs. Try a broader niche, a city instead of a whole state, or paste seed rows."}), 404
     items: List[Dict[str, Any]] = []
     seen_domains = set()
-    for row in seeds[:25]:
+    target_seed_count = max_results * 3 if not source_text else max_results
+    for row in seeds[:target_seed_count]:
         try:
             item = _crm_enrich_seed_lead(row, niche, location)
             dom = _crm_extract_domain(item.get("website") or item.get("domain") or "")
@@ -13133,12 +13173,16 @@ def api_crm_lead_lab():
                 continue
             if dom:
                 seen_domains.add(dom)
+            if not item.get('website') and not item.get('phones') and not item.get('email_candidates'):
+                continue
             items.append(item)
+            if len(items) >= max_results:
+                break
         except Exception:
             continue
     items = _crm_ai_rank_leads(items, niche, location)
     items.sort(key=lambda x: int(x.get("score") or 0), reverse=True)
-    return jsonify({"ok": True, "items": items[:30], "count": len(items[:30])})
+    return jsonify({"ok": True, "items": items[:max_results], "count": len(items[:max_results])})
 @app.post("/api/crm/lead_lab/send_email")
 def api_crm_lead_lab_send_email():
     u = current_user()
