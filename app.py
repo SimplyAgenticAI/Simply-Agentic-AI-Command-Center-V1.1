@@ -12,7 +12,6 @@ import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
-
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -20,7 +19,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-
 # Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
 # If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
 try:
@@ -33,30 +31,24 @@ except Exception:
     GoogleOAuthFlow = None
     google_build = None
     GoogleHttpError = Exception
-
 load_dotenv()
-
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
-
 # Uploads
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "12"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 MAX_INLINE_TEXT_BYTES = int(os.getenv("MAX_INLINE_TEXT_BYTES", "60000"))  # only inline small text files
-
 # Vision (screen capture / images)
 MAX_INLINE_IMAGE_BYTES = int(os.getenv("MAX_INLINE_IMAGE_BYTES", str(1_500_000)))  # 1.5MB
 MAX_INLINE_IMAGES = int(os.getenv("MAX_INLINE_IMAGES", "2"))
-
 # SMTP
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Round Table Command Center")
-
 # Gmail OAuth (recommended for Gmail accounts; avoids SMTP 535 BadCredentials)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -65,20 +57,16 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
-
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
 # =========================
-
 GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
-
 def _now_epoch() -> int:
     try:
         return int(datetime.utcnow().timestamp())
     except Exception:
         return 0
-
 def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
     scope_str = " ".join(scopes)
@@ -95,7 +83,6 @@ def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
         "state": state,
     }
     return f"{GOOGLE_AUTH_URI}?{urlencode(params)}"
-
 def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[str, Any]], str]:
     ok, reason = _google_oauth_ready()
     if not ok:
@@ -124,7 +111,6 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
         return data, ""
     except Exception as e:
         return None, f"Token exchange error: {e}"
-
 def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optional[Dict[str, Any]], str]:
     ok, reason = _google_oauth_ready()
     if not ok:
@@ -152,7 +138,6 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
         return data, ""
     except Exception as e:
         return None, f"Token refresh error: {e}"
-
 def _token_expired(token_info: Dict[str, Any]) -> bool:
     try:
         exp = int(token_info.get("expires_at") or 0)
@@ -161,7 +146,6 @@ def _token_expired(token_info: Dict[str, Any]) -> bool:
         return _now_epoch() >= exp
     except Exception:
         return False
-
 def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
     if not token_info:
         return None, None, "Not connected."
@@ -172,21 +156,14 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
             return None, None, err or "Token refresh failed."
         return refreshed.get("access_token"), refreshed, ""
     return token_info.get("access_token"), None, ""
-
-
-
 # Global OPENAI_API_KEY optional; users will provide their own keys
-
 client = None  # lazy init to avoid import time crashes
-
 def _get_global_openai_client():
     global client
     if client is None:
         client = OpenAI(api_key=(OPENAI_API_KEY or ""))
     return client
-
 app = Flask(__name__)
-
 # -----------------------------
 # Uploads static serving (additive)
 # -----------------------------
@@ -204,8 +181,6 @@ def serve_upload(relpath):
         return send_from_directory(str(UPLOADS_DIR), relpath)
     except Exception:
         return abort(404)
-
-
 # =========================
 # OAuth state helpers (additive)
 # =========================
@@ -218,7 +193,6 @@ def _push_oauth_state(key: str, val: str, keep: int = 5) -> None:
         session[key] = lst[:keep]
     except Exception:
         pass
-
 def _oauth_state_matches(key: str, incoming: str) -> bool:
     try:
         if not incoming:
@@ -232,16 +206,11 @@ def _oauth_state_matches(key: str, incoming: str) -> bool:
     except Exception:
         pass
     return False
-
-
 # Quiet noisy request logs (especially the stack tick poll)
 import logging
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
-
 BASE = Path(__file__).parent
-
 # ===== NEW: Persistent data directory support (additive) =====
 # Use DATA_DIR env var if provided. Otherwise prefer /var/data when present (common persistent mount),
 # falling back to local ./data next to app.py.
@@ -254,7 +223,6 @@ elif _DEFAULT_PERSIST.exists():
     DATA = _DEFAULT_PERSIST
 else:
     DATA = _OLD_DATA
-
 # One-time best-effort migration from old local data folder if the new DATA dir is different and empty-ish.
 try:
     DATA.mkdir(parents=True, exist_ok=True)
@@ -267,7 +235,6 @@ try:
                 shutil.copy2(srcf, dstf)
 except Exception:
     pass
-
 DATA_DIR = str(DATA)
 REGISTRY_PATH = DATA / "teammates.json"
 THREADS_DIR = DATA / "threads"
@@ -276,13 +243,11 @@ UPLOADS_DIR = DATA / "uploads"
 UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
 IMAGE_STATE_DIR = DATA / "image_state"
 FRAMEWORK_PATH = DATA / "core_framework.txt"
-
 DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 IMAGE_STATE_DIR.mkdir(exist_ok=True)
-
 # =========================
 # IMAGE JOBS (non-blocking)
 # =========================
@@ -290,17 +255,14 @@ IMAGE_STATE_DIR.mkdir(exist_ok=True)
 # So we run image generation in a background thread and let the UI poll for completion.
 IMAGE_JOBS: Dict[str, Dict[str, Any]] = {}
 IMAGE_JOBS_LOCK = threading.Lock()
-
 def _image_job_set(job_id: str, patch: Dict[str, Any]) -> None:
     with IMAGE_JOBS_LOCK:
         cur = IMAGE_JOBS.get(job_id) or {}
         cur.update(patch or {})
         IMAGE_JOBS[job_id] = cur
-
 def _image_job_get(job_id: str) -> Dict[str, Any]:
     with IMAGE_JOBS_LOCK:
         return dict(IMAGE_JOBS.get(job_id) or {})
-
 def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str) -> None:
     try:
         thread = load_thread(teammate)
@@ -316,7 +278,6 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
         save_thread(teammate, thread)
     except Exception:
         pass
-
 def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> None:
     _image_job_set(job_id, {"status": "running"})
     try:
@@ -332,21 +293,17 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
     except Exception as e:
         _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}")
-
 def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
     job_id = uuid.uuid4().hex
     _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
     t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
     t.start()
     return job_id
-
 # =========================
 # AUTH + PER-USER SETTINGS
 # =========================
-
 USERS_PATH = DATA / "users.json"
 SECRET_PATH = DATA / "session_secret.key"
-
 def _load_or_create_secret() -> str:
     try:
         if SECRET_PATH.exists():
@@ -361,31 +318,25 @@ def _load_or_create_secret() -> str:
     except Exception:
         pass
     return s
-
 app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
     if not isinstance(data, dict):
         data = {"users": {}, "updated_at": None}
     data.setdefault("users", {})
     return data
-
 def save_users(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(USERS_PATH, data)
-
 def has_any_user() -> bool:
     data = load_users()
     return bool((data.get("users") or {}))
-
 def _clean_username(u: str) -> str:
     u = (u or "").strip().lower()
     u = re.sub(r"[^a-z0-9_\.\-]+", "", u)
     return u
-
 def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
     return {
         "username": username,
@@ -405,7 +356,6 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         },
         "reset": {"token_hash": "", "created_at": None}
     }
-
 def current_user() -> Optional[Dict[str, Any]]:
     uname = session.get("user")
     # Historically we stored the username string in session["user"].
@@ -416,10 +366,8 @@ def current_user() -> Optional[Dict[str, Any]]:
         return None
     data = load_users()
     return (data.get("users") or {}).get(uname)
-
 def ensure_local_owner_user() -> str:
     """Ensure a local owner user exists for first-run / setup-less deployments.
-
     Returns the username to place in session["user"].
     """
     data = load_users()
@@ -432,57 +380,43 @@ def ensure_local_owner_user() -> str:
         data["users"] = users
         save_users(data)
     return "local"
-
 def login_required_api() -> bool:
     p = request.path or ""
     if p.startswith("/api/") and p not in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
         return True
     return False
-
 @app.before_request
 def _auth_guard():
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
         return None
     if request.path.startswith("/static/"):
         return None
-
     # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
         return None
-
     if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
         return None
-
     if request.path.startswith("/api/") and not session.get("user"):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
     if request.path == "/" and not session.get("user"):
         if not has_any_user():
             return redirect(url_for("setup"))
         return redirect(url_for("login"))
-
     # attach per-user OpenAI client for this request
     u = current_user()
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
     g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
-
     return None
-
 def get_openai_client():
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
-
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
-
-
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
-
-
 def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
@@ -490,33 +424,24 @@ def load_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return default
-
-
 def save_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
-
 # =========================
 # TASK LOG (APPEND-ONLY)
 # =========================
-
 TASK_LOG_DIR = DATA / "task_logs"
-
 def _safe_name(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", (s or "anon"))[:80] or "anon"
-
 # ---------------- Client Memory Profiles (additive) ----------------
 def _clients_path_for_user(username: str) -> str:
     base = os.path.join(DATA_DIR, "clients")
     os.makedirs(base, exist_ok=True)
     safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", username or "anon")
     return os.path.join(base, f"{safe}.json")
-
 def _load_clients(username: str) -> Dict[str, Any]:
     path = _clients_path_for_user(username)
     if not os.path.exists(path):
@@ -533,14 +458,12 @@ def _load_clients(username: str) -> Dict[str, Any]:
         return data
     except Exception:
         return {"active_client_id": "", "clients": {}}
-
 def _save_clients(username: str, data: Dict[str, Any]) -> None:
     path = _clients_path_for_user(username)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
-
 def _get_active_client(username: str) -> Dict[str, Any]:
     data = _load_clients(username)
     cid = (data.get("active_client_id") or "").strip()
@@ -550,18 +473,14 @@ def _get_active_client(username: str) -> Dict[str, Any]:
         c.setdefault("id", cid)
         return c
     return {}
-
 def _get_session_username() -> str:
     u = session.get("user")
     return (u.get("username") if isinstance(u, dict) else None) or (u if isinstance(u, str) else None) or "anon"
-
 def _new_client_id() -> str:
     return "c_" + uuid.uuid4().hex[:10]
-
 def _task_log_path_for_user(username: Optional[str]) -> Path:
     TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
     return TASK_LOG_DIR / f"{_safe_name(username or 'anon')}.jsonl"
-
 def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", status: str = "success") -> None:
     """Append-only task log. One JSON object per line (JSONL)."""
     try:
@@ -582,7 +501,6 @@ def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", sta
     except Exception:
         # Task logging must never break core flows
         pass
-
 def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> List[Dict[str, Any]]:
     username = session.get("user") or "anon"
     path = _task_log_path_for_user(username)
@@ -611,8 +529,6 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
         return list(reversed(out))
     except Exception:
         return []
-
-
 # =========================
 # TEAMMATE ACTION STACKS (Sequence Runner)
 # =========================
@@ -620,20 +536,15 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 # Per-teammate stacks that run steps sequentially.
 # Scheduling is safe: no background threads at import.
 # Schedules run via /api/action_stack_schedules/tick which the UI pings.
-
 ACTION_STACKS_DIR = DATA / "action_stacks"
 ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
 OPERATOR_PROFILE_DIR = DATA / "operator_profile"
-
-
-
 # =========================
 # GUIDED ONBOARDING (additive)
 # =========================
 ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
-
 ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "preferred_ai", "title": "Connect Chat GPT or Claude"},
     {"key": "full_team", "title": "Install full team"},
@@ -641,13 +552,11 @@ ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "calendar_connected", "title": "Connect Calendar"},
     {"key": "first_prompt", "title": "Send first prompt"},
 ]
-
 def _onboarding_path_for_user(username: str) -> Path:
     u = _safe_name(username or "anon")
     d = ONBOARDING_DIR / u
     d.mkdir(parents=True, exist_ok=True)
     return d / "state.json"
-
 def _load_onboarding(username: str) -> Dict[str, Any]:
     path = _onboarding_path_for_user(username)
     data = load_json(path, {})
@@ -661,13 +570,11 @@ def _load_onboarding(username: str) -> Dict[str, Any]:
     for s in ONBOARDING_STEPS:
         data["steps"].setdefault(s["key"], {"done": False, "at": None})
     return data
-
 def _save_onboarding(username: str, data: Dict[str, Any]) -> None:
     path = _onboarding_path_for_user(username)
     data = data or {}
     data["updated_at"] = now_iso()
     save_json(path, data)
-
 def _mark_onboarding_step(username: str, key: str, done: bool = True) -> None:
     try:
         st = _load_onboarding(username)
@@ -679,7 +586,6 @@ def _mark_onboarding_step(username: str, key: str, done: bool = True) -> None:
         _save_onboarding(username, st)
     except Exception:
         pass
-
 def _dismiss_onboarding(username: str, dismissed: bool = True) -> None:
     try:
         st = _load_onboarding(username)
@@ -687,11 +593,9 @@ def _dismiss_onboarding(username: str, dismissed: bool = True) -> None:
         _save_onboarding(username, st)
     except Exception:
         pass
-
 def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
-
     # Step 1: Preferred AI connected (OpenAI or Claude)
     try:
         settings = ((u or {}).get("settings") or {})
@@ -702,7 +606,6 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
             _mark_onboarding_step(username, "preferred_ai", True)
     except Exception:
         pass
-
     # Step 2: Full team installed
     try:
         reg = load_registry()
@@ -717,7 +620,6 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
                 _mark_onboarding_step(username, "full_team", True)
     except Exception:
         pass
-
     # Step 3: Email connected (Gmail OAuth OR SMTP)
     try:
         settings = ((u or {}).get("settings") or {})
@@ -728,21 +630,17 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
             _mark_onboarding_step(username, "email_connected", True)
     except Exception:
         pass
-
     # Step 4: Calendar connected
     try:
         if _user_calendar_oauth(u):
             _mark_onboarding_step(username, "calendar_connected", True)
     except Exception:
         pass
-
     return _load_onboarding(username)
-
 def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     st = _reconcile_onboarding_from_truth(u)
     steps = st.get("steps") or {}
-
     out_steps: List[Dict[str, Any]] = []
     done_count = 0
     for s in ONBOARDING_STEPS:
@@ -751,16 +649,13 @@ def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if done:
             done_count += 1
         out_steps.append({"key": k, "title": s["title"], "done": done})
-
     next_key = ""
     for s in out_steps:
         if not s["done"]:
             next_key = s["key"]
             break
-
     all_done = done_count == len(ONBOARDING_STEPS)
     pct = int(round((done_count / max(1, len(ONBOARDING_STEPS))) * 100))
-
     return {
         "ok": True,
         "dismissed": bool(st.get("dismissed")),
@@ -773,73 +668,56 @@ def _onboarding_status_payload(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "username": username,
     }
 ACTION_STACK_SCHEDULES_DIR = DATA / "action_stack_schedules"
-
 ACTION_STACKS_DIR.mkdir(exist_ok=True)
 ACTION_STACK_RUNS_DIR.mkdir(exist_ok=True)
 ACTION_STACK_MEMORY_DIR.mkdir(exist_ok=True)
 ACTION_STACK_SCHEDULES_DIR.mkdir(exist_ok=True)
-
 def _action_user_dir(root: Path, username: str) -> Path:
     d = root / _safe_name(username or "anon")
     d.mkdir(parents=True, exist_ok=True)
     return d
-
 def _stacks_path(u: str, teammate: str) -> Path:
     d = _action_user_dir(ACTION_STACKS_DIR, u)
     return d / f"{_safe_name(teammate)}.json"
-
 def _runs_path(u: str) -> Path:
     d = _action_user_dir(ACTION_STACK_RUNS_DIR, u)
     return d / "runs.json"
-
 def _memory_path(u: str) -> Path:
     d = _action_user_dir(ACTION_STACK_MEMORY_DIR, u)
     return d / "memory.json"
-
 def _schedules_path(u: str) -> Path:
     d = _action_user_dir(ACTION_STACK_SCHEDULES_DIR, u)
     return d / "schedules.json"
-
 def _load_saved_stacks(u: str, teammate: str) -> Dict[str, Any]:
     return load_json(_stacks_path(u, teammate), {"stacks": {}, "updated_at": None}) or {"stacks": {}, "updated_at": None}
-
 def _save_saved_stacks(u: str, teammate: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(_stacks_path(u, teammate), data)
-
 def _load_runs(u: str) -> Dict[str, Any]:
     return load_json(_runs_path(u), {"runs": {}, "updated_at": None}) or {"runs": {}, "updated_at": None}
-
 def _save_runs(u: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(_runs_path(u), data)
-
 def _load_action_memory(u: str) -> Dict[str, Any]:
     return load_json(_memory_path(u), {"memory": {}, "updated_at": None}) or {"memory": {}, "updated_at": None}
-
 def _save_action_memory(u: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     save_json(_memory_path(u), data)
-
 def _load_schedules(u: str) -> List[Dict[str, Any]]:
     data = load_json(_schedules_path(u), {"schedules": [], "updated_at": None}) or {"schedules": [], "updated_at": None}
     return data.get("schedules") or []
-
 def _save_schedules(u: str, schedules: List[Dict[str, Any]]) -> None:
     save_json(_schedules_path(u), {"schedules": schedules, "updated_at": now_iso()})
-
 def _parse_local_dt(dt_local: str) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(dt_local)
     except Exception:
         return None
-
 def _safe_render(template: str, ctx: Dict[str, Any]) -> str:
     out = template or ""
     for k, v in (ctx or {}).items():
         out = out.replace("{{" + k + "}}", str(v))
     return out
-
 def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids: Optional[List[str]] = None) -> str:
     file_ids = file_ids or []
     # Use existing followup core if available
@@ -852,7 +730,6 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
             return (res or {}).get("reply", "") or ""
     except Exception:
         pass
-
     reg = load_registry()
     defn = (reg.get("installed") or {}).get(teammate)
     if not defn:
@@ -861,7 +738,6 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     msg2, _, vision_images = build_prompt_with_attachments(prompt, file_ids)
     user_content = _build_user_content(msg2, vision_images)
     return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
-
 def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     if isinstance(steps, list):
@@ -880,7 +756,6 @@ def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
                 "to_teammate": (s.get("to_teammate") or "").strip()[:64],
             })
     return out
-
 def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
     run_id = uuid.uuid4().hex
     return {
@@ -897,21 +772,17 @@ def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]
         "outputs": {},
         "log": [],
     }
-
 def _persist_run(run: Dict[str, Any]) -> None:
     u = run.get("user") or "anon"
     runs = _load_runs(u)
     runs.setdefault("runs", {})
     runs["runs"][run["id"]] = run
     _save_runs(u, runs)
-
 def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> None:
     run.setdefault("log", [])
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
-
 def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
     """Run a stack until it completes or pauses.
-
     Pause states:
       - needs_input: stops on an ask_user step until resumed via API
       - waiting: stops on a wait step until wait_until (UTC) has passed
@@ -919,7 +790,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
     u = run.get("user") or "anon"
     steps = run.get("steps") or []
     outputs = run.get("outputs") or {}
-
     # If we were waiting, only resume when due
     try:
         if (run.get("status") == "waiting") and run.get("wait_until"):
@@ -938,11 +808,9 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
             run.pop("wait_until", None)
     except Exception:
         pass
-
     mem = (_load_action_memory(u).get("memory") or {})
     cursor = int(run.get("cursor") or 0)
     last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
-
     def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
         # Logging must never break execution
         try:
@@ -962,11 +830,9 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception:
             pass
-
     while cursor < len(steps):
         step = steps[cursor]
         stype = step.get("type", "prompt")
-
         # Build a render context
         ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
         for i, out in outputs.items():
@@ -977,7 +843,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 continue
         for k, v in (mem or {}).items():
             ctx[f"memory.{k}"] = v
-
         try:
             if stype == "ask_user":
                 run["status"] = "needs_input"
@@ -986,7 +851,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
                 _persist_run(run)
                 return run
-
             if stype == "wait":
                 secs = max(0, min(3600, int(step.get("seconds") or 0)))
                 run["status"] = "waiting"
@@ -996,7 +860,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
                 _persist_run(run)
                 return run
-
             if stype == "save_memory":
                 key = (step.get("key") or "").strip()
                 val_t = step.get("prompt") or "{{last}}"
@@ -1012,7 +875,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 run["last_output"] = last_output
                 _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
                 _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
-
             elif stype == "route":
                 to_tm = (step.get("to_teammate") or "").strip()
                 p = _safe_render(step.get("prompt") or "{{last}}", ctx)
@@ -1022,7 +884,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 run["last_output"] = last_output
                 _stack_task_log(cursor + 1, "route", out, {"to": to_tm})
                 _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm})
-
             else:  # "prompt" default
                 p = _safe_render(step.get("prompt") or "", ctx)
                 out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
@@ -1031,13 +892,11 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 run["last_output"] = last_output
                 _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", "")})
                 _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", "")})
-
             run["outputs"] = outputs
             cursor += 1
             run["cursor"] = cursor
             run["status"] = "running"
             _persist_run(run)
-
         except Exception as e:
             run["status"] = "failed"
             run["error"] = str(e)
@@ -1046,7 +905,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
             _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
             _persist_run(run)
             return run
-
     run["status"] = "complete"
     run["cursor"] = len(steps)
     try:
@@ -1067,7 +925,6 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
     _append_run_log(run, "complete", {"steps": len(steps)})
     _persist_run(run)
     return run
-
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
         return
@@ -1087,7 +944,6 @@ def _run_due_schedules_once() -> None:
                 mode = s.get("mode") or ""
                 last_run = s.get("last_run")
                 due = False
-
                 if mode == "once":
                     dt = _parse_local_dt(s.get("run_at") or "")
                     if dt and now_local >= dt and not last_run:
@@ -1106,10 +962,8 @@ def _run_due_schedules_once() -> None:
                                     due = True
                             else:
                                 due = True
-
                 if not due:
                     continue
-
                 data = _load_saved_stacks(u, teammate)
                 stack = (data.get("stacks") or {}).get(stack_name)
                 if not stack:
@@ -1118,14 +972,12 @@ def _run_due_schedules_once() -> None:
                 run = _init_run(u=u, teammate=teammate, stack_name=stack_name, steps=steps, user_input="")
                 _persist_run(run)
                 _run_action_stack_engine(run)
-
                 s["last_run"] = now_iso()
                 changed = True
             except Exception:
                 continue
         if changed:
             _save_schedules(u, schedules)
-
 def _resume_due_runs_once() -> None:
     """Resume any waiting runs that are due."""
     if not ACTION_STACK_RUNS_DIR.exists():
@@ -1161,45 +1013,32 @@ def _resume_due_runs_once() -> None:
         if changed:
             runs_data["runs"] = runs
             _save_runs(u, runs_data)
-
-
 # =========================
 # CORE FRAMEWORK (ENFORCED)
 # =========================
-
 DEFAULT_CORE_FRAMEWORK_TEXT = """
 CORE OPERATING PILLARS (NON NEGOTIABLE)
-
 Autonomy
 Think before acting. Do not blindly comply. If unclear, unsafe, or conflicts with role or constraints, pause and surface the issue. Violation: Executing actions without understanding intent, scope, or boundaries.
-
 Adaptability
 Adjust behavior based on context, feedback, and evolving goals. Do not repeat patterns when conditions change. Violation: Static responses despite new information or correction.
-
 Alignment
 Act in service of the creator's stated goals, rules, values, and system constraints. If conflict exists, highlight the conflict before proceeding. Violation: Optimizing a single task while breaking overall intent or direction.
-
 Collaboration
 Treat the creator as a thinking partner, not a command source. Ask a clarifying question when decisions affect structure, memory, versioning, or long term behavior. Violation: Silent execution where consultation was required.
-
 Memory
 Never assume persistence. Never overwrite, alter, or delete memory silently. No role drift or memory bleed. Violation: Unapproved memory changes or forgetting locked rules.
-
 Integrity
 Prioritize truth, clarity, and system health over agreement. State uncertainty plainly. Violation: Hallucination, false certainty, or concealed uncertainty.
-
 CORE PROCESS RULES (NON NEGOTIABLE)
-
 Ask one question at a time when needed.
 Wait for the user's response before continuing.
 Do not summarize the user's answers.
 Do not design ahead.
 Do not assume intent.
 If something matters and is unclear, ask. If uncertain, say so and propose how to clarify.
-
 DEFAULT ON SILENCE OR AMBIGUITY
 Pause immediately. Do not infer intent. Silence is not consent.
-
 GROUP ACTIVATION & TEAM ASSEMBLY RULE (NON NEGOTIABLE)
 When user says "All teammates to the round table" or similar:
 - Assemble all installed teammates
@@ -1207,8 +1046,6 @@ When user says "All teammates to the round table" or similar:
 - No execution during assembly
 - Wait for next instruction
 """.strip()
-
-
 def load_core_framework() -> str:
     try:
         if FRAMEWORK_PATH.exists():
@@ -1217,26 +1054,20 @@ def load_core_framework() -> str:
     except Exception:
         pass
     return DEFAULT_CORE_FRAMEWORK_TEXT
-
-
 def save_core_framework(text: str) -> None:
     cleaned = (text or "").strip()
     if not cleaned:
         cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
     FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
-
 # Ensure the framework file always exists with the default framework for local-first users.
 try:
     if (not FRAMEWORK_PATH.exists()) or (not FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()):
         FRAMEWORK_PATH.write_text(DEFAULT_CORE_FRAMEWORK_TEXT, encoding="utf-8")
 except Exception:
     pass
-
-
 # =========================
 # LOCKED PREBUILT TEAMMATES
 # =========================
-
 PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
     "Alex": {
         "name": "Alex",
@@ -1428,32 +1259,22 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
         "avatar": {"bg": "#111827", "fg": "#e6edff", "sigil": "I"},
     },
 }
-
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
-
-
 # =========================
 # REGISTRY + THREADS
 # =========================
-
 def _registry_defaults() -> Dict[str, Any]:
     return {"installed": {}, "installed_order": [], "active_order": [], "updated_at": None}
-
-
 def load_registry() -> Dict[str, Any]:
     reg = load_json(REGISTRY_PATH, _registry_defaults())
     if not isinstance(reg, dict):
         reg = _registry_defaults()
-
     reg.setdefault("installed", {})
     reg.setdefault("installed_order", [])
     reg.setdefault("active_order", [])
-
     if (not isinstance(reg.get("active_order"), list)) or (len(reg.get("active_order") or []) == 0):
         reg["active_order"] = list(reg.get("installed_order") or [])
-
     installed = reg.get("installed") or {}
-
     # NEW: Registry self-heal for older/corrupted states where teammates exist but ordering lists are empty.
     # This is additive and prevents "No active teammates" when installed entries are present.
     installed_order = reg.get("installed_order") or []
@@ -1470,56 +1291,38 @@ def load_registry() -> Dict[str, Any]:
             if n not in rebuilt:
                 rebuilt.append(n)
         reg["installed_order"] = rebuilt
-
     # If active_order is empty after filtering, default to installed_order.
     if not (reg.get("active_order") or []):
         reg["active_order"] = list(reg.get("installed_order") or [])
     reg["active_order"] = [n for n in (reg.get("active_order") or []) if n in installed]
-
     return reg
-
-
 def save_registry(reg: Dict[str, Any]) -> None:
     reg["updated_at"] = now_iso()
     save_json(REGISTRY_PATH, reg)
-
-
 def install_full_team() -> Dict[str, Any]:
     reg = load_registry()
     installed = reg["installed"]
     order = reg["installed_order"]
-
     for name in DEFAULT_ORDER:
         installed[name] = PREBUILT_LOCKED[name]
         if name not in order:
             order.append(name)
-
     reg["installed"] = installed
     reg["installed_order"] = order
-
     active = reg.get("active_order") or []
     for name in order:
         if name not in active:
             active.append(name)
     reg["active_order"] = active
-
     save_registry(reg)
     return reg
-
-
 def thread_path(teammate_name: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
     return THREADS_DIR / f"{safe}.json"
-
-
 def load_thread(teammate_name: str) -> List[Dict[str, str]]:
     return load_json(thread_path(teammate_name), [])
-
-
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]]) -> None:
     save_json(thread_path(teammate_name), msgs)
-
-
 def _normalize_lines_to_list(val: Any) -> List[str]:
     if val is None:
         return []
@@ -1535,46 +1338,33 @@ def _normalize_lines_to_list(val: Any) -> List[str]:
     s = str(val)
     lines = [ln.strip() for ln in s.splitlines()]
     return [ln for ln in lines if ln]
-
-
 def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
     allowed_str_fields = ["job_title", "version", "mission", "thinking_style", "goal"]
     allowed_list_fields = ["responsibilities", "will_not_do"]
-
     updated: Dict[str, Any] = {}
-
     for k in allowed_str_fields:
         if k in payload:
             v = payload.get(k)
             if v is None:
                 continue
             updated[k] = str(v).strip()
-
     for k in allowed_list_fields:
         if k in payload:
             updated[k] = _normalize_lines_to_list(payload.get(k))
-
     updated["name"] = current.get("name", "")
     updated["avatar"] = current.get("avatar", current.get("avatar", {}))
-
     for k, v in current.items():
         if k not in updated:
             updated[k] = v
-
     if not isinstance(updated.get("responsibilities"), list):
         updated["responsibilities"] = _normalize_lines_to_list(updated.get("responsibilities"))
     if not isinstance(updated.get("will_not_do"), list):
         updated["will_not_do"] = _normalize_lines_to_list(updated.get("will_not_do"))
-
     return updated
-
-
 def _clean_teammate_name(name: str) -> str:
     n = (name or "").strip()
     n = re.sub(r"\s+", " ", n)
     return n
-
-
 def _make_avatar_for(name: str) -> Dict[str, str]:
     palette = [
         ("#1e3a8a", "#e6edff"),
@@ -1592,22 +1382,16 @@ def _make_avatar_for(name: str) -> Dict[str, str]:
     bg, fg = palette[idx]
     sigil = (name[:1] or "T").upper()
     return {"bg": bg, "fg": fg, "sigil": sigil}
-
-
 def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     name = _clean_teammate_name(payload.get("name", ""))
     if not name:
         raise ValueError("Missing teammate name")
-
     if len(name) > 32:
         raise ValueError("Teammate name must be 32 characters or less")
-
     reg = load_registry()
     installed = reg.get("installed") or {}
-
     if name in installed:
         raise ValueError("Teammate name already exists")
-
     job_title = str(payload.get("job_title", "")).strip()
     version = str(payload.get("version", "v1.0")).strip() or "v1.0"
     mission = str(payload.get("mission", "")).strip()
@@ -1615,7 +1399,6 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     goal = str(payload.get("goal", "")).strip()
     responsibilities = _normalize_lines_to_list(payload.get("responsibilities"))
     will_not_do = _normalize_lines_to_list(payload.get("will_not_do"))
-
     t = {
         "name": name,
         "job_title": job_title,
@@ -1627,27 +1410,20 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "goal": goal,
         "avatar": _make_avatar_for(name),
     }
-
     installed[name] = t
     reg["installed"] = installed
-
     order = reg.get("installed_order") or []
     order.append(name)
     reg["installed_order"] = order
-
     active = reg.get("active_order") or []
     active.append(name)
     reg["active_order"] = active
-
     save_registry(reg)
     return t
-
-
 def set_active_order(active_order: List[str]) -> List[str]:
     reg = load_registry()
     installed = reg.get("installed") or {}
     installed_order = reg.get("installed_order") or []
-
     seen = set()
     cleaned: List[str] = []
     for n in active_order or []:
@@ -1662,44 +1438,30 @@ def set_active_order(active_order: List[str]) -> List[str]:
             continue
         seen.add(n2)
         cleaned.append(n2)
-
     final = [n for n in installed_order if n in cleaned]
-
     reg["active_order"] = final
     save_registry(reg)
     return final
-
-
 # =========================
 # UPLOADS
 # =========================
-
 def load_upload_index() -> Dict[str, Any]:
     return load_json(UPLOAD_INDEX_PATH, {"files": {}, "updated_at": None})
-
-
 def save_upload_index(idx: Dict[str, Any]) -> None:
     idx["updated_at"] = now_iso()
     save_json(UPLOAD_INDEX_PATH, idx)
-
-
 def add_upload_record(file_id: str, rec: Dict[str, Any]) -> None:
     idx = load_upload_index()
     idx.setdefault("files", {})
     idx["files"][file_id] = rec
     save_upload_index(idx)
-
-
 def get_upload_record(file_id: str) -> Optional[Dict[str, Any]]:
     idx = load_upload_index()
     rec = (idx.get("files") or {}).get(file_id)
     return rec if isinstance(rec, dict) else None
-
-
 def image_state_path(teammate_name: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
     return IMAGE_STATE_DIR / f"{safe}.json"
-
 def load_image_state(teammate_name: str) -> Dict[str, Any]:
     data = load_json(image_state_path(teammate_name), {
         "current_image_id": "",
@@ -1725,12 +1487,10 @@ def load_image_state(teammate_name: str) -> Dict[str, Any]:
     data.setdefault("last_mode", "")
     data.setdefault("history", [])
     return data
-
 def save_image_state(teammate_name: str, payload: Dict[str, Any]) -> None:
     payload = dict(payload or {})
     payload["updated_at"] = now_iso()
     save_json(image_state_path(teammate_name), payload)
-
 def _image_url_for_record(rec: Optional[Dict[str, Any]]) -> str:
     if not rec:
         return ""
@@ -1738,14 +1498,12 @@ def _image_url_for_record(rec: Optional[Dict[str, Any]]) -> str:
     if not relpath:
         return ""
     return f"/uploads/{relpath}"
-
 def _is_image_record(rec: Optional[Dict[str, Any]]) -> bool:
     if not isinstance(rec, dict):
         return False
     mt = (rec.get("mimetype") or "").lower()
     fn = (rec.get("filename") or "").lower()
     return mt.startswith("image/") or fn.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
-
 def _append_image_history(state: Dict[str, Any], rec: Dict[str, Any], mode: str, prompt: str, source: str = "generated") -> Dict[str, Any]:
     state = dict(state or {})
     hist = list(state.get("history") or [])
@@ -1763,7 +1521,6 @@ def _append_image_history(state: Dict[str, Any], rec: Dict[str, Any], mode: str,
     hist.insert(0, item)
     state["history"] = hist[:50]
     return state
-
 def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], source: str = "generated", prompt: str = "", mode: str = "") -> Dict[str, Any]:
     state = load_image_state(teammate_name)
     url = _image_url_for_record(rec)
@@ -1779,19 +1536,16 @@ def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], sour
     state = _append_image_history(state, rec, mode=mode, prompt=prompt, source=source)
     save_image_state(teammate_name, state)
     return state
-
 def approve_current_image_for_teammate(teammate_name: str) -> Dict[str, Any]:
     state = load_image_state(teammate_name)
     state["approved_image_id"] = state.get("current_image_id", "")
     state["approved_image_url"] = state.get("current_image_url", "")
     save_image_state(teammate_name, state)
     return state
-
 def _latest_image_record_from_state(teammate_name: str) -> Optional[Dict[str, Any]]:
     state = load_image_state(teammate_name)
     fid = (state.get("current_image_id") or state.get("approved_image_id") or state.get("last_uploaded_image_id") or "").strip()
     return get_upload_record(fid) if fid else None
-
 def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str]) -> Optional[Dict[str, Any]]:
     latest = None
     for fid in file_ids or []:
@@ -1800,21 +1554,17 @@ def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str]) ->
             latest = rec
             set_current_image_for_teammate(teammate_name, rec, source="uploaded", prompt="", mode="reference")
     return latest
-
 _EDIT_HINTS = [
     "edit", "change", "revise", "adjust", "tweak", "make it", "make the", "move", "replace",
     "add", "remove", "fix", "clean up", "enhance", "use this", "try again", "based on this",
     "same graphic", "same image", "this one", "that one", "keep", "preserve", "redo", "update"
 ]
-
 _VARIATION_HINTS = [
     "variation", "alternate", "another version", "different version", "same idea", "similar", "remix", "branch"
 ]
-
 _START_OVER_HINTS = [
     "start over", "from scratch", "completely different", "brand new", "new graphic", "new image"
 ]
-
 def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False) -> str:
     p = (prompt or "").strip().lower()
     state = load_image_state(teammate_name)
@@ -1831,7 +1581,6 @@ def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_i
     if has_current and not any(x in p for x in ["create", "generate", "new", "from scratch"]):
         return "edit"
     return "new"
-
 def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, source_rec: Optional[Dict[str, Any]] = None) -> str:
     state = load_image_state(teammate_name)
     current_url = (state.get("current_image_url") or "").strip()
@@ -1855,7 +1604,6 @@ def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, s
         extras.append(f"Uploaded image reference: {_image_url_for_record(source_rec)}")
         extras.append("Use the uploaded image as the primary visual reference.")
     return (base + "\n\n" + "\n".join(extras)).strip()
-
 def _read_upload_bytes(rec: Optional[Dict[str, Any]]) -> Tuple[Optional[bytes], str]:
     if not _is_image_record(rec):
         return None, ""
@@ -1865,7 +1613,6 @@ def _read_upload_bytes(rec: Optional[Dict[str, Any]]) -> Tuple[Optional[bytes], 
     path = UPLOADS_DIR / relpath
     raw = safe_read_binary_file(path, max_bytes=20 * 1024 * 1024)
     return raw, (rec.get("mimetype") or "image/png")
-
 def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
     try:
         if hasattr(resp, "data") and resp.data:
@@ -1874,8 +1621,6 @@ def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
     except Exception:
         return None
     return None
-
-
 def safe_read_text_file(path: Path, max_bytes: int = MAX_INLINE_TEXT_BYTES) -> Optional[str]:
     try:
         if not path.exists():
@@ -1886,8 +1631,6 @@ def safe_read_text_file(path: Path, max_bytes: int = MAX_INLINE_TEXT_BYTES) -> O
         return raw.decode("utf-8", errors="replace")
     except Exception:
         return None
-
-
 def safe_read_binary_file(path: Path, max_bytes: int) -> Optional[bytes]:
     try:
         if not path.exists():
@@ -1897,26 +1640,20 @@ def safe_read_binary_file(path: Path, max_bytes: int) -> Optional[bytes]:
         return path.read_bytes()
     except Exception:
         return None
-
-
 def _guess_data_url(mimetype: str, raw: bytes) -> Optional[str]:
     mt = (mimetype or "").lower().strip()
     if not mt.startswith("image/"):
         return None
     b64 = base64.b64encode(raw).decode("ascii")
     return f"data:{mt};base64,{b64}"
-
-
 def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     meta_list: List[Dict[str, Any]] = []
     lines: List[str] = []
     vision_images: List[Dict[str, Any]] = []
-
     for fid in file_ids or []:
         rec = get_upload_record(fid)
         if not rec:
             continue
-
         meta = {
             "id": fid,
             "filename": rec.get("filename", ""),
@@ -1924,12 +1661,10 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
             "size_bytes": rec.get("size_bytes", 0),
         }
         meta_list.append(meta)
-
         filename = meta["filename"]
         mimetype = (meta["mimetype"] or "").lower()
         relpath = rec.get("relpath", "")
         fpath = UPLOADS_DIR / relpath if relpath else None
-
         if fpath and (mimetype.startswith("text/") or filename.lower().endswith((".txt", ".md", ".csv", ".json"))):
             txt = safe_read_text_file(fpath)
             if txt is not None:
@@ -1939,7 +1674,6 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
             else:
                 lines.append(f"[Attachment: {filename}] (text file too large to inline)")
             continue
-
         if fpath and mimetype.startswith("image/") and len(vision_images) < MAX_INLINE_IMAGES:
             raw = safe_read_binary_file(fpath, MAX_INLINE_IMAGE_BYTES)
             if raw is not None:
@@ -1952,19 +1686,14 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
                     })
                     lines.append(f"[Attachment: {filename}] (image included for vision models when supported)")
                     continue
-
         lines.append(f"[Attachment: {filename}] (non text file, included as reference)")
-
     context = ""
     if lines:
         context = "ATTACHMENTS (user provided)\n" + "\n".join(lines).strip() + "\n"
     return context, meta_list, vision_images
-
-
 # =========================
 # EMAIL
 # =========================
-
 def _user_smtp_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     smtp = (((u or {}).get("settings") or {}).get("smtp") or {})
     if not isinstance(smtp, dict):
@@ -1976,7 +1705,6 @@ def _user_smtp_settings(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "pass": (smtp.get("pass") or "").strip(),
         "from_name": (smtp.get("from_name") or "").strip() or SMTP_FROM_NAME
     }
-
 def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
     s = _user_smtp_settings(u)
     if s["user"] and s["pass"]:
@@ -1984,25 +1712,19 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
     # Disabled global SMTP fallback
     return False, "No SMTP connected. Add your email in Settings."
     return False, "No SMTP connected. Add your email in Settings."
-
-
-
 def _google_oauth_ready() -> Tuple[bool, str]:
     # Manual OAuth flow (no google-auth libraries required).
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
         return False, "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
     return True, ""
-
 def _gmail_libs_ready() -> Tuple[bool, str]:
     # Backward-compatible name used by older code paths.
     return _google_oauth_ready()
-
 def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not u:
         return {}
     settings = (u.get("settings") or {})
     return (settings.get("gmail_oauth") or {})
-
 def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
     users = load_users()
     uname = u.get("username")
@@ -2017,22 +1739,17 @@ def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
-
 # =========================
 # GOOGLE CALENDAR OAUTH
 # =========================
-
-
 def _calendar_libs_ready() -> Tuple[bool, str]:
     # Backward-compatible name used by older code paths.
     return _google_oauth_ready()
-
 def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not u:
         return {}
     settings = (u.get("settings") or {})
     return (settings.get("calendar_oauth") or {})
-
 def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
     users = load_users()
     uname = u.get("username")
@@ -2046,8 +1763,6 @@ def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, 
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
-
-
 def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _calendar_libs_ready()
     if not ok:
@@ -2064,7 +1779,6 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
         except Exception:
             pass
     return access_token, ""
-
 def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -2084,13 +1798,11 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
             clean.append({"email": a})
         if clean:
             event["attendees"] = clean
-
     r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=event, timeout=20)
     data = r.json() if r.content else {}
     if r.status_code >= 400:
         raise Exception(f"Calendar API error: {data}")
     return data
-
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -2120,8 +1832,6 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             "hangoutLink": it.get("hangoutLink",""),
         })
     return out
-
-
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
     ok, reason = _gmail_libs_ready()
     if not ok:
@@ -2138,7 +1848,6 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
         except Exception:
             pass
     return access_token, ""
-
 def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
     import requests
     # Build RFC 2822 message
@@ -2150,33 +1859,27 @@ def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str
     msg["Subject"] = subject
     msg["From"] = from_header
     msg.attach(MIMEText(body, "plain", "utf-8"))
-
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
     url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
     r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json={"raw": raw}, timeout=20)
     if r.status_code >= 400:
         data = r.json() if r.content else {}
         raise Exception(f"Gmail API error: {data}")
-
-
 def _email_capability_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     # Returns what can be used right now
     gmail_connected = bool(_user_gmail_oauth(u))
     smtp_ok, _ = smtp_ready_for_user(u)
     return {"gmail_connected": gmail_connected, "smtp_ready": smtp_ok}
-
 def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str, port: int, user: str, password: str, from_name: str) -> None:
     msg = MIMEMultipart()
     msg["From"] = f"{from_name} <{user}>"
     msg["To"] = to_addr
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
-
     with smtplib.SMTP(host, port) as server:
         server.starttls()
         server.login(user, password)
         server.send_message(msg)
-
 def smtp_ready() -> Tuple[bool, str]:
     # Backward compatible, used in a few places
     return smtp_ready_for_user(current_user())
@@ -2186,32 +1889,25 @@ def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_
     msg["To"] = to_addr
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
-
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
-
-
 def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
     if not text:
         return None
-
     content = text.strip()
-
     block = None
     m = EMAIL_DRAFT_BLOCK_RE.search(content)
     if m:
         block = (m.group(1) or "").strip()
     else:
         block = content
-
     lines = block.splitlines()
     to_val = ""
     subject_val = ""
     body_lines: List[str] = []
     in_body = False
-
     for raw in lines:
         line = raw.rstrip("\n")
         if not in_body:
@@ -2232,19 +1928,13 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
                     continue
         else:
             body_lines.append(line)
-
     body_val = "\n".join(body_lines).strip()
-
     if not subject_val and not body_val:
         return None
-
     return {"to": to_val, "subject": subject_val, "body": body_val}
-
-
 # =========================
 # PROMPTS + LLM
 # =========================
-
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) -> str:
     role_block = {
         "name": defn.get("name", ""),
@@ -2256,7 +1946,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "will_not_do": defn.get("will_not_do", []),
         "goal": defn.get("goal", ""),
     }
-
     email_rules = (
         "EMAIL CAPABILITY\n"
         "You can draft emails, but you cannot send emails.\n"
@@ -2271,13 +1960,11 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "Do not claim the email was sent.\n"
         "No em dashes.\n"
     )
-
     # Operator profile (shared business context)
     try:
         _op_user = _get_session_username()
     except Exception:
         _op_user = "anon"
-
     _op = _load_operator_profile(_op_user or "anon")
     operator_block = (
         "\n\nOPERATOR PROFILE (shared context)\n"
@@ -2290,7 +1977,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         f"Tone rules: {(_op.get('tone_rules','') or '').strip()}\n"
         f"Notes: {(_op.get('notes','') or '').strip()}\n"
     )
-
     # Active client (memory profiles) if available
     client_block = ""
     try:
@@ -2306,9 +1992,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
             )
     except Exception:
         client_block = ""
-
     framework = load_core_framework()
-
     lighting_block = ""
     if lighting_mode:
         lighting_block = (
@@ -2318,7 +2002,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
             "Deliver exactly what the user asked for, directly and completely.\n"
             "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
         )
-
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
@@ -2331,15 +2014,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         f"{client_block}\n\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
-
-
 ContentType = Union[str, List[Dict[str, Any]]]
-
-
 def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> ContentType:
     if not vision_images:
         return text
-
     parts: List[Dict[str, Any]] = [{"type": "text", "text": text}]
     for img in vision_images[:MAX_INLINE_IMAGES]:
         parts.append({
@@ -2347,9 +2025,6 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
             "image_url": {"url": img["data_url"]}
         })
     return parts
-
-
-
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """
     Returns (http_status, user_message)
@@ -2362,7 +2037,6 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     if "rate limit" in s or "429" in s:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
-
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     try:
         resp = get_openai_client().chat.completions.create(
@@ -2399,8 +2073,6 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             raise e2
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
-
-
 # =========================
 # IMAGE GENERATION (additive)
 # =========================
@@ -2409,9 +2081,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
 #
 # Front-end expects optional fields returned by /api/followup:
 #   { image_url: "/uploads/<relpath>", image_file: {upload record} }
-
 IMAGE_MODELS_FALLBACK = ["gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini"]
-
 _IMAGE_TRIGGERS = [
     "generate an image", "generate image", "create an image", "create image",
     "make an image", "make image",
@@ -2420,7 +2090,6 @@ _IMAGE_TRIGGERS = [
     "render", "illustration", "logo", "poster",
     "image of", "picture of",
 ]
-
 def is_image_request(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
     if not p:
@@ -2433,14 +2102,12 @@ def is_image_request(prompt: str) -> bool:
     if ("graphic" in p or "image" in p or "picture" in p) and ("prompt" not in p):
         return True
     return False
-
 def _pick_image_model() -> str:
     # Allow override via env, otherwise pick a safe default.
     m = (os.getenv("IMAGE_MODEL") or "").strip()
     if m:
         return m
     return "gpt-image-1"
-
 def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
     # Refine prompt using the text model for better image outputs.
     # Keep it short, tool-friendly.
@@ -2465,7 +2132,6 @@ def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
         return refined or user
     except Exception:
         return user
-
 def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
     # Save into uploads like any other file and index it.
     file_id = uuid.uuid4().hex
@@ -2491,8 +2157,6 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
     add_upload_record(file_id, rec)
     append_log("ai_image", {"teammate": teammate, "owner": username, "file": rec})
     return rec
-
-
 def _get_openai_client_for_username(username: str):
     """
     Background jobs cannot rely on Flask request/g context.
@@ -2510,7 +2174,6 @@ def _get_openai_client_for_username(username: str):
     if not key:
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
-
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -2518,22 +2181,17 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     prompt = (raw_prompt or "").strip()
     if not prompt:
         return None, None, "Missing image prompt"
-
     source_rec = get_upload_record(source_file_id) if source_file_id else None
-
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
-
     model = _pick_image_model()
     try:
         client = _get_openai_client_for_username(username)
     except Exception as e:
         return None, None, str(e)
-
     tried = []
     last_err = ""
     ref_bytes, ref_mimetype = _read_upload_bytes(source_rec)
     can_edit = bool(ref_bytes) and mode in ("edit", "variation")
-
     for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
         tried.append(m)
         try:
@@ -2579,12 +2237,10 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
         except Exception as e:
             last_err = str(e) or "Image generation failed"
             continue
-
     detail = (last_err or "").strip()
     if detail:
         return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
     return None, None, f"Image generation failed (tried: {', '.join(tried)})."
-
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
     triggers = [
@@ -2595,20 +2251,15 @@ def is_assembly(prompt: str) -> bool:
         "roll call",
     ]
     return any(t in p for t in triggers)
-
-
 def build_prompt_with_attachments(user_prompt: str, file_ids: List[str]) -> Tuple[str, List[Dict[str, Any]], List[Dict[str, Any]]]:
     attach_text, meta, vision_images = summarize_attachments_for_prompt(file_ids or [])
     if attach_text:
         combined = (user_prompt.strip() + "\n\n" + attach_text).strip()
         return combined, meta, vision_images
     return user_prompt.strip(), meta, vision_images
-
-
 # =========================
 # API
 # =========================
-
 @app.get("/api/state")
 def api_state():
     reg = load_registry()
@@ -2652,9 +2303,6 @@ def api_state():
             "length": len(load_core_framework() or "")
         }
     })
-
-
-
 @app.get("/api/diagnostics")
 def api_diagnostics():
     """Lightweight, read-only diagnostics for debugging UI state.
@@ -2674,13 +2322,11 @@ def api_diagnostics():
     except Exception as e:
         cal_connected = False
         cal_reason = str(e)
-
     # Basic session flags (safe)
     sess = {
         "authenticated": bool(u),
         "user": (u or ""),
     }
-
     return jsonify({
         "ok": True,
         "app_title": APP_TITLE,
@@ -2699,8 +2345,6 @@ def api_diagnostics():
             }
         }
     })
-
-
 @app.get("/api/task_log")
 def api_task_log():
     # Optional query params: teammate, status, limit
@@ -2715,7 +2359,6 @@ def api_task_log():
 # -------------------------
 # Action Stack API
 # -------------------------
-
 @app.get("/api/teammates/<teammate>/stacks")
 def api_action_stacks_list(teammate: str):
     u = current_user()
@@ -2726,7 +2369,6 @@ def api_action_stacks_list(teammate: str):
     names = list((data.get("stacks") or {}).keys())
     names.sort(key=lambda x: x.lower())
     return jsonify({"ok": True, "stacks": names})
-
 @app.get("/api/teammates/<teammate>/stacks/<stack_name>")
 def api_action_stacks_get(teammate: str, stack_name: str):
     u = current_user()
@@ -2738,7 +2380,6 @@ def api_action_stacks_get(teammate: str, stack_name: str):
     if not stack:
         return jsonify({"ok": False, "error": "Stack not found"}), 404
     return jsonify({"ok": True, "stack": stack})
-
 @app.post("/api/teammates/<teammate>/stacks/<stack_name>")
 def api_action_stacks_save(teammate: str, stack_name: str):
     u = current_user()
@@ -2752,7 +2393,6 @@ def api_action_stacks_save(teammate: str, stack_name: str):
     data["stacks"][stack_name] = {"name": stack_name, "teammate": teammate, "steps": steps, "updated_at": now_iso()}
     _save_saved_stacks(uname, teammate, data)
     return jsonify({"ok": True})
-
 @app.post("/api/teammates/<teammate>/stacks/<stack_name>/run")
 def api_action_stacks_run(teammate: str, stack_name: str):
     u = current_user()
@@ -2770,7 +2410,6 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     _persist_run(run)
     run2 = _run_action_stack_engine(run)
     return jsonify({"ok": True, "run": run2})
-
 @app.post("/api/action_stack_runs/<run_id>/resume")
 def api_action_stack_run_resume(run_id: str):
     u = current_user()
@@ -2779,7 +2418,6 @@ def api_action_stack_run_resume(run_id: str):
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     payload = request.get_json(force=True) or {}
     user_input = (payload.get("input") or "").strip()
-
     runs_data = _load_runs(uname)
     runs = runs_data.get("runs") or {}
     run = runs.get(run_id)
@@ -2787,17 +2425,13 @@ def api_action_stack_run_resume(run_id: str):
         return jsonify({"ok": False, "error": "Run not found"}), 404
     if run.get("status") != "needs_input":
         return jsonify({"ok": False, "error": f"Run not waiting for input (status={run.get('status')})"}), 400
-
     run["input"] = user_input
     run["status"] = "running"
     runs[run_id] = run
     runs_data["runs"] = runs
     _save_runs(uname, runs_data)
-
     run2 = _run_action_stack_engine(run)
     return jsonify({"ok": True, "run": run2})
-
-
 @app.get("/api/teammates/<teammate>/stacks/schedules")
 def api_action_stacks_schedules_list(teammate: str):
     u = current_user()
@@ -2806,7 +2440,6 @@ def api_action_stacks_schedules_list(teammate: str):
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     schedules = [s for s in _load_schedules(uname) if (s.get("teammate") == teammate)]
     return jsonify({"ok": True, "schedules": schedules})
-
 @app.post("/api/teammates/<teammate>/stacks/schedule")
 def api_action_stacks_schedules_create(teammate: str):
     u = current_user()
@@ -2837,7 +2470,6 @@ def api_action_stacks_schedules_create(teammate: str):
         return jsonify({"ok": False, "error": "Invalid mode"}), 400
     _save_schedules(uname, schedules)
     return jsonify({"ok": True, "schedule_id": sid})
-
 @app.post("/api/teammates/<teammate>/stacks/schedule/delete")
 def api_action_stacks_schedules_delete(teammate: str):
     u = current_user()
@@ -2851,7 +2483,6 @@ def api_action_stacks_schedules_delete(teammate: str):
     schedules = [s for s in _load_schedules(uname) if s.get("id") != sid]
     _save_schedules(uname, schedules)
     return jsonify({"ok": True})
-
 @app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
     try:
@@ -2870,10 +2501,6 @@ def api_action_stack_schedules_tick():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
-
-
-
 @app.get("/api/me")
 def api_me():
     u = current_user()
@@ -2891,15 +2518,12 @@ def api_me():
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
     })
-
-
 @app.get("/api/onboarding/status")
 def api_onboarding_status():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify(_onboarding_status_payload(u))
-
 @app.post("/api/onboarding/dismiss")
 def api_onboarding_dismiss():
     u = current_user()
@@ -2910,7 +2534,6 @@ def api_onboarding_dismiss():
     dismissed = bool(data.get("dismissed", True))
     _dismiss_onboarding(username, dismissed)
     return jsonify({"ok": True, "dismissed": dismissed})
-
 @app.get("/api/user/settings")
 def api_get_user_settings():
     u = current_user()
@@ -2918,13 +2541,11 @@ def api_get_user_settings():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
-
     key = (settings.get("openai_key") or "").strip()
     key_hint = ""
     if key:
         # show only last 4 chars to confirm something is saved, never return the key
         key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
-
     # do not leak password
     safe_smtp = {
         "host": smtp.get("host", ""),
@@ -2941,15 +2562,11 @@ def api_get_user_settings():
             "smtp": safe_smtp
         }
     })
-
-
-
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
     # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
     try:
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
@@ -2958,31 +2575,24 @@ def api_set_user_settings():
             _mark_onboarding_step(uname, "openai_key", True)
     except Exception:
         pass
-
-
     data = request.get_json(force=True) or {}
     openai_key_in = (data.get("openai_key") or "")
     openai_key = openai_key_in.strip()
-
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
         smtp_in = {}
-
     smtp_host = (smtp_in.get("host") or "").strip()
     smtp_port = int(smtp_in.get("port") or 587)
     smtp_user = (smtp_in.get("user") or "").strip()
     smtp_pass = (smtp_in.get("pass") or "").strip()
     smtp_from_name = (smtp_in.get("from_name") or "").strip()
-
     users = load_users()
     uname = u.get("username")
     rec = (users.get("users") or {}).get(uname) or u
-
     rec.setdefault("settings", {})
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
     # if user leaves it blank, do NOT overwrite the saved key
-
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
         rec["settings"]["smtp"]["host"] = smtp_host
@@ -2993,20 +2603,14 @@ def api_set_user_settings():
         rec["settings"]["smtp"]["pass"] = smtp_pass
     if smtp_from_name != "":
         rec["settings"]["smtp"]["from_name"] = smtp_from_name
-
     rec["updated_at"] = now_iso()
     users["users"][uname] = rec
     save_users(users)
-
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     return jsonify({"ok": True})
-
-
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
-
-
 @app.post("/api/framework")
 def api_set_framework():
     data = request.get_json(force=True) or {}
@@ -3014,8 +2618,6 @@ def api_set_framework():
     save_core_framework(fw)
     append_log("framework_updated", {"updated_at": now_iso(), "length": len(load_core_framework())})
     return jsonify({"ok": True, "length": len(load_core_framework())})
-
-
 @app.post("/api/install/full")
 def api_install_full():
     reg = install_full_team()
@@ -3025,11 +2627,7 @@ def api_install_full():
         _mark_onboarding_step(uname, "full_team", True)
     except Exception:
         pass
-
-
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
-
-
 @app.post("/api/active_order")
 def api_set_active_order():
     data = request.get_json(force=True) or {}
@@ -3039,8 +2637,6 @@ def api_set_active_order():
     final = set_active_order(order)
     append_log("active_order_set", {"active_order": final, "updated_at": now_iso()})
     return jsonify({"ok": True, "active_order": final})
-
-
 @app.post("/api/teammate/create")
 def api_create_teammate():
     data = request.get_json(force=True) or {}
@@ -3048,7 +2644,6 @@ def api_create_teammate():
         t = create_teammate(data)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
-
     append_log("teammate_created", {
         "name": t.get("name"),
         "job_title": t.get("job_title"),
@@ -3056,8 +2651,6 @@ def api_create_teammate():
         "created_at": now_iso()
     })
     return jsonify({"ok": True, "teammate": t})
-
-
 @app.get("/api/teammate/<name>")
 def api_get_teammate(name: str):
     reg = load_registry()
@@ -3078,23 +2671,18 @@ def api_get_teammate(name: str):
             "goal": t.get("goal", ""),
         }
     })
-
-
 @app.post("/api/teammate/<name>")
 def api_update_teammate(name: str):
     reg = load_registry()
     installed = reg.get("installed", {})
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
-
     payload = request.get_json(force=True) or {}
     current = installed[name]
     updated = _sanitize_teammate_update(payload, current)
-
     installed[name] = updated
     reg["installed"] = installed
     save_registry(reg)
-
     append_log("teammate_updated", {
         "name": name,
         "updated_at": now_iso(),
@@ -3109,33 +2697,24 @@ def api_update_teammate(name: str):
             "goal": updated.get("goal", ""),
         }
     })
-
     return jsonify({"ok": True})
-
-
 @app.post("/api/upload")
 def api_upload():
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "Missing file field"}), 400
-
     f = request.files["file"]
     if not f or not f.filename:
         return jsonify({"ok": False, "error": "Empty upload"}), 400
-
     filename = secure_filename(f.filename)
     if not filename:
         return jsonify({"ok": False, "error": "Invalid filename"}), 400
-
     file_id = uuid.uuid4().hex
     subdir = datetime.utcnow().strftime("%Y%m%d")
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
-
     out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
     f.save(out_path)
-
     size_bytes = out_path.stat().st_size if out_path.exists() else 0
     mimetype = (f.mimetype or "").strip()
-
     owner = ""
     try:
         u = current_user()
@@ -3152,23 +2731,18 @@ def api_upload():
         "owner": owner,
     }
     add_upload_record(file_id, rec)
-
     append_log("upload", rec)
     return jsonify({"ok": True, "file": rec})
-
 @app.get("/api/images")
 def api_images_list():
     """List stored images (includes AI-generated images and uploaded images)."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     only_ai = (request.args.get("only_ai") or "").strip().lower() in ("1","true","yes","y","on")
-
     idx = load_upload_index()
     files = list((idx.get("files") or {}).values())
-
     def _is_image(rec: Dict[str, Any]) -> bool:
         mt = (rec.get("mimetype") or "").lower()
         fn = (rec.get("filename") or "").lower()
@@ -3177,7 +2751,6 @@ def api_images_list():
         if fn.endswith((".png",".jpg",".jpeg",".webp",".gif",".svg")):
             return True
         return False
-
     out = []
     for rec in files:
         if not isinstance(rec, dict):
@@ -3193,12 +2766,9 @@ def api_images_list():
         r = dict(rec)
         r["url"] = f"/uploads/{r.get('relpath','')}"
         out.append(r)
-
     # newest first
     out.sort(key=lambda r: (r.get("uploaded_at") or ""), reverse=True)
     return jsonify({"ok": True, "images": out})
-
-
 @app.get("/api/images/job/<job_id>")
 def api_image_job_status(job_id: str):
     u = current_user()
@@ -3208,27 +2778,21 @@ def api_image_job_status(job_id: str):
     if not st:
         return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": st})
-
-
 @app.post("/api/convene")
 def api_convene():
     data = request.get_json(force=True)
     prompt = (data.get("prompt") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
-
     if not prompt:
         return jsonify({"ok": False, "error": "Missing prompt"}), 400
-
     reg = load_registry()
     installed = reg["installed"]
     order = reg.get("active_order") or reg.get("installed_order") or []
-
     if not installed:
         return jsonify({"ok": False, "error": "No teammates installed"}), 400
     if not order:
         return jsonify({"ok": False, "error": "No active teammates in the round table"}), 400
-
     if is_assembly(prompt):
         roll = []
         for name in order:
@@ -3238,10 +2802,8 @@ def api_convene():
             roll.append({"name": d["name"], "job_title": d.get("job_title", ""), "version": d.get("version", "")})
         append_log("assembly", {"prompt": prompt, "roll": roll})
         return jsonify({"ok": True, "mode": "assembly", "roll": roll})
-
     prompt2, attach_meta, vision_images = build_prompt_with_attachments(prompt, file_ids)
     user_content = _build_user_content(prompt2, vision_images)
-
     atlis = installed.get("Atlis") or PREBUILT_LOCKED["Atlis"]
     atlis_sys = teammate_system_prompt(atlis, lighting_mode=lighting_mode)
     try:
@@ -3262,7 +2824,6 @@ def api_convene():
         status, msg = _classify_openai_error(e)
         append_log("convene_error", {"where":"atlis_preflight","error": str(e)})
         return jsonify({"ok": False, "error": msg}), status
-
     # Task log: Atlis preflight (append-only)
     append_task_log(
         "atlis_preflight",
@@ -3276,36 +2837,27 @@ def api_convene():
         teammate="Atlis",
         status="success"
     )
-
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
-
     for name in order:
         defn = installed.get(name)
         if not defn:
             continue
-
         sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
-
         thread = load_thread(name)
         thread = thread[-12:] if len(thread) > 12 else thread
-
         msgs: List[Dict[str, Any]] = []
         msgs.extend(thread)
         msgs.append({"role": "user", "content": user_content})
-
         try:
             text = call_llm(sys, msgs, temperature=0.65)
         except Exception as e:
             status, msg = _classify_openai_error(e)
             append_log("convene_error", {"where": name, "error": str(e)})
             return jsonify({"ok": False, "error": msg}), status
-
         new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
         save_thread(name, new_thread)
-
         outputs[name] = text
-
         # Task log per teammate response (append-only)
         append_task_log(
             "teammate_convene",
@@ -3319,11 +2871,9 @@ def api_convene():
             teammate=name,
             status="success"
         )
-
         d = extract_email_draft(text)
         if d:
             email_drafts[name] = d
-
     append_log("convene", {
         "prompt": prompt,
         "prompt_with_attachments": prompt2,
@@ -3335,7 +2885,6 @@ def api_convene():
         "outputs": outputs,
         "email_drafts": email_drafts,
     })
-
     return jsonify({
         "ok": True,
         "mode": "execute",
@@ -3344,8 +2893,6 @@ def api_convene():
         "email_drafts": email_drafts,
         "attachment_meta": attach_meta
     })
-
-
 @app.post("/api/followup")
 def api_followup():
     data = request.get_json(force=True)
@@ -3353,26 +2900,19 @@ def api_followup():
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
-
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
-
     reg = load_registry()
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-
     msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
     user_content = _build_user_content(msg2, vision_images)
-
     defn = installed[name]
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
-
     thread = load_thread(name)
     thread = thread[-14:] if len(thread) > 14 else thread
-
     latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
-
     try:
         uname = _get_session_username()
     except Exception:
@@ -3383,37 +2923,26 @@ def api_followup():
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
         job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
-
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
         placeholder = f"[{mode_label}] job:{job_id}"
         thread2 = load_thread(name)
         thread2 = thread2[-14:] if len(thread2) > 14 else thread2
         new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread)
-
         st0 = load_image_state(name)
         st0["last_prompt"] = msg
         st0["last_mode"] = mode
         save_image_state(name, st0)
-
         append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
         append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
-
         return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
-
-
-
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
-
     text = call_llm(sys, msgs, temperature=0.65)
-
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
-
     draft = extract_email_draft(text)
-
     append_log("followup", {
         "name": name,
         "message": msg,
@@ -3424,8 +2953,6 @@ def api_followup():
         "response": text,
         "email_draft": draft
     })
-
-
     # Task log (append-only)
     append_task_log(
         "teammate_followup",
@@ -3447,12 +2974,7 @@ def api_followup():
         _mark_onboarding_step(uname, "first_prompt", True)
     except Exception:
         pass
-
-
-
     return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
-
-
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
     reg = load_registry()
@@ -3460,7 +2982,6 @@ def api_thread(name: str):
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     return jsonify({"ok": True, "thread": load_thread(name), "image_state": load_image_state(name)})
-
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
     reg = load_registry()
@@ -3468,7 +2989,6 @@ def api_teammate_image_state(name: str):
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     return jsonify({"ok": True, "image_state": load_image_state(name)})
-
 @app.post("/api/teammates/<name>/current_image")
 def api_teammate_set_current_image(name: str):
     reg = load_registry()
@@ -3487,7 +3007,6 @@ def api_teammate_set_current_image(name: str):
     if approve:
         st = approve_current_image_for_teammate(name)
     return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
-
 @app.post("/api/teammates/<name>/approve_current_image")
 def api_teammate_approve_current_image(name: str):
     reg = load_registry()
@@ -3496,28 +3015,22 @@ def api_teammate_approve_current_image(name: str):
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     st = approve_current_image_for_teammate(name)
     return jsonify({"ok": True, "image_state": st})
-
-
 @app.post("/api/send_email")
 def api_send_email():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
     data = request.get_json(force=True) or {}
     to_addr = (data.get("to") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
     from_teammate = (data.get("from_teammate") or "").strip()
-
     if not to_addr or not subject or not body:
         return jsonify({"ok": False, "error": "Missing to, subject, or body"}), 400
     if not EMAIL_RE.match(to_addr):
         return jsonify({"ok": False, "error": "Invalid recipient email"}), 400
-
     # Prefer Gmail OAuth (Option C). If not connected, fall back to SMTP if configured.
     cap = _email_capability_for_user(u)
-
     try:
         if cap["gmail_connected"]:
             access_token, reason = _gmail_creds_for_user(u)
@@ -3533,7 +3046,6 @@ def api_send_email():
                     "error": reason,
                     "hint": "Connect Gmail (recommended) or add SMTP credentials in Settings. For Gmail SMTP you must use an App Password."
                 }), 400
-
             s = _user_smtp_settings(u)
             host = s["host"]
             port = s["port"]
@@ -3555,7 +3067,6 @@ def api_send_email():
             provider = "smtp"
     except Exception as e:
         append_log("email_error", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "error": str(e)})
-
         append_task_log(
             "send_email",
             {
@@ -3568,11 +3079,8 @@ def api_send_email():
             teammate=from_teammate or "",
             status="failed"
         )
-
         return jsonify({"ok": False, "error": f"Email send failed: {e}"}), 500
-
     append_log("email_sent", {"to": to_addr, "subject": subject, "from_teammate": from_teammate, "provider": provider, "sent_at": now_iso()})
-
     append_task_log(
         "send_email",
         {
@@ -3585,15 +3093,10 @@ def api_send_email():
         teammate=from_teammate or "",
         status="success"
     )
-
     return jsonify({"ok": True, "provider": provider})
-
-
-
 # =========================
 # GMAIL OAUTH ROUTES (Option C)
 # =========================
-
 @app.get("/api/gmail/status")
 def api_gmail_status():
     u = current_user()
@@ -3601,7 +3104,6 @@ def api_gmail_status():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     connected = bool(_user_gmail_oauth(u))
     return jsonify({"ok": True, "connected": connected})
-
 @app.post("/api/gmail/disconnect")
 def api_gmail_disconnect():
     u = current_user()
@@ -3610,8 +3112,6 @@ def api_gmail_disconnect():
     _save_user_gmail_oauth(u, None)
     append_log("gmail_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
-
-
 @app.get("/gmail/connect")
 def gmail_connect():
     u = current_user()
@@ -3620,14 +3120,11 @@ def gmail_connect():
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
-
     state = secrets.token_urlsafe(24)
     session["gmail_oauth_states_single"] = state
     _push_oauth_state("gmail_oauth_states", state)
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
-
-
 @app.get("/gmail/callback")
 def gmail_callback():
     u = current_user()
@@ -3636,24 +3133,20 @@ def gmail_callback():
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
-
     state = request.args.get("state", "")
     if not _oauth_state_matches("gmail_oauth_states", state):
         return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
     code = request.args.get("code", "")
     if not code:
         return make_response("Missing authorization code from Google.", 400)
-
     token_info, err = _oauth_exchange_code(code, "/gmail/callback")
     if not token_info:
         append_log("gmail_connect_error", {"user": u.get("username", ""), "error": err, "at": now_iso()})
         return make_response(f"Failed to connect Gmail: {err}", 400)
-
     # Keep refresh_token if Google didn't re-send it
     old = _user_gmail_oauth(u) or {}
     if old.get("refresh_token") and not token_info.get("refresh_token"):
         token_info["refresh_token"] = old.get("refresh_token")
-
     _save_user_gmail_oauth(u, token_info)
     append_log("gmail_connected", {"user": u.get("username", ""), "at": now_iso()})
     # onboarding_gmail_connected: mark Gmail step after successful connect
@@ -3662,16 +3155,10 @@ def gmail_callback():
         _mark_onboarding_step(uname, "gmail_connected", True)
     except Exception:
         pass
-
-
     return redirect("/#settings")
-
-
-
 # =========================
 # GOOGLE CALENDAR OAUTH ROUTES
 # =========================
-
 @app.get("/api/calendar/status")
 def api_calendar_status():
     u = current_user()
@@ -3679,7 +3166,6 @@ def api_calendar_status():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     connected = bool(_user_calendar_oauth(u))
     return jsonify({"ok": True, "connected": connected})
-
 @app.post("/api/calendar/disconnect")
 def api_calendar_disconnect():
     u = current_user()
@@ -3688,8 +3174,6 @@ def api_calendar_disconnect():
     _save_user_calendar_oauth(u, None)
     append_log("calendar_disconnected", {"user": u.get("username", ""), "at": now_iso()})
     return jsonify({"ok": True})
-
-
 @app.get("/calendar/connect")
 def calendar_connect():
     u = current_user()
@@ -3698,13 +3182,10 @@ def calendar_connect():
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
-
     state = secrets.token_urlsafe(24)
     session["calendar_oauth_state"] = state
     auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
     return redirect(auth_url)
-
-
 @app.get("/calendar/callback")
 def calendar_callback():
     u = current_user()
@@ -3713,29 +3194,23 @@ def calendar_callback():
     ok, reason = _google_oauth_ready()
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
-
     state = request.args.get("state", "")
     expected = session.get("calendar_oauth_state", "")
     if not state or not expected or state != expected:
         return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
-
     code = request.args.get("code", "")
     if not code:
         return make_response("Missing authorization code from Google.", 400)
-
     token_info, err = _oauth_exchange_code(code, "/calendar/callback")
     if not token_info:
         append_log("calendar_connect_error", {"user": u.get("username", ""), "error": err, "at": now_iso()})
         return make_response(f"Failed to connect Google Calendar: {err}", 400)
-
     old = _user_calendar_oauth(u) or {}
     if old.get("refresh_token") and not token_info.get("refresh_token"):
         token_info["refresh_token"] = old.get("refresh_token")
-
     _save_user_calendar_oauth(u, token_info)
     append_log("calendar_connected", {"user": u.get("username", ""), "at": now_iso()})
     return redirect("/#settings")
-
 @app.post("/api/calendar/create_event")
 def api_calendar_create_event():
     u = current_user()
@@ -3754,7 +3229,6 @@ def api_calendar_create_event():
         attendees = [a.strip() for a in attendees.split(',') if a.strip()]
     description = (payload.get("description") or "").strip()
     location = (payload.get("location") or "").strip()
-
     if not start or not end:
         return jsonify({"ok": False, "error": "Missing start/end. Provide ISO datetime strings."}), 400
     try:
@@ -3772,13 +3246,11 @@ def api_calendar_events():
     access_token, reason = _calendar_creds_for_user(u)
     if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
-
     time_min = (request.args.get("time_min") or "").strip()
     time_max = (request.args.get("time_max") or "").strip()
     timezone = (request.args.get("timezone") or "America/New_York").strip()
     max_results = int((request.args.get("max_results") or "250").strip() or "250")
     max_results = max(1, min(max_results, 1200))
-
     if not time_min or not time_max:
         return jsonify({"ok": False, "error": "Missing time_min/time_max"}), 400
     try:
@@ -3786,11 +3258,9 @@ def api_calendar_events():
         return jsonify({"ok": True, "events": events})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
 # =========================
 # AUTH ROUTES
 # =========================
-
 AUTH_BASE_CSS = r"""
 <style>
   :root{ --text:#e6edff; --muted:#b8c4ffcc; --gold:#f7d36a; --gold2:#d7a93a; --blue:#3b82f6; --purple:#7c3aed; }
@@ -3892,7 +3362,6 @@ AUTH_BASE_CSS = r"""
   a:hover{ text-decoration: underline; }
   .err{ margin-top: 14px; color: #ffb4b4; font-size: 14px; white-space: pre-wrap; }
   .ok{ margin-top: 14px; color: #9effc2; font-size: 14px; white-space: pre-wrap; }
-
     /* ===== NEW: Coach marks (first-run guidance) ===== */
     .coachGlow{
       position: relative;
@@ -3920,7 +3389,6 @@ AUTH_BASE_CSS = r"""
     .coachTitle{ font-weight: 800; font-size: 13px; margin-bottom: 6px; }
     .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
     .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
-
   /* Mobile responsiveness */
 @media (max-width: 640px){
   body{ overflow-x:hidden; padding: 16px 10px; }
@@ -3939,21 +3407,16 @@ AUTH_BASE_CSS = r"""
   .brand{ font-size: 22px !important; }
   .muted{ font-size: 14px !important; }
 }
-
-
 /* UI polish */
 .seat{ box-shadow: 0 10px 24px rgba(0,0,0,.25); }
 .modalWin{ box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .btnPrimary{ filter: saturate(1.05); }
 .pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
-
-
 /* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
 @media (max-width: 640px){
   /* Allow horizontal pan if anything still overflows */
   html, body{ overflow-x: auto !important; }
   .container{ overflow-x: auto !important; }
-
   /* Force the round table region to behave like a centered block */
   .tableWrap{
     width: 100% !important;
@@ -3968,7 +3431,6 @@ AUTH_BASE_CSS = r"""
     overflow-y: visible !important;
     -webkit-overflow-scrolling: touch;
   }
-
   /* Lock the table itself: no absolute centering math on mobile */
   .table{
     position: relative !important;
@@ -3977,19 +3439,15 @@ AUTH_BASE_CSS = r"""
     top: auto !important;
     margin-left: auto !important;
     margin-right: auto !important;
-
     width: min(92vw, 520px) !important;
     max-width: min(92vw, 520px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
-
     /* Zoom + nudge, without translate(-50%,-50%) */
     transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
     transform-origin: center center !important;
   }
 }
-
-
 /* ===== NEW: Mobile Round Table Viewport Lock v3 (no clipping, true center, pinch zoom enabled) ===== */
 @media (max-width: 700px){
   /* Create a dedicated viewport for the round table that can pan if needed */
@@ -4008,7 +3466,6 @@ AUTH_BASE_CSS = r"""
     scroll-snap-type: x mandatory;
   }
   #tableViewport::-webkit-scrollbar{ display:none; }
-
   /* Force the table to behave like a normal centered block on mobile */
   .table{
     position: relative !important;
@@ -4021,12 +3478,9 @@ AUTH_BASE_CSS = r"""
     zoom: var(--tableZoom, 0.72) !important; /* zoom affects layout, so centering + scrolling works */
     scroll-snap-align: center;
   }
-
   /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
   html, body{ overflow-x: auto !important; }
 }
-
-
 /* ===== ADDITIVE UPGRADE: Mobile Round Table Stage v4 (true center, no cut-off, seats visible, pinch zoom) ===== */
 @media (max-width: 700px){
   /* Keep the tableWrap square on mobile (prevents half-table cut-off from height:auto overrides) */
@@ -4040,7 +3494,6 @@ AUTH_BASE_CSS = r"""
     position: relative !important;
     touch-action: none !important; /* required for custom pinch/pan */
   }
-
   /* Stage that pans/zooms the table + seats */
   #rtStage{
     position:absolute !important;
@@ -4048,14 +3501,12 @@ AUTH_BASE_CSS = r"""
     transform-origin: 0 0 !important;
     will-change: transform;
   }
-
   /* Preserve original desktop-style table centering on mobile */
   #rtStage .table{
     position:absolute !important;
     inset: 50% 50% !important;
     transform: translate(-50%,-50%) !important;
   }
-
   /* Prevent text clipping inside seat cards */
   .seatMeta{ min-width: 0 !important; }
   .seatName, .seatRole{
@@ -4067,13 +3518,11 @@ AUTH_BASE_CSS = r"""
 }
 </style>
 """
-
 LOGIN_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
-
 /* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
 <style>
 @media (max-width: 900px){
@@ -4082,11 +3531,9 @@ LOGIN_HTML = r"""
     max-width:100% !important;
     overflow-x:hidden !important;
   }
-
   *, *::before, *::after{
     box-sizing:border-box !important;
   }
-
   .container,
   .stage,
   .arena,
@@ -4097,26 +3544,22 @@ LOGIN_HTML = r"""
     width:100% !important;
     max-width:100% !important;
   }
-
   .stage{
     display:flex !important;
     flex-direction:column !important;
     align-items:stretch !important;
     min-height:auto !important;
   }
-
   .arena{
     padding-left:0 !important;
     padding-right:0 !important;
     overflow:visible !important;
   }
-
   .underTable{
     margin:0 auto 18px auto !important;
     padding-left:0 !important;
     padding-right:0 !important;
   }
-
   .side{
     position:relative !important;
     top:auto !important;
@@ -4127,88 +3570,72 @@ LOGIN_HTML = r"""
     background:transparent !important;
     backdrop-filter:none !important;
   }
-
   .sideCard,
   .groupCard{
     margin-left:0 !important;
     margin-right:0 !important;
   }
-
   .sideHead{
     flex-wrap:wrap !important;
     align-items:flex-start !important;
     justify-content:space-between !important;
   }
-
   .sideTitle{
     min-width:0 !important;
     flex:1 1 180px !important;
   }
-
   .sideHead .btn{
     flex:0 0 auto !important;
     max-width:100% !important;
   }
-
   .passRow,
   .pillRow{
     width:100% !important;
     max-width:100% !important;
     overflow:visible !important;
   }
-
   .passRow .btn,
   .pillRow .btn{
     max-width:100% !important;
   }
-
   textarea, input, select{
     max-width:100% !important;
   }
 }
-
 @media (max-width: 700px){
   .container{
     padding-left:12px !important;
     padding-right:12px !important;
     padding-bottom:88px !important;
   }
-
   .groupCard,
   .sideCard{
     padding:10px !important;
     border-radius:14px !important;
   }
-
   .sideHead{
     gap:8px !important;
   }
-
   .sideHead .btn{
     align-self:flex-start !important;
   }
-
   .h1, #seatTitle{
     max-width:100% !important;
     word-break:break-word !important;
   }
-
   #refreshThread{
     margin-left:auto !important;
   }
-
   .tableWrap#tableWrap{
     width:min(94vw, 620px) !important;
     height:min(94vw, 620px) !important;
     min-height:min(94vw, 620px) !important;
   }
-
   #tableViewport{
     padding-left:0 !important;
     padding-right:0 !important;
     overflow-x:hidden !important;
   }
-
   .table{
     transform:translateX(0) !important;
     zoom:var(--tableZoom, 0.70) !important;
@@ -4217,12 +3644,10 @@ LOGIN_HTML = r"""
   }
 }
 </style>
-
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Login to access your command center.</div>
-
     <form method="post" action="/login">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
@@ -4235,7 +3660,6 @@ LOGIN_HTML = r"""
         <button class="btn btnPrimary" type="submit">Login</button>
       </div>
     </form>
-
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
       {% if allow_signup %}
@@ -4245,13 +3669,10 @@ LOGIN_HTML = r"""
         <div class="muted"><a href="/setup">First time setup</a></div>
       {% endif %}
     </div>
-
     {% if error %}<div class="err">{{error}}</div>{% endif %}
   </div>
 </body></html>
 """
-
-
 REGISTER_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -4261,7 +3682,6 @@ REGISTER_HTML = r"""
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Create a new account.</div>
-
     <form method="post" action="/register">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
@@ -4281,13 +3701,11 @@ REGISTER_HTML = r"""
         <a class="muted" href="/login">Back to login</a>
       </div>
     </form>
-
     {% if error %}<div class="err">{{error}}</div>{% endif %}
     {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
   </div>
 </body></html>
 """
-
 SETUP_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -4297,7 +3715,6 @@ SETUP_HTML = r"""
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Create the first account.</div>
-
     <form method="post" action="/setup">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
@@ -4310,12 +3727,10 @@ SETUP_HTML = r"""
         <a class="muted" href="/login">Back to login</a>
       </div>
     </form>
-
     {% if error %}<div class="err">{{error}}</div>{% endif %}
   </div>
 </body></html>
 """
-
 RESET_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -4325,7 +3740,6 @@ RESET_HTML = r"""
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Request a reset token, then set a new password.</div>
-
     <form method="post" action="/reset">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
@@ -4334,12 +3748,9 @@ RESET_HTML = r"""
         <a class="muted" href="/login">Back to login</a>
       </div>
     </form>
-
     {% if token %}<div class="ok">Reset token (copy this): {{token}}</div>{% endif %}
     {% if error %}<div class="err">{{error}}</div>{% endif %}
-
     <div style="height:14px"></div>
-
     <form method="post" action="/reset_password">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
@@ -4351,26 +3762,21 @@ RESET_HTML = r"""
         <button class="btn btnPrimary" type="submit">Set new password</button>
       </div>
     </form>
-
     {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
   </div>
 </body></html>
 """
-
 def _make_token() -> str:
     return secrets.token_urlsafe(18)
-
 def _hash_token(token: str) -> str:
     if not token:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
 @app.get("/setup")
 def setup():
     if has_any_user():
         return redirect(url_for("login"))
     return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=None)
-
 @app.post("/setup")
 def setup_post():
     if has_any_user():
@@ -4378,49 +3784,37 @@ def setup_post():
     username = _clean_username(request.form.get("username", ""))
     email = (request.form.get("email") or "").strip()
     password = (request.form.get("password") or "").strip()
-
     if not username or not password:
         return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Missing username or password")
-
     if len(username) < 3:
         return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters")
     if len(password) < 8:
         return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters")
-
     data = load_users()
     data["users"][username] = _new_user(username=username, password=password, email=email)
     save_users(data)
-
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
-
 @app.get("/login")
 def login():
     allow_setup = not has_any_user()
     return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled())
-
 @app.post("/login")
 def login_post():
     username = _clean_username(request.form.get("username", ""))
     password = (request.form.get("password") or "").strip()
     remember = (request.form.get("remember") or "").strip()
-
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u or not check_password_hash(u.get("password_hash",""), password):
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
-
     session["user"] = username
     session.permanent = bool(remember)
     # if remember is checked, keep for 30 days
     if remember:
         app.permanent_session_lifetime = timedelta(days=30)
-
     return redirect(url_for("index"))
-
-
-
 # ===== NEW: Account registration (additive) =====
 def _signup_enabled() -> bool:
     # Allow signups if explicitly enabled, or if there are no users yet (first run).
@@ -4430,21 +3824,17 @@ def _signup_enabled() -> bool:
     if v in ("0","false","no","n","off"):
         return False
     return (not has_any_user())
-
 def _require_invite_code() -> bool:
     v = (os.getenv("REQUIRE_INVITE_CODE") or "").strip().lower()
     return v in ("1","true","yes","y","on")
-
 def _invite_code_value() -> str:
     return (os.getenv("INVITE_CODE") or "").strip()
-
 @app.get("/register")
 def register_get():
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
     return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code())
-
 @app.post("/register")
 def register_post():
     if not _signup_enabled():
@@ -4453,14 +3843,12 @@ def register_post():
     email = (request.form.get("email","") or "").strip()
     pw = (request.form.get("password","") or "").strip()
     pw2 = (request.form.get("password2","") or "").strip()
-
     if not username or len(username) < 3:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=_require_invite_code())
     if len(pw) < 8:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=_require_invite_code())
     if pw != pw2:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=_require_invite_code())
-
     if _require_invite_code():
         got = (request.form.get("invite_code") or "").strip()
         want = _invite_code_value()
@@ -4468,12 +3856,10 @@ def register_post():
             return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invite code is not configured on the server.", ok=None, require_code=True)
         if got != want:
             return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invalid invite code.", ok=None, require_code=True)
-
     data = load_users()
     users = data.get("users") or {}
     if username in users:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=_require_invite_code())
-
     users[username] = _new_user(username, pw, email=email)
     data["users"] = users
     save_users(data)
@@ -4482,11 +3868,9 @@ def register_post():
 def logout():
     session.clear()
     return redirect(url_for("login"))
-
 @app.get("/reset")
 def reset():
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=None)
-
 @app.post("/reset")
 def reset_post():
     username = _clean_username(request.form.get("username", ""))
@@ -4494,51 +3878,39 @@ def reset_post():
     u = (data.get("users") or {}).get(username)
     if not u:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
-
     token = _make_token()
     u.setdefault("reset", {})
     u["reset"]["token_hash"] = _hash_token(token)
     u["reset"]["created_at"] = now_iso()
     u["updated_at"] = now_iso()
-
     data["users"][username] = u
     save_users(data)
-
     # Token is shown once on screen (copy it). In production you'd email this.
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=token, ok=None)
-
 @app.post("/reset_password")
 def reset_password_post():
     username = _clean_username(request.form.get("username", ""))
     token = (request.form.get("token") or "").strip()
     new_password = (request.form.get("new_password") or "").strip()
-
     if len(new_password) < 8:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="New password must be at least 8 characters", token=None, ok=None)
-
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
-
     th = ((u.get("reset") or {}).get("token_hash")) or ""
     if not th or _hash_token(token) != th:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token", token=None, ok=None)
-
     u["password_hash"] = generate_password_hash(new_password)
     u["reset"]["token_hash"] = ""
     u["reset"]["created_at"] = None
     u["updated_at"] = now_iso()
     data["users"][username] = u
     save_users(data)
-
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
-
-
 # =========================
 # Operator Profile (shared context)
 # =========================
-
 @app.get("/api/operator_profile")
 def api_operator_profile_get():
     u = current_user()
@@ -4547,7 +3919,6 @@ def api_operator_profile_get():
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     prof = _load_operator_profile(uname)
     return jsonify({"ok": True, "profile": prof})
-
 @app.post("/api/operator_profile")
 def api_operator_profile_set():
     u = current_user()
@@ -4575,16 +3946,10 @@ def api_operator_profile_set():
             _mark_onboarding_step(uname, "operator_profile", True)
     except Exception:
         pass
-
-
     return jsonify({"ok": True, "profile": prof})
-
-
-
 # =========================
 # UI
 # =========================
-
 HTML = r"""
 <!doctype html>
 <html>
@@ -4605,7 +3970,6 @@ HTML = r"""
         radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
       color:var(--text);
     }
-
     .topbar{
       position: relative;
       z-index: 20;
@@ -4682,14 +4046,12 @@ HTML = r"""
       font-size:11px;
       border-radius:10px;
     }
-
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
       grid-template-columns: minmax(0, 1fr) 380px;
       align-items:start;
     }
-
     .arena{
       position:relative;
       display:flex;
@@ -4697,7 +4059,6 @@ HTML = r"""
       justify-content:center;
       padding: 18px 0 18px 0;
     }
-
     .tableWrap{
       position:relative;
       width:min(860px, 92vw);
@@ -4705,7 +4066,6 @@ HTML = r"""
       min-height: 860px;
       margin-bottom: 0;
     }
-
     .table{
       position:absolute;
       inset: 50% 50%;
@@ -4738,7 +4098,6 @@ HTML = r"""
       border: 1px solid rgba(59,130,246,.15);
       box-shadow: 0 0 60px rgba(59,130,246,.10) inset;
     }
-
     .operator{
       position:absolute;
       left:50%; top:50%;
@@ -4754,7 +4113,6 @@ HTML = r"""
       backdrop-filter: blur(10px);
       z-index: 20;
     }
-
     .opHead{
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       margin-bottom:8px;
@@ -4762,7 +4120,6 @@ HTML = r"""
     .opTitle{ display:flex; flex-direction:column; gap:2px; }
     .opTitle .t1{ font-weight:700; font-size:13px; }
     .opTitle .t2{ font-size:12px; color:var(--muted); }
-
     .opText{
       width:100%;
       height: 118px;
@@ -4776,11 +4133,9 @@ HTML = r"""
       font-size:13px;
       line-height:1.3;
     }
-
     .opRow{
       display:flex; gap:10px; margin-top:10px; align-items:center; justify-content:space-between;
     }
-
     .tablePulseEnergy{
       animation: tablePulseEnergy 1.85s ease-in-out infinite;
       border-color: rgba(124,58,237,.92) !important;
@@ -4808,7 +4163,6 @@ HTML = r"""
           0 0 0 0 rgba(124,58,237,0);
       }
     }
-
     .tablePulseAll{
       animation: tablePulseAll 1.35s ease-in-out infinite;
       border-color: rgba(255,215,105,.85) !important;
@@ -4836,7 +4190,6 @@ HTML = r"""
           0 0 0 0 rgba(255,215,105,0);
       }
     }
-
     
     .seatOperator{
       border-color: rgba(34,211,238,.55) !important;
@@ -4857,7 +4210,6 @@ HTML = r"""
       50%{ transform: translate(-50%,0) scale(1.03); }
       100%{ transform: translate(-50%,0) scale(1); }
     }
-
 .seatPulse{
       animation: seatPulse 1.9s ease-in-out infinite;
       border-color: rgba(124,58,237,.92) !important;
@@ -4883,7 +4235,6 @@ HTML = r"""
           0 0 0 0 rgba(255,215,105,0);
       }
     }
-
     .seat{
       position:absolute;
       width: 190px;
@@ -4915,7 +4266,6 @@ HTML = r"""
       border-color: rgba(124,58,237,.85);
       box-shadow: 0 0 30px rgba(124,58,237,.22), 0 0 22px rgba(0,0,0,.28);
     }
-
     .avatar{
       width:44px;height:44px;border-radius:14px;
       display:flex;align-items:center;justify-content:center;
@@ -4926,7 +4276,6 @@ HTML = r"""
       position:relative;
       pointer-events:none;
     }
-
     .liveDot{
       position:absolute;
       right:-4px;
@@ -4941,12 +4290,10 @@ HTML = r"""
     .liveDot.thinking{ background: rgba(255,207,112,.55); box-shadow: 0 0 14px rgba(255,207,112,.25); }
     .liveDot.done{ background: rgba(141,255,179,.60); box-shadow: 0 0 14px rgba(141,255,179,.25); }
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
-
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
     .seatName{ font-weight:800; font-size:13px; }
     .seatRole{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .seatStatus{ font-size:11px; color:var(--muted); opacity:.95; }
-
     .seatTools{
       position:absolute;
       bottom:8px;
@@ -4970,7 +4317,6 @@ HTML = r"""
       background: rgba(14,22,48,.75);
       border-color: rgba(124,58,237,.55);
     }
-
     .side{
       position: sticky;
       top: 12px;
@@ -4985,7 +4331,6 @@ HTML = r"""
       flex-direction:column;
       gap: 12px;
     }
-
     .sideCard{
       background: rgba(11,16,36,.92);
       border:1px solid rgba(42,58,106,.9);
@@ -4993,7 +4338,6 @@ HTML = r"""
       padding: 12px;
       box-shadow: 0 0 24px rgba(0,0,0,.24);
     }
-
     .sideHead{
       display:flex; align-items:center; justify-content:space-between; gap:10px;
       margin-bottom:10px;
@@ -5001,7 +4345,6 @@ HTML = r"""
     .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
     .sideTitle .h1{ font-weight:800; }
     .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
     .thread{
       height: 40vh;
       overflow:auto;
@@ -5013,7 +4356,6 @@ HTML = r"""
       line-height: 1.35;
       white-space: pre-wrap;
     }
-
     .msg{
       margin-bottom: 10px;
       padding: 10px;
@@ -5030,7 +4372,6 @@ HTML = r"""
       font-weight: 700;
       letter-spacing: .2px;
     }
-
     .followBox, .field{
       width:100%;
       resize:none;
@@ -5044,13 +4385,11 @@ HTML = r"""
       line-height:1.3;
     }
     .followBox{ height: 92px; }
-
     .underTable{
       width: min(860px, 92vw);
       margin: 0 auto 42px auto;
       padding: 0 0 18px 0;
     }
-
     .groupCard{
       background: rgba(11,16,36,.92);
       border:1px solid rgba(42,58,106,.9);
@@ -5059,7 +4398,6 @@ HTML = r"""
       box-shadow: 0 0 24px rgba(0,0,0,.24);
       margin-top: 16px;
     }
-
     .groupReplies{
       max-height: 52vh;
       overflow:auto;
@@ -5068,7 +4406,6 @@ HTML = r"""
       border-radius: 14px;
       padding: 10px;
     }
-
     .replyItem{
       border:1px solid rgba(42,58,106,.55);
       background: rgba(14,22,48,.55);
@@ -5094,15 +4431,12 @@ HTML = r"""
       line-height:1.35;
       color: var(--text);
     }
-
     .row2{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
-
     .tiny{ font-size: 11px; color:var(--muted); }
-
     .overlay{
       position:fixed; inset:0; display:none;
       align-items:flex-start; justify-content:center;
@@ -5112,7 +4446,6 @@ HTML = r"""
       z-index: 80;
     }
     .overlay.show{ display:flex; }
-
     .modal{
       position: fixed;
       left: 50%;
@@ -5135,7 +4468,6 @@ HTML = r"""
       min-height: 420px;
       z-index: 90;
     }
-
     .modalBar{
       display:flex;
       align-items:center;
@@ -5148,7 +4480,6 @@ HTML = r"""
       cursor: move;
       user-select:none;
     }
-
     .modalBarTitle{
       font-size: 13px;
       font-weight: 800;
@@ -5157,14 +4488,12 @@ HTML = r"""
       text-overflow: ellipsis;
       max-width: 360px;
     }
-
     .modalBarBtns{
       display:flex;
       gap:8px;
       align-items:center;
       flex-wrap:wrap;
     }
-
     .modalBodyWrap{
       margin-top: 10px;
       flex: 1 1 auto;
@@ -5174,7 +4503,6 @@ HTML = r"""
       background: rgba(7,10,20,.45);
       padding: 10px;
     }
-
     .modal pre{
       margin:0;
       white-space: pre-wrap;
@@ -5185,7 +4513,6 @@ HTML = r"""
       font-size: 13px;
       line-height: 1.35;
     }
-
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .modalForm label{
@@ -5209,7 +4536,6 @@ HTML = r"""
     }
     .modalForm textarea{ height: 96px; resize: vertical; }
     .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; justify-content:flex-end; }
-
     .imgPreview{
       width:100%;
       border-radius: 14px;
@@ -5217,7 +4543,6 @@ HTML = r"""
       margin-top: 10px;
       display:none;
     }
-
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
     .modalResizeGrip{
@@ -5245,9 +4570,7 @@ HTML = r"""
       border-bottom:2px solid rgba(255,255,255,.75);
       opacity:.9;
     }
-
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-
     .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
     .passRow .tiny{ margin-left: 2px; }
     .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
@@ -5270,14 +4593,11 @@ HTML = r"""
       font-size:12px;
     }
     .pill button:hover{ color: var(--text); }
-
-
     @media (max-width: 1280px){
       .stage{ grid-template-columns: minmax(0,1fr) 340px; }
       .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
       .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
     }
-
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
@@ -5289,7 +4609,6 @@ HTML = r"""
       .modalBarTitle{ max-width: 240px; }
     }
   
-
     /* Mobile responsiveness */
     @media (max-width: 720px){
       body{ overflow-x:hidden; }
@@ -5301,7 +4620,6 @@ HTML = r"""
       .side{ padding: 0 12px 22px 12px; }
       .sideCard{ position: relative; top:auto; max-height:none; }
       .arena{ padding: 12px 0 12px 0; }
-
       /* Round table becomes a clean vertical list to prevent overlap */
       .tableWrap{
         width: calc(100vw - 24px);
@@ -5334,11 +4652,8 @@ HTML = r"""
       }
       .seatTools{ flex-wrap:wrap; gap:8px; }
       .seatToolBtn{ flex: 1 1 auto; }
-
       /* Prevent any long labels from forcing overlap */
       .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
-
-
 /* Mobile: make modal truly full-screen so it never covers seats awkwardly */
 .overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
 #modalWin{
@@ -5355,20 +4670,12 @@ HTML = r"""
       /* iOS: prevent zoom on focus */
       textarea, input, select{ font-size: 16px; }
     }
-
-
 /* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
-
 /* ===== NEW: Mobile Layout Cleanup v1 (operator on top, teammates below) ===== */
-
 /* ===== NEW: Mobile Fit & Modal Fix v1 (no cutoffs, no drag, full-screen popups) ===== */
-
 /* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
-
 /* ===== NEW: Mobile Centering & Symmetry Fix v1 (true centered, no right-lean) ===== */
-
 /* ===== NEW: Mobile Auto-Center v1 (measured centering to eliminate browser quirks) ===== */
-
 /* ===== NEW: Mobile Table Zoom Controls v1 ===== */
 @media (max-width: 640px){
   :root{ --tableScale: 0.68; --tableShiftX: 0px; }
@@ -5393,15 +4700,12 @@ HTML = r"""
     cursor:pointer;
     backdrop-filter: blur(8px);
   }
-
   /* ===== ADDITIVE: Gold Trim for Controls v1 ===== */
   #tableZoomFab .zbtn{ border-color: rgba(247,211,106,.22); }
   #tableZoomFab .zbtn:hover{ border-color: rgba(247,211,106,.40); }
   #tableZoomFab .zbtn.isLocked{ border-color: rgba(247,211,106,.55); box-shadow: 0 0 18px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22); }
-
   #tableZoomFab .zbtn:active{ transform: translateY(1px); }
 }
-
 @media (max-width: 640px){
   :root{ --tableShiftX: 0px; --tableScale: 0.68; }
   .table{
@@ -5414,7 +4718,6 @@ HTML = r"""
   :root{ --tableShiftX: 0px; --tableScale: 0.68; }
   .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
 }
-
 @media (max-width: 900px){
   /* Use symmetric inline padding accounting for safe areas */
   .container{
@@ -5433,7 +4736,6 @@ HTML = r"""
     margin-right: auto !important;
   }
 }
-
 /* Place diagnostics button bottom-left above the mobile bar to avoid any overlap */
 @media (max-width: 640px){
   #diagFab{
@@ -5449,8 +4751,6 @@ HTML = r"""
     bottom: calc(86px + env(safe-area-inset-bottom)) !important;
   }
 }
-
-
 /* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
 @media (max-width: 640px) and (orientation: portrait){
   .table{
@@ -5458,11 +4758,9 @@ HTML = r"""
     transform-origin: center top !important;
   }
 }
-
 :root{
   --mobile-pad: 12px;
 }
-
 /* Safe-area aware page padding */
 @media (max-width: 900px){
   .container{
@@ -5470,7 +4768,6 @@ HTML = r"""
     padding-right: max(var(--mobile-pad), env(safe-area-inset-right)) !important;
   }
 }
-
 /* Portrait phones: ensure table + seats fit without clipping */
 @media (max-width: 640px) and (orientation: portrait){
   .table{
@@ -5482,7 +4779,6 @@ HTML = r"""
     transform-origin: center top !important;
   }
 }
-
 /* Landscape phones: side-by-side layout */
 @media (max-width: 900px) and (orientation: landscape){
   html, body{ overflow-x:hidden !important; }
@@ -5492,13 +4788,11 @@ HTML = r"""
     align-items: flex-start !important;
     gap: 12px !important;
   }
-
   .operator{
     order: 0 !important;
     width: min(420px, 44vw) !important;
     flex: 0 0 auto !important;
   }
-
   .table{
     order: 1 !important;
     flex: 1 1 auto !important;
@@ -5508,19 +4802,15 @@ HTML = r"""
     transform-origin: center top !important;
     margin: 0 auto !important;
   }
-
   .container{ padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
-
 @media (max-width: 640px){
-
   /* Prevent sideways drag/scroll and keep everything centered */
   html, body{
     overflow-x: hidden !important;
     overscroll-behavior-x: none;
   }
   body{ touch-action: manipulation; }
-
   /* Ensure the main content can't exceed viewport width */
   .container, .tableWrap{
     max-width: 100vw !important;
@@ -5529,7 +4819,6 @@ HTML = r"""
     padding-left: 12px !important;
     padding-right: 12px !important;
   }
-
   /* Round table always fits within viewport */
   .table{
     width: min(calc(100vw - 24px), 560px) !important;
@@ -5537,12 +4826,10 @@ HTML = r"""
     margin-left: auto !important;
     margin-right: auto !important;
   }
-
   /* Seats never push layout wider than the screen */
   .seat{
     max-width: calc(100vw - 24px) !important;
   }
-
   /* Overlays and popups must be fully visible on mobile */
   .overlay{
     padding-top: calc(env(safe-area-inset-top) + 10px) !important;
@@ -5550,7 +4837,6 @@ HTML = r"""
     padding-right: 10px !important;
     align-items: flex-start !important;
   }
-
   /* Generic modal: full-screen, scrollable body, no resize/drag */
   .modal{
     position: fixed !important;
@@ -5574,7 +4860,6 @@ HTML = r"""
     overflow: auto !important;
     -webkit-overflow-scrolling: touch;
   }
-
   /* If your implementation uses these ids, force full-screen too */
   #modalWin{
     width: 100vw !important;
@@ -5591,7 +4876,6 @@ HTML = r"""
     -webkit-overflow-scrolling: touch;
   }
 }
-
 @media (max-width: 640px){
   /* Use normal document flow on mobile so panels never overlap */
   .tableWrap{
@@ -5600,7 +4884,6 @@ HTML = r"""
     align-items: stretch !important;
     gap: 10px !important;
   }
-
   /* Move the group prompt console to the top, full width */
   .operator{
     position: relative !important;
@@ -5613,7 +4896,6 @@ HTML = r"""
     margin: 0 !important;
     order: -10 !important;
   }
-
   /* Keep the table circle visible but non-overlapping */
   .table{
     position: relative !important;
@@ -5626,17 +4908,13 @@ HTML = r"""
     margin: 0 auto !important;
     order: -5 !important;
   }
-
   /* Ensure any absolutely-positioned children can anchor correctly */
   #tableCore{ position: relative !important; }
-
   /* Give the prompt textarea breathing room */
   .opText{ min-height: 108px; }
-
   /* Avoid the bottom mobile bar covering content */
   .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
 }
-
 .mobileBar{ display:none; }
 .mobileDrawerOverlay{ display:none; }
 .mobileDrawer{
@@ -5674,7 +4952,6 @@ HTML = r"""
   padding: 0 12px 12px 12px;
 }
 .mobileDrawerFoot .btn{ flex: 1 1 auto; }
-
 @media (max-width: 720px){
   /* keep top brand, move actions to bottom bar + drawer */
   .rightmeta{ display:none !important; }
@@ -5700,14 +4977,11 @@ HTML = r"""
     z-index: 130;
   }
 }
-
 /* NEW: Diagnostics Panel v1 (additive) */
-
 /* ===== NEW: Mobile Diag Placement v2 (no overlays) ===== */
 @media (max-width: 640px){
   #diagFab{ display:none !important; }
 }
-
 #diagFab{
   position:fixed;
   right:14px;
@@ -5729,8 +5003,6 @@ HTML = r"""
   backdrop-filter: blur(8px);
 }
 #diagFab button:active{ transform: translateY(1px); }
-
-
 /* ===== NEW: Mobile Diagnostics Button Placement v1 (avoid overlap with bottom bar) ===== */
 @media (max-width: 640px){
   #diagFab{
@@ -5839,28 +5111,22 @@ HTML = r"""
     bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }
-
-
 /* === V5: RIGHT-EDGE + BUTTON TRIM FIX (ADDITIVE) === */
 /* Stop any tiny horizontal overflow that causes right-side clipping in mobile webviews (Messenger, etc.) */
 *, *::before, *::after{ box-sizing:border-box; }
 html, body{ max-width:100%; overflow-x:hidden !important; }
-
 /* Ensure primary layout wrappers never exceed viewport width */
 .container, .card, .sideCard, .grid, .row{ max-width:100% !important; }
-
 /* Headers with right-side action buttons: prevent "leaning" and text clipping */
 .sideHead, .cardHead, .panelHead{ max-width:100%; }
 .sideHead{ flex-wrap:wrap; }
 .sideHead .btn{ flex: 0 0 auto; white-space:nowrap; max-width:100%; }
-
 /* Common culprit: elements using vw inside padded containers. Prefer 100% on mobile. */
 @media (max-width: 640px){
   .card{ width:100% !important; max-width:100% !important; }
   .side{ width:100% !important; max-width:100% !important; }
   #modalWin{ max-width: calc(100% - 16px) !important; }
 }
-
 /* Restore + enhance gold trim on console buttons (login gate already has it) */
 .btn{
   box-shadow:
@@ -5878,7 +5144,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .mobileBar .btn{
   border-color: rgba(247,211,106,.35) !important;
 }
-
 /* === Calendar modal (additive, minimal) === */
 .calWeekdays{
   display:grid;
@@ -5933,8 +5198,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   background: rgba(59,130,246,.75);
   box-shadow: 0 0 10px rgba(59,130,246,.22);
 }
-
-
 /* ===== FINAL ADDITIVE: Mobile Seat Flow Lock v1 =====
    Goal: the command center prompt box stays first, and teammate cards begin below it.
    This only affects mobile and does not remove any existing features. */
@@ -5949,7 +5212,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     min-height: 0 !important;
     padding-bottom: 18px !important;
   }
-
   #tableWrap > .operator{
     position: relative !important;
     left: auto !important;
@@ -5962,7 +5224,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     order: 1 !important;
     z-index: 6 !important;
   }
-
   #tableWrap > .table{
     position: relative !important;
     inset: auto !important;
@@ -5977,7 +5238,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     order: 2 !important;
     overflow: hidden !important;
   }
-
   #tableWrap > .seat{
     position: relative !important;
     left: auto !important;
@@ -5993,25 +5253,20 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     order: 3 !important;
     z-index: 2 !important;
   }
-
   #tableWrap > .seat:hover,
   #tableWrap > .seat.dragging,
   #tableWrap > .seat:active{
     transform: none !important;
   }
-
   #tableWrap > .seat .seatTools{
     position: absolute !important;
     right: 8px !important;
     bottom: 8px !important;
   }
-
   #tableWrap > .operator .opText{
     min-height: 124px !important;
   }
 }
-
-
 /* ===== Full-workspace app windows ===== */
 #overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
 #modalWin{
@@ -6029,7 +5284,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   resize:none !important;
 }
 #modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
-
 </style>
 </head>
 <body>
@@ -6066,14 +5320,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
     </div>
   </div>
-
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
-
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
     <div class="mobileDrawer" id="mobileDrawer" role="dialog" aria-modal="true" aria-label="Mobile menu">
       <div class="mobileDrawerHead">
@@ -6083,7 +5335,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         </div>
         <button class="btn btnMini" id="mobileCloseMenuBtn">Close</button>
       </div>
-
       <div class="mobileDrawerGrid">
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
@@ -6102,15 +5353,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
-
       <div class="mobileDrawerFoot">
         <button class="btn" id="mobileScrollTopBtn">Top</button>
         <button class="btn btnPrimary" id="mobileCloseMenuBtn2">Done</button>
       </div>
     </div>
   </div>
-
-
   <div class="stage">
     <div>
       <div class="arena">
@@ -6124,14 +5372,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn btnTiny" id="closeModal">Close</button>
               </div>
             </div>
-
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
-
-
 <div id="stackForm" class="modalForm" style="display:none;">
   <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
-
   <div class="grid" style="margin-top:10px;">
     <div>
       <label>Stack name</label>
@@ -6142,7 +5386,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <select id="stackSelect"></select>
     </div>
   </div>
-
   <div style="margin-top:10px;">
     <label>Add Prompt step</label>
     <textarea id="stackPrompt" rows="3" placeholder="Example: Write the welcome email for {{input}}"></textarea>
@@ -6154,10 +5397,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="cancelStack">Close</button>
     </div>
   </div>
-
   <div id="stackSteps" style="margin-top:10px;"></div>
   <div id="stackStatus" class="tiny" style="margin-top:10px;"></div>
-
   <div class="tiny" style="margin:14px 0 6px;">Scheduling</div>
   <div class="grid">
     <div>
@@ -6176,18 +5417,14 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
   <div id="stackSchedules" style="margin-top:8px;"></div>
 </div>
-
-
               <div class="modalForm" id="modalForm">
                 <div class="tiny" id="editHint" style="margin-bottom:10px;">
                   Update responsibilities, rules, and goals for this teammate. Name stays locked.
                 </div>
-
                 <div style="margin-bottom:10px;">
                   <label>Name</label>
                   <input id="editName" placeholder="Teammate name" readonly />
                 </div>
-
                 <div class="grid">
                   <div>
                     <label>Job Title</label>
@@ -6198,40 +5435,27 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                     <input id="editVersion" placeholder="v1.0"/>
                   </div>
                 </div>
-
                 <div style="height:10px"></div>
-
                 <label>Mission</label>
                 <textarea id="editMission" placeholder="Mission"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Goal</label>
                 <textarea id="editGoal" placeholder="Goal"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Thinking Style</label>
                 <textarea id="editThinking" placeholder="Thinking style"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Responsibilities (one per line)</label>
                 <textarea id="editResponsibilities" placeholder="One responsibility per line"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Will Not Do (one per line)</label>
                 <textarea id="editWillNotDo" placeholder="One rule per line"></textarea>
-
                 <div class="actions">
                   <button class="btn" id="cancelEdit">Cancel</button>
                   <button class="btn btnPrimary" id="saveEdit">Save changes</button>
                 </div>
-
                 <div class="tiny" id="editStatus" style="margin-top:10px;"></div>
               </div>
-
 <div id="apiKeyHelpForm" class="modalForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Quick setup: create an OpenAI API key, then paste it into Settings.</div>
   <div class="pill" style="margin:8px 0;">Steps</div>
@@ -6249,7 +5473,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     Tip: Never share your key publicly. If it leaks, revoke it and create a new one.
   </div>
 </div>
-
               <div class="modalForm" id="manageForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Toggle who is present at the table. Installed teammates stay installed.
@@ -6262,12 +5485,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
               </div>
-
               <div class="modalForm" id="createForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Create a new teammate (name is locked after creation).
                 </div>
-
                 <div class="grid">
                   <div>
                     <label>Name</label>
@@ -6278,52 +5499,36 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                     <input id="newVersion" placeholder="v1.0" value="v1.0"/>
                   </div>
                 </div>
-
                 <div style="height:10px"></div>
-
                 <label>Job Title</label>
                 <input id="newJobTitle" placeholder="Job title"/>
-
                 <div style="height:10px"></div>
-
                 <label>Mission</label>
                 <textarea id="newMission" placeholder="Mission"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Goal</label>
                 <textarea id="newGoal" placeholder="Goal"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Thinking Style</label>
                 <textarea id="newThinking" placeholder="Thinking style"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Responsibilities (one per line)</label>
                 <textarea id="newResponsibilities" placeholder="One responsibility per line"></textarea>
-
                 <div style="height:10px"></div>
-
                 <label>Will Not Do (one per line)</label>
                 <textarea id="newWillNotDo" placeholder="One rule per line"></textarea>
-
                 <div class="actions">
                   <button class="btn" id="cancelCreate">Cancel</button>
                   <button class="btn btnPrimary" id="saveCreate">Create</button>
                 </div>
                 <div class="tiny" id="createStatus" style="margin-top:10px;"></div>
               </div>
-
               <div class="modalForm" id="frameworkForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   This is injected into every teammate system prompt. Changes affect all teammates immediately.
                 </div>
-
                 <label>Core framework (pillars and rules)</label>
                 <textarea id="frameworkText" style="height:260px" placeholder="Paste the full core framework here"></textarea>
-
                 <div class="actions">
                   <button class="btn" id="cancelFramework">Cancel</button>
                   <button class="btn" id="resetFramework">Reset to default</button>
@@ -6331,18 +5536,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 </div>
                 <div class="tiny" id="frameworkStatus" style="margin-top:10px;"></div>
               </div>
-
-
               <div class="modalForm" id="settingsForm">
                 <div class="tiny" style="margin-bottom:10px;">
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
-
                 <label>OpenAI API Key</label>
                 <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
-
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
-
                 <div class="row2">
                   <div>
                     <div class="tiny" id="gmailOAuthStatus">Gmail: checking...</div>
@@ -6359,59 +5559,42 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                     </div>
                   </div>
                 </div>
-
                 <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
-
-
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
-
                 <label>SMTP Host</label>
                 <input id="smtpHost" placeholder="smtp.gmail.com" />
-
                 <label>SMTP Port</label>
                 <input id="smtpPort" type="number" placeholder="587" />
-
                 <label>SMTP Username (from address)</label>
                 <input id="smtpUser" placeholder="you@example.com" />
-
                 <label>SMTP Password (app password recommended)</label>
                 <input id="smtpPass" type="password" placeholder="••••••••" />
-
                 <label>From Name</label>
                 <input id="smtpFromName" placeholder="Your Name" />
-
-
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
                   <div class="tiny" style="margin-top:8px; opacity:.9;">
                     Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
                   </div>
-
                   <label>Twilio Account SID</label>
                   <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-
                   <label>Twilio Auth Token</label>
                   <input id="twilioToken" type="password" placeholder="••••••••" />
-
                   <label>Twilio From Number</label>
                   <input id="twilioFrom" placeholder="+15551234567" />
-
                   <div class="actions" style="justify-content:flex-start; gap:8px;">
                     <button class="btn btnMini" id="twilioLoadBtn">Load</button>
                     <button class="btn btnMini" id="twilioSaveBtn">Save</button>
                   </div>
                   <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
                 </details>
-
                 <div class="actions">
                   <button class="btn" id="cancelSettings">Cancel</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                 </div>
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
-
               
-
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
   <div class="tiny" id="smtpStatus">SMTP: checking...</div>
@@ -6430,19 +5613,15 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
   <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
 </div>
-
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
-
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
-
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
-
   <!-- Clients -->
   <div id="crmViewClients" style="display:none;">
     <div class="grid">
@@ -6469,7 +5648,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         </select>
       </div>
     </div>
-
     <div class="actions" style="justify-content:flex-start; margin-top:10px;">
       <button class="btn" id="crmRefreshClients">Refresh</button>
       <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
@@ -6477,9 +5655,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn" id="crmPickCsvBtn">Import CSV</button>
     </div>
     <div class="tiny" id="crmCsvStatus" style="margin-top:8px;">Upload a CSV to add prospects into the pipeline.</div>
-
     <div id="crmClientsList" style="margin-top:10px;"></div>
-
     <div id="crmClientEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" id="crmEditTitle" style="margin-bottom:8px;">Client</div>
       <div class="grid">
@@ -6529,7 +5705,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
   <!-- Pipeline -->
   <div id="crmViewPipeline" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages and manage a visual deal board. Drag cards between stages to keep your pipeline current.</div>
@@ -6543,7 +5718,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" style="margin:12px 0 8px;">Live pipeline board</div>
     <div id="crmPipelineBoard" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;"></div>
   </div>
-
   <!-- Broadcast -->
   <div id="crmViewBroadcast" style="display:none;">
     <div class="grid">
@@ -6562,7 +5736,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <input id="crmAudienceValue" placeholder="e.g. realtor" />
       </div>
     </div>
-
     <div style="margin-top:10px;">
       <label>Subject</label>
       <input id="crmEmailSubject" placeholder="Quick update" />
@@ -6570,22 +5743,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <textarea id="crmEmailBody" style="height:180px" placeholder="Hey {first_name},\n\n..."></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: You can use {name} in the body for personalization.</div>
     </div>
-
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="crmBroadcastDryRun">Dry run</button>
       <button class="btn btnPrimary" id="crmBroadcastSend">Send</button>
     </div>
     <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
   </div>
-
-
 <!-- Broadcast SMS -->
 <div id="crmViewBroadcastSMS" style="display:none;">
   <div class="tiny" style="margin-bottom:8px;">Send a broadcast text message to a filtered audience.</div>
-
   
-
-
   <div class="grid">
     <div>
       <label>Audience</label>
@@ -6602,18 +5769,14 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" />
     </div>
   </div>
-
   <label style="margin-top:10px;">Message</label>
   <textarea id="crmSmsBody" rows="6" placeholder="Write your text message..."></textarea>
-
   <div class="actions" style="justify-content:flex-start; margin-top:10px;">
     <button class="btn" id="crmSmsDryRun">Dry run</button>
     <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
   </div>
-
   <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
 </div>
-
   <!-- Tasks -->
   <div id="crmViewTasks" style="display:none;">
     <div class="actions" style="justify-content:flex-start;">
@@ -6621,7 +5784,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <button class="btn btnPrimary" id="crmNewTaskBtn">New task</button>
     </div>
     <div id="crmTasksList" style="margin-top:10px;"></div>
-
     <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" id="crmTaskTitle" style="margin-bottom:8px;">Task</div>
       <label>Title</label>
@@ -6651,18 +5813,14 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmTaskStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
   <!-- Sequences -->
   <div id="crmViewSequences" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Sequences are automated nurture steps that run on schedule. Add a sequence, then enroll clients.</div>
-
     <div class="actions" style="justify-content:flex-start;">
       <button class="btn" id="crmRefreshSeq">Refresh</button>
       <button class="btn btnPrimary" id="crmNewSeqBtn">New sequence</button>
     </div>
-
     <div id="crmSeqList" style="margin-top:10px;"></div>
-
     <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" style="margin-bottom:8px;">Create sequence</div>
       <label>Name</label>
@@ -6676,7 +5834,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div class="tiny" id="crmSeqStatus" style="margin-top:8px;"></div>
     </div>
-
     <div style="margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" style="margin-bottom:8px;">Enroll client</div>
       <div class="grid">
@@ -6695,7 +5852,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="tiny" id="crmEnrollStatus" style="margin-top:8px;"></div>
     </div>
   </div>
-
   <!-- Calendar -->
   <div id="crmViewCalendar" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
@@ -6718,10 +5874,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="tiny" id="crmCalStatus" style="margin-top:8px;"></div>
   </div>
-
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Turn raw lead notes into structured leads. Paste rows as: Name | Company | Domain | Title. If you only know the company and domain, the system will still suggest likely contact paths.</div>
+    <div class="tiny" style="margin-bottom:8px;">Use AI + live web search to build prospect lists. You can paste seed rows, or leave the textarea mostly blank and search by niche + location. Lead Lab will try to find websites, public emails, phone numbers, and confidence scores.</div>
     <div class="grid">
       <div>
         <label>Target niche</label>
@@ -6732,16 +5887,15 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <input id="leadLabLocation" placeholder="New Jersey" />
       </div>
     </div>
-    <label style="margin-top:10px;">Lead source text</label>
-    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+    <label style="margin-top:10px;">Lead source text (optional)</label>
+    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor&#10;&#10;Or leave this mostly blank and search by niche + location only."></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="leadLabSampleBtn">Sample</button>
-      <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
+      <button class="btn btnPrimary" id="leadLabRunBtn">Search and build leads</button>
     </div>
     <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
     <div id="leadLabResults" style="margin-top:12px;"></div>
   </div>
-
   <!-- Social Studio -->
   <div id="crmViewSocialStudio" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
@@ -6775,7 +5929,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" id="socialStudioStatus" style="margin-top:8px;"></div>
     <div id="socialStudioResults" style="margin-top:12px;"></div>
   </div>
-
   <!-- Offer Builder -->
   <div id="crmViewOfferBuilder" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
@@ -6791,7 +5944,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;"></div>
     <div id="offerBuilderResults" style="margin-top:12px;"></div>
   </div>
-
   <!-- Playbooks -->
   <div id="crmViewPlaybooks" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
@@ -6825,10 +5977,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="playbookResults" style="margin-top:12px;"></div>
   </div>
 </div>
-
               <div class="modalForm" id="calendarForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
-
   <div style="display:flex; gap:12px; flex-wrap:wrap;">
     <div style="flex: 1 1 360px; min-width: 280px;">
       <div class="pillRow" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -6839,12 +5989,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         </div>
         <div class="pill" id="calMonthLabel">Month</div>
       </div>
-
       <div class="calWeekdays" id="calWeekdays"></div>
       <div class="calGrid" id="calGrid"></div>
       <div class="tiny" id="calLoadStatus" style="margin-top:8px; opacity:.85;"></div>
     </div>
-
     <div style="flex: 1 1 260px; min-width: 260px;">
       <div class="diagCard" style="padding:10px;">
         <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
@@ -6853,9 +6001,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="tiny" style="opacity:.85;" id="calSelectedSub"> </div>
           </div>
         </div>
-
         <div style="height:10px"></div>
-
         <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
           <div class="tiny" style="margin-bottom:8px;">Add task</div>
           <label>Title</label>
@@ -6871,9 +6017,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           </div>
           <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
         </div>
-
         <div style="height:10px"></div>
-
         <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
           <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
           <label>Title</label>
@@ -6897,26 +6041,21 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           </div>
           <div class="tiny" id="calCallStatus" style="margin-top:8px;"></div>
         </div>
-
         <div style="height:10px"></div>
-
         <div class="tiny" style="margin-bottom:6px;">Events</div>
         <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
       </div>
     </div>
   </div>
 </div>
-
 <img id="modalImg" class="imgPreview" alt="Preview"/>
             </div>
           </div>
         </div>
-
         <div class="tableWrap" id="tableWrap">
           <div class="table" id="tableCore">
             <div class="runes"></div>
           </div>
-
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
@@ -6933,9 +6072,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
-
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
-
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
@@ -6943,24 +6080,20 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
-
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
               <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
               <div class="tiny" id="uploadHint">Attach files or use Share screen to capture a screenshot.</div>
             </div>
             <div id="groupAttachList" class="pillRow"></div>
-
             <div class="opRow">
               <div class="tiny" id="opStatus">Ready</div>
               <div class="tiny" id="opHint">Say a teammate name while always listening to switch seats instantly.</div>
             </div>
             <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
-
         </div>
       </div>
-
       <div class="underTable">
         <div class="groupCard">
           <div class="sideHead">
@@ -6976,7 +6109,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         </div>
       </div>
     </div>
-
     <div class="side">
       <div class="sideCard">
         <div class="sideHead">
@@ -6987,7 +6119,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
-
         <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
           <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
@@ -6995,12 +6126,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
-
         <div class="thread" id="thread"></div>
-
         <div style="height:10px"></div>
         <textarea class="followBox" id="followMsg" placeholder="Send an individual message to the selected teammate..."></textarea>
-
         <div class="pillRow">
           <input type="file" id="dmFiles" multiple style="display:none" />
           <button class="btn btnMini" id="pickDmFiles">Upload files</button>
@@ -7011,16 +6139,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <button class="btn btnPrimary" id="sendFollow">Send to selected</button>
         </div>
         <div id="dmAttachList" class="pillRow"></div>
-
         <div class="tiny" style="margin-top:8px;">
           Tip: Share screen captures a screenshot and attaches it to your next message.
         </div>
         <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
-
     </div>
-
-
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
     <div style="position:absolute; top:14px; right:14px;">
@@ -7028,15 +6152,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <img id="lightboxImg" src="" alt="Full screen" style="max-width:96vw; max-height:92vh; border-radius:16px; box-shadow:0 20px 80px rgba(0,0,0,.6);" />
   </div>
-
 <script>
-
 if (typeof window.showToast !== "function") {
   window.showToast = function(msg, type) {
     try {
       const el = document.createElement("div");
       el.textContent = msg;
-
       el.style.position = "fixed";
       el.style.bottom = "20px";
       el.style.right = "20px";
@@ -7044,7 +6165,6 @@ if (typeof window.showToast !== "function") {
       el.style.borderRadius = "8px";
       el.style.fontSize = "14px";
       el.style.zIndex = 999999;
-
       if (type === "error") {
         el.style.background = "#7f1d1d";
         el.style.color = "#fff";
@@ -7052,20 +6172,15 @@ if (typeof window.showToast !== "function") {
         el.style.background = "#1f2937";
         el.style.color = "#fff";
       }
-
       document.body.appendChild(el);
-
       setTimeout(() => {
         el.remove();
       }, 3000);
-
     } catch (e) {
       alert(msg);
     }
   };
 }
-
-
     const POS = [
       {x: 50, y: 4},
       {x: 77, y: 12},
@@ -7076,11 +6191,9 @@ if (typeof window.showToast !== "function") {
       {x: 12, y: 40},
       {x: 23, y: 12}
     ];
-
     const STORE_KEY = "round_table_seat_positions_v1";
     const MODAL_POS_KEY = "round_table_modal_pos_v1";
     const MODAL_SIZE_KEY = "round_table_modal_size_v1";
-
     let state = null;
     let selectedSeat = "";
     let seatStatus = {};
@@ -7088,18 +6201,13 @@ if (typeof window.showToast !== "function") {
     let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
     let lastImageState = {};
-
     let groupFileIds = [];
     let dmFileIds = [];
-
     let assemblyPulseActive = false;
-
     let editingTeammate = "";
     let modalMinimized = false;
     let modalDragging = false;
-
     let manageDraftActive = [];
-
     // =========================
     // CHANGE: ALWAYS LISTENING + VOICE NAME SWITCHING
     // =========================
@@ -7110,13 +6218,10 @@ if (typeof window.showToast !== "function") {
     let alwaysFinalText = "";
     let alwaysInterimText = "";
     let lastNameSwitchAt = 0;
-
     // UPDATE: prevent duplication by deriving a canonical final transcript from event.results
     // and only displaying the delta after a teammate name switch.
     let alwaysFinalBaseline = "";
-
     const $ = (id) => document.getElementById(id);
-
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -7126,8 +6231,6 @@ if (typeof window.showToast !== "function") {
         .replace(/"/g,'&quot;')
         .replace(/'/g,'&#39;');
     }
-
-
     function isAssemblyPhrase(p){
       const s = (p || "").trim().toLowerCase();
       const triggers = [
@@ -7139,7 +6242,6 @@ if (typeof window.showToast !== "function") {
       ];
       return triggers.some(t => s.includes(t));
     }
-
     function loadModalPos(){
       try{
         const raw = localStorage.getItem(MODAL_POS_KEY);
@@ -7150,7 +6252,6 @@ if (typeof window.showToast !== "function") {
         return obj;
       }catch(e){ return null; }
     }
-
     function loadModalSize(){
       try{
         const raw = localStorage.getItem(MODAL_SIZE_KEY);
@@ -7161,17 +6262,14 @@ if (typeof window.showToast !== "function") {
         return obj;
       }catch(e){ return null; }
     }
-
     function saveModalSize(width, height){
       try{ localStorage.setItem(MODAL_SIZE_KEY, JSON.stringify({width, height})); }catch(e){}
     }
-
     function saveModalPos(left, top){
       try{
         localStorage.setItem(MODAL_POS_KEY, JSON.stringify({left, top}));
       }catch(e){}
     }
-
     
     function ensureModalMinSize(minW, minH){
       const win = $("modalWin");
@@ -7184,14 +6282,11 @@ if (typeof window.showToast !== "function") {
       win.style.height = h + "px";
       try{ saveModalSize(w, h); }catch(e){}
     }
-
 function applyModalPos(){
       const win = $("modalWin");
       if(!win) return;
-
       const saved = loadModalPos();
       const savedSize = loadModalSize();
-
       if(savedSize){
         // Clamp saved size so windows never reopen tiny.
         const maxW = Math.max(620, (window.innerWidth || 1200) - 24);
@@ -7207,38 +6302,30 @@ function applyModalPos(){
         win.style.width = w + "px";
         win.style.height = h + "px";
       }
-
       // If we have a saved position, clamp it so the modal never renders off-screen.
       if(saved){
         win.style.transform = "none";
-
         // Use current rendered size (after applying savedSize above) to clamp.
         const mw = Math.max(360, win.offsetWidth || 520);
         const mh = Math.max(260, win.offsetHeight || 420);
-
         const margin = 12;
         const maxLeft = Math.max(margin, (window.innerWidth || 1200) - mw - margin);
         const maxTop  = Math.max(margin, (window.innerHeight || 800) - mh - margin);
-
         const left = Math.min(Math.max(saved.left, margin), maxLeft);
         const top  = Math.min(Math.max(saved.top, margin), maxTop);
-
         win.style.left = left + "px";
         win.style.top  = top + "px";
-
         // If the saved position was out-of-bounds, persist the corrected one.
         if(left !== saved.left || top !== saved.top){
           saveModalPos(left, top);
         }
         return;
       }
-
       // Default centered position
       win.style.left = "50%";
       win.style.top = "80px";
       win.style.transform = "translateX(-50%)";
     }
-
     function hideAllModalForms(){
       if($("modalBody")) $("modalBody").style.display = "block";
       if($("modalForm")) $("modalForm").style.display = "none";
@@ -7253,7 +6340,6 @@ function applyModalPos(){
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
-
     
     // Fullscreen image viewer (additive)
     function openLightbox(url){
@@ -7269,17 +6355,14 @@ function applyModalPos(){
       if(im) im.src = "";
       if(lb) lb.style.display = "none";
     }
-
 function showModal(title, body, imgUrl){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
       if($("calendarForm")) $("calendarForm").style.display = "none";
       $("modalBody").style.display = "block";
-
       $("editStatus").innerText = "";
       editingTeammate = "";
-
       const img = $("modalImg");
       if(imgUrl){
         img.src = imgUrl;
@@ -7290,38 +6373,30 @@ function showModal(title, body, imgUrl){
         img.src = "";
         img.style.display = "none";
       }
-
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
-
       $("overlay").classList.add("show");
       applyModalPos();
-
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
     }
-
     function showEditModal(title){
       $("modalTitle").innerText = title || "Edit teammate";
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
       $("modalForm").style.display = "block";
-
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
-
       $("overlay").classList.add("show");
       applyModalPos();
-
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
     }
-
     function showManageModal(){
       $("modalTitle").innerText = "Add or dismiss teammates";
       $("modalBody").innerText = "";
@@ -7329,19 +6404,15 @@ function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("manageForm").style.display = "block";
       $("manageStatus").innerText = "";
-
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
-
       $("overlay").classList.add("show");
       applyModalPos();
-
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
     }
-
     function showCreateModal(){
       $("modalTitle").innerText = "Create teammate";
       $("modalBody").innerText = "";
@@ -7349,7 +6420,6 @@ function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("createForm").style.display = "block";
       $("createStatus").innerText = "";
-
       $("newName").value = "";
       $("newVersion").value = "v1.0";
       $("newJobTitle").value = "";
@@ -7358,19 +6428,15 @@ function showModal(title, body, imgUrl){
       $("newThinking").value = "";
       $("newResponsibilities").value = "";
       $("newWillNotDo").value = "";
-
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
-
       $("overlay").classList.add("show");
       applyModalPos();
-
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
     }
-
     function showFrameworkModal(){
       $("modalTitle").innerText = "Core framework";
       $("modalBody").innerText = "";
@@ -7378,22 +6444,17 @@ function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("frameworkForm").style.display = "block";
       $("frameworkStatus").innerText = "Loading...";
-
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
-
       $("overlay").classList.add("show");
       applyModalPos();
-
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
     }
-
     function hideModal(){
       try{ document.body.style.overflow = ""; }catch(_){ }
-
       $("overlay").classList.remove("show");
       if(assemblyPulseActive){
         assemblyPulseActive = false;
@@ -7404,27 +6465,23 @@ function showModal(title, body, imgUrl){
     $("overlay").addEventListener("click", (e) => {
       if(e.target.id === "overlay") hideModal();
     });
-
     $("minModal").onclick = () => {
       modalMinimized = true;
       $("modalWin").classList.add("minimized");
       $("minModal").style.display = "none";
       $("restoreModal").style.display = "inline-block";
     };
-
     $("restoreModal").onclick = () => {
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
     };
-
     (function initModalWindowControls(){
       const bar = $("modalBar");
       const win = $("modalWin");
       const grip = $("modalResizeGrip");
       if(!bar || !win) return;
-
       function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
       function normalizeWinRect(){
         const r = win.getBoundingClientRect();
@@ -7449,10 +6506,8 @@ function showModal(title, body, imgUrl){
         saveModalPos(left, top);
         saveModalSize(r.width, r.height);
       }
-
       let dragState = {active:false, startX:0, startY:0, startLeft:0, startTop:0};
       let resizeState = {active:false, startX:0, startY:0, startW:0, startH:0, startLeft:0, startTop:0};
-
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
         if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal")) return;
@@ -7466,7 +6521,6 @@ function showModal(title, body, imgUrl){
         dragState.startTop = r.top;
         try{ bar.setPointerCapture(e.pointerId); }catch(err){}
       });
-
       bar.addEventListener("pointermove", (e) => {
         if(!dragState.active) return;
         const r = win.getBoundingClientRect();
@@ -7478,7 +6532,6 @@ function showModal(title, body, imgUrl){
         win.style.top = clamp(nextTop, 8, maxTop) + "px";
         win.style.transform = "none";
       });
-
       function endDrag(pointerId){
         if(!dragState.active) return;
         dragState.active = false;
@@ -7486,10 +6539,8 @@ function showModal(title, body, imgUrl){
         try{ bar.releasePointerCapture(pointerId); }catch(err){}
         keepModalInView();
       }
-
       bar.addEventListener("pointerup", (e) => endDrag(e.pointerId));
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
-
       if(grip){
         grip.addEventListener("pointerdown", (e) => {
           if(modalMinimized) return;
@@ -7504,7 +6555,6 @@ function showModal(title, body, imgUrl){
           resizeState.startTop = r.top;
           try{ grip.setPointerCapture(e.pointerId); }catch(err){}
         });
-
         grip.addEventListener("pointermove", (e) => {
           if(!resizeState.active) return;
           const minW = 640;
@@ -7517,7 +6567,6 @@ function showModal(title, body, imgUrl){
           win.style.height = nextH + "px";
           saveModalSize(nextW, nextH);
         });
-
         const endResize = (e) => {
           if(!resizeState.active) return;
           resizeState.active = false;
@@ -7527,7 +6576,6 @@ function showModal(title, body, imgUrl){
         grip.addEventListener("pointerup", endResize);
         grip.addEventListener("pointercancel", endResize);
       }
-
       try{
         const ro = new ResizeObserver((entries)=>{
           for(const ent of entries){
@@ -7539,14 +6587,11 @@ function showModal(title, body, imgUrl){
         });
         ro.observe(win);
       }catch(e){}
-
       window.addEventListener("resize", ()=>{ try{ keepModalInView(); }catch(e){} }, {passive:true});
     })();
-
     function setOpStatus(text){
       $("opStatus").innerText = text;
     }
-
     function loadSeatPositions(){
       try{
         const raw = localStorage.getItem(STORE_KEY);
@@ -7558,68 +6603,56 @@ function showModal(title, body, imgUrl){
         return {};
       }
     }
-
     function saveSeatPositions(pos){
       try{
         localStorage.setItem(STORE_KEY, JSON.stringify(pos));
       }catch(e){}
     }
-
     function clamp(v, min, max){
       return Math.max(min, Math.min(max, v));
     }
-
     function setTablePulse(on){
       const el = $("tableCore");
       if(!el) return;
       if(on) el.classList.add("tablePulseEnergy");
       else el.classList.remove("tablePulseEnergy");
     }
-
     function setTablePulseAll(on){
       const el = $("tableCore");
       if(!el) return;
       if(on) el.classList.add("tablePulseAll");
       else el.classList.remove("tablePulseAll");
     }
-
     function activeOrder(){
       const a = (state && state.active_order) ? state.active_order : [];
       const installed = (state && state.installed) ? state.installed : {};
       return a.filter(n => installed[n]);
     }
-
     // RULE: If more than 3 teammates are active, keep the gold and purple pulse on persistently.
     function updateTablePulseFromStatuses(){
       const order = activeOrder();
       const activeCount = order.length;
-
       if(activeCount > 3){
         setTablePulse(true);
         setTablePulseAll(true);
         return;
       }
-
       if(!order.length){
         setTablePulse(false);
         setTablePulseAll(false);
         return;
       }
-
       const thinkingCount = order.filter(n => seatStatus[n] === "thinking").length;
       const anyActive = thinkingCount > 0;
       const allActive = thinkingCount === order.length;
-
       if(assemblyPulseActive){
         setTablePulse(true);
         setTablePulseAll(true);
         return;
       }
-
       setTablePulse(anyActive);
       setTablePulseAll(allActive);
     }
-
     function setSeatLive(name, mode){
       seatStatus[name] = mode;
       const dot = document.getElementById("live_" + name);
@@ -7635,7 +6668,6 @@ function showModal(title, body, imgUrl){
       }
       updateTablePulseFromStatuses();
     }
-
     function setEmailFrom(teammate){
       const smtpUser = (state && state.email && state.email.smtp_user) ? state.email.smtp_user : "";
       if(teammate){
@@ -7644,37 +6676,28 @@ function showModal(title, body, imgUrl){
         $("emailFrom").value = smtpUser ? smtpUser : "SMTP not configured";
       }
     }
-
     function applyEmailDraft(draft, teammateName){
       if(!draft) return;
-
       lastEmailDraftBy = teammateName || selectedSeat || "";
-
       if(draft.to) $("emailTo").value = draft.to;
       if(draft.subject) $("emailSubject").value = draft.subject;
       if(draft.body) $("emailBody").value = draft.body;
-
       setEmailFrom(lastEmailDraftBy);
-
       showModal(
         "Email draft ready",
         "Fields were auto filled in the Email Console.\n\nReview them, then click Approve and send."
       );
     }
-
     async function openEditForTeammate(name){
       if(!name) return;
-
       editingTeammate = name;
       $("editStatus").innerText = "Loading...";
-
       const res = await fetch("/api/teammate/" + encodeURIComponent(name));
       const data = await res.json();
       if(!data.ok){
         showModal("Error", data.error || "Could not load teammate");
         return;
       }
-
       const t = data.teammate || {};
       if($("editName")) $("editName").value = t.name || name || "";
       $("editJobTitle").value = t.job_title || "";
@@ -7684,21 +6707,16 @@ function showModal(title, body, imgUrl){
       $("editThinking").value = t.thinking_style || "";
       $("editResponsibilities").value = (t.responsibilities || []).join("\n");
       $("editWillNotDo").value = (t.will_not_do || []).join("\n");
-
       $("editStatus").innerText = "Ready";
       showEditModal("Edit " + name);
     }
-
     $("cancelEdit").onclick = () => hideModal();
-
     $("saveEdit").onclick = async () => {
       if(!editingTeammate){
         hideModal();
         return;
       }
-
       $("editStatus").innerText = "Saving...";
-
       const payload = {
         job_title: $("editJobTitle").value || "",
         version: $("editVersion").value || "",
@@ -7708,7 +6726,6 @@ function showModal(title, body, imgUrl){
         responsibilities: $("editResponsibilities").value || "",
         will_not_do: $("editWillNotDo").value || "",
       };
-
       const res = await fetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -7719,16 +6736,13 @@ function showModal(title, body, imgUrl){
         $("editStatus").innerText = data.error || "Save failed";
         return;
       }
-
       $("editStatus").innerText = "Saved";
       await loadState();
       hideModal();
       showModal("Saved", "Teammate framework updated.");
     };
-
     // -------- Action Stacks (Sequence Runner) --------
 const ActionStack = { teammate: "", steps: [] };
-
 function showStackTab(title){
   try{ document.body.style.overflow = "hidden"; }catch(_){}
   if($("modalTitle")) $("modalTitle").innerText = title || "Stack";
@@ -7740,9 +6754,6 @@ function showStackTab(title){
   const sc = $("modalScroll");
   if(sc) sc.scrollTop = 0;  if($("clientsForm")) $("clientsForm").style.display = "none";
 }
-
-
-
 function renderRunOutputs(run){
   const box = $("stackStatus");
   if(!box || !run) return;
@@ -7805,7 +6816,6 @@ function renderRunOutputs(run){
     stepsBox.appendChild(outPre);
   }
 }
-
 function renderStackSteps(){
   const box = $("stackSteps");
   if(!box) return;
@@ -7821,18 +6831,15 @@ function renderStackSteps(){
     const row = document.createElement("div");
     row.className = "pillRow";
     row.style.marginTop = "6px";
-
     const pill = document.createElement("div");
     pill.className = "pill";
     pill.innerText = `Step ${idx+1}: Prompt`;
     row.appendChild(pill);
-
     const del = document.createElement("button");
     del.className = "btn";
     del.innerText = "Delete";
     del.onclick = () => { ActionStack.steps.splice(idx,1); renderStackSteps(); };
     row.appendChild(del);
-
     const up = document.createElement("button");
     up.className = "btn";
     up.innerText = "Up";
@@ -7844,7 +6851,6 @@ function renderStackSteps(){
       renderStackSteps();
     };
     row.appendChild(up);
-
     const down = document.createElement("button");
     down.className = "btn";
     down.innerText = "Down";
@@ -7856,9 +6862,7 @@ function renderStackSteps(){
       renderStackSteps();
     };
     row.appendChild(down);
-
     box.appendChild(row);
-
     const pre = document.createElement("div");
     pre.className = "tiny";
     pre.style.whiteSpace = "pre-wrap";
@@ -7867,7 +6871,6 @@ function renderStackSteps(){
     box.appendChild(pre);
   });
 }
-
 async function loadStacksForTeammate(teammate){
   const sel = $("stackSelect");
   if(!sel) return;
@@ -7886,7 +6889,6 @@ async function loadStacksForTeammate(teammate){
     sel.appendChild(opt);
   });
 }
-
 async function loadStackDetail(teammate, name){
   if(!name) return;
   const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
@@ -7897,7 +6899,6 @@ async function loadStackDetail(teammate, name){
   if($("stackName")) $("stackName").value = stack.name || name;
   renderStackSteps();
 }
-
 async function loadSchedulesForTeammate(teammate){
   const box = $("stackSchedules");
   if(!box) return;
@@ -7925,7 +6926,6 @@ async function loadSchedulesForTeammate(teammate){
         
     pill.innerText = `${s.stack_name || ""} • ${when}${lr}`;
     row.appendChild(pill);
-
     const del = document.createElement("button");
     del.className = "btn";
     del.innerText = "Delete";
@@ -7941,7 +6941,6 @@ async function loadSchedulesForTeammate(teammate){
     box.appendChild(row);
   });
 }
-
 async function saveCurrentStack(){
   const teammate = ActionStack.teammate;
   const name = (($("stackName") && $("stackName").value) || "").trim();
@@ -7956,7 +6955,6 @@ async function saveCurrentStack(){
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
   loadStacksForTeammate(teammate);
 }
-
 async function runCurrentStack(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
@@ -7972,7 +6970,6 @@ async function runCurrentStack(){
   renderStackSteps();
   renderRunOutputs(data.run);
 }
-
 async function scheduleOnce(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
@@ -7989,7 +6986,6 @@ async function scheduleOnce(){
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
-
 async function scheduleDaily(){
   const teammate = ActionStack.teammate;
   const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
@@ -8006,7 +7002,6 @@ async function scheduleDaily(){
   if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
   loadSchedulesForTeammate(teammate);
 }
-
 window.openStackForTeammate = function(name){
   ActionStack.teammate = name;
   ActionStack.steps = [];
@@ -8018,24 +7013,19 @@ window.openStackForTeammate = function(name){
   loadStacksForTeammate(name);
   loadSchedulesForTeammate(name);
 };
-
 function makeSeat(defn, idx){
       const wrap = $("tableWrap");
       const wrapRect = wrap.getBoundingClientRect();
-
       const seat = document.createElement("div");
       seat.className = "seat";
       seat.dataset.name = defn.name;
       seat.tabIndex = 0;
-
       const tools = document.createElement("div");
       tools.className = "seatTools";
-
       const editBtn = document.createElement("button");
       editBtn.className = "seatToolBtn";
       editBtn.innerText = "Edit";
       editBtn.title = "Edit teammate framework";
-
       editBtn.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -8045,9 +7035,7 @@ function makeSeat(defn, idx){
         e.stopPropagation();
         openEditForTeammate(defn.name);
       });
-
       tools.appendChild(editBtn);
-
       const stackBtn = document.createElement("button");
       stackBtn.className = "seatToolBtn";
       stackBtn.innerText = "Stack";
@@ -8060,44 +7048,34 @@ function makeSeat(defn, idx){
         if(window.openStackForTeammate) window.openStackForTeammate(defn.name);
       });
       tools.appendChild(stackBtn);
-
       seat.appendChild(tools);
-
       const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:defn.name.slice(0,1).toUpperCase()};
       const avatar = document.createElement("div");
       avatar.className = "avatar";
       avatar.style.background = av.bg;
       avatar.style.color = av.fg;
       avatar.innerText = av.sigil || defn.name.slice(0,1).toUpperCase();
-
       const liveDot = document.createElement("div");
       liveDot.className = "liveDot idle";
       liveDot.id = "live_" + defn.name;
       avatar.appendChild(liveDot);
-
       const meta = document.createElement("div");
       meta.className = "seatMeta";
-
       const nm = document.createElement("div");
       nm.className = "seatName";
       nm.innerText = defn.name;
-
       const rl = document.createElement("div");
       rl.className = "seatRole";
       rl.innerText = `${defn.job_title}  |  ${defn.version}`;
-
       const st = document.createElement("div");
       st.className = "seatStatus";
       st.id = "status_" + defn.name;
       st.innerText = "Idle";
-
       meta.appendChild(nm);
       meta.appendChild(rl);
       meta.appendChild(st);
-
       seat.appendChild(avatar);
       seat.appendChild(meta);
-
       const saved = loadSeatPositions();
       const w = 190, h = 104;
       if(saved[defn.name] && typeof saved[defn.name].left === "number" && typeof saved[defn.name].top === "number"){
@@ -8110,105 +7088,81 @@ function makeSeat(defn, idx){
         seat.style.left = left + "px";
         seat.style.top = top + "px";
       }
-
       let dragging = false;
       let moved = false;
       let startX = 0, startY = 0;
       let offsetX = 0, offsetY = 0;
-
       seat.addEventListener("pointerdown", (e) => {
         if(e.button !== undefined && e.button !== 0) return;
         dragging = true;
         moved = false;
         startX = e.clientX;
         startY = e.clientY;
-
         const r = seat.getBoundingClientRect();
         const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
         offsetX = (e.clientX - r.left) / sc;
         offsetY = (e.clientY - r.top) / sc;
-
         seat.classList.add("dragging");
         seat.setPointerCapture(e.pointerId);
       });
-
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
-
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
         if(dx > 6 || dy > 6) moved = true;
-
         const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : $("tableWrap"));
         const boundsRect = boundsEl.getBoundingClientRect();
         const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
-
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
-
         const pad = 6;
         const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
         const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
-
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
-
         seat.style.left = newLeft + "px";
         seat.style.top = newTop + "px";
       });
-
       function finishDrag(pointerId){
         if(!dragging) return;
         dragging = false;
         seat.classList.remove("dragging");
-
         const current = loadSeatPositions();
         current[defn.name] = {
           left: parseFloat(seat.style.left) || 0,
           top: parseFloat(seat.style.top) || 0
         };
         saveSeatPositions(current);
-
         if(!moved){
           selectSeat(defn.name);
         }
-
         try{ seat.releasePointerCapture(pointerId); }catch(err){}
       }
-
       seat.addEventListener("pointerup", (e) => finishDrag(e.pointerId));
       seat.addEventListener("pointercancel", (e) => finishDrag(e.pointerId));
-
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
           e.preventDefault();
           selectSeat(defn.name);
         }
       });
-
       return seat;
     }
-
     function renderTable(){
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
-
       // Operator seat (always available)
       try{
         wrap.appendChild(makeOperatorSeat(0));
       }catch(err){
         console.error("Operator seat failed to render:", err);
       }
-
-
       const order = activeOrder();
       const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
-
       if(seats.length === 0){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
-
         showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
         setTablePulse(false);
         setTablePulseAll(false);
@@ -8218,33 +7172,27 @@ function makeSeat(defn, idx){
         renderThread([]);
         return;
       }
-
       seats.forEach((name, i) => {
         const defn = installed[name];
         const seat = makeSeat(defn, i);
         wrap.appendChild(seat);
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
-
       if(!selectedSeat || !seats.includes(selectedSeat)){
         selectSeat(seats[0]);
       }else{
         markActiveSeat();
       }
-
       updateTablePulseFromStatuses();
     }
     function makeOperatorSeat(idx){
       const wrap = $("tableWrap");
-
       const seat = document.createElement("div");
       seat.className = "seat seatOperator";
       seat.dataset.name = "Operator";
       seat.tabIndex = 0;
-
       const tools = document.createElement("div");
       tools.className = "seatTools";
-
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
@@ -8252,26 +7200,21 @@ function makeSeat(defn, idx){
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
       tools.appendChild(profBtn);
-
       seat.appendChild(tools);
-
       const avatar = document.createElement("div");
       avatar.className = "avatar";
       avatar.style.background = "#0f172a";
       avatar.style.color = "#67e8f9";
       avatar.innerText = "O";
       seat.appendChild(avatar);
-
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
       nameEl.innerText = "Operator";
       seat.appendChild(nameEl);
-
       const meta = document.createElement("div");
       meta.className = "seatMeta";
       meta.innerText = "Profile";
       seat.appendChild(meta);
-
       // Default position like other seats (with saved drag positions)
       try{
         const saved = loadSeatPositions();
@@ -8285,11 +7228,9 @@ function makeSeat(defn, idx){
           const pos = {x: 50, y: 18}; // slightly lower so it can't hide under header
           let left = (pos.x/100) * r.width - (w/2);
           let top  = (pos.y/100) * r.height - (h/2);
-
           // Clamp into visible bounds (mirrors drag constraints)
           const maxLeft = r.width - 110;
           const maxTop  = r.height - 110;
-
           // If the table area hasn't laid out yet, fall back to safe pixels.
           if(r.width < 260 || r.height < 260){
             left = 20; top = 20;
@@ -8297,7 +7238,6 @@ function makeSeat(defn, idx){
             left = clamp(left, 10, Math.max(10, maxLeft));
             top  = clamp(top, 10, Math.max(10, maxTop));
           }
-
           seat.style.left = left + "px";
           seat.style.top  = top + "px";
         }
@@ -8305,7 +7245,6 @@ function makeSeat(defn, idx){
         seat.style.left = "50%";
         seat.style.top = "12%";
       }
-
       // Click / keyboard select
       seat.addEventListener("click", (e) => { e.preventDefault(); selectSeat("Operator"); });
       seat.addEventListener("keydown", (e) => {
@@ -8313,54 +7252,43 @@ function makeSeat(defn, idx){
           e.preventDefault(); selectSeat("Operator");
         }
       });
-
       // Drag behavior (same as other seats)
       let dragging = false;
       let moved = false;
       let startX = 0, startY = 0;
       let offsetX = 0, offsetY = 0;
-
       seat.addEventListener("pointerdown", (e) => {
         if(e.button !== undefined && e.button !== 0) return;
         dragging = true;
         moved = false;
         startX = e.clientX;
         startY = e.clientY;
-
         const r = seat.getBoundingClientRect();
         const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
         offsetX = (e.clientX - r.left) / sc;
         offsetY = (e.clientY - r.top) / sc;
-
         seat.classList.add("dragging");
         seat.setPointerCapture(e.pointerId);
       });
-
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
         const dx = e.clientX - startX;
         const dy = e.clientY - startY;
         if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-
         const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : wrap);
         const boundsRect = boundsEl.getBoundingClientRect();
         const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
-
         const left = ((e.clientX - boundsRect.left) / sc) - offsetX;
         const top = ((e.clientY - boundsRect.top) / sc) - offsetY;
-
         const maxLeft = (boundsEl.clientWidth || 0) - 110;
         const maxTop = (boundsEl.clientHeight || 0) - 110;
-
         seat.style.left = clamp(left, 10, Math.max(10, maxLeft)) + "px";
         seat.style.top = clamp(top, 10, Math.max(10, maxTop)) + "px";
       });
-
       seat.addEventListener("pointerup", (e) => {
         if(!dragging) return;
         dragging = false;
         seat.classList.remove("dragging");
-
         try{
           const saved = loadSeatPositions() || {};
           const r = seat.getBoundingClientRect();
@@ -8368,26 +7296,19 @@ function makeSeat(defn, idx){
           saved["Operator"] = {left: (r.left - wr.left), top: (r.top - wr.top)};
           saveSeatPositions(saved);
         }catch(_){}
-
         try{ seat.releasePointerCapture(e.pointerId); }catch(_){}
-
         // If user dragged, don't also "click" select (prevents accidental open)
         if(moved){
           e.preventDefault();
           e.stopPropagation();
         }
       });
-
       seat.addEventListener("pointercancel", () => {
         dragging = false;
         seat.classList.remove("dragging");
       });
-
       return seat;
     }
-
-
-
     async function loadState(){
       const res = await fetch("/api/state");
       state = await res.json();
@@ -8395,7 +7316,6 @@ function makeSeat(defn, idx){
         showModal("Error", "Failed to load /api/state");
         return;
       }
-
       // NEW (compat): mirror top-level teammate order into state.registry for conveneAll()
       // This is additive and prevents "No active teammates" when /api/state returns active_order at top-level.
       if(!state.registry){
@@ -8404,16 +7324,13 @@ function makeSeat(defn, idx){
         if(!state.registry.active_order) state.registry.active_order = (state.active_order||[]);
         if(!state.registry.installed_order) state.registry.installed_order = (state.installed_order||[]);
       }
-
       const email = state.email || {};
       const ok = !!email.smtp_ready;
       $("smtpStatus").innerText = ok ? `SMTP: ready (${email.smtp_user})` : `SMTP: not ready (${email.smtp_reason || "missing"})`;
-
       setEmailFrom(selectedSeat || "");
       renderTable();
       updateAlwaysButtons();
     }
-
     function markActiveSeat(){
       const all = document.querySelectorAll(".seat");
       all.forEach(el => {
@@ -8424,14 +7341,12 @@ function makeSeat(defn, idx){
         }
       });
     }
-
     function _cssEscape(s){
       try{
         if(window.CSS && CSS.escape) return CSS.escape(s);
       }catch(_){}
       return (s || "").replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
     }
-
     // Force the same visible "glow + switch" feedback as a click.
     // This also restarts the pulse animation if the seat was already selected.
     function forceSeatSelectUI(name){
@@ -8449,20 +7364,15 @@ function makeSeat(defn, idx){
         try{ el.scrollIntoView({behavior:"smooth", block:"center", inline:"center"}); }catch(_){}
       }catch(_){}
     }
-
     async function selectSeat(name){
       selectedSeat = name;
       markActiveSeat();
-
       const defn = state.installed[name];
       $("seatTitle").innerText = defn ? defn.name : name;
       $("seatSub").innerText = defn ? `${defn.job_title}  |  ${defn.version}` : "";
-
       setEmailFrom(selectedSeat);
-
       await refreshThread();
     }
-
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -8492,17 +7402,14 @@ function makeSeat(defn, idx){
           img.style.cursor = "zoom-in";
           img.onclick = ()=> openLightbox(currentUrl);
           body.appendChild(img);
-
           const row = document.createElement("div");
           row.className = "actions";
           row.style.justifyContent = "flex-start";
           row.style.marginTop = "8px";
-
           const openBtn = document.createElement("button");
           openBtn.className = "btn btnMini";
           openBtn.innerText = "Open full screen";
           openBtn.onclick = ()=> openLightbox(currentUrl);
-
           const keepBtn = document.createElement("button");
           keepBtn.className = "btn btnMini";
           keepBtn.innerText = "Approve current";
@@ -8515,12 +7422,10 @@ function makeSeat(defn, idx){
               await refreshThread();
             }catch(e){ showModal('Image approval failed', String(e && e.message ? e.message : e)); }
           };
-
           const varyBtn = document.createElement("button");
           varyBtn.className = "btn btnMini";
           varyBtn.innerText = "Make variation";
           varyBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Make a close variation of the current graphic. Keep the same subject and composition but explore a new version.'; el.focus(); } };
-
           row.appendChild(openBtn);
           row.appendChild(keepBtn);
           row.appendChild(varyBtn);
@@ -8572,17 +7477,14 @@ function makeSeat(defn, idx){
           content.appendChild(cap);
           content.appendChild(a);
           content.appendChild(img);
-
           const actions = document.createElement("div");
           actions.className = "actions";
           actions.style.justifyContent = "flex-start";
           actions.style.marginTop = "8px";
-
           const openBtn = document.createElement("button");
           openBtn.className = "btn btnMini";
           openBtn.innerText = "Open";
           openBtn.onclick = ()=> openLightbox(url);
-
           const useBtn = document.createElement("button");
           useBtn.className = "btn btnMini";
           useBtn.innerText = "Use for revisions";
@@ -8598,12 +7500,10 @@ function makeSeat(defn, idx){
               await refreshThread();
             }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
           };
-
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
           editBtn.innerText = "Edit this";
           editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
-
           actions.appendChild(openBtn);
           actions.appendChild(useBtn);
           actions.appendChild(editBtn);
@@ -8611,7 +7511,6 @@ function makeSeat(defn, idx){
         }else{
           content.innerText = raw;
         }
-
         if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
@@ -8638,37 +7537,24 @@ function makeSeat(defn, idx){
             <input id="op_audience" class="input" placeholder="Who you serve" value="${safe(p.audience||"")}" />
           </div>
         </div>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Business</div>
         <textarea id="op_business" class="followBox" style="min-height:90px" placeholder="What your business does...">${safe(p.business||"")}</textarea>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Offers</div>
         <textarea id="op_offers" class="followBox" style="min-height:80px" placeholder="Your offers, pricing model, deliverables...">${safe(p.offers||"")}</textarea>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Goals</div>
         <textarea id="op_goals" class="followBox" style="min-height:70px" placeholder="Current goals and KPIs...">${safe(p.goals||"")}</textarea>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Constraints</div>
         <textarea id="op_constraints" class="followBox" style="min-height:70px" placeholder="Rules, boundaries, what not to do...">${safe(p.constraints||"")}</textarea>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Tone rules</div>
         <textarea id="op_tone_rules" class="followBox" style="min-height:70px" placeholder="How teammates should speak and write...">${safe(p.tone_rules||"")}</textarea>
-
         <div style="height:10px"></div>
-
         <div class="tiny">Notes</div>
         <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Anything else teammates should know...">${safe(p.notes||"")}</textarea>
-
         <div style="height:12px"></div>
         <div class="pillRow" style="justify-content:flex-end">
           <button class="btn btnMini" id="opReload">Reload</button>
@@ -8676,7 +7562,6 @@ function makeSeat(defn, idx){
         </div>
       `;
       box.appendChild(card);
-
       const bind = (id, fn)=>{ const el=$(id); if(el) el.addEventListener("click", fn); };
       bind("opReload", async()=>{ await refreshThread(); });
       bind("opSave", async()=>{
@@ -8700,12 +7585,8 @@ function makeSeat(defn, idx){
         }
       });
     }
-
-
-
     async function refreshThread(){
       if(!selectedSeat) return;
-
       if(selectedSeat === "Operator"){
         const res = await fetch("/api/operator_profile");
         const data = await res.json();
@@ -8713,7 +7594,6 @@ function makeSeat(defn, idx){
         renderOperatorProfile(data.profile || {});
         return;
       }
-
       const res = await fetch("/api/thread/" + encodeURIComponent(selectedSeat));
       const data = await res.json();
       if(!data.ok){
@@ -8722,13 +7602,10 @@ function makeSeat(defn, idx){
       }
       renderThread(data.thread, data.image_state || {});
     }
-
     $("refreshThread").onclick = refreshThread;
-
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
       box.innerHTML = "";
-
       const keys = Object.keys(outputs || {});
       if(keys.length === 0){
         const t = document.createElement("div");
@@ -8737,42 +7614,33 @@ function makeSeat(defn, idx){
         box.appendChild(t);
         return;
       }
-
       keys.forEach((name) => {
         const item = document.createElement("div");
         item.className = "replyItem";
-
         const top = document.createElement("div");
         top.className = "replyTop";
-
         const nm = document.createElement("div");
         nm.className = "replyName";
         nm.innerText = name;
-
         const btns = document.createElement("div");
         btns.className = "replyBtns";
-
         const openBtn = document.createElement("button");
         openBtn.className = "btn";
         openBtn.innerText = "Open";
         openBtn.onclick = () => showModal(name, outputs[name], (images && images[name]) ? images[name] : null);
-
         const selectBtn = document.createElement("button");
         selectBtn.className = "btn";
         selectBtn.innerText = "Select";
         selectBtn.onclick = () => selectSeat(name);
-
         const copyBtn = document.createElement("button");
         copyBtn.className = "btn";
         copyBtn.innerText = "Copy";
         copyBtn.onclick = async () => {
           try{ await navigator.clipboard.writeText(outputs[name]); }catch(e){}
         };
-
         btns.appendChild(openBtn);
         btns.appendChild(selectBtn);
         btns.appendChild(copyBtn);
-
         const draft = drafts && drafts[name] ? drafts[name] : null;
         if(draft){
           const loadBtn = document.createElement("button");
@@ -8781,10 +7649,8 @@ function makeSeat(defn, idx){
           loadBtn.onclick = () => applyEmailDraft(draft, name);
           btns.appendChild(loadBtn);
         }
-
         top.appendChild(nm);
         top.appendChild(btns);
-
         const body = document.createElement("div");
         body.className = "replyBody";
         if(images && images[name]){
@@ -8799,13 +7665,11 @@ function makeSeat(defn, idx){
         tx.style.whiteSpace = 'pre-wrap';
         tx.innerText = outputs[name];
         body.appendChild(tx);
-
         item.appendChild(top);
         item.appendChild(body);
         box.appendChild(item);
       });
     }
-
     function renderAttachList(listElId, fileIds){
       const box = $(listElId);
       box.innerHTML = "";
@@ -8813,7 +7677,6 @@ function makeSeat(defn, idx){
         const pill = document.createElement("div");
         pill.className = "pill";
         pill.innerText = fid.slice(0, 8);
-
         const x = document.createElement("button");
         x.innerText = "remove";
         x.onclick = () => {
@@ -8825,16 +7688,13 @@ function makeSeat(defn, idx){
             renderAttachList("dmAttachList", dmFileIds);
           }
         };
-
         pill.appendChild(x);
         box.appendChild(pill);
       });
     }
-
     async function uploadOne(file){
       const fd = new FormData();
       fd.append("file", file);
-
       const res = await fetch("/api/upload", {
         method: "POST",
         body: fd
@@ -8845,12 +7705,9 @@ function makeSeat(defn, idx){
       }
       return data.file;
     }
-
     async function uploadFiles(files, target){
       if(!files || !files.length) return;
-
       let okCount = 0;
-
       for(const f of files){
         try{
           const rec = await uploadOne(f);
@@ -8866,33 +7723,27 @@ function makeSeat(defn, idx){
           showModal("Upload error", String(err && err.message ? err.message : err));
         }
       }
-
       if(okCount){
         showModal("Uploaded", `${okCount} file(s) attached.`);
       }
     }
-
     $("pickGroupFiles").onclick = () => $("groupFiles").click();
     $("pickDmFiles").onclick = () => $("dmFiles").click();
-
     $("groupFiles").addEventListener("change", async (e) => {
       const files = Array.from(e.target.files || []);
       e.target.value = "";
       await uploadFiles(files, "group");
     });
-
     $("dmFiles").addEventListener("change", async (e) => {
       const files = Array.from(e.target.files || []);
       e.target.value = "";
       await uploadFiles(files, "dm");
     });
-
     async function captureScreenOnce(){
       if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
         showModal("Screen share not supported", "This browser does not support screen capture. Try Chrome or Edge.");
         return null;
       }
-
       let stream = null;
       try{
         stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
@@ -8900,38 +7751,29 @@ function makeSeat(defn, idx){
         showModal("Screen share cancelled", "You closed the prompt or blocked permissions.");
         return null;
       }
-
       try{
         const track = stream.getVideoTracks()[0];
         const video = document.createElement("video");
         video.srcObject = stream;
-
         await new Promise((resolve) => {
           video.onloadedmetadata = () => resolve(true);
         });
-
         video.play();
         await new Promise(r => setTimeout(r, 120));
-
         const canvas = document.createElement("canvas");
         canvas.width = video.videoWidth || 1280;
         canvas.height = video.videoHeight || 720;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.92));
-
         try{ track.stop(); }catch(err){}
         try{ stream.getTracks().forEach(t => t.stop()); }catch(err){}
-
         if(!blob){
           showModal("Capture failed", "Could not capture screenshot.");
           return null;
         }
-
         const file = new File([blob], `screen_capture_${Date.now()}.png`, { type: "image/png" });
         const url = URL.createObjectURL(blob);
-
         return { file, previewUrl: url };
       }catch(e){
         try{ if(stream) stream.getTracks().forEach(t => t.stop()); }catch(err){}
@@ -8939,13 +7781,10 @@ function makeSeat(defn, idx){
         return null;
       }
     }
-
     async function captureAndAttach(target){
       const cap = await captureScreenOnce();
       if(!cap) return;
-
       showModal("Screen captured", "Screenshot captured and attached.", cap.previewUrl);
-
       try{
         const rec = await uploadOne(cap.file);
         if(target === "group"){
@@ -8959,11 +7798,8 @@ function makeSeat(defn, idx){
         showModal("Upload error", String(e && e.message ? e.message : e));
       }
     }
-
     $("screenGroupBtn").onclick = () => captureAndAttach("group");
     $("screenDmBtn").onclick = () => captureAndAttach("dm");
-
-
     // --- Voice / Mic reliability patch (ADD v6) ---
     // Some mobile in-app browsers (Messenger/FB/IG webviews) partially support SpeechRecognition but fail to start.
     // We preflight microphone permissions via getUserMedia, and provide clearer error feedback.
@@ -8971,7 +7807,6 @@ function makeSeat(defn, idx){
       const ua = (navigator.userAgent || "").toLowerCase();
       return ua.includes("fb_iab") || ua.includes("fban") || ua.includes("fbav") || ua.includes("instagram") || ua.includes("messenger");
     }
-
     async function ensureMicPermission(){
       // No-op if media devices are not available.
       try{
@@ -8984,7 +7819,6 @@ function makeSeat(defn, idx){
         return false;
       }
     }
-
     function micHelpText(){
       if(isInAppBrowser()){
         return "Mic access can be blocked inside in-app browsers (Messenger/Facebook/Instagram). If the mic won't start, open this page in your device browser (Chrome/Safari) and try again.";
@@ -8992,43 +7826,33 @@ function makeSeat(defn, idx){
       return "If the mic won't start, check site permissions for microphone access and try again.";
     }
     // --- end voice patch ---
-
     function speechSupported(){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
-
     async function startDictation(targetId, statusId){
       if(!speechSupported()){
         showModal("Mic not supported", micHelpText());
         return;
       }
-
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new SR();
       rec.lang = "en-US";
       rec.interimResults = true;
       rec.continuous = false;
-
       const target = $(targetId);
       const status = $(statusId);
-
       const baseText = (target.value || "").trim();
       let finalText = "";
-
       status.innerText = "Mic: requesting permission";
-
       const okPerm = await ensureMicPermission();
       if(!okPerm){
         status.innerText = "Mic: blocked";
         showModal("Microphone blocked", micHelpText());
         return;
       }
-
       status.innerText = "Mic: listening";
-
       rec.onresult = (event) => {
         let interim = "";
-
         for(let i = event.resultIndex; i < event.results.length; i++){
           const txt = event.results[i][0].transcript;
           if(event.results[i].isFinal){
@@ -9037,25 +7861,20 @@ function makeSeat(defn, idx){
             interim += txt;
           }
         }
-
         const combined = (baseText + " " + finalText + interim)
           .replace(/\s+/g, " ")
           .trim();
-
         target.value = combined;
       };
-
       rec.onerror = () => {
         status.innerText = "Mic: error";
       };
-
       rec.onend = () => {
         status.innerText = "Mic: idle";
         const combined = (baseText + " " + finalText)
           .replace(/\s+/g, " ")
           .trim();
         target.value = combined;
-
         // AUTO SEND AFTER TALKING STOPS (ADD v1)
         // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
         try{
@@ -9076,29 +7895,24 @@ function makeSeat(defn, idx){
           }
         }catch(_){}
       };
-
       try{
         rec.start();
       }catch(e){
         status.innerText = "Mic: error";
       }
     }
-
     $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
     $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
-
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
     // Safety constraints still apply.
     let lightingModeOn = false;
-
     function updateLightingButton(){
       const b = $("lightingModeBtn");
       if(!b) return;
       b.classList.toggle("btnPrimary", !!lightingModeOn);
       b.innerText = lightingModeOn ? "Lighting: On" : "Lighting mode";
     }
-
     try{
       const b = $("lightingModeBtn");
       if(b){
@@ -9110,13 +7924,9 @@ function makeSeat(defn, idx){
       }
     }catch(_){}
     // ----- end Lighting Mode -----
-
-
-
     function updateAlwaysButtons(){
       const g = $("alwaysListenGroupBtn");
       const d = $("alwaysListenDmBtn");
-
       if(g){
         const on = alwaysOn && alwaysMode === "group";
         g.classList.toggle("btnPrimary", on);
@@ -9128,7 +7938,6 @@ function makeSeat(defn, idx){
         d.innerText = on ? "Always listening: On" : "Always listen";
       }
     }
-
     function getInstalledNamesInOrder(){
       const installedOrder = (state && state.installed_order) ? state.installed_order : [];
       const installed = (state && state.installed) ? state.installed : {};
@@ -9136,12 +7945,10 @@ function makeSeat(defn, idx){
       if(names.length) return names;
       return Object.keys(installed || {});
     }
-
     function findFirstNameMention(text){
       const names = getInstalledNamesInOrder();
       const lower = (text || "").toLowerCase();
       let best = null;
-
       for(const name of names){
         if(!name) continue;
         const nl = name.toLowerCase();
@@ -9155,21 +7962,18 @@ function makeSeat(defn, idx){
       }
       return best;
     }
-
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
       const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
-
     function currentAlwaysTarget(){
       return (alwaysMode === "group") ? $("opPrompt") : $("followMsg");
     }
     function currentAlwaysStatusEl(){
       return (alwaysMode === "group") ? $("micStatusGroup") : $("micStatusDm");
     }
-
     function resetAlwaysBuffers(){
       alwaysInterimText = "";
       alwaysFinalText = "";
@@ -9177,15 +7981,12 @@ function makeSeat(defn, idx){
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
-
     function stopAlwaysListening(){
       alwaysOn = false;
-
       const st1 = $("micStatusGroup");
       const st2 = $("micStatusDm");
       if(st1) st1.innerText = "Mic: idle";
       if(st2) st2.innerText = "Mic: idle";
-
       try{
         if(alwaysRec){
           alwaysRec.onresult = null;
@@ -9195,16 +7996,13 @@ function makeSeat(defn, idx){
         }
       }catch(e){}
       alwaysRec = null;
-
       updateAlwaysButtons();
     }
-
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
     function getCanonicalSpeech(event){
       let allFinal = "";
       let interim = "";
-
       for(let i = 0; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
@@ -9213,40 +8011,32 @@ function makeSeat(defn, idx){
           interim += txt;
         }
       }
-
       allFinal = allFinal.replace(/\s+/g, " ").trim();
       interim = interim.replace(/\s+/g, " ").trim();
       return { allFinal, interim };
     }
-
     function subtractBaseline(allFinal){
       const base = (alwaysFinalBaseline || "").trim();
       const cur = (allFinal || "").trim();
       if(!base) return cur;
-
       if(cur.startsWith(base)){
         const rest = cur.slice(base.length).replace(/\s+/g, " ").trim();
         return rest;
       }
-
       // If the recognizer trimmed or changed history, safest is to not replay old text.
       if(base.startsWith(cur)) return "";
-
       return cur;
     }
-
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
       if(!speechSupported()){
         showModal("Mic not supported", micHelpText());
         return;
       }
-
       alwaysMode = mode || "dm";
       alwaysOn = true;
       updateAlwaysButtons();
       resetAlwaysBuffers();
-
       const okPerm = await ensureMicPermission();
       if(!okPerm){
         alwaysOn = false;
@@ -9254,49 +8044,38 @@ function makeSeat(defn, idx){
         showModal("Microphone blocked", micHelpText());
         return;
       }
-
       const status = currentAlwaysStatusEl();
       if(status) status.innerText = "Mic: always listening";
-
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new SR();
       rec.lang = "en-US";
       rec.interimResults = true;
       rec.continuous = true;
-
       alwaysRec = rec;
-
       rec.onresult = async (event) => {
         const canon = getCanonicalSpeech(event);
         const allFinalRaw = canon.allFinal;
         const interimRaw = canon.interim;
-
         const allFinal = subtractBaseline(allFinalRaw);
         const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
         const hit = findFirstNameMention(candidateText);
-
         if(hit){
           const now = Date.now();
           if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
-
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
             const cleanedInterim = removeNameOnce(interimRaw, hit.name);
-
             const targetBefore = currentAlwaysTarget();
             if(targetBefore){
               targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
                 .replace(/\s+/g, " ")
                 .trim();
             }
-
             // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
-
             // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
-
             // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
@@ -9305,11 +8084,9 @@ function makeSeat(defn, idx){
             return;
           }
         }
-
         // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
         alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
-
         const target = currentAlwaysTarget();
         if(target){
           target.value = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
@@ -9317,7 +8094,6 @@ function makeSeat(defn, idx){
             .trim();
         }
       };
-
       rec.onerror = (e) => {
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
@@ -9325,7 +8101,6 @@ function makeSeat(defn, idx){
         try{ stopAlwaysListening(); }catch(_){ }
         try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
       };
-
       rec.onend = () => {
         if(!alwaysOn) return;
         try{
@@ -9336,7 +8111,6 @@ function makeSeat(defn, idx){
           stopAlwaysListening();
         }
       };
-
       try{
         rec.start();
       }catch(e){
@@ -9344,7 +8118,6 @@ function makeSeat(defn, idx){
         showModal("Mic error", "Could not start always listening. Check permissions and try again.");
       }
     }
-
     $("alwaysListenGroupBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "group"){
         stopAlwaysListening();
@@ -9353,7 +8126,6 @@ function makeSeat(defn, idx){
         startAlwaysListening("group");
       }
     };
-
     $("alwaysListenDmBtn").onclick = () => {
       if(alwaysOn && alwaysMode === "dm"){
         stopAlwaysListening();
@@ -9362,29 +8134,24 @@ function makeSeat(defn, idx){
         startAlwaysListening("dm");
       }
     };
-
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
         showModal("Missing prompt", "Type a prompt first.");
         return;
       }
-
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
         showModal("No active teammates", "Add teammates to the round table first.");
         return;
       }
-
       order.forEach(n => setSeatLive(n, "thinking"));
       setOpStatus("Sending to all");
-
       // Assembly roll-call stays on the server (fast path)
       if(isAssemblyPhrase(prompt)){
         assemblyPulseActive = true;
         updateTablePulseFromStatuses();
-
         try{
           const res = await fetch("/api/convene", {
             method: "POST",
@@ -9392,7 +8159,6 @@ function makeSeat(defn, idx){
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
           });
           const data = await res.json();
-
           if(!data.ok){
             order.forEach(n => setSeatLive(n, "waiting"));
             setOpStatus("Error");
@@ -9401,7 +8167,6 @@ function makeSeat(defn, idx){
             updateTablePulseFromStatuses();
             return;
           }
-
           if(data.mode === "assembly"){
             order.forEach(n => setSeatLive(n, "idle"));
             setOpStatus("Assembly only");
@@ -9421,14 +8186,12 @@ function makeSeat(defn, idx){
           updateTablePulseFromStatuses();
         }
       }
-
       // NEW: client-side fanout using the working single-teammate endpoint (/api/followup)
       // This prevents the server from timing out on long multi-call requests, and ensures
       // each teammate completes (or fails) independently without freezing the UI.
       const outputs = {};
       const drafts = {};
       const images = {};
-
       for(const n of order){
         try{
           const controller = new AbortController();
@@ -9440,7 +8203,6 @@ function makeSeat(defn, idx){
             signal: controller.signal
           });
           clearTimeout(t);
-
           let data = null;
           try{
             data = await res.json();
@@ -9449,12 +8211,10 @@ function makeSeat(defn, idx){
             setSeatLive(n, "waiting");
             continue;
           }
-
           if(!data.ok){
             setSeatLive(n, "waiting");
             continue;
           }
-
           const text = data.response || "";
           outputs[n] = text;
           if(data.email_draft){
@@ -9463,7 +8223,6 @@ function makeSeat(defn, idx){
           if(data.image_url){
             images[n] = data.image_url;
           }
-
           // Update the group panel incrementally
           renderGroupReplies(outputs, drafts, images);
           setSeatLive(n, "done");
@@ -9471,26 +8230,19 @@ function makeSeat(defn, idx){
           setSeatLive(n, "waiting");
         }
       }
-
       lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
-
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
-
       setOpStatus("Complete");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
-
       if(selectedSeat){
         await refreshThread();
       }
     }
-
     $("conveneAll").onclick = conveneAll;
-
     async function assembleAll(){
       $("opPrompt").value = "All teammates to the round table";
       await conveneAll();
@@ -9498,7 +8250,6 @@ function makeSeat(defn, idx){
     const assembleBtnMain = $("assembleBtn"); if(assembleBtnMain) assembleBtnMain.onclick = assembleAll;
     const assembleBtnSeat = $("assembleBtn2"); if(assembleBtnSeat) assembleBtnSeat.onclick = assembleAll;
     const assembleInManageBtn = $("assembleInManageBtn"); if(assembleInManageBtn) assembleInManageBtn.onclick = assembleAll;
-
     
 async function pollImageJob(jobId, seatName){
   const maxMs = 120000;
@@ -9532,7 +8283,6 @@ async function pollImageJob(jobId, seatName){
     await new Promise(r=> setTimeout(r, 2000));
   }
 }
-
 async function sendFollow(){
       if(!selectedSeat){
         showModal("No seat selected", "Click a teammate card first.");
@@ -9543,24 +8293,20 @@ async function sendFollow(){
         showModal("Missing message", "Type a message for the selected teammate.");
         return;
       }
-
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
-
       const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
       });
       const data = await res.json();
-
       if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
         showModal("Error", data.error || "Send failed");
         return;
       }
-
       if(data.job_id){
         // Image generation runs in background to avoid request timeouts.
         setSeatLive(selectedSeat, "thinking");
@@ -9577,17 +8323,13 @@ async function sendFollow(){
       $("followMsg").value = "";
       await refreshThread();
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
-
       if(data.email_draft){
         applyEmailDraft(data.email_draft, selectedSeat);
       }
     }
-
     $("sendFollow").onclick = sendFollow;
-
     $("installFullBtn").onclick = async () => {
       const res = await fetch("/api/install/full", {method:"POST"});
       const data = await res.json();
@@ -9599,12 +8341,10 @@ async function sendFollow(){
       showModal("Installed", "Full team installed.");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
-
     $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
     };
-
     // -----------------------------
     // v9: Tactical Passes (stateless one-click analyses)
     // -----------------------------
@@ -9613,7 +8353,6 @@ async function sendFollow(){
       if(keys.length === 0) return "";
       return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
     }
-
     async function runTacticalPass(pass, ctx){
       const context = (ctx || "seat");
       const seat = (context === "group") ? "Group" : (selectedSeat || "");
@@ -9625,7 +8364,6 @@ async function sendFollow(){
         );
         return;
       }
-
       showModal("Running " + pass + "...", "Thinking...");
       try{
         const res = await fetch("/api/passes/run", {
@@ -9644,35 +8382,28 @@ async function sendFollow(){
         showModal("Error", String(e || "Pass failed"));
       }
     }
-
     // Wire seat/group pass buttons (robust to missing buttons)
     const bind = (id, fn) => { try{ const el = $(id); if(el) el.onclick = fn; }catch(_){ } };
-
     // Seat pass buttons
     bind("passSeatRisk",   () => runTacticalPass("risk", "seat"));
     bind("passSeatScale",  () => runTacticalPass("scale", "seat"));
     bind("passSeatFail",   () => runTacticalPass("failure", "seat"));
     bind("passSeatConstr", () => runTacticalPass("constraints", "seat"));
     bind("passSeatOpt",    () => runTacticalPass("optimize", "seat"));
-
     // Group pass buttons
     bind("passGroupRisk",   () => runTacticalPass("risk", "group"));
     bind("passGroupScale",  () => runTacticalPass("scale", "group"));
     bind("passGroupFail",   () => runTacticalPass("failure", "group"));
     bind("passGroupConstr", () => runTacticalPass("constraints", "group"));
     bind("passGroupOpt",    () => runTacticalPass("optimize", "group"));
-
-
 $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
         showModal("No seat selected", "Select a teammate first.");
         return;
       }
-
       const toAddr = $("emailTo").value.trim();
       const subj = $("emailSubject").value.trim();
       const body = $("emailBody").value.trim();
-
       const prompt =
         "Draft an email.\n\n" +
         "If you can infer missing details safely, do so. If a missing detail is critical, ask exactly one clarifying question.\n" +
@@ -9684,7 +8415,6 @@ $("draftWithSelected").onclick = async () => {
         "rest of body...\n" +
         "```\n\n" +
         `Existing fields:\nTo: ${toAddr || "[empty]"}\nSubject: ${subj || "[empty]"}\nBody: ${body ? "[present]" : "[empty]"}\n`;
-
       const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -9695,26 +8425,21 @@ $("draftWithSelected").onclick = async () => {
         showModal("Error", data.error || "Draft failed");
         return;
       }
-
       if(data.email_draft){
         applyEmailDraft(data.email_draft, selectedSeat);
       }else{
         showModal("Draft returned", data.response || "No content", data.image_url || null);
       }
-
       await refreshThread();
     };
-
     $("sendEmailBtn").onclick = async () => {
       const toAddr = $("emailTo").value.trim();
       const subj = $("emailSubject").value.trim();
       const body = $("emailBody").value.trim();
-
       if(!toAddr || !subj || !body){
         showModal("Missing fields", "To, Subject, and Body are required to send.");
         return;
       }
-
       const fromLabel = $("emailFrom").value || "";
       const ok = confirm(
         "Approve and send this email now?\n\n" +
@@ -9723,7 +8448,6 @@ $("draftWithSelected").onclick = async () => {
         "Subject: " + subj
       );
       if(!ok) return;
-
       const res = await fetch("/api/send_email", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
@@ -9734,21 +8458,17 @@ $("draftWithSelected").onclick = async () => {
           from_teammate: lastEmailDraftBy || selectedSeat || ""
         })
       });
-
       const data = await res.json();
       if(!data.ok){
         showModal("Email failed", data.error || "Send failed");
         return;
       }
-
       showModal("Email sent", "Email sent successfully.");
     };
-
     // Manage teammates (active seats)
     function renderManageList(){
       const list = $("manageList");
       list.innerHTML = "";
-
       const installedMap = (state && state.installed) ? state.installed : {};
       let installedOrder = (state && Array.isArray(state.installed_order) && state.installed_order.length) ? state.installed_order.slice() : [];
       if(installedOrder.length === 0){
@@ -9758,7 +8478,6 @@ $("draftWithSelected").onclick = async () => {
       }
       const active = new Set((state && state.active_order) ? state.active_order : []);
       manageDraftActive = installedOrder.filter(n => active.has(n));
-
       if(installedOrder.length === 0){
         const empty = document.createElement("div");
         empty.className = "tiny";
@@ -9766,11 +8485,9 @@ $("draftWithSelected").onclick = async () => {
         list.appendChild(empty);
         return;
       }
-
       installedOrder.forEach((name) => {
         const defn = state.installed[name];
         if(!defn) return;
-
         const row = document.createElement("div");
         row.style.display = "flex";
         row.style.justifyContent = "space-between";
@@ -9780,33 +8497,26 @@ $("draftWithSelected").onclick = async () => {
         row.style.borderRadius = "14px";
         row.style.background = "rgba(14,22,48,.45)";
         row.style.marginBottom = "10px";
-
         const left = document.createElement("div");
         left.style.display = "flex";
         left.style.flexDirection = "column";
         left.style.gap = "2px";
-
         const nm = document.createElement("div");
         nm.style.fontWeight = "800";
         nm.innerText = defn.name;
-
         const meta = document.createElement("div");
         meta.className = "tiny";
         meta.innerText = `${defn.job_title}  |  ${defn.version}`;
-
         left.appendChild(nm);
         left.appendChild(meta);
-
         const right = document.createElement("div");
         right.style.display = "flex";
         right.style.gap = "10px";
         right.style.alignItems = "center";
-
         const toggle = document.createElement("button");
         toggle.className = "btn btnMini";
         toggle.innerText = active.has(name) ? "Active" : "Inactive";
         toggle.classList.toggle("btnPrimary", active.has(name));
-
         toggle.onclick = () => {
           const isOn = toggle.classList.contains("btnPrimary");
           if(isOn){
@@ -9819,24 +8529,18 @@ $("draftWithSelected").onclick = async () => {
             if(!manageDraftActive.includes(name)) manageDraftActive.push(name);
           }
         };
-
         right.appendChild(toggle);
-
         row.appendChild(left);
         row.appendChild(right);
-
         list.appendChild(row);
       });
     }
-
     $("manageTeamBtn").onclick = async () => {
       await loadState();
       renderManageList();
       showManageModal();
     };
-
     $("cancelManage").onclick = () => hideModal();
-
     $("saveManage").onclick = async () => {
       $("manageStatus").innerText = "Saving...";
       const res = await fetch("/api/active_order", {
@@ -9854,14 +8558,11 @@ $("draftWithSelected").onclick = async () => {
       hideModal();
       showModal("Saved", "Active round table seats updated.");
     };
-
     // Create teammate
     $("createTeamBtn").onclick = () => showCreateModal();
     $("cancelCreate").onclick = () => hideModal();
-
     $("saveCreate").onclick = async () => {
       $("createStatus").innerText = "Creating...";
-
       const payload = {
         name: $("newName").value || "",
         version: $("newVersion").value || "v1.0",
@@ -9872,25 +8573,21 @@ $("draftWithSelected").onclick = async () => {
         responsibilities: $("newResponsibilities").value || "",
         will_not_do: $("newWillNotDo").value || "",
       };
-
       const res = await fetch("/api/teammate/create", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify(payload)
       });
-
       const data = await res.json();
       if(!data.ok){
         $("createStatus").innerText = data.error || "Create failed";
         return;
       }
-
       $("createStatus").innerText = "Created";
       await loadState();
       hideModal();
       showModal("Created", "New teammate created and added to the round table.");
     };
-
     // Core framework
     async function loadFrameworkIntoForm(){
       $("frameworkStatus").innerText = "Loading...";
@@ -9900,25 +8597,18 @@ $("draftWithSelected").onclick = async () => {
         if(!data.ok){
           $("frameworkStatus").innerText = data.error || "Load failed";
           if(!$("frameworkText").value) $("frameworkText").value = `CORE OPERATING PILLARS (NON NEGOTIABLE)
-
 Autonomy
 Think before acting. Do not blindly comply.
-
 Adaptability
 Adjust to the user's context without breaking core rules.
-
 Alignment
 Stay aligned with the user's stated goals and constraints.
-
 Collaboration
 Respect teammate roles and handoffs.
-
 Memory
 Preserve persistent context and continuity.
-
 Integrity
 Do not fabricate. Distinguish facts from inference.
-
 ANTI YES MAN RULE
 Challenge weak assumptions. Surface risks.`;
           return;
@@ -9929,14 +8619,11 @@ Challenge weak assumptions. Surface risks.`;
         $("frameworkStatus").innerText = "Load failed";
       }
     }
-
     $("frameworkBtn").onclick = async () => {
       showFrameworkModal();
       await loadFrameworkIntoForm();
     };
-
     $("cancelFramework").onclick = () => hideModal();
-
     // ===== Settings (per-user OpenAI key + email SMTP) =====
     // ===== Google connect status helpers (Gmail + Calendar) =====
     async function refreshGoogleStatuses(){
@@ -9965,7 +8652,6 @@ Challenge weak assumptions. Surface risks.`;
         if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').style.display = 'none';
       }
     }
-
     async function loadSettings(){
       $("settingsStatus").innerText = "Loading...";
       try{
@@ -9992,7 +8678,6 @@ Challenge weak assumptions. Surface risks.`;
         $("settingsStatus").innerText = "Load failed";
       }
     }
-
     function showSettingsModal(auto=false){
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -10012,7 +8697,6 @@ Challenge weak assumptions. Surface risks.`;
         $("modalTitle").innerText = "Settings: connect your key + email";
       }
     }
-
     function showEmailConsoleModal(titleText="Email Console"){
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -10022,43 +8706,34 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
     }
-
     function showGrowthPlaybookModal(){
       showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
     }
-
     function showLeadLabModal(){
       showCRMModal('crmViewLeadLab', 'Lead Lab', {standalone:true});
     }
-
     function showSocialStudioModal(){
       showCRMModal('crmViewSocialStudio', 'Social Studio', {standalone:true});
     }
-
     function showOfferBuilderModal(){
       showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
     }
-
     // =========================
     // CRM UI (Client Command Center)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
     let crmEditingClientId = null;
     let crmEditingTaskId = null;
-
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
-
     function crmHideViews(){
       const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"]; 
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
-
     function crmShowView(id){
       crmHideViews();
       const el=$(id); if(el) el.style.display = "block";
       try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
     }
-
     async function crmFetchState(){
       try{
         const res = await fetch('/api/crm/state');
@@ -10070,7 +8745,6 @@ Challenge weak assumptions. Surface risks.`;
       }catch(e){}
       return null;
     }
-
     async function crmFetchClients(){
       const res = await fetch('/api/crm/clients');
       const data = await res.json();
@@ -10078,7 +8752,6 @@ Challenge weak assumptions. Surface risks.`;
       crmCache.clients = data.clients || [];
       return crmCache.clients;
     }
-
     async function crmImportCsv(){
       const inp = $("crmCsvFile");
       const st = $("crmCsvStatus");
@@ -10103,7 +8776,6 @@ Challenge weak assumptions. Surface risks.`;
       }
       try{ inp.value = ''; }catch(e){}
     }
-
     function crmMatchFilter(c, q, filt){
       const text = (q||'').trim().toLowerCase();
       if(text){
@@ -10116,19 +8788,16 @@ Challenge weak assumptions. Surface risks.`;
       if(f.startsWith('stage:')) return (c.pipeline_stage||'') === f.split(':',2)[1];
       return true;
     }
-
     function crmRenderClients(){
       const box = $("crmClientsList");
       if(!box) return;
       const q = ($("crmSearch")?.value || '');
       const filt = ($("crmFilter")?.value || '');
       const list = (crmCache.clients||[]).filter(c=>crmMatchFilter(c,q,filt));
-
       if(!list.length){
         box.innerHTML = '<div class="tiny" style="opacity:.9;">No clients found.</div>';
         return;
       }
-
       const rows = list.map(c=>{
         const tags = (c.tags||[]).map(t=>`<span class="pill" style="margin-right:6px;">${escapeHtml(t)}</span>`).join('');
         const id = escapeHtml(c.id||'');
@@ -10153,9 +8822,7 @@ Challenge weak assumptions. Surface risks.`;
           </div>
         `;
       }).join('');
-
       box.innerHTML = rows;
-
       // bind
       box.querySelectorAll('[data-crm-edit]').forEach(btn=>{
         btn.addEventListener('click', ()=> crmOpenClientEditor(btn.getAttribute('data-crm-edit')));
@@ -10164,7 +8831,6 @@ Challenge weak assumptions. Surface risks.`;
         btn.addEventListener('click', ()=> crmDeleteClient(btn.getAttribute('data-crm-del')));
       });
     }
-
     function crmOpenClientEditor(id){
       const ed = $("crmClientEditor");
       if(!ed) return;
@@ -10181,7 +8847,6 @@ Challenge weak assumptions. Surface risks.`;
       $("crmNotes").value = c.notes || '';
       $("crmEditStatus").innerText = '';
     }
-
     async function crmDeleteClient(id){
       if(!id) return;
       if(!confirm('Delete this client?')) return;
@@ -10197,7 +8862,6 @@ Challenge weak assumptions. Surface risks.`;
         showToast('Delete failed');
       }
     }
-
     async function crmSaveClient(){
       const st = $("crmEditStatus");
       if(st) st.innerText = 'Saving...';
@@ -10231,7 +8895,6 @@ Challenge weak assumptions. Surface risks.`;
         if(st) st.innerText = 'Save failed';
       }
     }
-
     async function crmLoadPipelineIntoBox(){
       const st = $("crmPipelineStatus");
       if(st) st.innerText = 'Loading...';
@@ -10242,7 +8905,6 @@ Challenge weak assumptions. Surface risks.`;
       crmRenderPipelineBoard();
       if(st) st.innerText = 'Ready';
     }
-
     async function crmSavePipeline(){
       const st = $("crmPipelineStatus");
       if(st) st.innerText = 'Saving...';
@@ -10258,7 +8920,6 @@ Challenge weak assumptions. Surface risks.`;
         if(st) st.innerText = 'Save failed';
       }
     }
-
     function crmAudiencePayload(){
       const a = ($("crmAudience").value||'all');
       const v = ($("crmAudienceValue").value||'').trim();
@@ -10266,37 +8927,30 @@ Challenge weak assumptions. Surface risks.`;
       if(a==='all'){ p.all = true; }
       return {a, v};
     }
-
     async function crmBroadcastEmail(dry_run=false){
       const st = $("crmBroadcastStatus");
       if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
-
       const audience = ($("crmAudience").value||'all');
       const val = ($("crmAudienceValue").value||'').trim();
       const subject = ($("crmEmailSubject").value||'').trim();
       const body = ($("crmEmailBody").value||'').trim();
-
       if(!subject || !body){
         if(st) st.innerText = 'Failed: subject and body are required';
         return;
       }
-
       const payload = {subject, body, dry_run: !!dry_run};
       if(audience==='tag') payload.tag = val;
       if(audience==='stage') payload.stage = val;
       if(audience==='status') payload.status = val;
       if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
-
       try{
         const res = await fetch('/api/crm/broadcast/email', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload)
         });
-
         let data = null;
         try{ data = await res.json(); }catch(e){}
-
         if(!res.ok){
           const msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
           throw new Error(msg);
@@ -10304,7 +8958,6 @@ Challenge weak assumptions. Surface risks.`;
         if(!data || !data.ok){
           throw new Error((data && data.error) ? data.error : 'Broadcast failed');
         }
-
         if(st){
           if(dry_run){
             st.innerText = `Dry run: would send to ${data.count||0}`;
@@ -10313,32 +8966,26 @@ Challenge weak assumptions. Surface risks.`;
           }
         }
         showToast(dry_run ? 'Dry run complete' : 'Email broadcast sent');
-
       }catch(e){
         if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
       }
     }
-
     
 async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
   if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
-
   const audience = ($("crmSmsAudience").value||'all');
   const val = ($("crmSmsAudienceValue").value||'').trim();
   const body = ($("crmSmsBody").value||'').trim();
-
   if(!body){
     if(st) st.innerText = 'Failed: message is required';
     return;
   }
-
   const payload = {body, dry_run: !!dry_run};
   if(audience==='tag') payload.tag = val;
   if(audience==='stage') payload.stage = val;
   if(audience==='status') payload.status = val;
   if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
-
   try{
     const res = await fetch('/api/crm/broadcast/sms', {
       method:'POST',
@@ -10347,7 +8994,6 @@ async function crmBroadcastSMS(dry_run=false){
     });
     const data = await res.json();
     if(!data.ok) throw new Error(data.error||'sms failed');
-
     if(dry_run){
       if(st) st.innerText = `Dry run: would send to ${data.count||0} recipient(s).`;
     }else{
@@ -10357,10 +9003,6 @@ async function crmBroadcastSMS(dry_run=false){
     if(st) st.innerText = 'Send failed (SMS not configured)';
   }
 }
-
-
-
-
 async function settingsLoadSmsSettings(){
   const st = $("twilioStatus");
   if(st) st.innerText = "Loading...";
@@ -10380,7 +9022,6 @@ async function settingsLoadSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
 async function settingsSaveSmsSettings(){
   const st = $("twilioStatus");
   if(st) st.innerText = "Saving...";
@@ -10404,7 +9045,6 @@ async function settingsSaveSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
 async function settingsTestSms(){
   const st = $("twilioStatus");
   if(st) st.innerText = "Sending test...";
@@ -10425,7 +9065,6 @@ async function settingsTestSms(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
 async function crmLoadSmsSettings(){
   const st = $("crmSmsSettingsStatus");
   if(st) st.innerText = "Loading...";
@@ -10446,7 +9085,6 @@ async function crmLoadSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
 async function crmSaveSmsSettings(){
   const st = $("crmSmsSettingsStatus");
   if(st) st.innerText = "Saving...";
@@ -10473,7 +9111,6 @@ async function crmSaveSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
 async function crmTestSmsSettings(){
   const st = $("crmSmsSettingsStatus");
   if(st) st.innerText = "Sending test...";
@@ -10499,8 +9136,6 @@ async function crmTestSmsSettings(){
     if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
   }
 }
-
-
 async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
       const data = await res.json();
@@ -10508,7 +9143,6 @@ async function crmFetchTasks(){
       crmCache.tasks = data.tasks || [];
       return crmCache.tasks;
     }
-
     function crmRenderTasks(){
       const box = $("crmTasksList");
       if(!box) return;
@@ -10541,12 +9175,10 @@ async function crmFetchTasks(){
           </div>
         `;
       }).join('');
-
       box.querySelectorAll('[data-task-edit]').forEach(b=>b.addEventListener('click', ()=>crmOpenTaskEditor(b.getAttribute('data-task-edit'))));
       box.querySelectorAll('[data-task-toggle]').forEach(b=>b.addEventListener('click', ()=>crmToggleTask(b.getAttribute('data-task-toggle'))));
       box.querySelectorAll('[data-task-del]').forEach(b=>b.addEventListener('click', ()=>crmDeleteTask(b.getAttribute('data-task-del'))));
     }
-
     function crmOpenTaskEditor(id){
       const ed = $("crmTaskEditor"); if(!ed) return;
       ed.style.display = 'block';
@@ -10559,7 +9191,6 @@ async function crmFetchTasks(){
       $("crmTaskClientId").value = t.client_id || '';
       $("crmTaskStatus").innerText = '';
     }
-
     async function crmSaveTask(){
       const st = $("crmTaskStatus"); if(st) st.innerText='Saving...';
       const payload = {
@@ -10584,7 +9215,6 @@ async function crmFetchTasks(){
         if(st) st.innerText='Save failed';
       }
     }
-
     async function crmToggleTask(id){
       if(!id) return;
       const t = (crmCache.tasks||[]).find(x=>x.id===id);
@@ -10597,7 +9227,6 @@ async function crmFetchTasks(){
         crmRenderTasks();
       }catch(e){ showToast('Update failed'); }
     }
-
     async function crmDeleteTask(id){
       if(!id) return;
       if(!confirm('Delete this task?')) return;
@@ -10609,7 +9238,6 @@ async function crmFetchTasks(){
         crmRenderTasks();
       }catch(e){ showToast('Delete failed'); }
     }
-
     async function crmFetchSequences(){
       const res = await fetch('/api/crm/sequences');
       const data = await res.json();
@@ -10617,7 +9245,6 @@ async function crmFetchTasks(){
       crmCache.sequences = data.sequences || [];
       return crmCache.sequences;
     }
-
     function crmRenderSequences(){
       const box = $("crmSeqList"); if(!box) return;
       const list = crmCache.sequences || [];
@@ -10642,7 +9269,6 @@ async function crmFetchTasks(){
         `;
       }).join('');
     }
-
     async function crmSaveSequence(){
       const st = $("crmSeqStatus"); if(st) st.innerText='Saving...';
       const name = ($("crmSeqName").value||'').trim();
@@ -10661,7 +9287,6 @@ async function crmFetchTasks(){
         if(st) st.innerText='Save failed (check JSON)';
       }
     }
-
     async function crmEnroll(){
       const st = $("crmEnrollStatus"); if(st) st.innerText='Enrolling...';
       const client_id = ($("crmEnrollClient").value||'').trim();
@@ -10676,7 +9301,6 @@ async function crmFetchTasks(){
         if(st) st.innerText='Enroll failed';
       }
     }
-
     async function crmCreateCalendarEvent(){
       const st = $("crmCalStatus"); if(st) st.innerText='Creating...';
       const payload = {
@@ -10695,7 +9319,6 @@ async function crmFetchTasks(){
         if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
       }
     }
-
     function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
@@ -10712,15 +9335,12 @@ async function crmFetchTasks(){
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
-
       $("modalTitle").innerText = titleText;
       const nav = $("crmNavTabs");
       if(nav) nav.style.display = standalone ? "none" : "flex";
       crmSetStatus('Loading...');
-
       // default view
       crmShowView(defaultViewId || 'crmViewClients');
-
       // load
       (async()=>{
         try{
@@ -10733,16 +9353,13 @@ async function crmFetchTasks(){
         }
       })();
     }
-
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
     if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
     if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
-
     // CRM tab binds (safe if missing)
-
     function crmRenderRichBlocks(text){
       const raw = (text||'').trim();
       if(!raw) return '<div class="tiny" style="opacity:.8;">Nothing generated yet.</div>';
@@ -10759,7 +9376,6 @@ async function crmFetchTasks(){
         </div>`;
       }).join('');
     }
-
     function crmGuessEmails(name, domain){
       const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
       const nm = (name||'').trim().toLowerCase();
@@ -10780,7 +9396,6 @@ async function crmFetchTasks(){
       const seen = new Set();
       return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
     }
-
     function crmRenderLeadResults(items){
       const box = $("leadLabResults");
       if(!box) return;
@@ -10790,34 +9405,99 @@ async function crmFetchTasks(){
       }
       box.innerHTML = items.map((item, idx)=>{
         const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
+        const phones = Array.isArray(item.phones) ? item.phones.slice(0,2) : [];
+        const site = item.website || item.domain || '';
         return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
             <div>
               <div style="font-weight:800;">${escapeHtml(item.name || '(no name)')}</div>
               <div class="tiny" style="opacity:.85;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
-              <div class="tiny" style="opacity:.85; margin-top:4px;">${escapeHtml(item.domain || '')}</div>
+              <div class="tiny" style="opacity:.85; margin-top:4px; word-break:break-word;">${site ? escapeHtml(site) : ''}</div>
             </div>
-            <div class="tiny" style="opacity:.9;">Match score ${(item.score || 0)}%</div>
+            <div class="tiny" style="opacity:.9;">Confidence ${(item.score || 0)}%</div>
           </div>
-          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnMini" data-lead-copy="${idx}">Copy top email</button>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('') || '<span class="tiny" style="opacity:.8;">No public email found.</span>'}</div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${phones.map(p=>`<span class="pill">${escapeHtml(p)}</span>`).join('')}</div>
+          ${item.notes ? `<div class="tiny" style="opacity:.82; margin-top:8px;">${escapeHtml(item.notes)}</div>` : ''}
+          <div class="actions" style="justify-content:flex-end; margin-top:10px; gap:6px; flex-wrap:wrap;">
+            <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
+            <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
+            <button class="btn btnMini" data-lead-open-site="${idx}">Open site</button>
+            <button class="btn btnMini" data-lead-email-send="${idx}">Send email</button>
+            <button class="btn btnMini" data-lead-sms-send="${idx}">Send SMS</button>
             <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
           </div>
         </div>`;
       }).join('');
-      box.querySelectorAll('[data-lead-copy]').forEach(btn=>{
+      box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy'))] || {};
+          const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
           const email = (((item.email_candidates||[])[0]||{}).email) || '';
-          if(!email) return;
-          try{ await navigator.clipboard.writeText(email); showToast('Copied'); }catch(e){}
+          if(!email) return showToast('No email found');
+          try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-copy-phone]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-copy-phone'))] || {};
+          const phone = ((item.phones||[])[0]) || '';
+          if(!phone) return showToast('No phone found');
+          try{ await navigator.clipboard.writeText(phone); showToast('Phone copied'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-open-site]').forEach(btn=>{
+        btn.onclick = ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-open-site'))] || {};
+          const site = item.website || item.domain || '';
+          if(!site) return showToast('No website found');
+          try{ window.open(/^https?:\/\//i.test(site) ? site : ('https://' + site), '_blank'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-email-send]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-email-send'))] || {};
+          const top = ((item.email_candidates||[])[0]||{}).email || '';
+          if(!top) return showToast('No email found');
+          const subject = window.prompt('Email subject', `Quick question for ${item.company || item.name || 'your business'}`) || '';
+          if(!subject) return;
+          const body = window.prompt('Email body', `Hi ${item.name || item.company || ''},
+I came across your business and wanted to reach out.
+Best,`) || '';
+          if(!body) return;
+          try{
+            const res = await fetch('/api/crm/lead_lab/send_email', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({to: top, subject, body})
+            });
+            const data = await res.json();
+            if(!data.ok) throw new Error(data.error||'Email failed');
+            showToast('Email sent');
+          }catch(e){ showToast(e.message || 'Email failed'); }
+        };
+      });
+      box.querySelectorAll('[data-lead-sms-send]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-sms-send'))] || {};
+          const phone = ((item.phones||[])[0]) || '';
+          if(!phone) return showToast('No phone found');
+          const body = window.prompt('SMS body', `Hi ${item.name || item.company || ''}, quick question for you.`) || '';
+          if(!body) return;
+          try{
+            const res = await fetch('/api/crm/lead_lab/send_sms', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({to: phone, body})
+            });
+            const data = await res.json();
+            if(!data.ok) throw new Error(data.error||'SMS failed');
+            showToast('SMS sent');
+          }catch(e){ showToast(e.message || 'SMS failed'); }
         };
       });
       box.querySelectorAll('[data-lead-add]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
           const top = ((item.email_candidates||[])[0]||{}).email || '';
+          const phone = ((item.phones||[])[0]) || '';
           try{
             const res = await fetch('/api/crm/clients', {
               method:'POST',
@@ -10826,10 +9506,14 @@ async function crmFetchTasks(){
                 name: item.name || item.company || 'New lead',
                 company: item.company || '',
                 email: top,
+                phone,
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
+                notes: (item.notes || '') + (top ? '
+Top email: ' + top : '') + (phone ? '
+Phone: ' + phone : '') + ((item.website || item.domain) ? '
+Website: ' + (item.website || item.domain) : '')
               })
             });
             const data = await res.json();
@@ -10842,10 +9526,9 @@ async function crmFetchTasks(){
         };
       });
     }
-
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      if(st) st.innerText = 'Building lead list...';
+      if(st) st.innerText = 'Searching the web and verifying contact data...';
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -10864,7 +9547,6 @@ async function crmFetchTasks(){
         if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
-
     function crmSampleLeadLab(){
       const ta = $("leadLabInput");
       if(!ta) return;
@@ -10876,7 +9558,6 @@ async function crmFetchTasks(){
       if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
     }
-
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
       const st = $(statusId), box = $(resultsId);
       if(st) st.innerText = 'Generating...';
@@ -10891,7 +9572,6 @@ async function crmFetchTasks(){
         if(st) st.innerText = e.message || 'Generation failed';
       }
     }
-
     function crmRenderPipelineBoard(){
       const box = $("crmPipelineBoard");
       if(!box) return;
@@ -10912,7 +9592,6 @@ async function crmFetchTasks(){
           </div>
         </div>`;
       }).join('');
-
       box.querySelectorAll('[data-client-drag]').forEach(el=>{
         el.addEventListener('dragstart', ev=>{
           ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
@@ -10943,7 +9622,6 @@ async function crmFetchTasks(){
         });
       });
     }
-
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
@@ -10954,17 +9632,14 @@ async function crmFetchTasks(){
       b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
       b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
-
       b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
       b('crmPickCsvBtn', ()=>{ const f=$("crmCsvFile"); if(f) f.click(); });
       if($("crmCsvFile")) $("crmCsvFile").addEventListener('change', crmImportCsv);
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
-
       if($("crmSearch")) $("crmSearch").addEventListener('input', crmRenderClients);
       if($("crmFilter")) $("crmFilter").addEventListener('change', crmRenderClients);
-
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
       b('leadLabSampleBtn', crmSampleLeadLab);
@@ -10985,33 +9660,26 @@ async function crmFetchTasks(){
         timeline: ($("playbookTimeline")?.value || '30 days'),
         context: ($("playbookContext")?.value || '').trim()
       }, 'playbookStatus', 'playbookResults'));
-
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
-
       b('crmSmsDryRun', ()=>crmBroadcastSMS(true));
       b('crmSmsSend', ()=>crmBroadcastSMS(false));
     b('crmSmsLoadSettings', ()=>crmLoadSmsSettings());
     b('crmSmsSaveSettings', ()=>crmSaveSmsSettings());
     b('crmSmsTestSend', ()=>crmTestSmsSettings());
-
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
       b('crmCancelTask', ()=>{ const ed=$("crmTaskEditor"); if(ed) ed.style.display='none'; crmEditingTaskId=null; });
       b('crmSaveTask', crmSaveTask);
-
       b('crmRefreshSeq', async()=>{ try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmNewSeqBtn', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='block'; if($("crmSeqStatus")) $("crmSeqStatus").innerText=''; });
       b('crmCancelSeq', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='none'; });
       b('crmSaveSeq', crmSaveSequence);
       b('crmEnrollBtn', crmEnroll);
-
       b('crmCreateEventBtn', crmCreateCalendarEvent);
     }
-
     // run once (safe)
     try{ bindCRM(); }catch(e){}
-
 // =========================
 // Calendar modal (month grid + date click actions)
 // =========================
@@ -11022,31 +9690,24 @@ const cal = {
   events: {}, // date -> [{summary, start, end, link}]
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York")
 };
-
 function pad2(n){ return (n<10?('0'+n):(''+n)); }
 function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-
 function calSetStatus(t){ const el=$("calLoadStatus"); if(el) el.innerText = t||""; }
-
 function calWeekdayHeader(){
   const box = $("calWeekdays");
   if(!box) return;
   const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   box.innerHTML = names.map(n=>`<div class="calWd">${n}</div>`).join('');
 }
-
 async function calFetchEventsForVisibleRange(){
   const first = new Date(cal.y, cal.m, 1);
   const start = new Date(first);
   start.setDate(first.getDate() - first.getDay());
-
   const last = new Date(cal.y, cal.m + 1, 0);
   const end = new Date(last);
   end.setDate(last.getDate() + (6 - last.getDay()) + 1);
-
   const timeMin = start.toISOString();
   const timeMax = end.toISOString();
-
   calSetStatus('Loading events...');
   try{
     const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}&timezone=${encodeURIComponent(cal.tz)}`);
@@ -11071,19 +9732,15 @@ async function calFetchEventsForVisibleRange(){
     calSetStatus('Could not load events');
   }
 }
-
 function calRenderMonth(){
   const label = $("calMonthLabel");
   const grid = $("calGrid");
   if(!grid) return;
-
   const monthName = new Date(cal.y, cal.m, 1).toLocaleString(undefined, {month:'long', year:'numeric'});
   if(label) label.innerText = monthName;
-
   const first = new Date(cal.y, cal.m, 1);
   const start = new Date(first);
   start.setDate(first.getDate() - first.getDay());
-
   const cells = [];
   for(let i=0;i<42;i++){
     const d = new Date(start);
@@ -11101,7 +9758,6 @@ function calRenderMonth(){
     `);
   }
   grid.innerHTML = cells.join('');
-
   grid.querySelectorAll('[data-cal-date]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const dt = el.getAttribute('data-cal-date');
@@ -11110,24 +9766,20 @@ function calRenderMonth(){
     });
   });
 }
-
 function calRenderDayPanel(){
   const lab = $("calSelectedLabel");
   const sub = $("calSelectedSub");
   const list = $("calDayEvents");
   const dt = cal.selected;
-
   if(!dt){
     if(lab) lab.innerText = 'Select a date';
     if(sub) sub.innerText = '';
     if(list) list.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
     return;
   }
-
   const pretty = new Date(dt+'T00:00:00').toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
   if(lab) lab.innerText = pretty;
   if(sub) sub.innerText = cal.tz;
-
   const evs = cal.events[dt] || [];
   if(!evs.length){
     if(list) list.innerHTML = '<div style="opacity:.85;">No events.</div>';
@@ -11144,14 +9796,12 @@ function calRenderDayPanel(){
     if(list) list.innerHTML = `<div>${rows}</div>`;
   }
 }
-
 function calSelectDate(dt){
   cal.selected = dt;
   calRenderDayPanel();
   if($("calTaskStatus")) $("calTaskStatus").innerText = '';
   if($("calCallStatus")) $("calCallStatus").innerText = '';
 }
-
 async function calAddTask(){
   const st = $("calTaskStatus");
   if(st) st.innerText = 'Adding...';
@@ -11178,7 +9828,6 @@ async function calAddTask(){
     if(st) st.innerText = 'Add failed';
   }
 }
-
 async function calCreateCall(){
   const st = $("calCallStatus");
   if(st) st.innerText = 'Creating...';
@@ -11190,10 +9839,8 @@ async function calCreateCall(){
   const title = ($("calCallTitle").value||'Call').trim() || 'Call';
   const tm = ($("calCallTime").value||'09:00').trim();
   const dur = parseInt(($("calCallDur").value||'30').trim(),10) || 30;
-
   const startLocal = new Date(dt+'T'+tm+':00');
   const endLocal = new Date(startLocal.getTime() + dur*60000);
-
   try{
     const res = await fetch('/api/calendar/create_event', {
       method:'POST',
@@ -11216,7 +9863,6 @@ async function calCreateCall(){
     if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
   }
 }
-
 function showCalendarModal(){
   showModal();
   if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -11231,22 +9877,17 @@ function showCalendarModal(){
   if($("calendarForm")) $("calendarForm").style.display = "block";
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("modalImg")) $("modalImg").style.display = "none";
-
   $("modalTitle").innerText = "Calendar";
   calWeekdayHeader();
-
   if(!cal.selected) cal.selected = ymd(new Date());
   calSelectDate(cal.selected);
-
   (async()=>{
     await calFetchEventsForVisibleRange();
     calRenderMonth();
     calRenderDayPanel();
   })();
 }
-
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
-
 async function showImageLibraryModal(){
   try{
     const res = await fetch("/api/images");
@@ -11261,25 +9902,21 @@ async function showImageLibraryModal(){
     if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
     const body = $("modalBody");
     if(!body) return;
-
     if(imgs.length === 0){
       body.innerText = "No images yet. Ask a teammate for a graphic to generate one.";
       return;
     }
-
     body.innerHTML = "";
     const grid = document.createElement("div");
     grid.style.display = "grid";
     grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(180px, 1fr))";
     grid.style.gap = "10px";
-
     imgs.slice(0, 120).forEach((r)=>{
       const card = document.createElement("div");
       card.style.border = "1px solid rgba(255,255,255,.10)";
       card.style.borderRadius = "12px";
       card.style.padding = "8px";
       card.style.background = "rgba(0,0,0,.18)";
-
       const im = document.createElement("img");
       im.src = r.url;
       im.alt = r.filename || "image";
@@ -11289,24 +9926,20 @@ async function showImageLibraryModal(){
       im.style.borderRadius = "10px";
       im.style.cursor = "zoom-in";
       im.onclick = ()=> openLightbox(r.url);
-
       const meta = document.createElement("div");
       meta.className = "tiny";
       meta.style.marginTop = "6px";
       meta.style.opacity = ".9";
       meta.style.wordBreak = "break-word";
       meta.innerText = (r.teammate ? (r.teammate + " • ") : "") + (r.uploaded_at || "");
-
       const actions = document.createElement("div");
       actions.className = "actions";
       actions.style.justifyContent = "flex-start";
       actions.style.marginTop = "8px";
-
       const openBtn = document.createElement("button");
       openBtn.className = "btn btnMini";
       openBtn.innerText = "Open";
       openBtn.onclick = ()=> openLightbox(r.url);
-
       const useBtn = document.createElement("button");
       useBtn.className = "btn btnMini";
       useBtn.innerText = "Use";
@@ -11321,31 +9954,23 @@ async function showImageLibraryModal(){
           await refreshThread();
         }catch(e){ showModal('Could not use image', String(e && e.message ? e.message : e)); }
       };
-
       actions.appendChild(openBtn);
       actions.appendChild(useBtn);
-
       card.appendChild(im);
       card.appendChild(meta);
       card.appendChild(actions);
       grid.appendChild(card);
     });
-
     body.appendChild(grid);
   }catch(e){
     showModal("Image Library", String(e || "Failed to load images"));
   }
 }
-
-
 if($("lightboxCloseBtn")) $("lightboxCloseBtn").onclick = ()=> closeLightbox();
 if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id==="lightbox") closeLightbox(); };
-
-
 if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
 if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
-
 try{
   if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
     cal.m -= 1;
@@ -11370,11 +9995,8 @@ try{
   if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
   if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
 }catch(e){}
-
-
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
-
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
@@ -11405,11 +10027,9 @@ $("settingsBtn").onclick = () => showSettingsModal();
         $("settingsStatus").innerText = "Save failed";
       }
     };
-
     // Google connect buttons (open OAuth flow)
     if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
     if($('calendarConnectBtn')) $('calendarConnectBtn').onclick = () => { window.location = '/calendar/connect'; };
-
     if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
       try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
@@ -11418,7 +10038,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
       try{ await fetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
     };
-
     // =========================
     // NEW: FIRST-RUN GUIDANCE (coach marks)
     // =========================
@@ -11432,18 +10051,15 @@ $("settingsBtn").onclick = () => showSettingsModal();
     function isOnboardDone(name, username){
       try{ return localStorage.getItem(onboardKey(name, username)) === "1"; }catch(e){ return false; }
     }
-
     function clearCoach(){
       const el = document.getElementById("coachBubble");
       if(el) el.remove();
       document.querySelectorAll(".coachGlow").forEach(n => n.classList.remove("coachGlow"));
     }
-
     function placeCoach(targetEl, title, body, ctaText){
       clearCoach();
       if(!targetEl) return null;
       targetEl.classList.add("coachGlow");
-
       const r = targetEl.getBoundingClientRect();
       const bubble = document.createElement("div");
       bubble.id = "coachBubble";
@@ -11457,7 +10073,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
         </div>
       `;
       document.body.appendChild(bubble);
-
       // position near target
       const pad = 10;
       const top = Math.max(70, r.bottom + pad);
@@ -11466,7 +10081,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
       bubble.style.left = left + "px";
       return bubble;
     }
-
     async function runFirstRunGuidance(){
       let me = null;
       try{
@@ -11474,11 +10088,9 @@ $("settingsBtn").onclick = () => showSettingsModal();
         me = await res.json();
       }catch(e){ return; }
       if(!me || !me.ok) return;
-
       const username = (me.user && me.user.username) ? me.user.username : "anon";
       const needsKey = !me.has_openai_key;
       const needsEmail = !me.has_smtp;
-
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
         // auto open settings, and show a coach bubble on the Settings button
         try{ showSettingsModal(true); }catch(e){}
@@ -11493,7 +10105,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
         return;
       }
-
       if(!isOnboardDone("install_full_nudged", username)){
         const installedCount = (state && state.installed_order && state.installed_order.length) ? state.installed_order.length : 0;
         if(installedCount < 3){
@@ -11515,13 +10126,11 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
       }
     }
-
     async function afterSettingsSaved(){
       try{ await loadState(); }catch(e){}
       try{ await runFirstRunGuidance(); }catch(e){}
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     }
-
     // Clicking outside bubble clears it
     window.addEventListener("click", (e) => {
       const b = document.getElementById("coachBubble");
@@ -11531,10 +10140,8 @@ $("settingsBtn").onclick = () => showSettingsModal();
       clearCoach();
     });
     window.addEventListener("resize", () => { clearCoach(); });
-
     // run on load (after state is available)
     setTimeout(() => { try{ runFirstRunGuidance(); }catch(e){} }, 600);
-
 $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saving...";
       const fw = $("frameworkText").value || "";
@@ -11553,7 +10160,6 @@ $("saveFramework").onclick = async () => {
       hideModal();
       showModal("Saved", "Core framework updated. It will be applied to all teammate prompts immediately.");
     };
-
     $("resetFramework").onclick = async () => {
       const ok = confirm("Reset core framework to default?");
       if(!ok) return;
@@ -11573,43 +10179,30 @@ $("saveFramework").onclick = async () => {
       await loadState();
       $("frameworkStatus").innerText = "Reset to default";
     };
-
     window.addEventListener("resize", () => {
       if(state && state.ok){
         renderTable();
       }
     });
-
     loadState();
   loadState();
-
-
 // ===== ONE BLOCK ENTER-TO-SEND (ADD v1) =====
-
 (function(){
-
   function enableEnterSend(id, fn){
     const el = document.getElementById(id);
     if(!el) return;
-
     el.addEventListener("keydown", (e) => {
       if(e.key !== "Enter") return;
       if(e.shiftKey) return;
-
       e.preventDefault();
       try{ fn(); }catch(err){}
     });
   }
-
   enableEnterSend("opPrompt", conveneAll);
   enableEnterSend("followMsg", sendFollow);
-
 })();
-
-
 // -------- Client Memory Profiles (UI) --------
 const ClientStore = { list: [], active_id: "", current: null };
-
 function openClientsPanel(){
   try{ document.body.style.overflow = "hidden"; }catch(_){}
   if(typeof hideAllModalForms === "function") hideAllModalForms();
@@ -11620,7 +10213,6 @@ function openClientsPanel(){
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
   loadClients();
 }
-
 function _fillClientForm(c){
   ClientStore.current = c || null;
   $("clientName").value = (c && c.name) || "";
@@ -11630,7 +10222,6 @@ function _fillClientForm(c){
   $("clientNotes").value = (c && c.notes) || "";
   $("clientSummary").value = (c && c.last_summary) || "";
 }
-
 function _renderClientSelect(filterText){
   const sel = $("activeClientSelect");
   if(!sel) return;
@@ -11640,7 +10231,6 @@ function _renderClientSelect(filterText){
   optNone.value = "";
   optNone.text = "(no active client)";
   sel.appendChild(optNone);
-
   ClientStore.list
     .filter(c => !f || ((c.name||"").toLowerCase().includes(f) || (c.company||"").toLowerCase().includes(f) || (c.email||"").toLowerCase().includes(f) || (c.tags||"").toLowerCase().includes(f)))
     .forEach(c => {
@@ -11649,10 +10239,8 @@ function _renderClientSelect(filterText){
       opt.text = c.company ? `${c.name} • ${c.company}` : c.name;
       sel.appendChild(opt);
     });
-
   sel.value = ClientStore.active_id || "";
 }
-
 async function loadClients(){
   const res = await fetch("/api/clients");
   const data = await res.json();
@@ -11663,14 +10251,12 @@ async function loadClients(){
   const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
   _fillClientForm(active);
 }
-
 async function setActiveClient(cid){
   await fetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
   ClientStore.active_id = cid || "";
   const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
   _fillClientForm(active);
 }
-
 async function createNewClient(){
   const name = ($("clientName").value || "").trim() || "New Client";
   const payload = {
@@ -11690,7 +10276,6 @@ async function createNewClient(){
     $("activeClientSelect").value = ClientStore.active_id;
   }
 }
-
 async function saveCurrentClient(){
   const cid = ClientStore.active_id;
   if(!cid){
@@ -11711,7 +10296,6 @@ async function saveCurrentClient(){
   await loadClients();
   $("activeClientSelect").value = cid;
 }
-
 async function deleteCurrentClient(){
   const cid = ClientStore.active_id;
   if(!cid) return;
@@ -11719,7 +10303,6 @@ async function deleteCurrentClient(){
   await loadClients();
   $("activeClientSelect").value = ClientStore.active_id || "";
 }
-
 function openApiKeyHelp(){
   try{ document.body.style.overflow = "hidden"; }catch(_){}
   if(typeof hideAllModalForms === "function") hideAllModalForms();
@@ -11730,7 +10313,6 @@ function openApiKeyHelp(){
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
 }
-
 // Stack UI bindings
 if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
   const p = ($("stackPrompt").value || "").trim();
@@ -11748,7 +10330,6 @@ if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
 if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
 if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
 if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
-
 // Safe schedule runner tick (no background threads)
 if(!window.__stackTickInterval){
   window.__stackTickInterval = setInterval(() => {
@@ -11758,12 +10339,9 @@ if(!window.__stackTickInterval){
 // API key help button
 if($("openApiKeyHelpBtn")) $("openApiKeyHelpBtn").onclick = () => openApiKeyHelp();
 if($("closeApiKeyHelpBtn")) $("closeApiKeyHelpBtn").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
-
-
 // Client form bindings (safe)
 if($("activeClientSelect")) $("activeClientSelect").onchange = () => setActiveClient($("activeClientSelect").value);
 if($("clientSearch")) $("clientSearch").oninput = () => _renderClientSelect($("clientSearch").value);
-
 // Stack UI bindings (safe)
 if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
   const p = ($("stackPrompt").value || "").trim();
@@ -11781,7 +10359,6 @@ if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
 if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
 if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
 if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
-
 // Safe schedule runner tick (no background threads)
 if(!window.__stackTickInterval){
   window.__stackTickInterval = setInterval(() => {
@@ -11791,7 +10368,6 @@ if(!window.__stackTickInterval){
 // API key help delegation (works even if elements render later)
 document.addEventListener("click", (e) => {
           // Clients delegation
-
   const t = e.target;
   if(!t) return;
   if(t.id === "openClientsBtn"){
@@ -11817,7 +10393,6 @@ if(t.id === "deleteClientBtn"){
   e.preventDefault();
   deleteCurrentClient();
 }
-
 if(t.id === "openApiKeyHelpBtn"){
     e.preventDefault();
     openApiKeyHelp();
@@ -11828,11 +10403,7 @@ if(t.id === "openApiKeyHelpBtn"){
     hideModal();
   }
 });
-
-
 // ===== NEW: Mobile Vertical UI v2 wiring (additive) =====
-
-
 // ===== NEW: Mobile Auto-Center v1 (additive) =====
 function autoCenterTableV1(){
   try{
@@ -11840,21 +10411,16 @@ function autoCenterTableV1(){
     if(!table) return;
     const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
     if(vw <= 0) return;
-
     // Reset shift before measuring so we don't compound offsets.
     document.documentElement.style.setProperty('--tableShiftX', '0px');
-
     const r = table.getBoundingClientRect();
     const center = r.left + (r.width/2);
     const target = vw/2;
-
     // Positive delta means move right; negative move left.
     let delta = (target - center);
-
     // Clamp to avoid wild jumps.
     if(delta > 24) delta = 24;
     if(delta < -24) delta = -24;
-
     // Only apply if meaningful.
     if(Math.abs(delta) >= 0.5){
       document.documentElement.style.setProperty('--tableShiftX', `${delta.toFixed(2)}px`);
@@ -11863,14 +10429,11 @@ function autoCenterTableV1(){
     }
   }catch(e){}
 }
-
-
 // ===== NEW: Mobile Table Zoom v1 (additive) =====
 function _isMobileV1(){
   const w = Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);
   return w <= 640;
 }
-
 function initTableZoomV1(){
   try{
     const fab = document.getElementById('tableZoomFab');
@@ -11879,14 +10442,12 @@ function initTableZoomV1(){
     const fit = document.getElementById('zoomFitBtn');
     const ctr = document.getElementById('zoomCenterBtn');
     if(!fab || !out || !inn || !ctr) return;
-
     const applyFabVis = ()=>{
       fab.style.display = _isMobileV1() ? 'flex' : 'none';
     };
     applyFabVis();
     window.addEventListener('resize', ()=>{ setTimeout(applyFabVis, 60); }, {passive:true});
     window.addEventListener('orientationchange', ()=>{ setTimeout(applyFabVis, 220); }, {passive:true});
-
     const getZoom = ()=>{
       const v = getComputedStyle(document.documentElement).getPropertyValue('--tableZoom').trim();
       const f = parseFloat(v);
@@ -11898,7 +10459,6 @@ function initTableZoomV1(){
       document.documentElement.style.setProperty('--tableZoom', z.toFixed(2));
       setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
     };
-
     out.addEventListener('click', ()=>{ setZoom(getZoom() - 0.05); });
     inn.addEventListener('click', ()=>{ setZoom(getZoom() + 0.05); });
     if(fit){ fit.addEventListener('click', ()=>{ try{ autoFitZoomV3(); }catch(e){} }); }
@@ -11906,22 +10466,17 @@ function initTableZoomV1(){
       document.documentElement.style.setProperty('--tableShiftX','0px');
       setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
     });
-
     // Fit once on mobile start
     try{ if(_isMobileV1()) autoFitZoomV3(); }catch(e){}
   }catch(e){}
 }
-
-
 function bindAutoCenterTableV1(){
   try{
     // Run after layout settles
     setTimeout(autoCenterTableV1, 60);
     setTimeout(autoCenterTableV1, 220);
-
     window.addEventListener('resize', ()=>{ setTimeout(autoCenterTableV1, 60); }, {passive:true});
     window.addEventListener('orientationchange', ()=>{ setTimeout(autoCenterTableV1, 220); }, {passive:true});
-
     // If we open/close overlays that might change scrollbars, re-center
     document.addEventListener('click', (ev)=>{
       const t = ev.target;
@@ -11932,16 +10487,13 @@ function bindAutoCenterTableV1(){
     }, true);
   }catch(e){}
 }
-
 function initMobileUIv2(){
   const isMobile = () => window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
-
   const overlay = $("mobileDrawerOverlay");
   const drawer = $("mobileDrawer");
   const openBtn = $("mobileMenuBtn");
   const closeBtn = $("mobileCloseMenuBtn");
   const closeBtn2 = $("mobileCloseMenuBtn2");
-
   function openMenu(){
     if(!overlay) return;
     overlay.classList.add("show");
@@ -11954,11 +10506,9 @@ function initMobileUIv2(){
     overlay.setAttribute("aria-hidden", "true");
     try{ document.body.style.overflow = ""; }catch(_){}
   }
-
   if(openBtn) openBtn.onclick = () => { if(isMobile()) openMenu(); };
   if(closeBtn) closeBtn.onclick = () => closeMenu();
   if(closeBtn2) closeBtn2.onclick = () => closeMenu();
-
   // Bottom bar shortcuts
   const mAssemble = $("mobileAssembleBtn");
   if(mAssemble) mAssemble.onclick = () => { closeMenu(); if($("assembleBtn")) $("assembleBtn").click(); };
@@ -11966,7 +10516,6 @@ function initMobileUIv2(){
   if(mManage) mManage.onclick = () => { closeMenu(); if($("manageTeamBtn")) $("manageTeamBtn").click(); };
   const mSettings = $("mobileSettingsBtn");
   if(mSettings) mSettings.onclick = () => { closeMenu(); if($("settingsBtn")) $("settingsBtn").click(); };
-
   // Drawer buttons that map to existing topbar actions
   if(drawer){
     drawer.addEventListener("click", (e) => {
@@ -11982,27 +10531,22 @@ function initMobileUIv2(){
       }
     });
   }
-
   // Tap outside drawer closes
   if(overlay){
     overlay.addEventListener("click", (e) => {
       if(e.target === overlay) closeMenu();
     });
   }
-
   // Escape closes
   document.addEventListener("keydown", (e) => {
     if(e.key === "Escape"){
       if(overlay && overlay.classList.contains("show")) closeMenu();
     }
   });
-
   // Handy: scroll to top from drawer
   const topBtn = $("mobileScrollTopBtn");
   if(topBtn) topBtn.onclick = () => { try{ window.scrollTo({top:0, behavior:"smooth"}); }catch(_){ window.scrollTo(0,0); } closeMenu(); };
 }
-
-
 /* NEW: Diagnostics Panel v1 (additive) */
 function initDiagnosticsPanelV1(){
   const openBtn = document.getElementById("diagOpenBtn");
@@ -12016,12 +10560,9 @@ function initDiagnosticsPanelV1(){
   const vInstalled = document.getElementById("diagInstalled");
   const vEmail = document.getElementById("diagEmail");
   const vCal = document.getElementById("diagCal");
-
   if(!openBtn || !panel || !overlay) return;
-
   let timer = null;
   let lastPayload = null;
-
   function show(){
     overlay.classList.add("show");
     panel.classList.add("show");
@@ -12035,19 +10576,16 @@ function initDiagnosticsPanelV1(){
     if(timer) clearInterval(timer);
     timer = null;
   }
-
   async function load(){
     try{
       const r = await fetch("/api/diagnostics", {method:"GET", headers:{"Accept":"application/json"}});
       const j = await r.json();
       lastPayload = j;
       pre.textContent = JSON.stringify(j, null, 2);
-
       const active = (j && j.registry && Array.isArray(j.registry.active_order)) ? j.registry.active_order : [];
       const installed = (j && j.registry && Array.isArray(j.registry.installed_order)) ? j.registry.installed_order : [];
       vActive.textContent = active.length ? active.join(", ") : "(none)";
       vInstalled.textContent = installed.length ? installed.join(", ") : "(none)";
-
       const email = j && j.capabilities && j.capabilities.email ? j.capabilities.email : {};
       const cal = j && j.capabilities && j.capabilities.calendar ? j.capabilities.calendar : {};
       vEmail.textContent = ("gmail_connected" in email || "smtp_ready" in email) ? JSON.stringify(email) : String(email || "");
@@ -12056,7 +10594,6 @@ function initDiagnosticsPanelV1(){
       pre.textContent = "Diagnostics failed to load. " + (e && e.message ? e.message : String(e));
     }
   }
-
   function copy(){
     try{
       const txt = pre ? pre.textContent : (lastPayload ? JSON.stringify(lastPayload, null, 2) : "");
@@ -12066,30 +10603,23 @@ function initDiagnosticsPanelV1(){
       setTimeout(()=>{ copyBtn.textContent = "Copy"; }, 900);
     }catch(e){}
   }
-
   openBtn.onclick = show;
   if(closeBtn) closeBtn.onclick = hide;
   if(overlay) overlay.onclick = hide;
   if(refreshBtn) refreshBtn.onclick = load;
   if(copyBtn) copyBtn.onclick = copy;
-
   document.addEventListener("keydown", (ev)=>{
     if(ev.key === "Escape") hide();
   });
 }
-
 try{ initMobileUIv2(); }catch(e){}
-
 try{ initDiagnosticsPanelV1(); }catch(e){}
-
-
 // ===== NEW: Mobile Round Table Viewport + AutoFit v3 (additive, fixes right-side clipping) =====
 function ensureTableViewportV3(){
   try{
     const table = document.querySelector('.table');
     if(!table) return;
     if(table.parentElement && table.parentElement.id === 'tableViewport') return;
-
     const wrap = document.createElement('div');
     wrap.id = 'tableViewport';
     // Insert wrap where the table currently is
@@ -12098,60 +10628,47 @@ function ensureTableViewportV3(){
     wrap.appendChild(table);
   }catch(e){}
 }
-
 function autoFitZoomV3(){
   try{
     ensureTableViewportV3();
     const table = document.querySelector('.table');
     const vp = document.getElementById('tableViewport');
     if(!table || !vp) return;
-
     const root = document.documentElement;
     // Measure at zoom=1
     const prevZoom = (getComputedStyle(root).getPropertyValue('--tableZoom') || '').trim() || '0.72';
     root.style.setProperty('--tableZoom','1');
     root.style.setProperty('--tableShiftX','0px');
-
     const r = table.getBoundingClientRect();
     const baseW = Math.max(1, r.width);
-
     // Target width is viewport width minus padding buffer
     const vw = Math.max(vp.clientWidth || 0, window.innerWidth || 0);
     const target = Math.max(220, vw - 24);
-
     let z = target / baseW;
     if(!isFinite(z) || z <= 0) z = parseFloat(prevZoom) || 0.72;
-
     if(z > 1.00) z = 1.00;
     if(z < 0.20) z = 0.20;
-
     root.style.setProperty('--tableZoom', z.toFixed(2));
-
     // Center correction (if any drift remains)
     setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
   }catch(e){}
 }
-
 function autoCenterTableV3(){
   try{
     ensureTableViewportV3();
     const table = document.querySelector('.table');
     const vp = document.getElementById('tableViewport');
     if(!table || !vp) return;
-
     const vw = Math.max(vp.clientWidth || 0, window.innerWidth || 0);
     if(vw <= 0) return;
-
     // reset shift
     document.documentElement.style.setProperty('--tableShiftX','0px');
     const r = table.getBoundingClientRect();
     const center = r.left + (r.width/2);
     const target = vw/2;
-
     let delta = (target - center);
     if(delta > 32) delta = 32;
     if(delta < -32) delta = -32;
-
     if(Math.abs(delta) >= 0.5){
       document.documentElement.style.setProperty('--tableShiftX', `${delta.toFixed(2)}px`);
     }else{
@@ -12159,7 +10676,6 @@ function autoCenterTableV3(){
     }
   }catch(e){}
 }
-
 function bindMobileViewportV3(){
   try{
     ensureTableViewportV3();
@@ -12168,42 +10684,31 @@ function bindMobileViewportV3(){
     window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
   }catch(e){}
 }
-
-
 // ===== ADDITIVE UPGRADE: Mobile Pan + Pinch Zoom for Round Table v4 =====
 (function(){
   const VIEW = { scale: 1, panX: 0, panY: 0, minScale: 0.55, maxScale: 1.45 };
   let LOCKED_V4 = true;
   let stageMO = null;
-
   function isMobileV4(){
     try{ return window.matchMedia && window.matchMedia("(max-width: 700px)").matches; }catch(e){ return (window.innerWidth||0) <= 700; }
   }
-
   function clampV4(v, a, b){ return Math.max(a, Math.min(b, v)); }
-
   function ensureRTStageV4(){
     const wrap = document.getElementById("tableWrap");
     if(!wrap) return null;
-
     let stage = document.getElementById("rtStage");
     if(stage) return stage;
-
     stage = document.createElement("div");
     stage.id = "rtStage";
-
     // Move the table core into the stage first
     const tableCore = document.getElementById("tableCore") || wrap.querySelector(".table");
     if(tableCore) stage.appendChild(tableCore);
-
     // Move any existing seats into the stage (renderTable will recreate them later anyway)
     Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
       try{ stage.appendChild(s); }catch(_){}
     });
-
     // Insert stage as the first child so operator overlay stays on top
     wrap.insertBefore(stage, wrap.firstChild);
-
     // Watch for newly rendered seats and move them into the stage automatically
     try{
       stageMO = new MutationObserver((muts)=>{
@@ -12220,10 +10725,8 @@ function bindMobileViewportV3(){
       });
       stageMO.observe(wrap, { childList:true });
     }catch(e){}
-
     return stage;
   }
-
   
   function setLockedV4(v){
     LOCKED_V4 = !!v;
@@ -12252,17 +10755,14 @@ function applyRTTransformV4(){
         lockBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); setLockedV4(!LOCKED_V4); }, {passive:false});
       }
     }catch(_){ }
-
     if(!stage) return;
     stage.style.transform = `translate(${VIEW.panX}px, ${VIEW.panY}px) scale(${VIEW.scale})`;
   }
-
   // Expose helpers for existing seat drag math patches
   window.getRTScaleV4 = function(){ return VIEW.scale || 1; };
   window.getRTBoundsElV4 = function(){
     return document.getElementById("rtStage") || document.getElementById("tableWrap") || document.body;
   };
-
   function fitToScreenV4(){
     const wrap = document.getElementById("tableWrap");
     const stage = ensureRTStageV4();
@@ -12274,31 +10774,23 @@ function applyRTTransformV4(){
         lockBtn.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); setLockedV4(!LOCKED_V4); }, {passive:false});
       }
     }catch(_){ }
-
     if(!wrap || !stage) return;
-
     // Since stage fills wrap, fit is simply a gentle zoom-out on smaller screens
     const w = wrap.clientWidth || window.innerWidth || 360;
     const target = Math.max(280, w - 18);
-
     // Base size is wrap size; we want a bit of breathing room so seats don't clip
     let z = target / Math.max(1, w);
     z = clampV4(z, VIEW.minScale, 1);
-
     VIEW.scale = z;
     VIEW.panX = 0;
     VIEW.panY = 0;
     applyRTTransformV4();
   }
-
   function initPanZoomV4(){
     if(!isMobileV4()) return;
-
     const wrap = document.getElementById("tableWrap");
     if(!wrap) return;
-
     ensureRTStageV4();
-
     // Ensure operator stays clickable and above stage
     const op = document.getElementById("operator");
     if(op){
@@ -12309,28 +10801,22 @@ function applyRTTransformV4(){
       op.style.zIndex = "60";
       op.style.pointerEvents = "auto";
     }
-
     // Prevent browser scrolling/zooming during gestures inside the table area
     try{ wrap.style.touchAction = "none"; }catch(_){}
-
     const pointers = new Map();
     let pinchStartDist = 0;
     let pinchStartScale = 1;
     let lastMid = null;
     let panning = false;
     let lastPanPoint = null;
-
     function isSeatTarget(t){
       try{ return !!(t && (t.closest && t.closest(".seat"))); }catch(e){ return false; }
     }
-
     function onDown(e){
       // If finger starts on a seat, let seat drag handle it (do not hijack)
       if(isSeatTarget(e.target)) return;
-
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
       wrap.setPointerCapture(e.pointerId);
-
       if(pointers.size === 2){
         const pts = Array.from(pointers.values());
         const dx = pts[0].x - pts[1].x;
@@ -12346,31 +10832,24 @@ function applyRTTransformV4(){
         lastPanPoint = {x:e.clientX, y:e.clientY};
       }
     }
-
     function onMove(e){
       if(!pointers.has(e.pointerId)) return;
       pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-
       if(pointers.size === 2){
         const pts = Array.from(pointers.values());
         const dx = pts[0].x - pts[1].x;
         const dy = pts[0].y - pts[1].y;
         const dist = Math.hypot(dx, dy);
-
         const mid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
-
         if(pinchStartDist > 0){
           let nextScale = pinchStartScale * (dist / pinchStartDist);
           nextScale = clampV4(nextScale, VIEW.minScale, VIEW.maxScale);
-
           // Zoom around the midpoint: adjust pan so content feels anchored
           const scaleRatio = nextScale / (VIEW.scale || 1);
           VIEW.panX = mid.x - scaleRatio * (mid.x - VIEW.panX);
           VIEW.panY = mid.y - scaleRatio * (mid.y - VIEW.panY);
-
           VIEW.scale = nextScale;
         }
-
         if(lastPanPoint){
           VIEW.panX += (mid.x - lastPanPoint.x);
           VIEW.panY += (mid.y - lastPanPoint.y);
@@ -12387,11 +10866,9 @@ function applyRTTransformV4(){
         e.preventDefault();
       }
     }
-
     function onUp(e){
       if(pointers.has(e.pointerId)) pointers.delete(e.pointerId);
       try{ wrap.releasePointerCapture(e.pointerId); }catch(_){}
-
       if(pointers.size === 0){
         panning = false;
         lastPanPoint = null;
@@ -12403,21 +10880,17 @@ function applyRTTransformV4(){
         pinchStartDist = 0;
       }
     }
-
     setLockedV4(true);
-
     // Bind pointer events for pan/zoom
     wrap.addEventListener("pointerdown", onDown, {passive:false});
     wrap.addEventListener("pointermove", onMove, {passive:false});
     wrap.addEventListener("pointerup", onUp, {passive:true});
     wrap.addEventListener("pointercancel", onUp, {passive:true});
-
     // Initial fit and on resize/orientation changes
     setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 120);
     window.addEventListener("resize", ()=>{ setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 180); }, {passive:true});
     window.addEventListener("orientationchange", ()=>{ setTimeout(()=>{ try{ fitToScreenV4(); }catch(e){} }, 240); }, {passive:true});
   }
-
   // Run after first paint
   try{
     if(document.readyState === "loading"){
@@ -12427,10 +10900,7 @@ function applyRTTransformV4(){
     }
   }catch(e){}
 })();
-
-
 maybeAutoShowOnboarding();
-
     // ===== Client Center: Pipeline (FlowChat-like columns) =====
     function ccSelectTab(tab){
       const panels = ["Clients","Pipeline","EmailBroadcast","Tasks","Sequences","History","Calendar"];
@@ -12452,7 +10922,6 @@ maybeAutoShowOnboarding();
         if(b) b.classList.toggle("btnPrimary", name===tab);
       });
     }
-
     async function loadPipelineStages(){
       const res = await fetch("/api/crm/state");
       const data = await res.json();
@@ -12462,12 +10931,10 @@ maybeAutoShowOnboarding();
       if(ta) ta.value = stages.join("\n");
       return stages;
     }
-
     function stageSelectHtml(current, stages){
       const opts = stages.map(s=>`<option value="${escapeHtml(s)}" ${s===current?"selected":""}>${escapeHtml(s)}</option>`).join("");
       return `<select class="inp" data-role="stageSelect">${opts}</select>`;
     }
-
     async function renderPipelineBoard(){
       const stages = await loadPipelineStages();
       const clientsRes = await fetch("/api/crm/clients");
@@ -12477,7 +10944,6 @@ maybeAutoShowOnboarding();
       const board = document.getElementById("ccPipelineBoard");
       if(!board) return;
       board.innerHTML = "";
-
       for(const st of stages){
         const col = document.createElement("div");
         col.className = "card";
@@ -12489,7 +10955,6 @@ maybeAutoShowOnboarding();
         list.style.display = "flex";
         list.style.flexDirection = "column";
         list.style.gap = "8px";
-
         const inStage = clients.filter(c => (c.pipeline_stage||"") === st);
         for(const c of inStage){
           const card = document.createElement("div");
@@ -12525,24 +10990,15 @@ maybeAutoShowOnboarding();
           }
           list.appendChild(card);
         }
-
         col.appendChild(list);
         board.appendChild(col);
       }
     }
-
-
     const ccTabPipeline = document.getElementById("ccTabPipeline");
     if(ccTabPipeline){
       ccTabPipeline.onclick = async ()=>{ ccSelectTab("Pipeline"); await renderPipelineBoard(); };
     }
 </script>
-
-
-
-
-
-
 <!-- Guided Onboarding Panel (additive) -->
 <div id="onboardingPanel" style="position:fixed; left:calc(50% + 290px); top:96px; right:auto; bottom:auto; z-index:9999; width:340px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 24px); min-width:280px; min-height:230px; resize:both; overflow:hidden; display:none;">
   <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden; display:flex; flex-direction:column; height:100%;">
@@ -12562,7 +11018,6 @@ maybeAutoShowOnboarding();
     <div id="onbResizeGrip" aria-label="Resize Next step window" title="Resize window"></div>
   </div>
 </div>
-
 <style>
   #onboardingPanel{ scrollbar-width:none; -ms-overflow-style:none; resize:none !important; }
   #onboardingPanel::-webkit-scrollbar{ width:0; height:0; }
@@ -12600,7 +11055,6 @@ maybeAutoShowOnboarding();
   @keyframes onbPulse{ 0%{ box-shadow:0 0 0 0 rgba(124,58,237,0.55); } 70%{ box-shadow:0 0 0 12px rgba(124,58,237,0.00); } 100%{ box-shadow:0 0 0 0 rgba(124,58,237,0.00); } }
   .onbTitle{ font-size:13px; font-weight:700; }
   .onbMeta{ font-size:12px; opacity:0.75; }
-
   /* Topbar "Next step" glow (purple) */
   .onbBtnGlow{
     border-color: rgba(124,58,237,0.85) !important;
@@ -12613,7 +11067,6 @@ maybeAutoShowOnboarding();
     100%{ box-shadow: 0 0 0 0 rgba(124,58,237,0.00), 0 0 28px rgba(124,58,237,0.18); }
   }
 </style>
-
 <script>
 (function(){
   let onbData = null;
@@ -12621,11 +11074,9 @@ maybeAutoShowOnboarding();
   let onbResize = {active:false, startX:0, startY:0, startW:0, startH:0};
   let suppressAutoOpen = false;
   const ONB_HIDDEN_KEY = "simply_agentic_onboarding_hidden";
-
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
   function loadOnbHidden(){ try{ return sessionStorage.getItem(ONB_HIDDEN_KEY) === "1"; }catch(e){ return false; } }
   function saveOnbHidden(v){ try{ if(v) sessionStorage.setItem(ONB_HIDDEN_KEY, "1"); else sessionStorage.removeItem(ONB_HIDDEN_KEY); }catch(e){} }
-
   function syncOnboardingButtons(){
     try{
       const topBtn = document.getElementById("onboardingBtn");
@@ -12642,7 +11093,6 @@ maybeAutoShowOnboarding();
       }
     }catch(e){}
   }
-
   async function openOnboarding(){
     suppressAutoOpen = false;
     saveOnbHidden(false);
@@ -12673,15 +11123,12 @@ maybeAutoShowOnboarding();
       }
     }catch(e){}
   }
-
   function closeOnboarding(){
     suppressAutoOpen = true;
     saveOnbHidden(true);
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
-
-
   function wireOnboardingButtons(){
     try{
       const topBtn = document.getElementById("onboardingBtn");
@@ -12698,7 +11145,6 @@ maybeAutoShowOnboarding();
       });
     }catch(e){}
   }
-
   function setPanelPos(x,y){
     const panel = onb$("onboardingPanel");
     if(!panel) return;
@@ -12707,7 +11153,6 @@ maybeAutoShowOnboarding();
     panel.style.left = Math.max(8, x) + "px";
     panel.style.top = Math.max(8, y) + "px";
   }
-
   async function fetchOnboarding(){
     try{
       const res = await fetch("/api/onboarding/status");
@@ -12719,66 +11164,52 @@ maybeAutoShowOnboarding();
       try{ window.onboardingStatus = onbData; }catch(_){ }
     }catch(e){}
   }
-
   function renderOnboarding(){
     const panel = onb$("onboardingPanel");
     const list = onb$("onbList");
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
-
     if(onbData.dismissed || onbData.all_done || suppressAutoOpen || loadOnbHidden()){
       panel.style.display = "none";
       return;
     }
-
     panel.style.display = "block";
     sub.textContent = `${onbData.done_count} of ${onbData.total} complete`;
-
     list.innerHTML = "";
     const nextKey = onbData.next_key || "";
-
     (onbData.steps||[]).forEach((s)=>{
       const row = document.createElement("div");
       row.className = "onbItem";
       row.setAttribute("data-key", s.key);
-
       const dot = document.createElement("div");
       dot.className = "onbDot" + (s.done ? " onbDone" : "");
       if(!s.done && s.key === nextKey){
         row.className += " onbNextPulse";
       }
-
       const wrap = document.createElement("div");
       wrap.style.display = "flex";
       wrap.style.flexDirection = "column";
       wrap.style.gap = "2px";
-
       const title = document.createElement("div");
       title.className = "onbTitle";
       title.textContent = s.title;
-
       const meta = document.createElement("div");
       meta.className = "onbMeta";
       meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
-
       wrap.appendChild(title);
       wrap.appendChild(meta);
-
       row.appendChild(dot);
       row.appendChild(wrap);
-
       row.addEventListener("click", ()=>onbAction(s.key, s.done));
       list.appendChild(row);
     });
   }
-
   async function dismissOnboarding(){
     saveOnbHidden(true);
     try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
-
   function focusEl(id){
     try{
       const el = document.getElementById(id);
@@ -12790,10 +11221,8 @@ maybeAutoShowOnboarding();
     }catch(e){}
     return false;
   }
-
   async function onbAction(key, alreadyDone){
     if(alreadyDone) return;
-
     try{
       if(key === "preferred_ai"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
@@ -12802,7 +11231,6 @@ maybeAutoShowOnboarding();
         }, 150);
         return;
       }
-
       if(key === "full_team"){
         try{
           const btn = document.getElementById("installFullBtn");
@@ -12820,7 +11248,6 @@ maybeAutoShowOnboarding();
         setTimeout(fetchOnboarding, 500);
         return;
       }
-
       if(key === "email_connected"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
         setTimeout(()=>{
@@ -12828,7 +11255,6 @@ maybeAutoShowOnboarding();
         }, 180);
         return;
       }
-
       if(key === "calendar_connected"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
         setTimeout(()=>{
@@ -12837,7 +11263,6 @@ maybeAutoShowOnboarding();
         }, 180);
         return;
       }
-
       if(key === "first_prompt"){
         focusEl("followMsg");
         try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
@@ -12847,9 +11272,7 @@ maybeAutoShowOnboarding();
       setTimeout(fetchOnboarding, 700);
     }
   }
-
   function clampOnb(v, min, max){ return Math.max(min, Math.min(max, v)); }
-
   function clampPanelSize(){
     const panel = onb$("onboardingPanel");
     if(!panel) return;
@@ -12860,7 +11283,6 @@ maybeAutoShowOnboarding();
     panel.style.width = clampOnb(curW, 280, Math.max(280, vw - 16)) + "px";
     panel.style.height = clampOnb(curH, 230, Math.max(230, vh - 16)) + "px";
   }
-
   function keepPanelInView(){
     const panel = onb$("onboardingPanel");
     if(!panel) return;
@@ -12873,12 +11295,10 @@ maybeAutoShowOnboarding();
     const top = parseFloat(panel.style.top || "0") || panel.getBoundingClientRect().top || 8;
     setPanelPos(clampOnb(left, 8, Math.max(8, vw - width - 8)), clampOnb(top, 8, Math.max(8, vh - height - 8)));
   }
-
   function wireDrag(){
     const header = onb$("onbHeader");
     const panel = onb$("onboardingPanel");
     if(!header || !panel) return;
-
     header.addEventListener("pointerdown", (e)=>{
       try{
         if(e && e.target && (e.target.closest && e.target.closest("button"))) return;
@@ -12890,31 +11310,25 @@ maybeAutoShowOnboarding();
       drag.dy = e.clientY - rect.top;
       try{ header.setPointerCapture(e.pointerId); }catch(err){}
     });
-
     header.addEventListener("pointermove", (e)=>{
       if(!drag.active) return;
       setPanelPos(e.clientX - drag.dx, e.clientY - drag.dy);
       keepPanelInView();
     });
-
     const endDrag = (e)=>{
       drag.active = false;
       header.style.cursor = "grab";
       keepPanelInView();
       try{ header.releasePointerCapture(e.pointerId); }catch(err){}
     };
-
     header.addEventListener("pointerup", endDrag);
     header.addEventListener("pointercancel", endDrag);
-
     window.addEventListener("resize", keepPanelInView, {passive:true});
   }
-
   function wireOnboardingResize(){
     const panel = onb$("onboardingPanel");
     const grip = onb$("onbResizeGrip");
     if(!panel || !grip) return;
-
     grip.addEventListener("pointerdown", (e)=>{
       try{ e.preventDefault(); e.stopPropagation(); }catch(_){}
       onbResize.active = true;
@@ -12924,7 +11338,6 @@ maybeAutoShowOnboarding();
       onbResize.startH = panel.offsetHeight || 360;
       try{ grip.setPointerCapture(e.pointerId); }catch(err){}
     });
-
     grip.addEventListener("pointermove", (e)=>{
       if(!onbResize.active) return;
       const rect = panel.getBoundingClientRect();
@@ -12938,26 +11351,20 @@ maybeAutoShowOnboarding();
       panel.style.height = nextH + "px";
       keepPanelInView();
     });
-
     const endResize = (e)=>{
       onbResize.active = false;
       keepPanelInView();
       try{ grip.releasePointerCapture(e.pointerId); }catch(err){}
     };
-
     grip.addEventListener("pointerup", endResize);
     grip.addEventListener("pointercancel", endResize);
   }
-
-
   function wireExit(){
     const btn = onb$("onbExit");
     if(btn) btn.addEventListener("click", (e)=>{ try{ e.stopPropagation(); }catch(_){ } closeOnboarding(); });
   }
-
   try{
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
-
     wireDrag();
     wireOnboardingResize();
     wireExit();
@@ -12967,8 +11374,6 @@ maybeAutoShowOnboarding();
   }catch(e){}
 })();
 </script>
-
-
 <style>
 /* ===== FINAL MOBILE LOCK FIT v3 ===== */
 @media (max-width: 700px){
@@ -12980,12 +11385,10 @@ maybeAutoShowOnboarding();
     overflow-x:hidden !important;
     position:relative !important;
   }
-
   body{
     left:0 !important;
     right:0 !important;
   }
-
   .container{
     width:100% !important;
     max-width:100% !important;
@@ -12995,7 +11398,6 @@ maybeAutoShowOnboarding();
     box-sizing:border-box !important;
     overflow-x:hidden !important;
   }
-
   .stage{
     display:flex !important;
     flex-direction:column !important;
@@ -13007,7 +11409,6 @@ maybeAutoShowOnboarding();
     padding:0 !important;
     overflow-x:hidden !important;
   }
-
   .stage > div,
   .arena,
   .underTable,
@@ -13021,20 +11422,17 @@ maybeAutoShowOnboarding();
     margin-right:0 !important;
     box-sizing:border-box !important;
   }
-
   .arena{
     justify-content:center !important;
     padding:8px 0 12px 0 !important;
     overflow:hidden !important;
   }
-
   .underTable{
     width:100% !important;
     max-width:100% !important;
     margin:0 0 14px 0 !important;
     padding:0 !important;
   }
-
   .side{
     position:relative !important;
     top:auto !important;
@@ -13045,7 +11443,6 @@ maybeAutoShowOnboarding();
     padding:0 !important;
     overflow:hidden !important;
   }
-
   .sideHead{
     display:flex !important;
     flex-wrap:wrap !important;
@@ -13053,32 +11450,27 @@ maybeAutoShowOnboarding();
     justify-content:space-between !important;
     gap:8px !important;
   }
-
   .sideTitle{
     flex:1 1 160px !important;
     min-width:0 !important;
     max-width:calc(100% - 110px) !important;
   }
-
   #refreshThread{
     flex:0 0 auto !important;
     margin-left:auto !important;
     align-self:flex-start !important;
   }
-
   .passRow,
   .pillRow{
     width:100% !important;
     max-width:100% !important;
     min-width:0 !important;
   }
-
   .passRow .btn,
   .pillRow .btn,
   .sideHead .btn{
     max-width:100% !important;
   }
-
   .groupReplies,
   #thread,
   #groupConsole{
@@ -13087,7 +11479,6 @@ maybeAutoShowOnboarding();
     min-width:0 !important;
     box-sizing:border-box !important;
   }
-
   #tableViewport{
     width:100% !important;
     max-width:100% !important;
@@ -13097,7 +11488,6 @@ maybeAutoShowOnboarding();
     display:flex !important;
     justify-content:center !important;
   }
-
   .tableWrap#tableWrap{
     width:min(92vw, 560px) !important;
     height:min(92vw, 560px) !important;
@@ -13105,7 +11495,6 @@ maybeAutoShowOnboarding();
     margin:0 auto !important;
     overflow:hidden !important;
   }
-
   .table{
     position:relative !important;
     left:auto !important;
@@ -13118,8 +11507,6 @@ maybeAutoShowOnboarding();
   }
 }
 </style>
-
-
 <style>
 /* ===== MOBILE ROUND TABLE RESTORE v4 ===== */
 @media (max-width: 700px){
@@ -13127,7 +11514,6 @@ maybeAutoShowOnboarding();
     overflow: visible !important;
     padding: 8px 0 18px 0 !important;
   }
-
   #tableViewport{
     width: 100% !important;
     max-width: 100% !important;
@@ -13136,7 +11522,6 @@ maybeAutoShowOnboarding();
     padding-left: 0 !important;
     padding-right: 0 !important;
   }
-
   .tableWrap#tableWrap{
     width: min(94vw, 620px) !important;
     height: min(94vw, 620px) !important;
@@ -13145,7 +11530,6 @@ maybeAutoShowOnboarding();
     position: relative !important;
     overflow: visible !important;
   }
-
   #rtStage{
     position: absolute !important;
     inset: 0 !important;
@@ -13153,7 +11537,6 @@ maybeAutoShowOnboarding();
     transform-origin: 0 0 !important;
     will-change: auto !important;
   }
-
   #rtStage .table,
   .table{
     position: absolute !important;
@@ -13165,30 +11548,18 @@ maybeAutoShowOnboarding();
     transform-origin: center center !important;
     zoom: normal !important;
   }
-
   .underTable,
   .side{
     overflow: visible !important;
   }
 }
 </style>
-
 </body>
 </html>
 """
-
 @app.get("/")
 def index():
     return render_template_string(HTML, app_title=APP_TITLE, model=MODEL)
-
-
-
-
-
-
-
-
-
 @app.route("/api/clients", methods=["GET"])
 def api_clients_list():
     username = _get_session_username()
@@ -13202,13 +11573,11 @@ def api_clients_list():
             out.append(item)
     out.sort(key=lambda x: (x.get("name") or "").lower())
     return jsonify({"ok": True, "active_client_id": data.get("active_client_id",""), "clients": out})
-
 @app.route("/api/clients/active", methods=["GET"])
 def api_clients_active():
     username = _get_session_username()
     c = _get_active_client(username)
     return jsonify({"ok": True, "client": c})
-
 @app.route("/api/clients/active", methods=["POST"])
 def api_clients_set_active():
     username = _get_session_username()
@@ -13220,7 +11589,6 @@ def api_clients_set_active():
     data["active_client_id"] = cid
     _save_clients(username, data)
     return jsonify({"ok": True, "active_client_id": cid})
-
 @app.route("/api/clients", methods=["POST"])
 def api_clients_create():
     username = _get_session_username()
@@ -13247,7 +11615,6 @@ def api_clients_create():
         data["active_client_id"] = cid
     _save_clients(username, data)
     return jsonify({"ok": True, "client": client, "active_client_id": data.get("active_client_id","")})
-
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def api_clients_update(client_id):
     username = _get_session_username()
@@ -13266,7 +11633,6 @@ def api_clients_update(client_id):
     _save_clients(username, data)
     c2 = dict(c); c2.setdefault("id", client_id)
     return jsonify({"ok": True, "client": c2})
-
 @app.route("/api/clients/<client_id>", methods=["DELETE"])
 def api_clients_delete(client_id):
     username = _get_session_username()
@@ -13279,11 +11645,6 @@ def api_clients_delete(client_id):
     data["clients"] = clients
     _save_clients(username, data)
     return jsonify({"ok": True})
-
-
-
-
-
 # =========================
 # CRM COMMAND CENTER (Full CRM Mode) - additive v1
 # =========================
@@ -13299,17 +11660,13 @@ def api_clients_delete(client_id):
 # - Additive only: does not break existing /api/clients endpoints
 # - Storage is per-user JSON in DATA/crm/<user>.json
 # - Safe defaults and migration from existing clients store if CRM store is empty
-
 CRM_DIR = DATA / "crm"
 CRM_DIR.mkdir(parents=True, exist_ok=True)
-
 def _crm_path_for_user(username: str) -> Path:
     safe = _safe_name(username or "anon")
     return CRM_DIR / f"{safe}.json"
-
 def _default_pipeline_stages() -> List[str]:
     return ["Lead", "Conversation", "Interested", "Call booked", "Client", "VIP", "Past client", "Cold"]
-
 def _crm_default_state() -> Dict[str, Any]:
     return {
         "version": "crm_v1",
@@ -13324,7 +11681,6 @@ def _crm_default_state() -> Dict[str, Any]:
             "sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""},
         },
     }
-
 def _crm_load(username: str) -> Dict[str, Any]:
     path = _crm_path_for_user(username)
     data = load_json(path, _crm_default_state())
@@ -13349,7 +11705,6 @@ def _crm_load(username: str) -> Dict[str, Any]:
     if not isinstance(data.get("messages"), list):
         data["messages"] = []
     return data
-
 def _crm_save(username: str, data: Dict[str, Any]) -> None:
     data = data or {}
     data["updated_at"] = now_iso()
@@ -13361,11 +11716,9 @@ def _crm_save(username: str, data: Dict[str, Any]) -> None:
     except Exception:
         pass
     save_json(_crm_path_for_user(username), data)
-
 def _crm_new_id(prefix: str) -> str:
     prefix = re.sub(r"[^a-zA-Z0-9_]+", "_", (prefix or "x"))
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
-
 def _crm_migrate_from_client_memory_if_empty(username: str) -> None:
     """Best-effort migration: if CRM has no clients but legacy client memory has clients, import them."""
     try:
@@ -13404,7 +11757,6 @@ def _crm_migrate_from_client_memory_if_empty(username: str) -> None:
         _crm_save(username, crm)
     except Exception:
         return
-
 def _crm_client_matches_filter(c: Dict[str, Any], filt: Dict[str, Any]) -> bool:
     if not isinstance(c, dict):
         return False
@@ -13427,7 +11779,6 @@ def _crm_client_matches_filter(c: Dict[str, Any], filt: Dict[str, Any]) -> bool:
     if need_status and status != need_status:
         return False
     return True
-
 def _crm_log_message(username: str, rec: Dict[str, Any]) -> None:
     try:
         crm = _crm_load(username)
@@ -13438,7 +11789,6 @@ def _crm_log_message(username: str, rec: Dict[str, Any]) -> None:
         _crm_save(username, crm)
     except Exception:
         pass
-
 def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str, from_name: str = "") -> Tuple[bool, str, str]:
     """Returns (ok, provider, error)."""
     cap = _email_capability_for_user(u)
@@ -13463,7 +11813,6 @@ def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str,
         return True, "smtp", ""
     except Exception as e:
         return False, "email", str(e)
-
 def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
     """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
     # No hard dependency. Only works if configured.
@@ -13486,9 +11835,6 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         return True, ""
     except Exception as e:
         return False, str(e)
-
-
-
 @app.get("/api/crm/settings/sms")
 def api_crm_sms_settings_get():
     u = current_user()
@@ -13507,8 +11853,6 @@ def api_crm_sms_settings_get():
 @app.get("/api/settings/sms")
 def api_settings_sms_get():
     return api_crm_sms_settings_get()
-
-
 @app.post("/api/crm/settings/sms")
 def api_crm_sms_settings_set():
     u = current_user()
@@ -13520,27 +11864,22 @@ def api_crm_sms_settings_set():
     sid = (payload.get("twilio_sid") or "").strip()
     token = (payload.get("twilio_token") or "").strip()
     from_num = (payload.get("twilio_from") or "").strip()
-
     crm = _crm_load(uname)
     crm.setdefault("settings", {})
     crm["settings"].setdefault("sms", {})
     sms = crm["settings"]["sms"]
     sms["provider"] = provider
-
     if sid:
         sms["twilio_sid"] = sid
     if from_num:
         sms["twilio_from"] = from_num
     if token:
         sms["twilio_token"] = token
-
     _crm_save(uname, crm)
     return jsonify({"ok": True})
 @app.post("/api/settings/sms")
 def api_settings_sms_set():
     return api_crm_sms_settings_set()
-
-
 @app.post("/api/crm/settings/sms/test")
 def api_crm_sms_settings_test():
     u = current_user()
@@ -13554,16 +11893,12 @@ def api_crm_sms_settings_test():
         return jsonify({"ok": False, "error": "Missing 'to' phone"}), 400
     ok_send, err = _crm_try_send_sms(uname, to_phone, body)
     return jsonify({"ok": bool(ok_send), "error": err})
-
-
-
 def _crm_tick_once() -> None:
     """Run due CRM automations (tasks reminders, sequences enrollments). Safe, bounded work."""
     # Called by /api/action_stack_schedules/tick
     max_sends = 40  # hard cap per tick across all users
     sends_done = 0
     now_utc = datetime.utcnow()
-
     for user_path in CRM_DIR.glob("*.json"):
         if sends_done >= max_sends:
             break
@@ -13576,7 +11911,6 @@ def _crm_tick_once() -> None:
             seqs = crm.get("sequences") or {}
             clients = crm.get("clients") or {}
             changed = False
-
             # Process due enrollments (email only; sms optional)
             for eid, e in list(enroll.items()):
                 if sends_done >= max_sends:
@@ -13595,11 +11929,9 @@ def _crm_tick_once() -> None:
                     due_dt = None
                 if not due_dt or now_utc < due_dt:
                     continue
-
                 seq_id = (e.get("sequence_id") or "").strip()
                 client_id = (e.get("client_id") or "").strip()
                 step_i = int(e.get("step_index") or 0)
-
                 seq = seqs.get(seq_id) if isinstance(seqs, dict) else None
                 c = clients.get(client_id) if isinstance(clients, dict) else None
                 if not isinstance(seq, dict) or not isinstance(c, dict):
@@ -13607,20 +11939,17 @@ def _crm_tick_once() -> None:
                     enroll[eid] = e
                     changed = True
                     continue
-
                 steps = seq.get("steps") or []
                 if not isinstance(steps, list) or step_i >= len(steps):
                     e["status"] = "complete"
                     enroll[eid] = e
                     changed = True
                     continue
-
                 step = steps[step_i] if isinstance(steps[step_i], dict) else {}
                 channel = (step.get("channel") or "email").strip().lower()
                 subj_t = (step.get("subject") or "").strip()
                 body_t = (step.get("body") or "").strip()
                 delay_days = int(step.get("delay_days") or 0)
-
                 # Render templates
                 ctx = {
                     "name": c.get("name",""),
@@ -13631,17 +11960,14 @@ def _crm_tick_once() -> None:
                 }
                 subj = _safe_render(subj_t, ctx) if subj_t else ""
                 body = _safe_render(body_t, ctx) if body_t else ""
-
                 ok_send = False
                 provider = ""
                 err = ""
-
                 # Get a user record for provider creds if possible
                 users_db = load_users()
                 urec = (users_db.get("users") or {}).get(username)
                 if not isinstance(urec, dict):
                     urec = current_user() if (current_user() and (current_user().get("username")==username)) else None
-
                 if channel == "sms":
                     phone = (c.get("phone") or "").strip()
                     if phone and body:
@@ -13664,7 +11990,6 @@ def _crm_tick_once() -> None:
                         ok_send = False
                         provider = "email"
                         err = "Missing/invalid email or empty body."
-
                 # Log message
                 try:
                     crm.setdefault("messages", [])
@@ -13685,7 +12010,6 @@ def _crm_tick_once() -> None:
                         crm["messages"] = crm["messages"][-500:]
                 except Exception:
                     pass
-
                 # Advance
                 if ok_send:
                     sends_done += 1
@@ -13702,20 +12026,15 @@ def _crm_tick_once() -> None:
                     e["next_due"] = (now_utc + timedelta(days=1)).isoformat() + "Z"
                     enroll[eid] = e
                     changed = True
-
             if changed:
                 crm["enrollments"] = enroll
                 save_json(user_path, crm)
-
         except Exception:
             continue
-
 # ---- CRM APIs ----
 @app.post("/api/settings/sms/test")
 def api_settings_sms_test():
     return api_crm_sms_settings_test()
-
-
 @app.get("/api/crm/state")
 def api_crm_state():
     u = current_user()
@@ -13730,7 +12049,6 @@ def api_crm_state():
         "sequences": len(crm.get("sequences") or {}),
         "enrollments": len(crm.get("enrollments") or {}),
     }})
-
 @app.get("/api/crm/clients")
 def api_crm_clients_list():
     u = current_user()
@@ -13748,7 +12066,6 @@ def api_crm_clients_list():
             return ""
     clients.sort(key=_ts, reverse=True)
     return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}})
-
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
     u = current_user()
@@ -13792,7 +12109,6 @@ def api_crm_clients_create():
     crm["clients"][cid] = client
     _crm_save(uname, crm)
     return jsonify({"ok": True, "client": client})
-
 @app.post("/api/crm/clients/<client_id>")
 def api_crm_clients_update(client_id: str):
     u = current_user()
@@ -13825,7 +12141,6 @@ def api_crm_clients_update(client_id: str):
     crm["clients"] = clients
     _crm_save(uname, crm)
     return jsonify({"ok": True, "client": c})
-
 @app.delete("/api/crm/clients/<client_id>")
 def api_crm_clients_delete(client_id: str):
     u = current_user()
@@ -13838,7 +12153,6 @@ def api_crm_clients_delete(client_id: str):
     crm["clients"] = clients
     _crm_save(uname, crm)
     return jsonify({"ok": True})
-
 @app.post("/api/crm/clients/import_csv")
 def api_crm_clients_import_csv():
     u = current_user()
@@ -13849,16 +12163,13 @@ def api_crm_clients_import_csv():
     csv_text = (payload.get("csv_text") or "")
     if not csv_text.strip():
         return jsonify({"ok": False, "error": "CSV text is required"}), 400
-
     import csv
     from io import StringIO
-
     crm = _crm_load(uname)
     stages = crm.get("pipeline", {}).get("stages") or ["Lead"]
     default_stage = stages[0] if stages else "Lead"
     imported = 0
     skipped = 0
-
     def pick(row, *names):
         lowered = {str(k).strip().lower(): v for k, v in row.items()}
         for name in names:
@@ -13866,7 +12177,6 @@ def api_crm_clients_import_csv():
             if val is not None and str(val).strip():
                 return str(val).strip()
         return ""
-
     try:
         reader = csv.DictReader(StringIO(csv_text))
         if not reader.fieldnames:
@@ -13910,11 +12220,8 @@ def api_crm_clients_import_csv():
             imported += 1
     except Exception as e:
         return jsonify({"ok": False, "error": f"CSV import failed: {e}"}), 400
-
     _crm_save(uname, crm)
     return jsonify({"ok": True, "imported": imported, "skipped": skipped, "total_clients": len(crm.get("clients") or {})})
-
-
 @app.post("/api/crm/pipeline")
 def api_crm_pipeline_set():
     u = current_user()
@@ -13933,7 +12240,6 @@ def api_crm_pipeline_set():
     crm["pipeline"] = {"stages": stages}
     _crm_save(uname, crm)
     return jsonify({"ok": True, "pipeline": crm["pipeline"]})
-
 @app.post("/api/crm/broadcast/email")
 def api_crm_broadcast_email():
     """
@@ -13948,20 +12254,16 @@ def api_crm_broadcast_email():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-
     payload = request.get_json(silent=True) or {}
     subject = (payload.get("subject") or "").strip()
     body_t = (payload.get("body") or "").strip()
     dry_run = bool(payload.get("dry_run"))
-
     if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
-
     # Accept either {filter:{...}} or direct UI keys.
     filt = payload.get("filter") or {}
     if not isinstance(filt, dict):
         filt = {}
-
     # UI keys override / fill filter when present.
     if payload.get("tag"):
         filt["tag"] = str(payload.get("tag") or "").strip()
@@ -13975,34 +12277,27 @@ def api_crm_broadcast_email():
             ids = [x.strip() for x in ids.split(",") if x.strip()]
         if isinstance(ids, list):
             filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
-
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
-
         # safety cap
         if len(recipients) > 250:
             return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
-
         if dry_run:
             return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
-
         sent = 0
         failed = 0
         results = []
         from_name = (_user_smtp_settings(u).get("from_name", "") or "").strip()
-
         for c in recipients:
             to_addr = (c.get("email") or "").strip()
             if not to_addr or (not EMAIL_RE.match(to_addr)):
                 failed += 1
                 results.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing/invalid email"})
                 continue
-
             ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
             body = _safe_render(body_t, ctx)
-
             ok, provider, err = _crm_send_email_to(
                 u, to_addr, subject, body,
                 from_name=from_name
@@ -14012,14 +12307,11 @@ def api_crm_broadcast_email():
             else:
                 failed += 1
             results.append({"client_id": c.get("id", ""), "ok": bool(ok), "provider": provider, "error": err})
-
         _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
-
     except Exception as e:
         # Never 500 the UI; return a clear error.
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
-
 @app.post("/api/crm/broadcast/sms")
 def api_crm_broadcast_sms():
     """Bulk SMS sender for CRM (Twilio only when configured)."""
@@ -14027,18 +12319,14 @@ def api_crm_broadcast_sms():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-
     payload = request.get_json(silent=True) or {}
     body_t = (payload.get("body") or "").strip()
     dry_run = bool(payload.get("dry_run"))
-
     if not body_t:
         return jsonify({"ok": False, "error": "Missing body"}), 400
-
     filt = payload.get("filter") or {}
     if not isinstance(filt, dict):
         filt = {}
-
     if payload.get("tag"):
         filt["tag"] = str(payload.get("tag") or "").strip()
     if payload.get("stage"):
@@ -14051,48 +12339,35 @@ def api_crm_broadcast_sms():
             ids = [x.strip() for x in ids.split(",") if x.strip()]
         if isinstance(ids, list):
             filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
-
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
-
         if len(recipients) > 250:
             return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
-
         if dry_run:
             return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
-
         sent = 0
         failed = 0
         results = []
-
         for c in recipients:
             phone = (c.get("phone") or "").strip()
             if not phone:
                 failed += 1
                 results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing phone"})
                 continue
-
             ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
             body = _safe_render(body_t, ctx)
-
             ok_send, err = _crm_try_send_sms(uname, phone, body)
             if ok_send:
                 sent += 1
             else:
                 failed += 1
             results.append({"client_id": c.get("id",""), "ok": bool(ok_send), "error": err})
-
         _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
-
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
-
-
-
-
 @app.post("/api/crm/tasks")
 def api_crm_task_create():
     u = current_user()
@@ -14120,7 +12395,6 @@ def api_crm_task_create():
     crm["tasks"][tid] = task
     _crm_save(uname, crm)
     return jsonify({"ok": True, "task": task})
-
 @app.get("/api/crm/tasks")
 def api_crm_tasks_list():
     u = current_user()
@@ -14137,7 +12411,6 @@ def api_crm_tasks_list():
         return (t.get("due") or "9999", t.get("created_at") or "")
     tasks.sort(key=_key)
     return jsonify({"ok": True, "tasks": tasks})
-
 @app.post("/api/crm/tasks/<task_id>")
 def api_crm_task_update(task_id: str):
     u = current_user()
@@ -14158,7 +12431,6 @@ def api_crm_task_update(task_id: str):
     crm["tasks"] = tasks
     _crm_save(uname, crm)
     return jsonify({"ok": True, "task": t})
-
 @app.delete("/api/crm/tasks/<task_id>")
 def api_crm_task_delete(task_id: str):
     u = current_user()
@@ -14171,7 +12443,6 @@ def api_crm_task_delete(task_id: str):
     crm["tasks"] = tasks
     _crm_save(uname, crm)
     return jsonify({"ok": True})
-
 @app.post("/api/crm/sequences")
 def api_crm_sequence_create():
     u = current_user()
@@ -14208,7 +12479,6 @@ def api_crm_sequence_create():
         })
     if not clean_steps:
         return jsonify({"ok": False, "error": "Invalid steps"}), 400
-
     crm = _crm_load(uname)
     sid = _crm_new_id("seq")
     seq = {
@@ -14222,7 +12492,6 @@ def api_crm_sequence_create():
     crm["sequences"][sid] = seq
     _crm_save(uname, crm)
     return jsonify({"ok": True, "sequence": seq})
-
 @app.get("/api/crm/sequences")
 def api_crm_sequences_list():
     u = current_user()
@@ -14233,7 +12502,6 @@ def api_crm_sequences_list():
     seqs = list((crm.get("sequences") or {}).values())
     seqs.sort(key=lambda s: (s.get("updated_at") or ""), reverse=True)
     return jsonify({"ok": True, "sequences": seqs, "enrollments": list((crm.get("enrollments") or {}).values())})
-
 @app.post("/api/crm/enroll")
 def api_crm_enroll_client():
     u = current_user()
@@ -14265,7 +12533,6 @@ def api_crm_enroll_client():
     crm["enrollments"][eid] = enrollment
     _crm_save(uname, crm)
     return jsonify({"ok": True, "enrollment": enrollment})
-
 @app.post("/api/crm/calendar/create_event")
 def api_crm_calendar_create_event():
     u = current_user()
@@ -14286,8 +12553,6 @@ def api_crm_calendar_create_event():
         return jsonify({"ok": True, "event": event})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
-
 @app.route("/api/passes/run", methods=["POST"])
 def api_passes_run():
     username = _get_session_username()
@@ -14297,16 +12562,13 @@ def api_passes_run():
     text_in = payload.get("text") or ""
     if not isinstance(text_in, str):
         text_in = str(text_in)
-
     allowed = {"risk", "scale", "failure", "assumptions", "constraints", "optimize"}
     if pass_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown pass"}), 400
-
     # Guardrails: keep request size reasonable
     if len(text_in.encode("utf-8", errors="ignore")) > 200_000:
         # Trim from the front so we keep the most recent parts
         text_in = text_in[-180_000:]
-
     profile = _load_operator_profile(username)
     operator_ctx = (
         f"Operator display name: {(profile.get('display_name') or 'Operator').strip()}\n"
@@ -14317,7 +12579,6 @@ def api_passes_run():
         f"Constraints: {(profile.get('constraints') or '').strip()}\n"
         f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
     ).strip()
-
     base_system = (
         "You are a tactical analysis engine inside an agentic command center. "
         "You run fast, practical analysis passes on the provided text. "
@@ -14326,7 +12587,6 @@ def api_passes_run():
         "Use short headings and bullets. Avoid long preambles. "
         "Do not use em dashes."
     )
-
     pass_instructions = {
         "risk": (
             "RISK ASSESSMENT. Identify the top risks in executing the plan or advice in the text. "
@@ -14358,18 +12618,14 @@ def api_passes_run():
             "End with: Next 3 actions the operator should take."
         ),
     }
-
     system = base_system + "\n\n" + "Operator context:\n" + operator_ctx + "\n\n" + pass_instructions[pass_name]
     user_msg = f"Seat: {seat or 'N/A'}\n\nTEXT TO ANALYZE:\n{text_in}"
-
     try:
         result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
         return jsonify({"ok": True, "result": result})
     except Exception as e:
         code, msg = _map_openai_error(e)
         return jsonify({"ok": False, "error": msg}), code
-
-
 def _load_operator_profile(username: str) -> Dict[str, Any]:
     """Per-user operator profile teammates can reference."""
     try:
@@ -14403,7 +12659,6 @@ def _load_operator_profile(username: str) -> Dict[str, Any]:
             "notes": "",
             "updated_at": ""
         }
-
 def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     try:
         OPERATOR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -14414,19 +12669,28 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
     path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 # =========================
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
-
+CRM_WEB_TIMEOUT = 8
+CRM_WEB_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+CRM_PHONE_RE = re.compile(r"(?:(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}))(?:\s*(?:x|ext\.?|extension)\s*\d{1,5})?", re.IGNORECASE)
+CRM_EMAIL_FINDER_RE = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.IGNORECASE)
+CRM_SEARCH_RESULT_RE = re.compile(r'<a[^>]+class="[^\"]*result__a[^\"]*"[^>]+href="(?P<href>[^\"]+)"[^>]*>(?P<title>.*?)</a>', re.IGNORECASE | re.DOTALL)
+CRM_HTML_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+CRM_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+CRM_TAG_RE = re.compile(r"<[^>]+>")
 def _crm_extract_domain(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"^https?://", "", s)
     s = re.sub(r"^www\.", "", s)
     s = s.split("/")[0].strip()
+    s = s.split("?")[0].strip()
+    s = s.split("#")[0].strip()
     return s
-
 def _crm_name_bits(name: str) -> Tuple[str, str]:
     bits = [x for x in re.split(r"\s+", (name or "").strip()) if x]
     if not bits:
@@ -14434,7 +12698,6 @@ def _crm_name_bits(name: str) -> Tuple[str, str]:
     first = re.sub(r"[^a-z]", "", bits[0].lower())
     last = re.sub(r"[^a-z]", "", bits[-1].lower()) if len(bits) > 1 else ""
     return first, last
-
 def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
     domain = _crm_extract_domain(domain)
     if not domain:
@@ -14463,7 +12726,6 @@ def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
         seen.add(email)
         out.append(row)
     return out
-
 def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
     rows = []
     for raw in (source_text or "").splitlines():
@@ -14488,7 +12750,359 @@ def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
                 item["notes"] = " | ".join(parts[4:])
         rows.append(item)
     return rows
-
+def _crm_normalize_url(url: str) -> str:
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if url.startswith("//"):
+        url = "https:" + url
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        url = "https://" + url
+    return url
+def _crm_clean_html_text(html: str) -> str:
+    html = html or ""
+    html = CRM_SCRIPT_STYLE_RE.sub(" ", html)
+    html = CRM_TAG_RE.sub(" ", html)
+    html = re.sub(r"&nbsp;", " ", html, flags=re.IGNORECASE)
+    html = re.sub(r"&amp;", "&", html, flags=re.IGNORECASE)
+    html = re.sub(r"\s+", " ", html)
+    return html.strip()
+def _crm_fetch_url(url: str) -> Dict[str, Any]:
+    url = _crm_normalize_url(url)
+    if not url:
+        return {"ok": False, "url": "", "text": "", "html": "", "title": "", "error": "Missing URL"}
+    try:
+        import requests
+        r = requests.get(url, headers=CRM_WEB_HEADERS, timeout=CRM_WEB_TIMEOUT, allow_redirects=True)
+        final_url = str(r.url or url)
+        if r.status_code >= 400:
+            return {"ok": False, "url": final_url, "text": "", "html": "", "title": "", "error": f"HTTP {r.status_code}"}
+        body = (r.text or "")[:250000]
+        title_m = CRM_HTML_TITLE_RE.search(body)
+        title = re.sub(r"\s+", " ", title_m.group(1)).strip() if title_m else ""
+        text = _crm_clean_html_text(body)
+        return {"ok": True, "url": final_url, "text": text, "html": body, "title": title}
+    except Exception as e:
+        return {"ok": False, "url": url, "text": "", "html": "", "title": "", "error": str(e)}
+def _crm_phone_normalize(phone: str) -> str:
+    raw = (phone or "").strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if raw.startswith("+") and 10 <= len(digits) <= 15:
+        return "+" + digits
+    return raw
+def _crm_extract_phones_from_text(text: str) -> List[str]:
+    vals: List[str] = []
+    for m in CRM_PHONE_RE.finditer(text or ""):
+        p = _crm_phone_normalize(m.group(0))
+        digits = re.sub(r"\D", "", p)
+        if len(digits) < 10:
+            continue
+        vals.append(p)
+    out: List[str] = []
+    seen = set()
+    for p in vals:
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+    return out[:10]
+def _crm_extract_emails_from_text(text: str, domain: str = "") -> List[Dict[str, Any]]:
+    domain = _crm_extract_domain(domain)
+    found: List[Dict[str, Any]] = []
+    seen = set()
+    for m in CRM_EMAIL_FINDER_RE.finditer(text or ""):
+        email = m.group(0).strip().strip('.,;:!?)(').lower()
+        if any(email.endswith(ext) for ext in ('.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif', '.css', '.js')):
+            continue
+        if email in seen:
+            continue
+        seen.add(email)
+        local, _, dom = email.partition('@')
+        conf = 0.72
+        status = 'found'
+        if domain and dom == domain:
+            conf = 0.96
+            status = 'verified_domain_match'
+        elif domain and dom.endswith('.' + domain):
+            conf = 0.9
+            status = 'subdomain_match'
+        elif local in ('info', 'hello', 'contact', 'support', 'office', 'sales'):
+            conf = max(conf, 0.83 if domain and dom == domain else 0.69)
+        found.append({"email": email, "confidence": round(conf, 2), "status": status})
+    return sorted(found, key=lambda x: x.get('confidence', 0), reverse=True)[:10]
+def _crm_search_web(query: str, limit: int = 8) -> List[Dict[str, str]]:
+    q = (query or "").strip()
+    if not q:
+        return []
+    endpoints = [
+        ("https://html.duckduckgo.com/html/", {"q": q}),
+        ("https://duckduckgo.com/html/", {"q": q}),
+    ]
+    for endpoint, payload in endpoints:
+        try:
+            import requests
+            r = requests.post(endpoint, data=payload, headers=CRM_WEB_HEADERS, timeout=CRM_WEB_TIMEOUT)
+            html = r.text or ""
+            if r.status_code >= 400 or not html:
+                continue
+            items: List[Dict[str, str]] = []
+            seen = set()
+            for m in CRM_SEARCH_RESULT_RE.finditer(html):
+                href = (m.group('href') or '').strip().replace('&amp;', '&')
+                title = _crm_clean_html_text((m.group('title') or '').strip())
+                if href.startswith('/l/?'):
+                    try:
+                        from urllib.parse import urlparse, parse_qs, unquote
+                        parsed = urlparse('https://duckduckgo.com' + href)
+                        qs = parse_qs(parsed.query)
+                        href = unquote((qs.get('uddg') or [''])[0]) or href
+                    except Exception:
+                        pass
+                href = _crm_normalize_url(href)
+                dom = _crm_extract_domain(href)
+                if not href or not dom:
+                    continue
+                if any(skip in dom for skip in ('duckduckgo.com', 'google.com', 'bing.com', 'facebook.com', 'instagram.com', 'linkedin.com', 'youtube.com')):
+                    continue
+                if href in seen or dom in seen:
+                    continue
+                seen.add(href)
+                seen.add(dom)
+                items.append({"url": href, "title": title, "domain": dom})
+                if len(items) >= max(1, min(20, limit)):
+                    break
+            if items:
+                return items
+        except Exception:
+            continue
+    return []
+def _crm_contact_page_urls(site_url: str) -> List[str]:
+    site_url = _crm_normalize_url(site_url)
+    if not site_url:
+        return []
+    try:
+        from urllib.parse import urlparse, urljoin
+        parsed = urlparse(site_url)
+        root = f"{parsed.scheme}://{parsed.netloc}/"
+        paths = ['', 'contact', 'contact-us', 'about', 'team', 'our-team']
+        out = []
+        seen = set()
+        for p in paths:
+            u = urljoin(root, p)
+            if u in seen:
+                continue
+            seen.add(u)
+            out.append(u)
+        return out
+    except Exception:
+        return [site_url]
+def _crm_guess_company_from_domain(domain: str) -> str:
+    domain = _crm_extract_domain(domain)
+    if not domain:
+        return ''
+    core = domain.split('.')[0].replace('-', ' ').replace('_', ' ')
+    return ' '.join(x.capitalize() for x in core.split() if x)
+def _crm_best_title_from_text(title: str, text: str, company: str = '') -> str:
+    hay = ' '.join([title or '', text or ''])[:4000]
+    m = re.search(r'(?:owner|founder|broker(?:/owner)?|ceo|president|principal|agent|realtor|loan officer|manager|director)', hay, re.IGNORECASE)
+    return m.group(0).title() if m else ''
+def _crm_score_lead(name: str, company: str, domain: str, emails: List[Dict[str, Any]], phones: List[str], source_urls: List[str], title: str) -> int:
+    score = 35
+    if domain:
+        score += 18
+    if source_urls:
+        score += 10
+    if phones:
+        score += 12
+    if emails:
+        best = max(float(x.get('confidence') or 0) for x in emails)
+        score += int(round(best * 22))
+        if any((x.get('status') or '').startswith('verified') for x in emails):
+            score += 8
+    if name and company and name.lower() != company.lower():
+        score += 5
+    if title:
+        score += 4
+    return max(1, min(99, int(score)))
+def _crm_make_seed_rows(niche: str, location: str, source_text: str) -> List[Dict[str, Any]]:
+    rows = _crm_parse_lead_source_rows(source_text or '') if (source_text or '').strip() else []
+    if rows:
+        return rows[:25]
+    if not niche and not location:
+        return []
+    query = ' '.join(x for x in [niche, location] if x).strip()
+    hits = _crm_search_web(query, limit=12)
+    out = []
+    for h in hits:
+        out.append({
+            'name': '',
+            'company': (h.get('title') or '').split(' - ')[0].split(' | ')[0].strip(),
+            'domain': h.get('domain') or '',
+            'title': '',
+            'notes': 'web_search_seed'
+        })
+    return out[:20]
+def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dict[str, Any]:
+    company = (row.get('company') or '').strip()
+    name = (row.get('name') or '').strip()
+    title = (row.get('title') or '').strip()
+    domain = _crm_extract_domain(row.get('domain') or '')
+    notes: List[str] = []
+    source_urls: List[str] = []
+    search_query = ' '.join(x for x in [company or name, niche, location] if x).strip()
+    search_hits: List[Dict[str, str]] = []
+    if domain:
+        search_hits.append({"url": _crm_normalize_url(domain), "title": company or _crm_guess_company_from_domain(domain), "domain": domain})
+    if search_query:
+        search_hits.extend(_crm_search_web(search_query, limit=6))
+    pick = None
+    for hit in search_hits:
+        dom = _crm_extract_domain(hit.get('url') or hit.get('domain') or '')
+        if not dom:
+            continue
+        pick = hit
+        if domain and dom == domain:
+            break
+        if company and any(part for part in re.findall(r'[a-z0-9]+', company.lower()) if len(part) > 3 and part in dom):
+            break
+    if pick:
+        domain = _crm_extract_domain(pick.get('url') or pick.get('domain') or domain)
+    website = _crm_normalize_url(domain or (pick or {}).get('url') or '')
+    if website and website not in source_urls:
+        source_urls.append(website)
+    pages: List[Dict[str, Any]] = []
+    for page_url in _crm_contact_page_urls(website)[:4]:
+        page = _crm_fetch_url(page_url)
+        if page.get('ok'):
+            pages.append(page)
+            u = page.get('url') or page_url
+            if u not in source_urls:
+                source_urls.append(u)
+    if (not pages) and search_query:
+        for hit in search_hits[:4]:
+            u = _crm_normalize_url(hit.get('url') or '')
+            if not u:
+                continue
+            page = _crm_fetch_url(u)
+            if page.get('ok'):
+                pages.append(page)
+                source_urls.append(page.get('url') or u)
+                break
+    email_hits: List[Dict[str, Any]] = []
+    phone_hits: List[str] = []
+    for page in pages:
+        text_blob = (page.get('html') or '') + "\n" + (page.get('text') or '')
+        if not company:
+            company = (page.get('title') or '').split(' - ')[0].split(' | ')[0].strip() or company
+        if not title:
+            title = _crm_best_title_from_text(page.get('title') or '', page.get('text') or '', company)
+        email_hits.extend(_crm_extract_emails_from_text(text_blob, domain=domain))
+        phone_hits.extend(_crm_extract_phones_from_text(text_blob))
+    best_emails: List[Dict[str, Any]] = []
+    seen_e = set()
+    for e in sorted(email_hits, key=lambda x: x.get('confidence', 0), reverse=True):
+        addr = (e.get('email') or '').lower()
+        if not addr or addr in seen_e:
+            continue
+        seen_e.add(addr)
+        best_emails.append(e)
+    best_emails = best_emails[:8]
+    uniq_phones: List[str] = []
+    seen_p = set()
+    for p in phone_hits:
+        if p in seen_p:
+            continue
+        seen_p.add(p)
+        uniq_phones.append(p)
+    uniq_phones = uniq_phones[:5]
+    if not company:
+        company = _crm_guess_company_from_domain(domain)
+    if not name:
+        name = company or name
+    if not best_emails and domain:
+        best_emails = _crm_email_candidates(name, domain)[:5]
+        notes.append('No public email found. Showing likely address patterns.')
+    if niche:
+        notes.append(f'Niche target: {niche}')
+    if location:
+        notes.append(f'Location target: {location}')
+    if source_urls:
+        notes.append('Web-verified from public pages.')
+    score = _crm_score_lead(name, company, domain, best_emails, uniq_phones, source_urls, title)
+    return {
+        'name': name,
+        'company': company,
+        'domain': domain,
+        'website': website,
+        'title': title,
+        'score': score,
+        'notes': ' '.join(notes).strip(),
+        'email_candidates': best_emails,
+        'emails': [e.get('email') for e in best_emails if e.get('email')],
+        'phones': uniq_phones,
+        'source_urls': source_urls[:6],
+        'search_query': search_query,
+    }
+def _crm_ai_rank_leads(items: List[Dict[str, Any]], niche: str, location: str) -> List[Dict[str, Any]]:
+    if not items:
+        return []
+    try:
+        compact = []
+        for idx, item in enumerate(items[:30]):
+            compact.append({
+                'i': idx,
+                'name': item.get('name',''),
+                'company': item.get('company',''),
+                'title': item.get('title',''),
+                'website': item.get('website',''),
+                'emails': item.get('emails',[])[:3],
+                'phones': item.get('phones',[])[:2],
+                'score': item.get('score',0),
+            })
+        system = 'Return strict JSON only. Rank business lead records by overall usability and data confidence. Do not invent fields.'
+        prompt = json.dumps({
+            'niche': niche,
+            'location': location,
+            'items': compact,
+            'task': 'Return {"order":[indices in best-first order], "adjustments":[{"i":0,"score":88}]} using only provided data.'
+        }, ensure_ascii=False)
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.1)
+        raw = (raw or '').strip()
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if not m:
+            return items
+        obj = json.loads(m.group(0))
+        adjustments = obj.get('adjustments') or []
+        adj_map = {}
+        if isinstance(adjustments, list):
+            for row in adjustments:
+                if isinstance(row, dict) and isinstance(row.get('i'), int):
+                    adj_map[int(row['i'])] = int(row.get('score') or 0)
+        ranked = list(items)
+        for i, score in adj_map.items():
+            if 0 <= i < len(ranked):
+                ranked[i]['score'] = max(ranked[i].get('score', 0), max(1, min(99, score)))
+        order = obj.get('order') or []
+        if isinstance(order, list) and order:
+            used = set()
+            reordered = []
+            for i in order:
+                if isinstance(i, int) and 0 <= i < len(ranked) and i not in used:
+                    reordered.append(ranked[i])
+                    used.add(i)
+            for i, item in enumerate(ranked):
+                if i not in used:
+                    reordered.append(item)
+            return reordered
+        return ranked
+    except Exception:
+        return items
 def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
     try:
         reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
@@ -14498,7 +13112,6 @@ def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
     except Exception:
         pass
     return fallback
-
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
@@ -14508,47 +13121,57 @@ def api_crm_lead_lab():
     niche = (payload.get("niche") or "").strip()
     location = (payload.get("location") or "").strip()
     source_text = (payload.get("source_text") or "").strip()
-    if not source_text:
-        return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
-
-    rows = _crm_parse_lead_source_rows(source_text)
-    items = []
-    for row in rows[:200]:
-        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
-        name = (row.get("name") or "").strip()
-        company = (row.get("company") or "").strip() or domain.split(".")[0].replace("-", " ").title()
-        title = (row.get("title") or "").strip()
-        if not name and company:
-            name = company
-        email_candidates = _crm_email_candidates(name, domain)
-        score = 55
-        if domain:
-            score += 15
-        if name and name != company:
-            score += 15
-        if title:
-            score += 5
-        if niche:
-            score += 5
-        score = max(1, min(99, score))
-        notes = []
-        if niche:
-            notes.append(f"Niche target: {niche}")
-        if location:
-            notes.append(f"Location target: {location}")
-        if not domain:
-            notes.append("Add company domain for better email confidence.")
-        items.append({
-            "name": name,
-            "company": company,
-            "domain": domain,
-            "title": title,
-            "score": score,
-            "notes": " ".join(notes).strip(),
-            "email_candidates": email_candidates,
-        })
-    return jsonify({"ok": True, "items": items, "count": len(items)})
-
+    if not source_text and not niche and not location:
+        return jsonify({"ok": False, "error": "Add a niche, a location, or paste source rows."}), 400
+    seeds = _crm_make_seed_rows(niche, location, source_text)
+    if not seeds:
+        return jsonify({"ok": False, "error": "No leads found from your search inputs."}), 404
+    items: List[Dict[str, Any]] = []
+    seen_domains = set()
+    for row in seeds[:25]:
+        try:
+            item = _crm_enrich_seed_lead(row, niche, location)
+            dom = _crm_extract_domain(item.get("website") or item.get("domain") or "")
+            if dom and dom in seen_domains:
+                continue
+            if dom:
+                seen_domains.add(dom)
+            items.append(item)
+        except Exception:
+            continue
+    items = _crm_ai_rank_leads(items, niche, location)
+    items.sort(key=lambda x: int(x.get("score") or 0), reverse=True)
+    return jsonify({"ok": True, "items": items[:30], "count": len(items[:30])})
+@app.post("/api/crm/lead_lab/send_email")
+def api_crm_lead_lab_send_email():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    to_addr = (payload.get("to") or "").strip()
+    subject = (payload.get("subject") or "").strip()
+    body = (payload.get("body") or "").strip()
+    if not to_addr or not EMAIL_RE.match(to_addr):
+        return jsonify({"ok": False, "error": "Valid recipient email is required"}), 400
+    if not subject or not body:
+        return jsonify({"ok": False, "error": "Subject and body are required"}), 400
+    ok_send, provider, err = _crm_send_email_to(u, to_addr, subject, body, from_name=(_user_smtp_settings(u).get("from_name", "") or "").strip())
+    return jsonify({"ok": bool(ok_send), "provider": provider, "error": err})
+@app.post("/api/crm/lead_lab/send_sms")
+def api_crm_lead_lab_send_sms():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    to_phone = (payload.get("to") or "").strip()
+    body = (payload.get("body") or "").strip()
+    if not to_phone:
+        return jsonify({"ok": False, "error": "Recipient phone is required"}), 400
+    if not body:
+        return jsonify({"ok": False, "error": "Message body is required"}), 400
+    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
+    return jsonify({"ok": bool(ok_send), "error": err})
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
     u = current_user()
@@ -14561,7 +13184,6 @@ def api_crm_social_studio():
     offer = (payload.get("offer") or "").strip()
     if not offer:
         return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
-
     system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
     prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
     fallback = (
@@ -14582,7 +13204,6 @@ def api_crm_social_studio():
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
-
 @app.post("/api/crm/offer_builder")
 def api_crm_offer_builder():
     u = current_user()
@@ -14594,7 +13215,6 @@ def api_crm_offer_builder():
     method = (payload.get("method") or "").strip()
     if not audience or not result or not method:
         return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
-
     system = "You are an offer strategist. Build clear, practical offers with concise sections."
     prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
     fallback = (
@@ -14615,7 +13235,6 @@ def api_crm_offer_builder():
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
-
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
     u = current_user()
@@ -14638,44 +13257,32 @@ def api_crm_playbooks():
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
-
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
-
-
 # === Additive Patch: Move Diagnostics Panel Into Settings ===
 ADD_DIAG_PATCH = r'''
 <script>
 document.addEventListener("DOMContentLoaded", function(){
-
   const diag = document.getElementById("diagOverlay");
   if(!diag) return;
-
   diag.style.position = "static";
   diag.style.bottom = "auto";
   diag.style.left = "auto";
   diag.style.right = "auto";
   diag.style.width = "100%";
   diag.style.marginTop = "12px";
-
   const targets = [
     document.getElementById("settingsPanel"),
     document.getElementById("settingsTab"),
     document.querySelector('[data-panel="settings"]'),
     document.querySelector('.settings-panel')
   ].filter(Boolean);
-
   if(targets.length){
     targets[0].appendChild(diag);
   }
-
 });
 </script>
 '''
-
-
-
 # === Additive Patch v8: UX polish (voice ring, idle breath, spotlight, autoscroll, remember seat) + Diagnostics moved into Settings ===
 ADD_UI_POLISH_V8 = r'''
 <style>
@@ -14692,7 +13299,6 @@ ADD_UI_POLISH_V8 = r'''
       0 0 26px rgba(214, 176, 92, 0.16),
       0 12px 36px rgba(0,0,0,0.40);
   }
-
   /* --- v8 Spotlight dimming for non-active seats --- */
   .seat.is-dimmed {
     opacity: 0.38;
@@ -14705,7 +13311,6 @@ ADD_UI_POLISH_V8 = r'''
     transform: scale(1);
     filter: none;
   }
-
   /* --- v8 Voice indicator ring on active seat --- */
   .seat.is-speaking::before {
     content: "";
@@ -14725,7 +13330,6 @@ ADD_UI_POLISH_V8 = r'''
     50% { transform: scale(1.02); opacity: 1; }
     100% { transform: scale(0.98); opacity: 0.55; }
   }
-
   /* --- v8 Idle breathing on the table stage --- */
   #rtStage.v8-idle-breath {
     animation: v8Breath 4.8s ease-in-out infinite;
@@ -14736,11 +13340,9 @@ ADD_UI_POLISH_V8 = r'''
     50% { transform: translate(var(--rt-shift-x, 0px), var(--rt-shift-y, 0px)) scale(calc(var(--rt-scale, 1) * 1.008)); filter: saturate(1.03) brightness(1.02); }
     100% { transform: translate(var(--rt-shift-x, 0px), var(--rt-shift-y, 0px)) scale(var(--rt-scale, 1)); filter: saturate(1) brightness(1); }
   }
-
   /* --- v8 Ensure no horizontal clipping in mobile webviews --- */
   html, body { overflow-x: hidden; max-width: 100%; }
   .panel, .card, .modal, .wrap, #app, #root, #main, #content { max-width: 100%; }
-
   /* --- v8 Lock-friendly scrolling: when locked, allow vertical scroll gestures --- */
   body.v8-table-locked #tableViewport,
   body.v8-table-locked #tableWrap,
@@ -14748,7 +13350,6 @@ ADD_UI_POLISH_V8 = r'''
     touch-action: pan-y !important;
   }
 </style>
-
 <script>
 (function(){
   // -----------------------------
@@ -14756,14 +13357,11 @@ ADD_UI_POLISH_V8 = r'''
   // -----------------------------
   const V8_LAST_SEAT_KEY = "round_table_last_selected_seat_v1";
   const V8_IDLE_AFTER_MS = 9000;
-
   function $(id){ return document.getElementById(id); }
   function q(sel, root){ return (root||document).querySelector(sel); }
   function qa(sel, root){ return Array.from((root||document).querySelectorAll(sel)); }
-
   function safeSetLS(k,v){ try{ localStorage.setItem(k,v); }catch(_){ } }
   function safeGetLS(k){ try{ return localStorage.getItem(k) || ""; }catch(_){ return ""; } }
-
   function isElementVisible(el){
     if(!el) return false;
     const style = window.getComputedStyle(el);
@@ -14771,7 +13369,6 @@ ADD_UI_POLISH_V8 = r'''
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   }
-
   // -----------------------------
   // v8: Move Diagnostics into Settings (no bottom overlay)
   // -----------------------------
@@ -14785,11 +13382,9 @@ ADD_UI_POLISH_V8 = r'''
     diag.style.right = "auto";
     diag.style.width = "100%";
     diag.style.marginTop = "14px";
-
     // prefer settingsForm which exists in this app
     const settingsForm = $("settingsForm");
     if(!settingsForm) return;
-
     // Create a small section header if it doesn't exist
     let hdr = $("v8DiagHdr");
     if(!hdr){
@@ -14803,7 +13398,6 @@ ADD_UI_POLISH_V8 = r'''
     }
     settingsForm.appendChild(diag);
   }
-
   // -----------------------------
   // v8: Remember last selected teammate
   // -----------------------------
@@ -14812,7 +13406,6 @@ ADD_UI_POLISH_V8 = r'''
     const fn = window.selectSeat;
     if(typeof fn !== "function") return;
     if(fn.__v8wrapped) return;
-
     const wrapped = async function(name){
       safeSetLS(V8_LAST_SEAT_KEY, String(name||""));
       return await fn.apply(this, arguments);
@@ -14820,7 +13413,6 @@ ADD_UI_POLISH_V8 = r'''
     wrapped.__v8wrapped = true;
     window.selectSeat = wrapped;
   }
-
   async function restoreLastSeatAfterRender(){
     const last = safeGetLS(V8_LAST_SEAT_KEY);
     if(!last) return;
@@ -14835,7 +13427,6 @@ ADD_UI_POLISH_V8 = r'''
       }
     }catch(_){}
   }
-
   // -----------------------------
   // v8: Spotlight dim non-active seats
   // -----------------------------
@@ -14843,14 +13434,11 @@ ADD_UI_POLISH_V8 = r'''
     const fn = window.markActiveSeat;
     if(typeof fn !== "function") return;
     if(fn.__v8wrapped) return;
-
     const wrapped = function(){
       const res = fn.apply(this, arguments);
-
       // Determine active seat name by reading selectedSeat if present
       let activeName = "";
       try{ activeName = window.selectedSeat || ""; }catch(_){ activeName = ""; }
-
       const seats = qa(".seat[data-name]");
       seats.forEach(el => {
         const nm = el.getAttribute("data-name") || "";
@@ -14858,20 +13446,17 @@ ADD_UI_POLISH_V8 = r'''
         el.classList.toggle("is-active", !!isActive);
         el.classList.toggle("is-dimmed", !!(activeName && !isActive));
       });
-
       return res;
     };
     wrapped.__v8wrapped = true;
     window.markActiveSeat = wrapped;
   }
-
   // -----------------------------
   // v8: Voice indicator ring + Dictation fill + Name switching helper
   // -----------------------------
   let v8SpeechActive = false;
   let v8IdleTimer = null;
   let v8LastInteractionTs = Date.now();
-
   function setSpeaking(on){
     v8SpeechActive = !!on;
     let activeName = "";
@@ -14881,17 +13466,14 @@ ADD_UI_POLISH_V8 = r'''
     if(!el) return;
     el.classList.toggle("is-speaking", v8SpeechActive);
   }
-
   function getDictationTarget(){
     // If group console prompt is visible, prefer it; else followMsg.
     const op = $("opPrompt");
     const dm = $("followMsg");
-
     if(op && isElementVisible(op)) return op;
     if(dm && isElementVisible(dm)) return dm;
     return dm || op || null;
   }
-
   function appendDictation(text){
     const t = getDictationTarget();
     if(!t) return;
@@ -14900,16 +13482,13 @@ ADD_UI_POLISH_V8 = r'''
     t.value = existing + space + text;
     try{ t.focus(); }catch(_){}
   }
-
   function trySelectByNameSpoken(transcript){
     // If user says a teammate name, switch seats
     const s = (transcript || "").toLowerCase().trim();
     if(!s) return false;
-
     // Collect known seat names
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
-
     // Basic match: if transcript contains the seat name as a whole word-ish
     for(const name of seats){
       const n = (name || "").toLowerCase();
@@ -14932,12 +13511,10 @@ ADD_UI_POLISH_V8 = r'''
     }
     return false;
   }
-
   function installVoiceHooks(){
     // Wrap startRecognition if present (your code uses a wrapper around SpeechRecognition)
     const startFn = window.startRecognition;
     const stopFn = window.stopRecognition;
-
     if(typeof startFn === "function" && !startFn.__v8wrapped){
       const wrappedStart = async function(){
         setSpeaking(true);
@@ -14950,7 +13527,6 @@ ADD_UI_POLISH_V8 = r'''
       wrappedStart.__v8wrapped = true;
       window.startRecognition = wrappedStart;
     }
-
     if(typeof stopFn === "function" && !stopFn.__v8wrapped){
       const wrappedStop = async function(){
         setSpeaking(false);
@@ -14959,7 +13535,6 @@ ADD_UI_POLISH_V8 = r'''
       wrappedStop.__v8wrapped = true;
       window.stopRecognition = wrappedStop;
     }
-
     // If your recognition instance is globally exposed, hook its events safely
     try{
       const rec = window.recognition || window._recognition || null;
@@ -14970,7 +13545,6 @@ ADD_UI_POLISH_V8 = r'''
         rec.__v8events = true;
       }
     }catch(_){}
-
     // Wrap your transcript handler if present
     const handler = window.onVoiceTranscript;
     if(typeof handler === "function" && !handler.__v8wrapped){
@@ -14992,7 +13566,6 @@ ADD_UI_POLISH_V8 = r'''
       window.onVoiceTranscript = wrapped;
     }
   }
-
   // -----------------------------
   // v8: Auto-scroll thread areas when new content arrives
   // -----------------------------
@@ -15009,7 +13582,6 @@ ADD_UI_POLISH_V8 = r'''
       obs.observe(thread, { childList:true, subtree:true });
       thread.__v8obs = true;
     }
-
     const group = $("groupRepliesList") || $("groupReplies") || null;
     if(group && !group.__v8obs){
       const obs2 = new MutationObserver(() => {
@@ -15022,7 +13594,6 @@ ADD_UI_POLISH_V8 = r'''
       group.__v8obs = true;
     }
   }
-
   // -----------------------------
   // v8: Idle breathing controller
   // -----------------------------
@@ -15040,54 +13611,45 @@ ADD_UI_POLISH_V8 = r'''
       }
     }, V8_IDLE_AFTER_MS + 250);
   }
-
   function installIdleBreath(){
     ["pointerdown","touchstart","wheel","keydown","scroll"].forEach(ev => {
       window.addEventListener(ev, markInteraction, {passive:true});
     });
     markInteraction();
   }
-
   // -----------------------------
   // v8: Table lock should really lock panning/zoom gestures, but keep scroll
   // -----------------------------
   function installLockBehavior(){
     const lockBtn = $("tableLockBtn");
     if(!lockBtn) return;
-
     function applyLockedUI(isLocked){
       document.body.classList.toggle("v8-table-locked", !!isLocked);
       lockBtn.textContent = isLocked ? "🔒" : "🔓";
       lockBtn.title = isLocked ? "Table locked (scroll page)" : "Table unlocked (pan/zoom table)";
     }
-
     // Preserve any existing lock behavior, but ensure we also toggle the body class
     let locked = true;
     try{
       locked = (document.body.classList.contains("v8-table-locked"));
     }catch(_){ locked = true; }
-
     applyLockedUI(locked);
-
     lockBtn.addEventListener("click", function(){
       locked = !document.body.classList.contains("v8-table-locked");
       applyLockedUI(locked);
     });
   }
-
   // -----------------------------
   // v8: Bootstrap
   // -----------------------------
   document.addEventListener("DOMContentLoaded", function(){
     try{ moveDiagnosticsIntoSettings(); }catch(_){}
-
     try{ installRememberSeatHooks(); }catch(_){}
     try{ installSpotlightDimming(); }catch(_){}
     try{ installVoiceHooks(); }catch(_){}
     try{ installAutoScroll(); }catch(_){}
     try{ installIdleBreath(); }catch(_){}
     try{ installLockBehavior(); }catch(_){}
-
     // Restore seat after table render; retry a few times in case render is async.
     let tries = 0;
     const timer = setInterval(async () => {
@@ -15100,30 +13662,20 @@ ADD_UI_POLISH_V8 = r'''
     }, 250);
   });
 })();
-
-
 </script>
 '''
-
-
-
-
 # =========================
 # OAUTH STATE STORE (additive safety)
 # =========================
 OAUTH_STATE_STORE = DATA / "oauth_states.json"
-
 def _load_oauth_states():
     return load_json(OAUTH_STATE_STORE, {})
-
 def _save_oauth_states(data):
     save_json(OAUTH_STATE_STORE, data)
-
 def _store_oauth_state(state, username):
     data = _load_oauth_states()
     data[state] = {"username": username, "at": now_iso()}
     _save_oauth_states(data)
-
 def _consume_oauth_state(state):
     data = _load_oauth_states()
     rec = data.pop(state, None)
