@@ -206,25 +206,6 @@ def serve_upload(relpath):
         return abort(404)
 
 
-
-
-@app.get("/assets/<path:relpath>")
-def serve_asset(relpath):
-    """Serve additive UI assets like sounds without affecting existing routes."""
-    try:
-        relpath = (relpath or "").replace("\\", "/")
-        if relpath.startswith("../") or "/../" in relpath:
-            return abort(400)
-        primary = DATA / "assets" / relpath
-        fallback = BASE / "assets" / relpath
-        if primary.exists():
-            return send_from_directory(str(DATA / "assets"), relpath)
-        if fallback.exists():
-            return send_from_directory(str(BASE / "assets"), relpath)
-        return abort(404)
-    except Exception:
-        return abort(404)
-
 # =========================
 # OAuth state helpers (additive)
 # =========================
@@ -277,8 +258,6 @@ else:
 # One-time best-effort migration from old local data folder if the new DATA dir is different and empty-ish.
 try:
     DATA.mkdir(parents=True, exist_ok=True)
-    (DATA / "assets").mkdir(parents=True, exist_ok=True)
-    (DATA / "assets" / "sounds").mkdir(parents=True, exist_ok=True)
     if DATA.resolve() != _OLD_DATA.resolve():
         # migrate key json files if they exist in old dir and not in new
         for fname in ["users.json", "registry.json", "memory.json", "secrets.json", "audit.json"]:
@@ -4269,36 +4248,6 @@ LOGIN_HTML = r"""
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
   </div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
-  <script>
-    const authSounds = {
-      login: (typeof Howl !== "undefined") ? new Howl({
-        src: ['/assets/sounds/login.mp3'],
-        volume: 0.5
-      }) : null,
-      click: (typeof Howl !== "undefined") ? new Howl({
-        src: ['/assets/sounds/click.mp3'],
-        volume: 0.3
-      }) : null
-    };
-
-    function playAuthSound(name){
-      try{
-        if (authSounds && authSounds[name] && typeof authSounds[name].play === 'function') authSounds[name].play();
-      }catch(e){}
-    }
-
-    document.addEventListener('DOMContentLoaded', function(){
-      const loginForm = document.querySelector('form[action="/login"]');
-      const loginBtn = loginForm ? loginForm.querySelector('button[type="submit"]') : null;
-      if(loginBtn){
-        loginBtn.addEventListener('click', function(){ playAuthSound('login'); }, true);
-      }
-      if(loginForm){
-        loginForm.addEventListener('submit', function(){ playAuthSound('login'); }, true);
-      }
-    });
-  </script>
 </body></html>
 """
 
@@ -6079,6 +6028,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="calendarBtn">Calendar</button>
         <button class="btn" id="crmBtn">Client Center</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
+        <button class="btn" id="leadLabBtn">Lead Lab</button>
+        <button class="btn" id="socialStudioBtn">Social Studio</button>
+        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
       </div>
       <div class="commandRow secondary">
         <button class="btn" id="imageLibBtn">Image Library</button>
@@ -6116,6 +6068,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
+        <button class="btn" data-click="leadLabBtn">Lead Lab</button>
+        <button class="btn" data-click="socialStudioBtn">Social Studio</button>
+        <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
         <button class="btn" data-click="imageLibBtn">Image Library</button>
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
@@ -6454,12 +6409,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
-  <div class="pillRow" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+  <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
-    <button class="btn btnMini" id="crmTabLeadLab">Lead Lab</button>
-    <button class="btn btnMini" id="crmTabSocialStudio">Social Studio</button>
-    <button class="btn btnMini" id="crmTabOfferBuilder">Offer Builder</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
@@ -7051,25 +7003,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <img id="lightboxImg" src="" alt="Full screen" style="max-width:96vw; max-height:92vh; border-radius:16px; box-shadow:0 20px 80px rgba(0,0,0,.6);" />
   </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
 <script>
-
-const sounds = {
-  login: (typeof Howl !== "undefined") ? new Howl({
-    src: ['/assets/sounds/login.mp3'],
-    volume: 0.5
-  }) : null,
-  click: (typeof Howl !== "undefined") ? new Howl({
-    src: ['/assets/sounds/click.mp3'],
-    volume: 0.3
-  }) : null
-};
-
-function playSoundSafe(name){
-  try{
-    if (sounds && sounds[name] && typeof sounds[name].play === "function") sounds[name].play();
-  }catch(e){}
-}
 
 if (typeof window.showToast !== "function") {
   window.showToast = function(msg, type) {
@@ -10012,7 +9946,19 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function showGrowthPlaybookModal(){
-      showCRMModal('crmViewPlaybooks', 'Growth Playbook');
+      showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
+    }
+
+    function showLeadLabModal(){
+      showCRMModal('crmViewLeadLab', 'Lead Lab', {standalone:true});
+    }
+
+    function showSocialStudioModal(){
+      showCRMModal('crmViewSocialStudio', 'Social Studio', {standalone:true});
+    }
+
+    function showOfferBuilderModal(){
+      showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
     }
 
     // =========================
@@ -10672,7 +10618,8 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center'){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
+      const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -10689,6 +10636,8 @@ async function crmFetchTasks(){
       if($("modalImg")) $("modalImg").style.display = "none";
 
       $("modalTitle").innerText = titleText;
+      const nav = $("crmNavTabs");
+      if(nav) nav.style.display = standalone ? "none" : "flex";
       crmSetStatus('Loading...');
 
       // default view
@@ -10709,6 +10658,9 @@ async function crmFetchTasks(){
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
+    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
+    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
+    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
 
     // CRM tab binds (safe if missing)
