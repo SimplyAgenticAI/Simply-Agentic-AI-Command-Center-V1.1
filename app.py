@@ -5220,6 +5220,31 @@ HTML = r"""
 
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
+    .modalResizeGrip{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:18px;
+      height:18px;
+      cursor:nwse-resize;
+      z-index:3;
+      border-radius:8px;
+      background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.18));
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+      touch-action:none;
+    }
+    .modalResizeGrip::before{
+      content:"";
+      position:absolute;
+      right:3px;
+      bottom:3px;
+      width:10px;
+      height:10px;
+      border-right:2px solid rgba(255,255,255,.75);
+      border-bottom:2px solid rgba(255,255,255,.75);
+      opacity:.9;
+    }
 
     .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 
@@ -5987,47 +6012,23 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 
 
-/* ===== Desktop window polish: centered, draggable, resizable, less wasted space ===== */
-#overlay{ align-items:flex-start !important; justify-content:center !important; padding:68px 16px 16px !important; }
+/* ===== Full-workspace app windows ===== */
+#overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
 #modalWin{
-  width:min(980px, calc(100vw - 32px)) !important;
-  height:min(760px, calc(100vh - 92px)) !important;
-  max-width:calc(100vw - 32px) !important;
-  max-height:calc(100vh - 92px) !important;
-  inset:auto !important;
-  left:50% !important;
-  top:68px !important;
-  right:auto !important;
-  bottom:auto !important;
-  transform:translateX(-50%) !important;
-  border-radius:18px !important;
-  resize:both !important;
-  min-width:640px !important;
-  min-height:440px !important;
-}
-#modalScroll{
-  height:auto !important;
-  max-height:none !important;
-}
-.modalBodyWrap,
-#modalScroll{
   width:100% !important;
+  height:100% !important;
+  max-width:none !important;
+  max-height:none !important;
+  inset:0 !important;
+  left:0 !important;
+  top:0 !important;
+  right:0 !important;
+  bottom:0 !important;
+  transform:none !important;
+  border-radius:0 !important;
+  resize:none !important;
 }
-.modalBodyWrap > *,
-#modalScroll > *{
-  max-width:960px;
-  margin-left:auto !important;
-  margin-right:auto !important;
-}
-.modalForm,
-#modalBody,
-#manageForm,
-#createForm,
-#frameworkForm,
-#calendarForm{
-  max-width:960px;
-  margin:0 auto !important;
-}
+#modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
 
 </style>
 </head>
@@ -6982,6 +6983,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <div class="sideTitle">
             <div class="h1" id="seatTitle">Select a seat</div>
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
+            <div class="modalResizeGrip" id="modalResizeGrip" aria-label="Resize window" title="Resize window"></div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
@@ -7180,7 +7182,7 @@ if (typeof window.showToast !== "function") {
       const h = Math.max(curH, minH || 0);
       win.style.width = w + "px";
       win.style.height = h + "px";
-      try{ saveModalSize({width:w, height:h}); }catch(e){}
+      try{ saveModalSize(w, h); }catch(e){}
     }
 
 function applyModalPos(){
@@ -7417,75 +7419,115 @@ function showModal(title, body, imgUrl){
       $("restoreModal").style.display = "none";
     };
 
-    (function initModalDrag(){
+    (function initModalWindowControls(){
       const bar = $("modalBar");
       const win = $("modalWin");
+      const grip = $("modalResizeGrip");
       if(!bar || !win) return;
 
-      let startX = 0, startY = 0;
-      let startLeft = 0, startTop = 0;
       function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+      function normalizeWinRect(){
+        const r = win.getBoundingClientRect();
+        win.style.transform = "none";
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.style.left = r.left + "px";
+        win.style.top = r.top + "px";
+        return r;
+      }
       function keepModalInView(){
         const r = win.getBoundingClientRect();
         const maxLeft = Math.max(8, window.innerWidth - r.width - 8);
         const maxTop = Math.max(8, window.innerHeight - r.height - 8);
-        win.style.left = clamp(r.left, 8, maxLeft) + "px";
-        win.style.top = clamp(r.top, 8, maxTop) + "px";
+        const left = clamp(r.left, 8, maxLeft);
+        const top = clamp(r.top, 8, maxTop);
+        win.style.left = left + "px";
+        win.style.top = top + "px";
         win.style.right = "auto";
         win.style.bottom = "auto";
         win.style.transform = "none";
+        saveModalPos(left, top);
+        saveModalSize(r.width, r.height);
       }
+
+      let dragState = {active:false, startX:0, startY:0, startLeft:0, startTop:0};
+      let resizeState = {active:false, startX:0, startY:0, startW:0, startH:0, startLeft:0, startTop:0};
 
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
         if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal")) return;
-
+        if(modalMinimized) return;
+        const r = normalizeWinRect();
         modalDragging = true;
-        bar.setPointerCapture(e.pointerId);
-
-        const r = win.getBoundingClientRect();
-        startX = e.clientX;
-        startY = e.clientY;
-        startLeft = r.left;
-        startTop = r.top;
-
-        win.style.transform = "none";
-        win.style.left = r.left + "px";
-        win.style.top = r.top + "px";
+        dragState.active = true;
+        dragState.startX = e.clientX;
+        dragState.startY = e.clientY;
+        dragState.startLeft = r.left;
+        dragState.startTop = r.top;
+        try{ bar.setPointerCapture(e.pointerId); }catch(err){}
       });
 
       bar.addEventListener("pointermove", (e) => {
-        if(!modalDragging) return;
-
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-
+        if(!dragState.active) return;
         const r = win.getBoundingClientRect();
-        const nextLeft = startLeft + dx;
-        const nextTop = startTop + dy;
-
-        const maxLeft = window.innerWidth - r.width - 6;
-        const maxTop = window.innerHeight - r.height - 6;
-
-        win.style.left = clamp(nextLeft, 6, Math.max(6, maxLeft)) + "px";
-        win.style.top = clamp(nextTop, 6, Math.max(6, maxTop)) + "px";
+        const nextLeft = dragState.startLeft + (e.clientX - dragState.startX);
+        const nextTop = dragState.startTop + (e.clientY - dragState.startY);
+        const maxLeft = Math.max(8, window.innerWidth - r.width - 8);
+        const maxTop = Math.max(8, window.innerHeight - r.height - 8);
+        win.style.left = clamp(nextLeft, 8, maxLeft) + "px";
+        win.style.top = clamp(nextTop, 8, maxTop) + "px";
+        win.style.transform = "none";
       });
 
       function endDrag(pointerId){
-        if(!modalDragging) return;
+        if(!dragState.active) return;
+        dragState.active = false;
         modalDragging = false;
         try{ bar.releasePointerCapture(pointerId); }catch(err){}
-        const r = win.getBoundingClientRect();
-        saveModalPos(r.left, r.top);
+        keepModalInView();
       }
 
       bar.addEventListener("pointerup", (e) => endDrag(e.pointerId));
       bar.addEventListener("pointercancel", (e) => endDrag(e.pointerId));
-    })();
 
-    (function initModalResizePersist(){
-      const win = $("modalWin");
-      if(!win) return;
+      if(grip){
+        grip.addEventListener("pointerdown", (e) => {
+          if(modalMinimized) return;
+          try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
+          const r = normalizeWinRect();
+          resizeState.active = true;
+          resizeState.startX = e.clientX;
+          resizeState.startY = e.clientY;
+          resizeState.startW = r.width;
+          resizeState.startH = r.height;
+          resizeState.startLeft = r.left;
+          resizeState.startTop = r.top;
+          try{ grip.setPointerCapture(e.pointerId); }catch(err){}
+        });
+
+        grip.addEventListener("pointermove", (e) => {
+          if(!resizeState.active) return;
+          const minW = 640;
+          const minH = 440;
+          const maxW = Math.max(minW, window.innerWidth - resizeState.startLeft - 8);
+          const maxH = Math.max(minH, window.innerHeight - resizeState.startTop - 8);
+          const nextW = clamp(resizeState.startW + (e.clientX - resizeState.startX), minW, maxW);
+          const nextH = clamp(resizeState.startH + (e.clientY - resizeState.startY), minH, maxH);
+          win.style.width = nextW + "px";
+          win.style.height = nextH + "px";
+          saveModalSize(nextW, nextH);
+        });
+
+        const endResize = (e) => {
+          if(!resizeState.active) return;
+          resizeState.active = false;
+          try{ grip.releasePointerCapture(e.pointerId); }catch(err){}
+          keepModalInView();
+        };
+        grip.addEventListener("pointerup", endResize);
+        grip.addEventListener("pointercancel", endResize);
+      }
+
       try{
         const ro = new ResizeObserver((entries)=>{
           for(const ent of entries){
@@ -7497,6 +7539,8 @@ function showModal(title, body, imgUrl){
         });
         ro.observe(win);
       }catch(e){}
+
+      window.addEventListener("resize", ()=>{ try{ keepModalInView(); }catch(e){} }, {passive:true});
     })();
 
     function setOpStatus(text){
@@ -9552,6 +9596,7 @@ async function sendFollow(){
         return;
       }
       await loadState();
+      showModal("Installed", "Full team installed.");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12514,12 +12559,37 @@ maybeAutoShowOnboarding();
       </div>
     </div>
     <div id="onbList" style="padding:10px 12px 12px 12px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; overflow-x:hidden; flex:1 1 auto; min-height:0;"></div>
+    <div id="onbResizeGrip" aria-label="Resize Next step window" title="Resize window"></div>
   </div>
 </div>
 
 <style>
-  #onboardingPanel{ scrollbar-width:none; -ms-overflow-style:none; }
+  #onboardingPanel{ scrollbar-width:none; -ms-overflow-style:none; resize:none !important; }
   #onboardingPanel::-webkit-scrollbar{ width:0; height:0; }
+  #onbResizeGrip{
+    position:absolute;
+    right:10px;
+    bottom:10px;
+    width:18px;
+    height:18px;
+    cursor:nwse-resize;
+    z-index:5;
+    border-radius:8px;
+    background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.18));
+    border:1px solid rgba(255,255,255,.14);
+    touch-action:none;
+  }
+  #onbResizeGrip::before{
+    content:"";
+    position:absolute;
+    right:3px;
+    bottom:3px;
+    width:10px;
+    height:10px;
+    border-right:2px solid rgba(255,255,255,.75);
+    border-bottom:2px solid rgba(255,255,255,.75);
+    opacity:.9;
+  }
   #onbList{ scrollbar-width:none; -ms-overflow-style:none; }
   #onbList::-webkit-scrollbar{ width:0; height:0; }
   .onbItem{ display:flex; align-items:center; gap:10px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.03); cursor:pointer; }
@@ -12548,9 +12618,13 @@ maybeAutoShowOnboarding();
 (function(){
   let onbData = null;
   let drag = {active:false, dx:0, dy:0};
+  let onbResize = {active:false, startX:0, startY:0, startW:0, startH:0};
   let suppressAutoOpen = false;
+  const ONB_HIDDEN_KEY = "simply_agentic_onboarding_hidden";
 
   function onb$(id){ try{return document.getElementById(id);}catch(e){return null;} }
+  function loadOnbHidden(){ try{ return sessionStorage.getItem(ONB_HIDDEN_KEY) === "1"; }catch(e){ return false; } }
+  function saveOnbHidden(v){ try{ if(v) sessionStorage.setItem(ONB_HIDDEN_KEY, "1"); else sessionStorage.removeItem(ONB_HIDDEN_KEY); }catch(e){} }
 
   function syncOnboardingButtons(){
     try{
@@ -12571,6 +12645,7 @@ maybeAutoShowOnboarding();
 
   async function openOnboarding(){
     suppressAutoOpen = false;
+    saveOnbHidden(false);
     try{
       await fetch("/api/onboarding/dismiss", {
         method: "POST",
@@ -12601,6 +12676,7 @@ maybeAutoShowOnboarding();
 
   function closeOnboarding(){
     suppressAutoOpen = true;
+    saveOnbHidden(true);
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
@@ -12632,28 +12708,6 @@ maybeAutoShowOnboarding();
     panel.style.top = Math.max(8, y) + "px";
   }
 
-  function clampPanelSize(){
-    const panel = onb$("onboardingPanel");
-    if(!panel) return;
-    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-    panel.style.width = Math.min(Math.max(panel.offsetWidth || 340, 280), vw - 16) + "px";
-    panel.style.height = Math.min(Math.max(panel.offsetHeight || 360, 230), vh - 16) + "px";
-  }
-
-  function keepPanelInView(){
-    const panel = onb$("onboardingPanel");
-    if(!panel) return;
-    clampPanelSize();
-    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
-    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-    const width = panel.offsetWidth || 340;
-    const height = panel.offsetHeight || 360;
-    const left = parseFloat(panel.style.left || "0") || 0;
-    const top = parseFloat(panel.style.top || "0") || 0;
-    setPanelPos(Math.min(Math.max(8, left), Math.max(8, vw - width - 8)), Math.min(Math.max(8, top), Math.max(8, vh - height - 8)));
-  }
-
   async function fetchOnboarding(){
     try{
       const res = await fetch("/api/onboarding/status");
@@ -12672,7 +12726,7 @@ maybeAutoShowOnboarding();
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
 
-    if(onbData.dismissed || onbData.all_done || suppressAutoOpen){
+    if(onbData.dismissed || onbData.all_done || suppressAutoOpen || loadOnbHidden()){
       panel.style.display = "none";
       return;
     }
@@ -12719,6 +12773,7 @@ maybeAutoShowOnboarding();
   }
 
   async function dismissOnboarding(){
+    saveOnbHidden(true);
     try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
@@ -12793,6 +12848,32 @@ maybeAutoShowOnboarding();
     }
   }
 
+  function clampOnb(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function clampPanelSize(){
+    const panel = onb$("onboardingPanel");
+    if(!panel) return;
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    const curW = panel.offsetWidth || 340;
+    const curH = panel.offsetHeight || 360;
+    panel.style.width = clampOnb(curW, 280, Math.max(280, vw - 16)) + "px";
+    panel.style.height = clampOnb(curH, 230, Math.max(230, vh - 16)) + "px";
+  }
+
+  function keepPanelInView(){
+    const panel = onb$("onboardingPanel");
+    if(!panel) return;
+    clampPanelSize();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    const width = panel.offsetWidth || 340;
+    const height = panel.offsetHeight || 360;
+    const left = parseFloat(panel.style.left || "0") || panel.getBoundingClientRect().left || 8;
+    const top = parseFloat(panel.style.top || "0") || panel.getBoundingClientRect().top || 8;
+    setPanelPos(clampOnb(left, 8, Math.max(8, vw - width - 8)), clampOnb(top, 8, Math.max(8, vh - height - 8)));
+  }
+
   function wireDrag(){
     const header = onb$("onbHeader");
     const panel = onb$("onboardingPanel");
@@ -12826,10 +12907,46 @@ maybeAutoShowOnboarding();
     header.addEventListener("pointerup", endDrag);
     header.addEventListener("pointercancel", endDrag);
 
-    try{
-      new ResizeObserver(()=> keepPanelInView()).observe(panel);
-    }catch(_){ }
-    window.addEventListener("resize", keepPanelInView);
+    window.addEventListener("resize", keepPanelInView, {passive:true});
+  }
+
+  function wireOnboardingResize(){
+    const panel = onb$("onboardingPanel");
+    const grip = onb$("onbResizeGrip");
+    if(!panel || !grip) return;
+
+    grip.addEventListener("pointerdown", (e)=>{
+      try{ e.preventDefault(); e.stopPropagation(); }catch(_){}
+      onbResize.active = true;
+      onbResize.startX = e.clientX;
+      onbResize.startY = e.clientY;
+      onbResize.startW = panel.offsetWidth || 340;
+      onbResize.startH = panel.offsetHeight || 360;
+      try{ grip.setPointerCapture(e.pointerId); }catch(err){}
+    });
+
+    grip.addEventListener("pointermove", (e)=>{
+      if(!onbResize.active) return;
+      const rect = panel.getBoundingClientRect();
+      const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+      const maxW = Math.max(280, vw - rect.left - 8);
+      const maxH = Math.max(230, vh - rect.top - 8);
+      const nextW = clampOnb(onbResize.startW + (e.clientX - onbResize.startX), 280, maxW);
+      const nextH = clampOnb(onbResize.startH + (e.clientY - onbResize.startY), 230, maxH);
+      panel.style.width = nextW + "px";
+      panel.style.height = nextH + "px";
+      keepPanelInView();
+    });
+
+    const endResize = (e)=>{
+      onbResize.active = false;
+      keepPanelInView();
+      try{ grip.releasePointerCapture(e.pointerId); }catch(err){}
+    };
+
+    grip.addEventListener("pointerup", endResize);
+    grip.addEventListener("pointercancel", endResize);
   }
 
 
@@ -12842,6 +12959,7 @@ maybeAutoShowOnboarding();
     try{ window.onboardingRefresh = fetchOnboarding; window.onboardingClose = closeOnboarding; window.onboardingOpen = openOnboarding; }catch(_){ }
 
     wireDrag();
+    wireOnboardingResize();
     wireExit();
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
