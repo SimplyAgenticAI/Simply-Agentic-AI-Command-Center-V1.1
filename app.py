@@ -10934,8 +10934,13 @@ async function crmFetchTasks(){
             source_text: ($("leadLabInput")?.value || '').trim()
           })
         });
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'Lead build failed');
+        const raw = await res.text();
+        let data = null;
+        try{ data = JSON.parse(raw); }catch(parseErr){
+          const clean = String(raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error(clean || 'Lead build failed');
+        }
+        if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads` + (data.warning ? ` • ${data.warning}` : '');
       }catch(e){
@@ -10958,8 +10963,13 @@ async function crmFetchTasks(){
       if(box) box.innerHTML = '';
       try{
         const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Generation failed');
+        const raw = await res.text();
+        let data = null;
+        try{ data = JSON.parse(raw); }catch(parseErr){
+          const clean = String(raw || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error(clean || 'Generation failed');
+        }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
         if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
         if(st) st.innerText = 'Ready';
       }catch(e){
@@ -14575,16 +14585,18 @@ def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
     return fallback
 
 _CRM_SEARCH_BLOCKED_DOMAINS = {
-    "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
+    "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com", "brave.com",
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
-    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
+    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com", "mapquest.com"
 }
 _CRM_STATE_CITY_MAP = {
-    "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ"],
-    "nj": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ"],
+    "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Paramus, NJ", "Morristown, NJ", "Freehold, NJ", "Montclair, NJ", "Hackensack, NJ", "Marlton, NJ", "Piscataway, NJ", "Wayne, NJ"],
+    "nj": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Paramus, NJ", "Morristown, NJ", "Freehold, NJ", "Montclair, NJ", "Hackensack, NJ", "Marlton, NJ", "Piscataway, NJ", "Wayne, NJ"],
 }
-_CRM_BAD_PERSON_WORDS = {"realty", "realtor", "realtors", "estate", "homes", "home", "properties", "property", "group", "team", "broker", "brokerage", "real", "contact", "about", "welcome", "new", "jersey", "nj", "duckduckgo", "search"}
+_CRM_BAD_PERSON_WORDS = {"realty", "realtor", "realtors", "estate", "homes", "home", "properties", "property", "group", "team", "broker", "brokerage", "real", "contact", "about", "welcome", "new", "jersey", "nj", "duckduckgo", "search", "office", "agents", "agent"}
+_CRM_AGENT_TERMS = {"realtor", "realtors", "real estate", "broker", "brokerage", "homes for sale", "licensed real estate", "agent", "agents", "realty", "properties"}
+_CRM_CONTACT_PATH_HINTS = ["/contact", "/about", "/team", "/agents", "/agent", "/staff", "/our-team", "/meet-the-team", "/contact-us"]
 
 
 def _crm_is_blocked_domain(domain: str) -> bool:
@@ -14687,7 +14699,11 @@ def _crm_guess_company(title: str, domain: str) -> str:
 def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         ctype = (r.headers.get("Content-Type") or "").lower()
         if r.status_code >= 400:
@@ -14716,7 +14732,7 @@ def _crm_find_contact_links(html: str, base_url: str) -> List[str]:
             for a in soup.find_all("a", href=True):
                 href = (a.get("href") or "").strip()
                 label = " ".join([a.get_text(" ", strip=True), href]).lower()
-                if not any(k in label for k in ["contact", "about", "agent", "team", "staff", "bio"]):
+                if not any(k in label for k in ["contact", "about", "agent", "team", "staff", "bio", "realtor"]):
                     continue
                 full = urljoin(base_url, href)
                 if full.startswith("mailto:") or full.startswith("tel:"):
@@ -14728,7 +14744,57 @@ def _crm_find_contact_links(html: str, base_url: str) -> List[str]:
                     out.append(full)
         except Exception:
             pass
-    return out[:3]
+    for hint in _CRM_CONTACT_PATH_HINTS:
+        full = urljoin(base_url, hint)
+        if _crm_same_domain(full, base_url) and full not in seen:
+            seen.add(full)
+            out.append(full)
+    return out[:6]
+
+
+def _crm_collect_schema_entities(html: str) -> Dict[str, List[Dict[str, str]]]:
+    people = []
+    orgs = []
+    if not html or BeautifulSoup is None:
+        return {"people": people, "orgs": orgs}
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        scripts = soup.find_all("script", attrs={"type": "application/ld+json"})
+    except Exception:
+        return {"people": people, "orgs": orgs}
+
+    def walk(node):
+        if isinstance(node, dict):
+            typ = node.get("@type")
+            if isinstance(typ, list):
+                types = [str(x).lower() for x in typ]
+            else:
+                types = [str(typ).lower()] if typ else []
+            entry = {
+                "name": str(node.get("name") or "").strip(),
+                "email": str(node.get("email") or "").strip(),
+                "telephone": str(node.get("telephone") or "").strip(),
+                "url": str(node.get("url") or "").strip(),
+            }
+            if any(t in types for t in ["person", "realestateagent"]):
+                people.append(entry)
+            elif any(t in types for t in ["organization", "realestateagent", "realestateagentservice", "localbusiness", "realestateagency"]):
+                orgs.append(entry)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for script in scripts[:12]:
+        raw = script.get_text(" ", strip=True)
+        if not raw:
+            continue
+        try:
+            walk(json.loads(raw))
+        except Exception:
+            pass
+    return {"people": people, "orgs": orgs}
 
 
 def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> Dict[str, Any]:
@@ -14746,16 +14812,34 @@ def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> D
                 og = soup.find("meta", attrs={"property": "og:title"}) or soup.find("meta", attrs={"name": "title"})
                 if og and og.get("content"):
                     title = og.get("content").strip()
-            headings = [x.get_text(" ", strip=True) for x in soup.find_all(["h1", "h2"], limit=8)]
+            headings = [x.get_text(" ", strip=True) for x in soup.find_all(["h1", "h2"], limit=12)]
         except Exception:
             pass
+    schema = _crm_collect_schema_entities(html)
     emails = _crm_extract_emails_from_text((html or "") + "\n" + visible_text)
     phones = _crm_extract_phones_from_text((html or "") + "\n" + visible_text)
+    for ent in (schema.get("people") or []) + (schema.get("orgs") or []):
+        if ent.get("email"):
+            emails.extend(_crm_extract_emails_from_text(ent.get("email")))
+        if ent.get("telephone"):
+            phones.extend(_crm_extract_phones_from_text(ent.get("telephone")))
+    emails = list(dict.fromkeys(emails))
+    phones = list(dict.fromkeys(phones))
     company = _crm_guess_company(title or (headings[0] if headings else ""), url)
-    person_name = _crm_best_person_name(([title] if title else []) + headings, company=company)
-    text_l = (title + " " + " ".join(headings) + " " + visible_text[:5000]).lower()
-    niche_hit = bool(niche and all(tok in text_l for tok in [t for t in re.findall(r"[a-z0-9]+", niche.lower())[:2]])) or any(k in text_l for k in ["realtor", "real estate", "broker", "brokerage", "homes for sale", "properties"]) 
-    location_hit = bool(location and any(tok in text_l for tok in re.findall(r"[a-z0-9]+", location.lower())[:2]))
+    if schema.get("orgs"):
+        org_name = (schema["orgs"][0].get("name") or "").strip()
+        if org_name:
+            company = org_name
+    person_candidates = []
+    person_candidates.extend([title] if title else [])
+    person_candidates.extend(headings)
+    person_candidates.extend([p.get("name") or "" for p in (schema.get("people") or [])])
+    person_name = _crm_best_person_name(person_candidates, company=company)
+    text_l = (title + " " + " ".join(headings) + " " + visible_text[:7000]).lower()
+    niche_tokens = [t for t in re.findall(r"[a-z0-9]+", niche.lower()) if len(t) > 2][:3]
+    location_tokens = [t for t in re.findall(r"[a-z0-9]+", location.lower()) if len(t) > 1][:3]
+    niche_hit = bool(niche_tokens and any(tok in text_l for tok in niche_tokens)) or any(k in text_l for k in _CRM_AGENT_TERMS)
+    location_hit = bool(location_tokens and any(tok in text_l for tok in location_tokens))
     return {
         "title": title,
         "headings": headings,
@@ -14766,6 +14850,7 @@ def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> D
         "name": person_name,
         "niche_hit": bool(niche_hit),
         "location_hit": bool(location_hit),
+        "schema": schema,
     }
 
 
@@ -14784,29 +14869,31 @@ def _crm_merge_email_candidates(public_emails: List[str], name: str, domain: str
 
 
 def _crm_score_candidate(candidate: Dict[str, Any], niche: str, location: str) -> int:
-    score = 35
+    score = 28
     if candidate.get("website"):
         score += 10
     if candidate.get("phone"):
-        score += 18
+        score += 22
     public_emails = [x for x in (candidate.get("email_candidates") or []) if x.get("status") == "public"]
     if public_emails:
-        score += 25
+        score += 22
+    elif candidate.get("email_candidates"):
+        score += 6
     if candidate.get("name") and candidate.get("name") != candidate.get("company"):
-        score += 12
+        score += 10
     if candidate.get("niche_hit"):
-        score += 8
+        score += 12
     if candidate.get("location_hit"):
-        score += 8
+        score += 10
     if niche and any(tok in (candidate.get("notes") or "").lower() for tok in re.findall(r"[a-z0-9]+", niche.lower())[:2]):
-        score += 5
+        score += 4
     return max(1, min(99, score))
 
 
 def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"}
         r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=18)
         html = r.text or ""
     except Exception:
@@ -14842,6 +14929,89 @@ def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     return out
 
 
+def _crm_ddg_lite_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
+    try:
+        import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"}
+        r = requests.get("https://lite.duckduckgo.com/lite/", params={"q": query}, headers=headers, timeout=18)
+        html = r.text or ""
+    except Exception:
+        return []
+    out, seen = [], set()
+    if BeautifulSoup is not None and html:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = (a.get("href") or "").strip()
+                title = a.get_text(" ", strip=True)
+                if not href or not href.startswith("http"):
+                    continue
+                domain = _crm_extract_domain(urlparse(href).netloc or href)
+                if _crm_is_blocked_domain(domain) or domain in seen:
+                    continue
+                seen.add(domain)
+                out.append({"url": href, "title": title, "domain": domain})
+                if len(out) >= max_results:
+                    break
+        except Exception:
+            pass
+    return out
+
+
+def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
+    try:
+        import requests
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36"}
+        r = requests.get("https://www.bing.com/search", params={"q": query, "count": max_results}, headers=headers, timeout=18)
+        html = r.text or ""
+    except Exception:
+        return []
+    out, seen = [], set()
+    if BeautifulSoup is not None and html:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.select("li.b_algo h2 a, li.b_algo .b_title a"):
+                href = (a.get("href") or "").strip()
+                title = a.get_text(" ", strip=True)
+                if not href or not href.startswith("http"):
+                    continue
+                domain = _crm_extract_domain(urlparse(href).netloc or href)
+                if _crm_is_blocked_domain(domain) or domain in seen:
+                    continue
+                seen.add(domain)
+                out.append({"url": href, "title": title, "domain": domain})
+                if len(out) >= max_results:
+                    break
+        except Exception:
+            pass
+    return out
+
+
+def _crm_search_web(query: str, max_results: int = 18) -> List[Dict[str, str]]:
+    providers = [
+        lambda q, m: _crm_ddg_search(q, max_results=m),
+        lambda q, m: _crm_ddg_lite_search(q, max_results=m),
+        lambda q, m: _crm_bing_search(q, max_results=m),
+    ]
+    out = []
+    seen = set()
+    per = max(6, min(18, max_results))
+    for provider in providers:
+        try:
+            rows = provider(query, per)
+        except Exception:
+            rows = []
+        for row in rows:
+            domain = row.get("domain") or ""
+            if not domain or domain in seen or _crm_is_blocked_domain(domain):
+                continue
+            seen.add(domain)
+            out.append(row)
+            if len(out) >= max_results:
+                return out
+    return out
+
+
 def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: str) -> List[str]:
     niche = (niche or "businesses").strip()
     location = (location or "United States").strip()
@@ -14851,28 +15021,38 @@ def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: 
     if loc_key in _CRM_STATE_CITY_MAP:
         extra = _CRM_STATE_CITY_MAP[loc_key]
         if mode == "precision":
-            locations.extend(extra[:4])
+            locations.extend(extra[:6])
         elif mode == "broad":
-            locations.extend(extra[:12])
+            locations.extend(extra[:20])
         else:
-            locations.extend(extra[:8])
-    templates = [
+            locations.extend(extra[:12])
+    is_realtor = bool(re.search(r"real\s*estate|realtor|broker", niche, flags=re.I))
+    base_templates = [
         '{niche} in {loc} contact',
         '{loc} {niche} office',
-        '{loc} {niche} realtor broker',
+        '{loc} {niche} contact us',
         '{loc} {niche} team',
-        '{loc} {niche} real estate agent',
+        '{loc} {niche} phone email',
     ]
+    if is_realtor:
+        base_templates.extend([
+            '{loc} real estate agents brokerage',
+            '{loc} realtor office',
+            '{loc} realty group agents',
+            '{loc} real estate broker contact',
+            '{loc} homes real estate team',
+        ])
     queries = []
     seen = set()
     for loc in locations:
-        for tpl in templates:
+        for tpl in base_templates:
             q = tpl.format(niche=niche, loc=loc).strip()
-            if q.lower() not in seen:
-                seen.add(q.lower())
+            key = q.lower()
+            if key not in seen:
+                seen.add(key)
                 queries.append(q)
-    max_q = 8 if mode == "precision" else (14 if mode == "balanced" else 20)
-    return queries[:max_q]
+    target_q = 10 if mode == "precision" else (24 if mode == "balanced" else 40)
+    return queries[:max(target_q, min(len(queries), lead_count * 2))]
 
 
 def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query: str) -> Optional[Dict[str, Any]]:
@@ -14887,11 +15067,13 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
     website = f"https://{_crm_extract_domain(urlparse(final_url).netloc or final_url)}"
+    sub_signals = []
     for link in _crm_find_contact_links(html, final_url):
         sub_html, _ = _crm_fetch_text_url(link)
         if not sub_html:
             continue
         sub = _crm_parse_page_signals(sub_html, link, niche, location)
+        sub_signals.append(sub)
         for e in sub.get("emails") or []:
             if e not in emails:
                 emails.append(e)
@@ -14904,8 +15086,15 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             signals["company"] = sub.get("company")
         signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
         signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
+        if emails and phones:
+            break
     name = signals.get("name") or ""
     company = signals.get("company") or _crm_guess_company(result.get("title") or "", domain)
+    if not name:
+        for sub in sub_signals:
+            if sub.get("name"):
+                name = sub.get("name")
+                break
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
     email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
     candidate = {
@@ -14923,7 +15112,10 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "source_query": query,
     }
     candidate["score"] = _crm_score_candidate(candidate, niche, location)
-    if candidate["score"] < 45:
+    has_core_contact = bool(candidate.get("phone") or candidate.get("email") or candidate.get("email_candidates"))
+    if candidate["score"] < 34:
+        return None
+    if not has_core_contact and not (candidate.get("website") and candidate.get("niche_hit")):
         return None
     return candidate
 
@@ -14961,23 +15153,25 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     queries = _crm_build_queries(niche, location, lead_count, search_mode)
     raw_results = []
     seen_domains = set(existing_domains or set())
-    per_query = 10 if (search_mode or "balanced").lower() == "precision" else 14
+    mode = (search_mode or "balanced").lower()
+    per_query = 10 if mode == "precision" else (16 if mode == "balanced" else 22)
+    max_raw = max(lead_count * 8, 80)
     for q in queries:
-        for row in _crm_ddg_search(q, max_results=per_query):
+        for row in _crm_search_web(q, max_results=per_query):
             domain = row.get("domain") or ""
             if not domain or domain in seen_domains or _crm_is_blocked_domain(domain):
                 continue
             seen_domains.add(domain)
             row["query"] = q
             raw_results.append(row)
-            if len(raw_results) >= max(lead_count * 5, 40):
+            if len(raw_results) >= max_raw:
                 break
-        if len(raw_results) >= max(lead_count * 5, 40):
+        if len(raw_results) >= max_raw:
             break
     out = []
     if not raw_results:
         return out
-    max_workers = 6
+    max_workers = 8
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get("query") or ""): row for row in raw_results}
         for fut in as_completed(future_map):
@@ -15001,75 +15195,82 @@ def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    niche = (payload.get("niche") or "").strip()
-    location = (payload.get("location") or "").strip()
-    source_text = (payload.get("source_text") or "").strip()
-    search_mode = (payload.get("search_mode") or "balanced").strip().lower()
     try:
-        lead_count = int(payload.get("lead_count") or 25)
-    except Exception:
-        lead_count = 25
-    lead_count = max(1, min(100, lead_count))
-    if not niche and not location and not source_text:
-        return jsonify({"ok": False, "error": "Add a niche or location to search"}), 400
+        payload = request.get_json(silent=True) or {}
+        niche = (payload.get("niche") or "").strip()
+        location = (payload.get("location") or "").strip()
+        source_text = (payload.get("source_text") or "").strip()
+        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
+        try:
+            lead_count = int(payload.get("lead_count") or 25)
+        except Exception:
+            lead_count = 25
+        lead_count = max(1, min(100, lead_count))
+        if not niche and not location and not source_text:
+            return jsonify({"ok": False, "error": "Add a niche or location to search"}), 400
 
-    items = []
-    existing_domains = set()
-    if source_text:
-        seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
-        for item in seed_items:
-            dom = item.get("domain") or ""
-            if dom:
-                existing_domains.add(dom)
-        items.extend(seed_items)
+        items = []
+        existing_domains = set()
+        if source_text:
+            seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+            for item in seed_items:
+                dom = item.get("domain") or ""
+                if dom:
+                    existing_domains.add(dom)
+            items.extend(seed_items)
 
-    remaining = max(0, lead_count - len(items))
-    if remaining > 0:
-        discovered = _crm_discover_public_leads(niche, location, remaining, search_mode, existing_domains=existing_domains)
-        items.extend(discovered)
+        remaining = max(0, lead_count - len(items))
+        if remaining > 0:
+            discovered = _crm_discover_public_leads(niche, location, remaining, search_mode, existing_domains=existing_domains)
+            items.extend(discovered)
 
-    items = items[:lead_count]
-    warning = ""
-    if not items:
-        warning = "No public leads could be validated from the current search. Try a city, switch to Broad mode, or add seed rows."
-    elif len(items) < lead_count:
-        warning = f"Only {len(items)} validated leads were found from public pages for this search."
-    return jsonify({"ok": True, "items": items, "count": len(items), "warning": warning})
+        items = items[:lead_count]
+        warning = ""
+        if not items:
+            warning = "No public leads could be validated from the current search. Try Broad mode, use a more specific niche, or search one city at a time."
+        elif len(items) < lead_count:
+            warning = f"Only {len(items)} validated leads were found from public pages for this search."
+        return jsonify({"ok": True, "items": items, "count": len(items), "warning": warning})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Lead Lab failed: {str(e)}"}), 500
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    platform = (payload.get("platform") or "Facebook").strip()
-    asset_type = (payload.get("asset_type") or "content_pack").strip()
-    audience = (payload.get("audience") or "entrepreneurs").strip()
-    offer = (payload.get("offer") or "").strip()
-    if not offer:
-        return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
+    try:
+        payload = request.get_json(silent=True) or {}
+        platform = (payload.get("platform") or "Facebook").strip()
+        asset_type = (payload.get("asset_type") or "content_pack").strip()
+        audience = (payload.get("audience") or "entrepreneurs").strip()
+        offer = (payload.get("offer") or "").strip()
+        if not offer:
+            return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
-    fallback = (
-        f"Content pack for {platform}\n"
-        f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
-        f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
-        f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
-        f"Comments\n"
-        f"- Curious what part of this feels hardest right now?\n"
-        f"- This is the part most people skip, and it costs them momentum.\n"
-        f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
-        f"DM openers\n"
-        f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
-        f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
-        f"CTA ideas\n"
-        f"- Want the exact workflow? Comment \"system\".\n"
-        f"- If this is relevant to your business, message me and I will show you the simple version."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
+        system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
+        prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+        fallback = (
+            f"Content pack for {platform}\n"
+            f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
+            f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
+            f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
+            f"Comments\n"
+            f"- Curious what part of this feels hardest right now?\n"
+            f"- This is the part most people skip, and it costs them momentum.\n"
+            f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
+            f"DM openers\n"
+            f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
+            f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
+            f"CTA ideas\n"
+            f"- Want the exact workflow? Comment \"system\".\n"
+            f"- If this is relevant to your business, message me and I will show you the simple version."
+        )
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        return jsonify({"ok": True, "output": output})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Social Studio failed: {str(e)}"}), 500
+
 
 @app.post("/api/crm/offer_builder")
 def api_crm_offer_builder():
