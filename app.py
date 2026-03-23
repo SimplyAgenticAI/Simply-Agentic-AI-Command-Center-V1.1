@@ -14643,6 +14643,141 @@ def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
         pass
     return fallback
 
+
+def _crm_extract_json_block(text: str) -> str:
+    s = (text or '').strip()
+    if not s:
+        return ''
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, flags=re.I)
+    if m:
+        s = m.group(1).strip()
+    start = s.find('[')
+    end = s.rfind(']')
+    if start != -1 and end != -1 and end > start:
+        return s[start:end+1]
+    start = s.find('{')
+    end = s.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        return s[start:end+1]
+    return s
+
+
+def _crm_response_text(resp: Any) -> str:
+    try:
+        txt = getattr(resp, 'output_text', None)
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+    except Exception:
+        pass
+    try:
+        data = resp.model_dump() if hasattr(resp, 'model_dump') else resp
+    except Exception:
+        data = resp
+    parts: List[str] = []
+    try:
+        outputs = (data or {}).get('output') or []
+        for item in outputs:
+            for c in (item.get('content') or []):
+                if isinstance(c, dict):
+                    if c.get('type') in ('output_text', 'text') and c.get('text'):
+                        parts.append(str(c.get('text')))
+                    elif c.get('type') == 'message' and c.get('content'):
+                        for inner in (c.get('content') or []):
+                            if isinstance(inner, dict) and inner.get('text'):
+                                parts.append(str(inner.get('text')))
+    except Exception:
+        pass
+    return '\n'.join([p for p in parts if p]).strip()
+
+
+def _crm_openai_web_search(query: str, niche: str, location: str, max_results: int = 12) -> List[Dict[str, Any]]:
+    """Use OpenAI web search to find likely prospect businesses.
+
+    Returns lightweight candidate rows that are later validated against public pages.
+    This is additive: if the user's key or model does not support web search, we quietly fall back.
+    """
+    query = (query or '').strip()
+    if not query:
+        return []
+    try:
+        client = get_openai_client()
+    except Exception:
+        return []
+
+    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4.1-mini')
+    system = (
+        'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
+        'Return ONLY a JSON array. Each item must be an object with keys: '
+        'name, company, website, phone, email, notes. '
+        'Only include likely real prospects, not search engines, portals, directories, marketplaces, social networks, review sites, or aggregators. '
+        'Prefer official business websites. If email or phone is unknown, use an empty string. '
+        f'Return at most {max(1, min(25, int(max_results or 12)))} items.'
+    )
+    user = (
+        f'Niche: {niche or "businesses"}\n'
+        f'Location: {location or "target area"}\n'
+        f'Search query: {query}\n'
+        'Requirements: prioritize official websites and businesses clearly serving the niche and location. '
+        'Do not invent contact details. Return JSON only.'
+    )
+
+    try:
+        resp = client.responses.create(
+            model=model,
+            tools=[{'type': 'web_search_preview'}],
+            temperature=0.1,
+            input=[
+                {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
+                {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
+            ],
+            timeout=90,
+        )
+    except Exception:
+        # Older SDKs / unsupported accounts should not break Lead Lab.
+        return []
+
+    txt = _crm_response_text(resp)
+    raw = _crm_extract_json_block(txt)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if isinstance(data, dict):
+        data = data.get('items') or data.get('results') or []
+    if not isinstance(data, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        website = (row.get('website') or row.get('url') or '').strip()
+        phone = _crm_clean_phone(row.get('phone') or '')
+        email = (row.get('email') or '').strip().lower()
+        domain = _crm_extract_domain(urlparse(website).netloc or website)
+        if not domain or _crm_is_blocked_domain(domain):
+            continue
+        key = domain.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            'url': website if website.startswith('http') else ('https://' + domain),
+            'title': (row.get('company') or row.get('name') or domain).strip(),
+            'domain': domain,
+            'snippet': (row.get('notes') or '').strip(),
+            'name_hint': (row.get('name') or '').strip(),
+            'company_hint': (row.get('company') or '').strip(),
+            'phone_hint': phone,
+            'email_hint': email,
+        })
+        if len(out) >= max_results:
+            break
+    return out
+
 _CRM_SEARCH_BLOCKED_DOMAINS = {
     "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
@@ -14650,8 +14785,8 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
 }
 _CRM_STATE_CITY_MAP = {
-    "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ"],
-    "nj": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ"],
+    "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
+    "nj": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
 }
 _CRM_BAD_PERSON_WORDS = {"realty", "realtor", "realtors", "estate", "homes", "home", "properties", "property", "group", "team", "broker", "brokerage", "real", "contact", "about", "welcome", "new", "jersey", "nj", "duckduckgo", "search"}
 
@@ -14950,12 +15085,36 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     if not url or _crm_is_blocked_domain(domain):
         return None
     html, final_url = _crm_fetch_text_url(url)
+    website = f"https://{_crm_extract_domain(urlparse(final_url or url).netloc or final_url or url)}" if (final_url or url) else (f"https://{domain}" if domain else "")
+    hint_name = (result.get('name_hint') or '').strip()
+    hint_company = (result.get('company_hint') or '').strip()
+    hint_phone = _crm_clean_phone(result.get('phone_hint') or '')
+    hint_email = (result.get('email_hint') or '').strip().lower()
+
     if not html:
-        return None
+        candidate = _crm_fallback_candidate_from_result(result, niche, location, query)
+        if not candidate:
+            return None
+        if hint_name and (candidate.get('name') == candidate.get('company') or not candidate.get('name')):
+            candidate['name'] = hint_name
+        if hint_company:
+            candidate['company'] = hint_company
+        if hint_phone and not candidate.get('phone'):
+            candidate['phone'] = hint_phone
+        if hint_email and not candidate.get('email'):
+            candidate['email'] = hint_email
+        candidate['website'] = website or candidate.get('website') or ''
+        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
+        candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
+        return candidate
+
     signals = _crm_parse_page_signals(html, final_url, niche, location)
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
-    website = f"https://{_crm_extract_domain(urlparse(final_url).netloc or final_url)}"
+    if hint_email and hint_email not in emails:
+        emails.insert(0, hint_email)
+    if hint_phone and hint_phone not in phones:
+        phones.insert(0, hint_phone)
     for link in _crm_find_contact_links(html, final_url):
         sub_html, _ = _crm_fetch_text_url(link)
         if not sub_html:
@@ -14973,8 +15132,8 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             signals["company"] = sub.get("company")
         signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
         signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
-    name = signals.get("name") or ""
-    company = signals.get("company") or _crm_guess_company(result.get("title") or "", domain)
+    name = signals.get("name") or hint_name or ""
+    company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
     email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
     candidate = {
@@ -14992,7 +15151,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "source_query": query,
     }
     candidate["score"] = _crm_score_candidate(candidate, niche, location)
-    if candidate["score"] < 45:
+    if candidate["score"] < 40:
         return None
     return candidate
 
@@ -15061,11 +15220,18 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     return out
 
 
-def _crm_public_search(query: str, max_results: int = 18) -> List[Dict[str, str]]:
+def _crm_public_search(query: str, max_results: int = 18, niche: str = "", location: str = "") -> List[Dict[str, str]]:
     merged, seen = [], set()
-    for fn in (_crm_bing_search, _crm_ddg_search):
+    search_fns = [lambda q, max_results=max_results: _crm_openai_web_search(q, niche=niche, location=location, max_results=max_results)]
+    search_fns.extend([_crm_bing_search, _crm_ddg_search])
+    for fn in search_fns:
         try:
             rows = fn(query, max_results=max_results)
+        except TypeError:
+            try:
+                rows = fn(query)
+            except Exception:
+                rows = []
         except Exception:
             rows = []
         for row in rows:
@@ -15176,7 +15342,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     seen_domains = set(existing_domains or set())
     per_query = 10 if (search_mode or "balanced").lower() == "precision" else 16 if (search_mode or "balanced").lower() == "balanced" else 22
     for q in queries:
-        for row in _crm_public_search(q, max_results=per_query):
+        for row in _crm_public_search(q, max_results=per_query, niche=niche, location=location):
             domain = row.get("domain") or ""
             if not domain or domain in seen_domains or _crm_is_blocked_domain(domain):
                 continue
