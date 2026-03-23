@@ -2343,6 +2343,48 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
     return {"to": to_val, "subject": subject_val, "body": body_val}
 
 
+def extract_sms_draft(text: str) -> Optional[Dict[str, str]]:
+    if not text:
+        return None
+
+    content = text.strip()
+    block = content
+    m = re.search(r"```sms\s*(.*?)```", content, re.IGNORECASE | re.DOTALL)
+    if m:
+        block = (m.group(1) or "").strip()
+
+    lines = [ln.rstrip("\n") for ln in block.splitlines()]
+    to_val = ""
+    body_lines: List[str] = []
+    in_body = False
+
+    for raw in lines:
+        if not raw.strip() and not in_body:
+            continue
+        if not in_body:
+            hm = re.match(r"^(to|body)\s*:\s*(.*)$", raw, re.IGNORECASE)
+            if hm:
+                key = (hm.group(1) or "").lower().strip()
+                val = (hm.group(2) or "").strip()
+                if key == "to":
+                    to_val = val
+                    continue
+                if key == "body":
+                    in_body = True
+                    if val:
+                        body_lines.append(val)
+                    continue
+        else:
+            body_lines.append(raw.rstrip())
+
+    body_val = "\n".join(body_lines).strip()
+    if not body_val:
+        body_val = block.strip()
+    if not body_val:
+        return None
+    return {"to": to_val, "body": body_val}
+
+
 # =========================
 # PROMPTS + LLM
 # =========================
@@ -2371,6 +2413,21 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "rest of body.\n"
         "```\n"
         "Do not claim the email was sent.\n"
+        "No em dashes.\n"
+    )
+
+    sms_rules = (
+        "SMS CAPABILITY\n"
+        "You can draft SMS messages, but you cannot send SMS messages.\n"
+        "If the user asks you to write a text message, output a structured SMS draft so the UI can auto fill fields.\n"
+        "Use this exact format when an SMS draft is appropriate:\n"
+        "```sms\n"
+        "To: +15555550123\n"
+        "Body: first line of text\n"
+        "rest of text.\n"
+        "```\n"
+        "Keep SMS drafts concise and natural.\n"
+        "Do not claim the text was sent.\n"
         "No em dashes.\n"
     )
 
@@ -2426,7 +2483,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
-        f"{email_rules}\n"
+        f"{email_rules}\n\n{sms_rules}\n"
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
@@ -3515,6 +3572,7 @@ def api_followup():
     save_thread(name, new_thread)
 
     draft = extract_email_draft(text)
+    sms_draft = extract_sms_draft(text)
 
     append_log("followup", {
         "name": name,
@@ -3524,7 +3582,8 @@ def api_followup():
         "vision_images_count": len(vision_images),
         "framework_length": len(load_core_framework()),
         "response": text,
-        "email_draft": draft
+        "email_draft": draft,
+        "sms_draft": sms_draft
     })
 
 
@@ -3538,6 +3597,7 @@ def api_followup():
             "attachment_meta": attach_meta,
             "vision_images_count": len(vision_images),
             "email_draft": draft,
+            "sms_draft": sms_draft,
             "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
         },
         teammate=name,
@@ -3552,7 +3612,7 @@ def api_followup():
 
 
 
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "sms_draft": sms_draft, "attachment_meta": attach_meta})
 
 
 @app.get("/api/thread/<name>")
@@ -3690,6 +3750,32 @@ def api_send_email():
 
     return jsonify({"ok": True, "provider": provider})
 
+
+@app.post("/api/send_sms")
+def api_send_sms():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    to_phone = (data.get("to") or "").strip()
+    body = (data.get("body") or "").strip()
+    from_teammate = (data.get("from_teammate") or "").strip()
+
+    if not to_phone or not body:
+        return jsonify({"ok": False, "error": "Missing to or body"}), 400
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
+    if not ok_send:
+        return jsonify({"ok": False, "error": err or "SMS send failed"}), 400
+
+    try:
+        _crm_log_message(uname, {"type": "single_sms", "to": to_phone, "from_teammate": from_teammate, "sent": 1, "failed": 0})
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "provider": "twilio"})
 
 
 # =========================
@@ -6533,6 +6619,61 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
 </div>
 
+<div class="modalForm" id="smsConsoleForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">When a teammate drafts a text message, fields auto fill here. You approve before sending.</div>
+  <div class="row2">
+    <input class="field" id="smsFrom" placeholder="From" readonly/>
+    <input class="field" id="smsTo" placeholder="To: +1..."/>
+  </div>
+  <div style="height:10px"></div>
+  <textarea class="field" id="smsBody" style="height:220px" placeholder="Text message body"></textarea>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <button class="btn" id="draftSmsWithSelected">Draft with selected</button>
+    <button class="btn btnPrimary" id="sendSmsBtn">Approve and send text</button>
+  </div>
+  <div class="tiny" id="smsConsoleStatus" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
+</div>
+
+<div class="modalForm" id="leadHandoffForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Choose who should write the outreach, then the app will open the matching console with the draft loaded.</div>
+  <div class="grid">
+    <div>
+      <label>Teammate</label>
+      <select id="leadHandoffTeammate"></select>
+    </div>
+    <div>
+      <label>Channel</label>
+      <input id="leadHandoffChannel" readonly />
+    </div>
+    <div>
+      <label>Goal</label>
+      <select id="leadHandoffGoal">
+        <option value="intro">Intro</option>
+        <option value="follow_up">Follow up</option>
+        <option value="offer">Offer</option>
+        <option value="nurture">Nurture</option>
+        <option value="book_call">Book call</option>
+      </select>
+    </div>
+    <div>
+      <label>Tone</label>
+      <select id="leadHandoffTone">
+        <option value="warm">Warm</option>
+        <option value="professional">Professional</option>
+        <option value="direct">Direct</option>
+        <option value="casual">Casual</option>
+      </select>
+    </div>
+  </div>
+  <label style="margin-top:10px;">Lead context</label>
+  <textarea id="leadHandoffContext" rows="7" readonly></textarea>
+  <div class="actions" style="justify-content:flex-end;">
+    <button class="btn" id="leadHandoffCancel">Cancel</button>
+    <button class="btn btnPrimary" id="leadHandoffGenerate">Write draft</button>
+  </div>
+  <div class="tiny" id="leadHandoffStatus"></div>
+</div>
+
 <div class="modalForm" id="crmForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
@@ -7230,7 +7371,9 @@ if (typeof window.showToast !== "function") {
     let lastGroupOutputs = {};
     let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
+    let lastSmsDraftBy = "";
     let lastImageState = {};
+    let leadHandoffState = null;
 
     let groupFileIds = [];
     let dmFileIds = [];
@@ -7394,6 +7537,8 @@ function applyModalPos(){
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -7793,16 +7938,160 @@ function showModal(title, body, imgUrl){
 
       lastEmailDraftBy = teammateName || selectedSeat || "";
 
-      if(draft.to) $("emailTo").value = draft.to;
-      if(draft.subject) $("emailSubject").value = draft.subject;
-      if(draft.body) $("emailBody").value = draft.body;
+      if($("emailTo") && draft.to) $("emailTo").value = draft.to;
+      if($("emailSubject") && draft.subject) $("emailSubject").value = draft.subject;
+      if($("emailBody") && draft.body) $("emailBody").value = draft.body;
 
       setEmailFrom(lastEmailDraftBy);
+      showEmailConsoleModal("Email Console");
+      showToast(`Email draft loaded${lastEmailDraftBy ? ' by ' + lastEmailDraftBy : ''}`);
+    }
 
-      showModal(
-        "Email draft ready",
-        "Fields were auto filled in the Email Console.\n\nReview them, then click Approve and send."
-      );
+    function setSmsFrom(teammate){
+      if($("smsFrom")) $("smsFrom").value = teammate ? `${teammate} via Twilio/CRM` : 'Twilio/CRM';
+    }
+
+    function applySmsDraft(draft, teammateName){
+      if(!draft) return;
+      lastSmsDraftBy = teammateName || selectedSeat || "";
+      if($("smsTo") && draft.to) $("smsTo").value = draft.to;
+      if($("smsBody") && draft.body) $("smsBody").value = draft.body;
+      setSmsFrom(lastSmsDraftBy);
+      showSMSConsoleModal("SMS Console");
+      showToast(`Text draft loaded${lastSmsDraftBy ? ' by ' + lastSmsDraftBy : ''}`);
+    }
+
+    function getActiveTeammateOptions(){
+      const installed = (state && state.installed) ? state.installed : {};
+      const active = (state && state.active_order && state.active_order.length) ? state.active_order : ((state && state.installed_order) ? state.installed_order : []);
+      const out = [];
+      (active || []).forEach(name=>{ if(installed && installed[name]) out.push(name); });
+      return out;
+    }
+
+    function buildLeadOutreachContext(item, channel){
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const phone = item.phone || '';
+      const site = item.website || item.domain || '';
+      const sourceQuery = item.source_query || '';
+      const parts = [
+        `Channel: ${channel}`,
+        `Lead name: ${item.name || ''}`,
+        `Company: ${item.company || ''}`,
+        `Title: ${item.title || ''}`,
+        `Website: ${site}`,
+        `Email: ${email}`,
+        `Phone: ${phone}`,
+        `Location: ${($("leadLabLocation")?.value || '').trim()}`,
+        `Specific areas: ${($("leadLabAreas")?.value || '').trim()}`,
+        `Search niche: ${($("leadLabNiche")?.value || '').trim()}`,
+        `Source query: ${sourceQuery}`,
+        `Notes: ${item.notes || ''}`
+      ].filter(x=>!/:\s*$/.test(x));
+      return parts.join('\n');
+    }
+
+    function openLeadHandoff(channel, item){
+      const options = getActiveTeammateOptions();
+      if(!options.length){
+        showModal('No teammates available', 'Install or activate at least one teammate first.');
+        return;
+      }
+      leadHandoffState = { channel, item: item || {} };
+      showModal();
+      try{ ensureModalMinSize(820, 680); }catch(e){}
+      hideAllModalForms();
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = 'block';
+      if($("modalBody")) $("modalBody").style.display = 'none';
+      if($("modalTitle")) $("modalTitle").innerText = channel === 'sms' ? 'Write lead text' : 'Write lead email';
+      const sel = $("leadHandoffTeammate");
+      if(sel){
+        sel.innerHTML = options.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+        if(selectedSeat && options.includes(selectedSeat)) sel.value = selectedSeat;
+      }
+      if($("leadHandoffChannel")) $("leadHandoffChannel").value = channel === 'sms' ? 'Text message' : 'Email';
+      if($("leadHandoffGoal")) $("leadHandoffGoal").value = 'intro';
+      if($("leadHandoffTone")) $("leadHandoffTone").value = channel === 'sms' ? 'warm' : 'professional';
+      if($("leadHandoffContext")) $("leadHandoffContext").value = buildLeadOutreachContext(item || {}, channel);
+      if($("leadHandoffStatus")) $("leadHandoffStatus").innerText = '';
+    }
+
+    async function generateLeadOutreachDraft(){
+      const cfg = leadHandoffState || {};
+      const item = cfg.item || {};
+      const channel = cfg.channel || 'email';
+      const teammate = ($("leadHandoffTeammate")?.value || '').trim();
+      const goal = ($("leadHandoffGoal")?.value || 'intro').trim();
+      const tone = ($("leadHandoffTone")?.value || 'warm').trim();
+      const st = $("leadHandoffStatus");
+      if(!teammate){
+        if(st) st.innerText = 'Choose a teammate first.';
+        return;
+      }
+      if(st) st.innerText = 'Writing draft...';
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const phone = item.phone || '';
+      if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
+      if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
+
+      let prompt = '';
+      if(channel === 'email'){
+        prompt = [
+          'Draft a prospecting email for this lead.',
+          'Write it in a ' + tone + ' tone.',
+          'Goal: ' + goal + '.',
+          'Use the exact structured format below so the Email Console can auto fill:',
+          '```email',
+          'To: recipient@email.com',
+          'Subject: subject line',
+          'Body: first line',
+          'rest of body...',
+          '```',
+          'Keep it specific, human, and ready to send.',
+          '',
+          buildLeadOutreachContext(item, channel)
+        ].join('\n');
+      }else{
+        prompt = [
+          'Draft a prospecting text message for this lead.',
+          'Write it in a ' + tone + ' tone.',
+          'Goal: ' + goal + '.',
+          'Use the exact structured format below so the SMS Console can auto fill:',
+          '```sms',
+          'To: +15555550123',
+          'Body: first line',
+          'rest of body...',
+          '```',
+          'Keep it concise, natural, and ready to send.',
+          '',
+          buildLeadOutreachContext(item, channel)
+        ].join('\n');
+      }
+
+      try{
+        const res = await fetch('/api/followup', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({name: teammate, message: prompt})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Draft failed');
+        if(channel === 'email'){
+          const draft = data.email_draft || {to: email, subject: '', body: ''};
+          if(!draft.to) draft.to = email;
+          applyEmailDraft(draft, teammate);
+        }else{
+          const draft = data.sms_draft || {to: phone, body: ''};
+          if(!draft.to) draft.to = phone;
+          if(!draft.body) draft.body = (data.response || '').trim();
+          applySmsDraft(draft, teammate);
+        }
+        try{ await refreshThread(); }catch(e){}
+      }catch(e){
+        if(st) st.innerText = e && e.message ? e.message : 'Draft failed';
+        return;
+      }
+      if(st) st.innerText = 'Draft loaded.';
     }
 
     async function openEditForTeammate(name){
@@ -9887,6 +10176,60 @@ $("draftWithSelected").onclick = async () => {
       showModal("Email sent", "Email sent successfully.");
     };
 
+    if($("draftSmsWithSelected")) $("draftSmsWithSelected").onclick = async () => {
+      if(!selectedSeat){
+        showModal("No seat selected", "Select a teammate first.");
+        return;
+      }
+      const toPhone = $("smsTo").value.trim();
+      const body = $("smsBody").value.trim();
+      const prompt =
+        "Draft a text message.\n\n" +
+        "Use the required structured format:\n" +
+        "```sms\n" +
+        "To: +15555550123\n" +
+        "Body: first line\n" +
+        "rest of body...\n" +
+        "```\n\n" +
+        `Existing fields:
+To: ${toPhone || "[empty]"}
+Body: ${body ? "[present]" : "[empty]"}
+`;
+      const res = await fetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
+      const data = await res.json();
+      if(!data.ok){ showModal('Error', data.error || 'Draft failed'); return; }
+      const draft = data.sms_draft || {to: toPhone, body: (data.response || '').trim()};
+      if(!draft.to) draft.to = toPhone;
+      applySmsDraft(draft, selectedSeat);
+      try{ await refreshThread(); }catch(e){}
+    };
+
+    if($("sendSmsBtn")) $("sendSmsBtn").onclick = async () => {
+      const toPhone = $("smsTo").value.trim();
+      const body = $("smsBody").value.trim();
+      if(!toPhone || !body){
+        showModal('Missing fields', 'To and Body are required to send a text.');
+        return;
+      }
+      const fromLabel = $("smsFrom").value || '';
+      const ok = confirm('Approve and send this text now?\n\nFrom: ' + fromLabel + '\nTo: ' + toPhone);
+      if(!ok) return;
+      const res = await fetch('/api/send_sms', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({to: toPhone, body, from_teammate: lastSmsDraftBy || selectedSeat || ''})
+      });
+      const data = await res.json();
+      if(!data.ok){
+        showModal('Text failed', data.error || 'Send failed');
+        return;
+      }
+      showModal('Text sent', 'Text sent successfully.');
+    };
+
+    if($("leadHandoffCancel")) $("leadHandoffCancel").onclick = () => closeModal();
+    if($("leadHandoffGenerate")) $("leadHandoffGenerate").onclick = generateLeadOutreachDraft;
+
     // Manage teammates (active seats)
     function renderManageList(){
       const list = $("manageList");
@@ -10145,6 +10488,8 @@ Challenge weak assumptions. Surface risks.`;
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10164,6 +10509,15 @@ Challenge weak assumptions. Surface risks.`;
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
+    }
+
+    function showSMSConsoleModal(titleText="SMS Console"){
+      showModal();
+      try{ ensureModalMinSize(900, 680); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = titleText;
     }
 
     function showGrowthPlaybookModal(){
@@ -10852,6 +11206,8 @@ async function crmFetchTasks(){
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10976,35 +11332,19 @@ async function crmFetchTasks(){
         };
       });
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
-        btn.onclick = async ()=>{
+        btn.onclick = ()=>{
           const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
           const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
           if(!email) return showToast('No email found');
-          const subject = window.prompt('Email subject', `Quick question for ${item.name || item.company || 'you'}`) || '';
-          if(subject === null) return;
-          const body = window.prompt('Email body', `Hi ${item.name || item.company || ''},`) || '';
-          if(body === null) return;
-          try{
-            const res = await fetch('/api/send_email', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to: email, subject, body})});
-            const data = await res.json();
-            if(!data.ok) throw new Error(data.error || 'Email failed');
-            showToast('Email sent');
-          }catch(e){ showToast(e.message || 'Email failed'); }
+          openLeadHandoff('email', item);
         };
       });
       box.querySelectorAll('[data-lead-sms]').forEach(btn=>{
-        btn.onclick = async ()=>{
+        btn.onclick = ()=>{
           const item = items[Number(btn.getAttribute('data-lead-sms'))] || {};
           const phone = item.phone || '';
           if(!phone) return showToast('No phone found');
-          const body = window.prompt('SMS message', `Hi ${item.name || item.company || ''},`) || '';
-          if(body === null) return;
-          try{
-            const res = await fetch('/api/crm/broadcast/sms', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to_numbers:[phone], body})});
-            const data = await res.json();
-            if(!data.ok) throw new Error(data.error || 'SMS failed');
-            showToast('SMS sent');
-          }catch(e){ showToast(e.message || 'SMS failed'); }
+          openLeadHandoff('sms', item);
         };
       });
       box.querySelectorAll('[data-lead-add]').forEach(btn=>{
@@ -14173,17 +14513,24 @@ def api_crm_broadcast_email():
         filt["stage"] = str(payload.get("stage") or "").strip()
     if payload.get("status"):
         filt["status"] = str(payload.get("status") or "").strip()
+    explicit_numbers = payload.get("to_numbers") or []
     if payload.get("client_ids"):
         ids = payload.get("client_ids") or []
         if isinstance(ids, str):
             ids = [x.strip() for x in ids.split(",") if x.strip()]
         if isinstance(ids, list):
             filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
+    if isinstance(explicit_numbers, str):
+        explicit_numbers = [x.strip() for x in explicit_numbers.split(",") if x.strip()]
+    if not isinstance(explicit_numbers, list):
+        explicit_numbers = []
 
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+        if explicit_numbers:
+            recipients.extend([{"id": f"phone_{i}", "name": "", "company": "", "phone": str(num).strip()} for i, num in enumerate(explicit_numbers) if str(num).strip()])
 
         # safety cap
         if len(recipients) > 250:
