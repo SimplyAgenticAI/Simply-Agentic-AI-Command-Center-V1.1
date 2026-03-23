@@ -392,6 +392,11 @@ def _load_or_create_secret() -> str:
 app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+try:
+    app.permanent_session_lifetime = timedelta(days=30)
+except Exception:
+    pass
 
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
@@ -441,14 +446,33 @@ def current_user() -> Optional[Dict[str, Any]]:
         uname = uname.get("username")
     data = load_users()
     users = (data.get("users") or {})
+
+    # Additive hardening for single-user/local deployments:
+    # if auth/session data was wiped during a redeploy and no users exist,
+    # silently bootstrap a local owner account so the app stays operational.
+    if not users:
+        try:
+            sole = ensure_local_owner_user()
+            data = load_users()
+            users = (data.get("users") or {})
+            session["user"] = sole
+            session.permanent = True
+            return users.get(sole)
+        except Exception:
+            return None
+
     if not uname:
-        # Additive safety: if this is a single-user deployment and the browser session
-        # was lost during a hot reload/redeploy, silently restore that sole user.
+        # If there is exactly one user, silently restore that user into session.
         if len(users) == 1:
             sole = next(iter(users.keys()))
             session["user"] = sole
             session.permanent = True
             return users.get(sole)
+        # Fallback for local-owner installs even if a stale browser loses cookies.
+        if "local" in users:
+            session["user"] = "local"
+            session.permanent = True
+            return users.get("local")
         return None
     rec = users.get(uname)
     if rec:
@@ -514,13 +538,30 @@ def _auth_guard():
 
     if request.path.startswith("/api/") and not session.get("user"):
         if not _ensure_session_user_from_single_account():
-            return jsonify({"ok": False, "error": "Not authenticated"}), 401
+            try:
+                # Additive fallback: keep single-user/local deployments alive even if
+                # the session cookie or users file was reset during redeploy.
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
         if not has_any_user():
-            return redirect(url_for("setup"))
-        if not _ensure_session_user_from_single_account():
-            return redirect(url_for("login"))
+            try:
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return redirect(url_for("setup"))
+        elif not _ensure_session_user_from_single_account():
+            try:
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
