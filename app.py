@@ -10,6 +10,7 @@ import hmac
 import threading
 import shutil
 import tempfile
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -209,7 +210,7 @@ def _api_json_error_handler(e):
                 append_log('api_unhandled_error', {'path': request.path, 'error': str(e), 'at': now_iso()})
             except Exception:
                 pass
-            return jsonify({'ok': False, 'error': str(e) if code < 500 else 'Server error'}), code
+            resp = jsonify({'ok': False, 'error': str(e) if code < 500 else 'Server error'}); resp.headers['Cache-Control']='no-store'; return resp, code
     except Exception:
         pass
     raise e
@@ -15137,7 +15138,7 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
                 {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
                 {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
             ],
-            timeout=90,
+            timeout=20,
         )
     except Exception:
         # Older SDKs / unsupported accounts should not break Lead Lab.
@@ -15846,7 +15847,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=30):
+                for fut in as_completed(future_map, timeout=12):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
@@ -15931,12 +15932,12 @@ def api_crm_lead_lab():
 
         if len(final) < lead_count:
             need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:6]
             for q in ai_queries:
                 if len(final) >= lead_count:
                     break
                 try:
-                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
+                    rows = _crm_openai_web_search(q, niche, location, max_results=min(max(need * 2, 6), 12))
                 except Exception as ai_err:
                     append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
                     rows = []
@@ -15944,6 +15945,33 @@ def api_crm_lead_lab():
                     item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
                     if not item:
                         continue
+                    dom = (item.get('domain') or '').strip().lower()
+                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    final.append(item)
+                    if len(final) >= lead_count:
+                        break
+
+        # Last-resort fill so the UI never gets stuck on an empty or invalid state if search providers are thin.
+        # These rows are still based on public search hits and existing lead builders, but we relax the score gate.
+        if len(final) < lead_count and niche and (location or specific_areas):
+            fallback_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad', specific_areas=specific_areas)[:8]
+            for q in fallback_queries:
+                if len(final) >= lead_count:
+                    break
+                try:
+                    rows = _crm_public_search(q, max_results=10, niche=niche, location=location)
+                except Exception as search_err:
+                    append_log('crm_lead_lab_public_search_error', {'error': str(search_err), 'query': q, 'at': now_iso()})
+                    rows = []
+                for row in rows:
+                    item = _crm_fallback_candidate_from_result(row, niche, location, q) or _crm_make_lead_from_search_row(row, niche, location, q, min_score=30)
+                    if not item:
+                        continue
+                    item['score'] = max(int(item.get('score') or 0), 35)
+                    item['confidence'] = item['score']
                     dom = (item.get('domain') or '').strip().lower()
                     key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
                     if not key or key in seen:
