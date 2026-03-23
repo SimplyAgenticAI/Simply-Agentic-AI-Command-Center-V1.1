@@ -195,6 +195,25 @@ def _get_global_openai_client():
 
 app = Flask(__name__)
 
+# Additive API safety: never let API routes leak HTML error pages into the frontend.
+from werkzeug.exceptions import HTTPException
+
+@app.errorhandler(Exception)
+def _api_json_error_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            code = 500
+            if isinstance(e, HTTPException):
+                code = int(getattr(e, 'code', 500) or 500)
+            try:
+                append_log('api_unhandled_error', {'path': request.path, 'error': str(e), 'at': now_iso()})
+            except Exception:
+                pass
+            return jsonify({'ok': False, 'error': str(e) if code < 500 else 'Server error'}), code
+    except Exception:
+        pass
+    raise e
+
 # -----------------------------
 # Uploads static serving (additive)
 # -----------------------------
@@ -15336,70 +15355,129 @@ def _crm_fallback_candidate_from_result(result: Dict[str, str], niche: str, loca
     return candidate
 
 
+def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: str, query: str, min_score: int = 40) -> Optional[Dict[str, Any]]:
+    if not isinstance(row, dict):
+        return None
+    domain = _crm_extract_domain(row.get('domain') or urlparse(row.get('url') or '').netloc or row.get('url') or '')
+    if not domain or _crm_is_blocked_domain(domain):
+        return None
+    website = (row.get('url') or '').strip()
+    if not website:
+        website = 'https://' + domain
+    elif not website.startswith('http'):
+        website = 'https://' + domain
+    company = (row.get('company_hint') or row.get('title') or '').strip()
+    if not company:
+        company = _crm_guess_company(row.get('title') or '', domain) or domain.split('.')[0].replace('-', ' ').title()
+    name = (row.get('name_hint') or '').strip()
+    if not name:
+        name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
+    phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
+    public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
+    email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name or company, domain)
+    title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
+    notes = (row.get('snippet') or '').strip()
+    score = 55
+    if row.get('name_hint'):
+        score += 8
+    if phone:
+        score += 12
+    if public_email:
+        score += 12
+    if any(x.get('status') == 'public' for x in email_candidates):
+        score += 6
+    if location:
+        score += 3
+    score = max(int(min_score or 40), min(96, score))
+    return {
+        'name': name or company,
+        'company': company,
+        'title': title,
+        'domain': domain,
+        'website': website,
+        'phone': phone,
+        'email': public_email,
+        'email_candidates': email_candidates,
+        'score': score,
+        'confidence': score,
+        'niche_hit': True,
+        'location_hit': bool(location),
+        'notes': notes or f'Public web lead for {niche or "business"} in {location or "target area"}',
+        'source_query': query,
+    }
+
+
 def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40) -> List[Dict[str, Any]]:
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
-    raw_results = []
-    seen_domains = set(existing_domains or set())
-    per_query = 10 if (search_mode or "balanced").lower() == "precision" else 16 if (search_mode or "balanced").lower() == "balanced" else 22
+    seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
+    out: List[Dict[str, Any]] = []
+    raw_results: List[Dict[str, Any]] = []
+    per_query = 8 if (search_mode or 'balanced').lower() == 'precision' else 12 if (search_mode or 'balanced').lower() == 'balanced' else 16
+
+    def include_item(item: Optional[Dict[str, Any]]) -> bool:
+        if not item:
+            return False
+        dom = (item.get('domain') or '').strip().lower()
+        if not dom or dom in seen_domains:
+            return False
+        has_phone = bool((item.get('phone') or '').strip())
+        public_email = bool((item.get('email') or '').strip())
+        any_email = public_email or bool(item.get('email_candidates') or [])
+        if require_contact == 'phone' and not has_phone:
+            return False
+        if require_contact == 'email' and not any_email:
+            return False
+        if require_contact == 'phone_or_email' and not (has_phone or any_email):
+            return False
+        if (item.get('score') or 0) < int(min_score or 40):
+            return False
+        seen_domains.add(dom)
+        out.append(item)
+        return True
+
+    # Pass 1: fast lead creation from search results, prioritizing OpenAI web search hints and official sites.
     for q in queries:
-        for row in _crm_public_search(q, max_results=per_query, niche=niche, location=location):
-            domain = row.get("domain") or ""
-            if not domain or domain in seen_domains or _crm_is_blocked_domain(domain):
+        rows = _crm_public_search(q, max_results=per_query, niche=niche, location=location)
+        for row in rows:
+            dom = _crm_extract_domain(row.get('domain') or urlparse(row.get('url') or '').netloc or row.get('url') or '')
+            if not dom or dom in seen_domains or _crm_is_blocked_domain(dom):
                 continue
-            seen_domains.add(domain)
-            row["query"] = q
+            row['query'] = q
             raw_results.append(row)
-            if len(raw_results) >= max(lead_count * 10, 120):
-                break
-        if len(raw_results) >= max(lead_count * 10, 120):
-            break
-    out = []
-    if not raw_results:
-        return out
-    max_workers = 8
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get("query") or ""): row for row in raw_results}
-        for fut in as_completed(future_map):
-            row = future_map.get(fut) or {}
-            try:
-                item = fut.result()
-            except Exception:
-                item = None
-            if not item:
-                item = _crm_fallback_candidate_from_result(row, niche, location, row.get("query") or "")
-            if not item:
-                continue
-            dom = item.get("domain") or ""
-            if dom and any((x.get("domain") or "") == dom for x in out):
-                continue
-            has_phone = bool((item.get("phone") or "").strip())
-            has_email = bool((item.get("email") or "").strip()) or bool(item.get("email_candidates") or [])
-            if require_contact == "phone" and not has_phone:
-                continue
-            if require_contact == "email" and not has_email:
-                continue
-            if require_contact == "phone_or_email" and not (has_phone or has_email):
-                continue
-            if (item.get("score") or 0) < int(min_score or 40):
-                continue
-            out.append(item)
+            item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, int(min_score or 40) - 5))
+            include_item(item)
             if len(out) >= lead_count:
                 break
-    out.sort(key=lambda x: ((1 if x.get("phone") else 0) + (1 if (x.get("email") or x.get("email_candidates")) else 0), x.get("score") or 0), reverse=True)
-    # If still thin, top off with search-result-derived rows so the user still gets a usable organized list.
+        if len(out) >= lead_count:
+            break
+
+    # Pass 2: enrich a small subset only, to keep the route fast and avoid server/proxy timeouts.
+    if len(out) < lead_count and raw_results:
+        enrich_pool = raw_results[:max(lead_count * 2, 12)]
+        max_workers = 4
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
+                for fut in as_completed(future_map, timeout=30):
+                    row = future_map.get(fut) or {}
+                    try:
+                        item = fut.result(timeout=0)
+                    except Exception:
+                        item = _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+                    include_item(item)
+                    if len(out) >= lead_count:
+                        break
+        except Exception:
+            pass
+
+    # Pass 3: deterministic fallback rows from raw results so the user always gets a usable list.
     if len(out) < lead_count:
         for row in raw_results:
-            item = _crm_fallback_candidate_from_result(row, niche, location, row.get("query") or "")
-            if not item:
-                continue
-            dom = item.get("domain") or ""
-            if dom and any((x.get("domain") or "") == dom for x in out):
-                continue
-            if (item.get("score") or 0) < max(35, int(min_score or 40) - 5):
-                continue
-            out.append(item)
-            if len(out) >= lead_count:
+            item = _crm_fallback_candidate_from_result(row, niche, location, row.get('query') or '') or _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+            if include_item(item) and len(out) >= lead_count:
                 break
+
+    out.sort(key=lambda x: ((1 if x.get('phone') else 0) + (1 if (x.get('email') or x.get('email_candidates')) else 0), x.get('score') or 0), reverse=True)
     return out[:lead_count]
 
 
@@ -15429,10 +15507,13 @@ def api_crm_lead_lab():
         if not niche and not location and not source_text and not specific_areas:
             return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
-        items = []
+        items: List[Dict[str, Any]] = []
         existing_domains = set()
         if source_text:
-            seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+            try:
+                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+            except Exception:
+                seed_items = []
             for item in seed_items:
                 dom = item.get("domain") or ""
                 if dom:
@@ -15447,8 +15528,9 @@ def api_crm_lead_lab():
             )
             items.extend(discovered)
 
-        # Final normalize/dedupe
-        final, seen = [], set()
+        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
+        final: List[Dict[str, Any]] = []
+        seen = set()
         for item in items:
             dom = (item.get("domain") or "").strip().lower()
             key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
@@ -15459,83 +15541,47 @@ def api_crm_lead_lab():
             if len(final) >= lead_count:
                 break
 
-        # AI web-search fallback: if validation is too strict for this niche/location,
-        # still return official-site candidates from OpenAI web search as organized lead rows.
         if len(final) < lead_count:
-            try:
-                need = max(0, lead_count - len(final))
-                if need > 0:
-                    fallback_queries = []
-                    base_location = (location or '').strip()
-                    base_niche = (niche or 'businesses').strip()
-                    if specific_areas:
-                        for area in specific_areas[:12]:
-                            fallback_queries.append(f"official websites for {base_niche} in {area}")
-                    if base_location:
-                        fallback_queries.append(f"official websites for {base_niche} in {base_location}")
-                    fallback_queries.append(f"best {base_niche} official websites {base_location}".strip())
-                    fallback_queries.append(f"{base_niche} contact information {base_location}".strip())
-                    ai_rows = []
-                    seen_domains = set([(x.get('domain') or '').strip().lower() for x in final if isinstance(x, dict)])
-                    for q in fallback_queries:
-                        if len(ai_rows) >= need:
-                            break
-                        for cand in _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 10)):
-                            dom = (cand.get('domain') or '').strip().lower()
-                            if not dom or dom in seen_domains or _crm_is_blocked_domain(dom):
-                                continue
-                            seen_domains.add(dom)
-                            website = (cand.get('url') or '').strip()
-                            company = (cand.get('company_hint') or cand.get('title') or dom).strip()
-                            name = (cand.get('name_hint') or '').strip()
-                            phone = _crm_clean_phone(cand.get('phone_hint') or '')
-                            public_email = (cand.get('email_hint') or '').strip().lower()
-                            email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name, dom)
-                            score = 62
-                            if phone:
-                                score += 10
-                            if public_email:
-                                score += 12
-                            if name:
-                                score += 6
-                            score = max(min_score, min(92, score))
-                            ai_rows.append({
-                                'name': name,
-                                'company': company,
-                                'title': '',
-                                'website': website if website.startswith('http') else ('https://' + dom),
-                                'domain': dom,
-                                'phone': phone,
-                                'email': public_email,
-                                'email_candidates': email_candidates,
-                                'score': score,
-                                'confidence': score,
-                                'source_query': q,
-                                'notes': (cand.get('snippet') or 'OpenAI web search fallback').strip(),
-                            })
-                            if len(ai_rows) >= need:
-                                break
-                    for row in ai_rows:
-                        dom = (row.get('domain') or '').strip().lower()
-                        key = dom or ((row.get('website') or row.get('company') or row.get('name') or '').strip().lower())
-                        if not key or key in seen:
-                            continue
-                        seen.add(key)
-                        final.append(row)
-                        if len(final) >= lead_count:
-                            break
-            except Exception as fallback_err:
-                append_log('crm_lead_lab_ai_fallback_error', {'error': str(fallback_err), 'at': now_iso()})
+            need = max(0, lead_count - len(final))
+            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+            for q in ai_queries:
+                if len(final) >= lead_count:
+                    break
+                try:
+                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
+                except Exception as ai_err:
+                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
+                    rows = []
+                for row in rows:
+                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
+                    if not item:
+                        continue
+                    dom = (item.get('domain') or '').strip().lower()
+                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    final.append(item)
+                    if len(final) >= lead_count:
+                        break
 
         warning = ""
         if not final:
-            warning = "No public leads could be validated from the current search. Try Broad mode, add specific areas, or paste seed rows."
+            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
         elif len(final) < lead_count:
-            warning = f"Built {len(final)} usable leads from public web signals for this search."
-        return jsonify({"ok": True, "items": final, "count": len(final), "warning": warning})
+            warning = f"Built {len(final)} leads from public web signals for this search."
+
+        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
     except Exception as e:
-        append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
-        return jsonify({"ok": False, "error": "Lead Lab hit a server error. The route has been hardened, so try again with Broad mode or add specific areas."}), 500
+        try:
+            append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp, 500
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
