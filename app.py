@@ -447,9 +447,32 @@ def current_user() -> Optional[Dict[str, Any]]:
     if not uname:
         return None
     data = load_users()
-    return (data.get("users") or {}).get(uname)
+    users = (data.get("users") or {})
+    rec = users.get(uname)
+    if rec:
+        return rec
+    # Session points to a user that no longer exists. Recover only when the
+    # session already referenced a user, so the login gate is preserved.
+    if len(users) == 1:
+        sole = next(iter(users.keys()))
+        session["user"] = sole
+        session.permanent = True
+        return users.get(sole)
+    return None
 
 def _ensure_session_user_from_single_account() -> Optional[str]:
+    try:
+        if session.get("user"):
+            u = session.get("user")
+            return (u.get("username") if isinstance(u, dict) else u) if u else None
+        users = (load_users().get("users") or {})
+        if len(users) == 1:
+            sole = next(iter(users.keys()))
+            session["user"] = sole
+            session.permanent = True
+            return sole
+    except Exception:
+        return None
     return None
 
 def ensure_local_owner_user() -> str:
@@ -508,22 +531,6 @@ def _auth_guard():
 def get_openai_client():
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
-
-@app.errorhandler(Exception)
-def _api_json_errors(err):
-    if not request.path.startswith("/api/"):
-        if isinstance(err, HTTPException):
-            return err
-        raise err
-    status = getattr(err, "code", 500)
-    msg = getattr(err, "description", None) or str(err) or "Server error"
-    try:
-        append_log("api_error", {"path": request.path, "error": str(err), "at": now_iso()})
-    except Exception:
-        pass
-    resp = jsonify({"ok": False, "error": msg if status < 500 else f"Server error: {msg}"})
-    resp.headers["Cache-Control"] = "no-store"
-    return resp, status
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
@@ -6210,6 +6217,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileOperatorBtn">Operator</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -6266,43 +6274,37 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
 
-
-<div class="modalForm" id="operatorProfileModalForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px; opacity:.9">Full operator profile. Teammates reference this for business context, goals, offers, and rules.</div>
-  <div class="pillRow" style="gap:10px; flex-wrap:wrap">
-    <div style="flex:1; min-width:240px">
-      <div class="tiny">Display name</div>
-      <input id="opm_display_name" class="input" placeholder="Operator" />
+<div id="operatorProfileForm" class="modalForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
+  <div class="grid">
+    <div>
+      <label>Display name</label>
+      <input id="opf_display_name" placeholder="Operator" />
     </div>
-    <div style="flex:1; min-width:240px">
-      <div class="tiny">Audience</div>
-      <input id="opm_audience" class="input" placeholder="Who you serve" />
+    <div>
+      <label>Audience</label>
+      <input id="opf_audience" placeholder="Who you serve" />
     </div>
   </div>
-  <div style="height:10px"></div>
-  <div class="tiny">Business</div>
-  <textarea id="opm_business" class="followBox" style="min-height:110px" placeholder="What your business does..."></textarea>
-  <div style="height:10px"></div>
-  <div class="tiny">Offers</div>
-  <textarea id="opm_offers" class="followBox" style="min-height:100px" placeholder="Your offers, pricing model, deliverables..."></textarea>
-  <div style="height:10px"></div>
-  <div class="tiny">Goals</div>
-  <textarea id="opm_goals" class="followBox" style="min-height:90px" placeholder="Current goals and KPIs..."></textarea>
-  <div style="height:10px"></div>
-  <div class="tiny">Constraints</div>
-  <textarea id="opm_constraints" class="followBox" style="min-height:90px" placeholder="Rules, boundaries, what not to do..."></textarea>
-  <div style="height:10px"></div>
-  <div class="tiny">Tone rules</div>
-  <textarea id="opm_tone_rules" class="followBox" style="min-height:90px" placeholder="How teammates should speak and write..."></textarea>
-  <div style="height:10px"></div>
-  <div class="tiny">Notes</div>
-  <textarea id="opm_notes" class="followBox" style="min-height:110px" placeholder="Anything else teammates should know..."></textarea>
-  <div class="pillRow" style="justify-content:flex-end; gap:8px; margin-top:12px;">
-    <button class="btn btnMini" id="opmReload">Reload</button>
-    <button class="btn btnPrimary" id="opmSave">Save</button>
+  <label style="margin-top:10px;">Business</label>
+  <textarea id="opf_business" rows="4" placeholder="What your business does..."></textarea>
+  <label style="margin-top:10px;">Offers</label>
+  <textarea id="opf_offers" rows="4" placeholder="Your offers, pricing model, deliverables..."></textarea>
+  <label style="margin-top:10px;">Goals</label>
+  <textarea id="opf_goals" rows="3" placeholder="Current goals and KPIs..."></textarea>
+  <label style="margin-top:10px;">Constraints</label>
+  <textarea id="opf_constraints" rows="3" placeholder="Rules, boundaries, what not to do..."></textarea>
+  <label style="margin-top:10px;">Tone rules</label>
+  <textarea id="opf_tone_rules" rows="3" placeholder="How teammates should speak and write..."></textarea>
+  <label style="margin-top:10px;">Notes</label>
+  <textarea id="opf_notes" rows="3" placeholder="Anything else teammates should know..."></textarea>
+  <div class="actions" style="justify-content:flex-end; margin-top:12px;">
+    <button class="btn" id="opfReloadBtn">Reload</button>
+    <button class="btn btnPrimary" id="opfSaveBtn">Save</button>
   </div>
-  <div class="tiny" id="opmStatus" style="margin-top:8px;"></div>
+  <div class="tiny" id="opfStatus" style="margin-top:8px;"></div>
 </div>
+
 
 <div id="stackForm" class="modalForm" style="display:none;">
   <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
@@ -6559,7 +6561,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
                   <div class="tiny" style="margin-top:8px; opacity:.9;">
-                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
+                    Used for Broadcast SMS in the CRM. This is stored in your personal settings.
                   </div>
 
                   <label>Twilio Account SID</label>
@@ -8669,7 +8671,7 @@ function makeSeat(defn, idx){
       profBtn.innerText = "Profile";
       profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
+      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); showOperatorProfileModal(); });
       tools.appendChild(profBtn);
 
       seat.appendChild(tools);
@@ -11180,55 +11182,6 @@ async function crmFetchTasks(){
       }
     }
 
-    function operatorProfileModalFill(profile){
-      const p = profile || {};
-      const set = (id, v)=>{ const el = $(id); if(el) el.value = (v==null ? '' : String(v)); };
-      set('opm_display_name', p.display_name || 'Operator');
-      set('opm_audience', p.audience || '');
-      set('opm_business', p.business || '');
-      set('opm_offers', p.offers || '');
-      set('opm_goals', p.goals || '');
-      set('opm_constraints', p.constraints || '');
-      set('opm_tone_rules', p.tone_rules || '');
-      set('opm_notes', p.notes || '');
-    }
-
-    function operatorProfileModalPayload(){
-      const get = (id)=> ($(id)?.value || '').trim();
-      return {
-        display_name: get('opm_display_name'),
-        audience: get('opm_audience'),
-        business: get('opm_business'),
-        offers: get('opm_offers'),
-        goals: get('opm_goals'),
-        constraints: get('opm_constraints'),
-        tone_rules: get('opm_tone_rules'),
-        notes: get('opm_notes')
-      };
-    }
-
-    async function showOperatorProfileModal(){
-      showModal();
-      try{ ensureModalMinSize(980, 760); }catch(e){}
-      ['frameworkForm','modalForm','manageForm','createForm','settingsForm','stackForm','apiKeyHelpForm','calendarForm','emailConsoleForm','crmForm','leadHandoffForm'].forEach(id=>{ const el=$(id); if(el) el.style.display='none'; });
-      if($('operatorProfileModalForm')) $('operatorProfileModalForm').style.display = 'block';
-      if($('modalBody')) $('modalBody').style.display = 'none';
-      if($('modalImg')) $('modalImg').style.display = 'none';
-      if($('modalTitle')) $('modalTitle').innerText = 'Operator Profile';
-      if($('opmStatus')) $('opmStatus').innerText = 'Loading...';
-      try{
-        const res = await fetch('/api/operator_profile');
-        const raw = await res.text();
-        let data = {};
-        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load Operator Profile');
-        operatorProfileModalFill(data.profile || {});
-        if($('opmStatus')) $('opmStatus').innerText = 'Ready';
-      }catch(e){
-        if($('opmStatus')) $('opmStatus').innerText = e.message || 'Load failed';
-      }
-    }
-
     function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
@@ -11269,29 +11222,79 @@ async function crmFetchTasks(){
       })();
     }
 
+    async function loadOperatorProfileIntoModal(){
+      const st = $("opfStatus");
+      if(st) st.innerText = 'Loading...';
+      try{
+        const res = await fetch('/api/operator_profile');
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Load failed');
+        const p = data.profile || {};
+        if($("opf_display_name")) $("opf_display_name").value = p.display_name || 'Operator';
+        if($("opf_audience")) $("opf_audience").value = p.audience || '';
+        if($("opf_business")) $("opf_business").value = p.business || '';
+        if($("opf_offers")) $("opf_offers").value = p.offers || '';
+        if($("opf_goals")) $("opf_goals").value = p.goals || '';
+        if($("opf_constraints")) $("opf_constraints").value = p.constraints || '';
+        if($("opf_tone_rules")) $("opf_tone_rules").value = p.tone_rules || '';
+        if($("opf_notes")) $("opf_notes").value = p.notes || '';
+        if(st) st.innerText = 'Ready';
+      }catch(e){
+        if(st) st.innerText = e.message || 'Load failed';
+      }
+    }
+
+    async function saveOperatorProfileFromModal(){
+      const st = $("opfStatus");
+      if(st) st.innerText = 'Saving...';
+      try{
+        const payload = {
+          display_name: $("opf_display_name")?.value || 'Operator',
+          audience: $("opf_audience")?.value || '',
+          business: $("opf_business")?.value || '',
+          offers: $("opf_offers")?.value || '',
+          goals: $("opf_goals")?.value || '',
+          constraints: $("opf_constraints")?.value || '',
+          tone_rules: $("opf_tone_rules")?.value || '',
+          notes: $("opf_notes")?.value || ''
+        };
+        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
+        if(st) st.innerText = 'Saved';
+        showToast('Saved Operator Profile');
+      }catch(e){
+        if(st) st.innerText = e.message || 'Save failed';
+      }
+    }
+
+    function showOperatorProfileModal(){
+      showModal();
+      try{ ensureModalMinSize(980, 760); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = 'none';
+      if($("operatorProfileForm")) $("operatorProfileForm").style.display = 'block';
+      $("modalTitle").innerText = 'Operator Profile';
+      const sc = $("modalScroll");
+      if(sc) sc.scrollTop = 0;
+      loadOperatorProfileIntoModal();
+    }
+
+    if($("operatorProfileTopBtn")) $("operatorProfileTopBtn").onclick = ()=> showOperatorProfileModal();
+    if($("mobileOperatorBtn")) $("mobileOperatorBtn").onclick = ()=> showOperatorProfileModal();
+    if($("opfReloadBtn")) $("opfReloadBtn").onclick = ()=> loadOperatorProfileIntoModal();
+    if($("opfSaveBtn")) $("opfSaveBtn").onclick = ()=> saveOperatorProfileFromModal();
+
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
     if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
     if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
-    if($("operatorProfileTopBtn")) $("operatorProfileTopBtn").onclick = ()=> showOperatorProfileModal();
-    if($("opmReload")) $("opmReload").onclick = ()=> showOperatorProfileModal();
-    if($("opmSave")) $("opmSave").onclick = async ()=>{
-      if($("opmStatus")) $("opmStatus").innerText = 'Saving...';
-      try{
-        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(operatorProfileModalPayload())});
-        const raw = await res.text();
-        let data = {};
-        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
-        if($("opmStatus")) $("opmStatus").innerText = 'Saved';
-        showToast('Saved Operator Profile');
-        try{ if(selectedSeat === 'Operator') await refreshThread(); }catch(e){}
-      }catch(e){
-        if($("opmStatus")) $("opmStatus").innerText = e.message || 'Save failed';
-      }
-    };
 
     // CRM tab binds (safe if missing)
 
@@ -11451,7 +11454,7 @@ async function crmFetchTasks(){
         });
         const raw = await res.text();
         let data = null;
-        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Lead Lab returned an invalid server response' + (raw ? ': ' + raw.slice(0, 120) : '')); }
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Lead Lab returned an invalid server response'); }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads` + (data.warning ? ` • ${data.warning}` : '');
@@ -13028,7 +13031,7 @@ function applyRTTransformV4(){
 
 maybeAutoShowOnboarding();
 
-    // ===== Client Center: Pipeline (FlowChat-like columns) =====
+    // ===== CRM: Pipeline (FlowChat-like columns) =====
     function ccSelectTab(tab){
       const panels = ["Clients","Pipeline","EmailBroadcast","Tasks","Sequences","History","Calendar"];
       for(const p of panels){
@@ -15190,7 +15193,7 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
                 {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
                 {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
             ],
-            timeout=25,
+            timeout=90,
         )
     except Exception:
         # Older SDKs / unsupported accounts should not break Lead Lab.
@@ -15348,7 +15351,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
@@ -15471,7 +15474,7 @@ def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
-        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=8)
+        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=18)
         html = r.text or ""
     except Exception:
         return []
@@ -15651,7 +15654,7 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
         from urllib.parse import quote_plus
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
         url = "https://www.bing.com/search?q=" + quote_plus(query)
-        r = requests.get(url, headers=headers, timeout=8)
+        r = requests.get(url, headers=headers, timeout=18)
         html = r.text or ""
     except Exception:
         return []
@@ -15682,9 +15685,8 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
 
 def _crm_public_search(query: str, max_results: int = 18, niche: str = "", location: str = "") -> List[Dict[str, str]]:
     merged, seen = [], set()
-    # Fast public-web path first. OpenAI web search still runs later as a top-off
-    # inside the Lead Lab route when we need to fill the remaining slots.
-    search_fns = [_crm_bing_search, _crm_ddg_search]
+    search_fns = [lambda q, max_results=max_results: _crm_openai_web_search(q, niche=niche, location=location, max_results=max_results)]
+    search_fns.extend([_crm_bing_search, _crm_ddg_search])
     for fn in search_fns:
         try:
             rows = fn(query, max_results=max_results)
@@ -15900,7 +15902,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=18):
+                for fut in as_completed(future_map, timeout=30):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
@@ -15925,105 +15927,109 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
 
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     try:
-        payload = request.get_json(silent=True) or {}
-        niche = (payload.get("niche") or "").strip()
-        location = (payload.get("location") or "").strip()
-        source_text = (payload.get("source_text") or "").strip()
-        specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
-        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
-        require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
+        u = current_user()
+        if not u:
+            return jsonify({"ok": False, "error": "Not authenticated"}), 401
         try:
-            lead_count = int(payload.get("lead_count") or 25)
-        except Exception:
-            lead_count = 25
-        try:
-            min_score = int(payload.get("min_score") or 40)
-        except Exception:
-            min_score = 40
-        lead_count = max(1, min(100, lead_count))
-        min_score = max(20, min(90, min_score))
-        if not niche and not location and not source_text and not specific_areas:
-            return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
-
-        items: List[Dict[str, Any]] = []
-        existing_domains = set()
-        if source_text:
+            payload = request.get_json(silent=True) or {}
+            niche = (payload.get("niche") or "").strip()
+            location = (payload.get("location") or "").strip()
+            source_text = (payload.get("source_text") or "").strip()
+            specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
+            search_mode = (payload.get("search_mode") or "balanced").strip().lower()
+            require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
             try:
-                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+                lead_count = int(payload.get("lead_count") or 25)
             except Exception:
-                seed_items = []
-            for item in seed_items:
-                dom = item.get("domain") or ""
-                if dom:
-                    existing_domains.add(dom)
-            items.extend(seed_items)
+                lead_count = 25
+            try:
+                min_score = int(payload.get("min_score") or 40)
+            except Exception:
+                min_score = 40
+            lead_count = max(1, min(100, lead_count))
+            min_score = max(20, min(90, min_score))
+            if not niche and not location and not source_text and not specific_areas:
+                return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
-        remaining = max(0, lead_count - len(items))
-        if remaining > 0:
-            discovered = _crm_discover_public_leads(
-                niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
-            )
-            items.extend(discovered)
+            items: List[Dict[str, Any]] = []
+            existing_domains = set()
+            if source_text:
+                try:
+                    seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+                except Exception:
+                    seed_items = []
+                for item in seed_items:
+                    dom = item.get("domain") or ""
+                    if dom:
+                        existing_domains.add(dom)
+                items.extend(seed_items)
 
-        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
-        final: List[Dict[str, Any]] = []
-        seen = set()
-        for item in items:
-            dom = (item.get("domain") or "").strip().lower()
-            key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            final.append(item)
-            if len(final) >= lead_count:
-                break
+            remaining = max(0, lead_count - len(items))
+            if remaining > 0:
+                discovered = _crm_discover_public_leads(
+                    niche, location, remaining, search_mode, existing_domains=existing_domains,
+                    specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
+                )
+                items.extend(discovered)
 
-        if len(final) < lead_count:
-            need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
-            for q in ai_queries:
+            # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
+            final: List[Dict[str, Any]] = []
+            seen = set()
+            for item in items:
+                dom = (item.get("domain") or "").strip().lower()
+                key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                final.append(item)
                 if len(final) >= lead_count:
                     break
-                try:
-                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
-                except Exception as ai_err:
-                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
-                    rows = []
-                for row in rows:
-                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
-                    if not item:
-                        continue
-                    dom = (item.get('domain') or '').strip().lower()
-                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
-                    if not key or key in seen:
-                        continue
-                    seen.add(key)
-                    final.append(item)
+
+            if len(final) < lead_count:
+                need = max(0, lead_count - len(final))
+                ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+                for q in ai_queries:
                     if len(final) >= lead_count:
                         break
+                    try:
+                        rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
+                    except Exception as ai_err:
+                        append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
+                        rows = []
+                    for row in rows:
+                        item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
+                        if not item:
+                            continue
+                        dom = (item.get('domain') or '').strip().lower()
+                        key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
+                        if not key or key in seen:
+                            continue
+                        seen.add(key)
+                        final.append(item)
+                        if len(final) >= lead_count:
+                            break
 
-        warning = ""
-        if not final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
-        elif len(final) < lead_count:
-            warning = f"Built {len(final)} leads from public web signals for this search."
+            warning = ""
+            if not final:
+                warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
+            elif len(final) < lead_count:
+                warning = f"Built {len(final)} leads from public web signals for this search."
 
-        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp
+            resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
+            resp.headers['Cache-Control'] = 'no-store'
+            return resp
+        except Exception as e:
+            try:
+                append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
+            except Exception:
+                pass
+            resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
+            resp.headers['Cache-Control'] = 'no-store'
+            return resp, 500
     except Exception as e:
-        try:
-            append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp, 500
+        return jsonify({"ok": False, "error": str(e) or "Lead build failed"}), 500
+
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
