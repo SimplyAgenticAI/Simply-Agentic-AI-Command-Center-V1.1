@@ -444,60 +444,12 @@ def current_user() -> Optional[Dict[str, Any]]:
     # Some earlier builds accidentally stored a dict here; support both.
     if isinstance(uname, dict):
         uname = uname.get("username")
-    data = load_users()
-    users = (data.get("users") or {})
-
-    # Additive hardening for single-user/local deployments:
-    # if auth/session data was wiped during a redeploy and no users exist,
-    # silently bootstrap a local owner account so the app stays operational.
-    if not users:
-        try:
-            sole = ensure_local_owner_user()
-            data = load_users()
-            users = (data.get("users") or {})
-            session["user"] = sole
-            session.permanent = True
-            return users.get(sole)
-        except Exception:
-            return None
-
     if not uname:
-        # If there is exactly one user, silently restore that user into session.
-        if len(users) == 1:
-            sole = next(iter(users.keys()))
-            session["user"] = sole
-            session.permanent = True
-            return users.get(sole)
-        # Fallback for local-owner installs even if a stale browser loses cookies.
-        if "local" in users:
-            session["user"] = "local"
-            session.permanent = True
-            return users.get("local")
         return None
-    rec = users.get(uname)
-    if rec:
-        return rec
-    # Session points to a user that no longer exists. Recover safely for single-user setups.
-    if len(users) == 1:
-        sole = next(iter(users.keys()))
-        session["user"] = sole
-        session.permanent = True
-        return users.get(sole)
-    return None
+    data = load_users()
+    return (data.get("users") or {}).get(uname)
 
 def _ensure_session_user_from_single_account() -> Optional[str]:
-    try:
-        if session.get("user"):
-            u = session.get("user")
-            return (u.get("username") if isinstance(u, dict) else u) if u else None
-        users = (load_users().get("users") or {})
-        if len(users) == 1:
-            sole = next(iter(users.keys()))
-            session["user"] = sole
-            session.permanent = True
-            return sole
-    except Exception:
-        return None
     return None
 
 def ensure_local_owner_user() -> str:
@@ -537,31 +489,12 @@ def _auth_guard():
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        if not _ensure_session_user_from_single_account():
-            try:
-                # Additive fallback: keep single-user/local deployments alive even if
-                # the session cookie or users file was reset during redeploy.
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
         if not has_any_user():
-            try:
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return redirect(url_for("setup"))
-        elif not _ensure_session_user_from_single_account():
-            try:
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return redirect(url_for("login"))
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -6296,7 +6229,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
-<button class="btn" data-click="crmBtn">Client Center</button>
+<button class="btn" data-click="crmBtn">CRM</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -6729,7 +6662,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">CRM. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -10591,7 +10524,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     // =========================
-    // CRM UI (Client Command Center)
+    // CRM UI (CRM)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
     let crmEditingClientId = null;
@@ -11518,7 +11451,7 @@ async function crmFetchTasks(){
         });
         const raw = await res.text();
         let data = null;
-        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Lead Lab returned an invalid server response'); }
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Lead Lab returned an invalid server response' + (raw ? ': ' + raw.slice(0, 120) : '')); }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads` + (data.warning ? ` • ${data.warning}` : '');
@@ -15257,7 +15190,7 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
                 {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
                 {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
             ],
-            timeout=90,
+            timeout=25,
         )
     except Exception:
         # Older SDKs / unsupported accounts should not break Lead Lab.
@@ -15415,7 +15348,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
@@ -15538,7 +15471,7 @@ def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
-        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=18)
+        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=8)
         html = r.text or ""
     except Exception:
         return []
@@ -15718,7 +15651,7 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
         from urllib.parse import quote_plus
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
         url = "https://www.bing.com/search?q=" + quote_plus(query)
-        r = requests.get(url, headers=headers, timeout=18)
+        r = requests.get(url, headers=headers, timeout=8)
         html = r.text or ""
     except Exception:
         return []
@@ -15749,8 +15682,9 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
 
 def _crm_public_search(query: str, max_results: int = 18, niche: str = "", location: str = "") -> List[Dict[str, str]]:
     merged, seen = [], set()
-    search_fns = [lambda q, max_results=max_results: _crm_openai_web_search(q, niche=niche, location=location, max_results=max_results)]
-    search_fns.extend([_crm_bing_search, _crm_ddg_search])
+    # Fast public-web path first. OpenAI web search still runs later as a top-off
+    # inside the Lead Lab route when we need to fill the remaining slots.
+    search_fns = [_crm_bing_search, _crm_ddg_search]
     for fn in search_fns:
         try:
             rows = fn(query, max_results=max_results)
@@ -15966,7 +15900,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=30):
+                for fut in as_completed(future_map, timeout=18):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
