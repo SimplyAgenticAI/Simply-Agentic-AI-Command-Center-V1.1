@@ -6051,8 +6051,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="installFullBtn">Install full team</button>
         <button class="btn" id="settingsBtn">Settings</button>
         <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
-        <button class="btn" id="crmBtn">CRM</button>
+        <button class="btn" id="crmBtn">Client Center</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
         <button class="btn" id="socialStudioBtn">Social Studio</button>
@@ -6092,8 +6091,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
-<button class="btn" data-click="operatorProfileBtn">Operator Profile</button>
-<button class="btn" data-click="crmBtn">CRM</button>
+<button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -6386,7 +6384,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
                   <div class="tiny" style="margin-top:8px; opacity:.9;">
-                    Used for Broadcast SMS in the CRM. This is stored in your personal settings.
+                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
                   </div>
 
                   <label>Twilio Account SID</label>
@@ -6414,51 +6412,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
               
 
-<div class="modalForm" id="operatorProfileForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Shared business context for the Operator. Teammates can reference this profile when writing, planning, and analyzing.</div>
-  <div class="grid">
-    <div>
-      <label>Display name</label>
-      <input id="opFormDisplayName" placeholder="Operator" />
-    </div>
-    <div>
-      <label>Audience</label>
-      <input id="opFormAudience" placeholder="Who you serve" />
-    </div>
-  </div>
-
-  <div style="height:10px"></div>
-  <label>Business</label>
-  <textarea id="opFormBusiness" style="min-height:110px" placeholder="What your business does..."></textarea>
-
-  <div style="height:10px"></div>
-  <label>Offers</label>
-  <textarea id="opFormOffers" style="min-height:100px" placeholder="Your offers, pricing model, deliverables..."></textarea>
-
-  <div style="height:10px"></div>
-  <label>Goals</label>
-  <textarea id="opFormGoals" style="min-height:90px" placeholder="Current goals and KPIs..."></textarea>
-
-  <div style="height:10px"></div>
-  <label>Constraints</label>
-  <textarea id="opFormConstraints" style="min-height:90px" placeholder="Rules, boundaries, what not to do..."></textarea>
-
-  <div style="height:10px"></div>
-  <label>Tone rules</label>
-  <textarea id="opFormToneRules" style="min-height:90px" placeholder="How teammates should speak and write..."></textarea>
-
-  <div style="height:10px"></div>
-  <label>Notes</label>
-  <textarea id="opFormNotes" style="min-height:100px" placeholder="Anything else teammates should know..."></textarea>
-
-  <div class="actions">
-    <button class="btn" id="cancelOperatorProfile">Close</button>
-    <button class="btn" id="reloadOperatorProfile">Reload</button>
-    <button class="btn btnPrimary" id="saveOperatorProfileBtn">Save profile</button>
-  </div>
-  <div class="tiny" id="operatorProfileStatus" style="margin-top:10px;"></div>
-</div>
-
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
   <div class="tiny" id="smtpStatus">SMTP: checking...</div>
@@ -6479,7 +6432,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">CRM. Clients, pipeline, and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -7297,7 +7250,6 @@ function applyModalPos(){
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
@@ -7417,59 +7369,6 @@ function showModal(title, body, imgUrl){
 
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
-    }
-
-    async function fetchJsonSafe(url, options){
-      const res = await fetch(url, options || {});
-      const raw = await res.text();
-      let data = null;
-      try{ data = raw ? JSON.parse(raw) : {}; }catch(_){
-        const preview = (raw || '').slice(0, 160).trim();
-        throw new Error(preview ? ('Invalid server response: ' + preview) : 'Invalid server response');
-      }
-      if(!res.ok && (!data || data.ok !== false)){
-        throw new Error((data && (data.error || data.message)) || ('Request failed (' + res.status + ')'));
-      }
-      return data;
-    }
-
-    async function loadOperatorProfileIntoModal(){
-      const st = $("operatorProfileStatus");
-      if(st) st.innerText = 'Loading...';
-      try{
-        const data = await fetchJsonSafe('/api/operator_profile');
-        if(!data.ok) throw new Error(data.error || 'Load failed');
-        const p = data.profile || {};
-        $("opFormDisplayName").value = p.display_name || 'Operator';
-        $("opFormAudience").value = p.audience || '';
-        $("opFormBusiness").value = p.business || '';
-        $("opFormOffers").value = p.offers || '';
-        $("opFormGoals").value = p.goals || '';
-        $("opFormConstraints").value = p.constraints || '';
-        $("opFormToneRules").value = p.tone_rules || '';
-        $("opFormNotes").value = p.notes || '';
-        if(st) st.innerText = 'Ready';
-      }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : 'Load failed';
-      }
-    }
-
-    function showOperatorProfileModal(){
-      $("modalTitle").innerText = 'Operator Profile';
-      $("modalBody").innerText = '';
-      hideAllModalForms();
-      $("modalBody").style.display = 'none';
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = 'block';
-      modalMinimized = false;
-      $("modalWin").classList.remove('minimized');
-      $("minModal").style.display = 'inline-block';
-      $("restoreModal").style.display = 'none';
-      $("overlay").classList.add('show');
-      try{ ensureModalMinSize(980, 760); }catch(e){}
-      applyModalPos();
-      const sc = $("modalScroll");
-      if(sc) sc.scrollTop = 0;
-      loadOperatorProfileIntoModal();
     }
 
     function showFrameworkModal(){
@@ -8351,7 +8250,7 @@ function makeSeat(defn, idx){
       profBtn.innerText = "Profile";
       profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); showOperatorProfileModal(); });
+      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
       tools.appendChild(profBtn);
 
       seat.appendChild(tools);
@@ -9961,10 +9860,7 @@ $("draftWithSelected").onclick = async () => {
     $("cancelCreate").onclick = () => hideModal();
 
     $("saveCreate").onclick = async () => {
-      const st = $("createStatus");
-      const btn = $("saveCreate");
-      if(st) st.innerText = "Creating...";
-      if(btn) btn.disabled = true;
+      $("createStatus").innerText = "Creating...";
 
       const payload = {
         name: $("newName").value || "",
@@ -9977,51 +9873,22 @@ $("draftWithSelected").onclick = async () => {
         will_not_do: $("newWillNotDo").value || "",
       };
 
-      try{
-        const data = await fetchJsonSafe("/api/teammate/create", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(payload)
-        });
-        if(!data.ok) throw new Error(data.error || "Create failed");
-        if(st) st.innerText = "Created";
-        await loadState();
-        hideModal();
-        showModal("Created", "New teammate created and added to the round table.");
-      }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : "Create failed";
-      }finally{
-        if(btn) btn.disabled = false;
-      }
-    };
+      const res = await fetch("/api/teammate/create", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
 
-    // Operator profile
-    if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = () => showOperatorProfileModal();
-    if($("cancelOperatorProfile")) $("cancelOperatorProfile").onclick = () => hideModal();
-    if($("reloadOperatorProfile")) $("reloadOperatorProfile").onclick = () => loadOperatorProfileIntoModal();
-    if($("saveOperatorProfileBtn")) $("saveOperatorProfileBtn").onclick = async () => {
-      const st = $("operatorProfileStatus");
-      if(st) st.innerText = 'Saving...';
-      const payload = {
-        display_name: $("opFormDisplayName").value || 'Operator',
-        audience: $("opFormAudience").value || '',
-        business: $("opFormBusiness").value || '',
-        offers: $("opFormOffers").value || '',
-        goals: $("opFormGoals").value || '',
-        constraints: $("opFormConstraints").value || '',
-        tone_rules: $("opFormToneRules").value || '',
-        notes: $("opFormNotes").value || ''
-      };
-      try{
-        const data = await fetchJsonSafe('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-        if(!data.ok) throw new Error(data.error || 'Save failed');
-        if(st) st.innerText = 'Saved';
-        showToast('Saved Operator Profile');
-        try{ if(selectedSeat === 'Operator'){ await refreshThread(); } }catch(e){}
-        try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-      }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : 'Save failed';
+      const data = await res.json();
+      if(!data.ok){
+        $("createStatus").innerText = data.error || "Create failed";
+        return;
       }
+
+      $("createStatus").innerText = "Created";
+      await loadState();
+      hideModal();
+      showModal("Created", "New teammate created and added to the round table.");
     };
 
     // Core framework
@@ -10134,7 +10001,6 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
@@ -10830,7 +10696,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -10842,7 +10708,6 @@ async function crmFetchTasks(){
       if($("stackForm")) $("stackForm").style.display = "none";
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
@@ -10972,8 +10837,7 @@ async function crmFetchTasks(){
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '
-Top email guess: ' + top : '')
+                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
               })
             });
             const data = await res.json();
