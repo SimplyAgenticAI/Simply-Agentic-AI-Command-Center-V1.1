@@ -8,11 +8,12 @@ import secrets
 import hashlib
 import hmac
 import threading
+import shutil
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
-from urllib.parse import urlparse, urljoin, quote_plus, unquote
+from urllib.parse import urlparse, urljoin, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
@@ -22,7 +23,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException
+
+try:
+    from bs4 import BeautifulSoup
+except Exception:
+    BeautifulSoup = None
 
 # Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
 # If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
@@ -38,12 +43,6 @@ except Exception:
     GoogleHttpError = Exception
 
 load_dotenv()
-
-try:
-    from bs4 import BeautifulSoup
-except Exception:
-    BeautifulSoup = None
-
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
@@ -196,27 +195,24 @@ def _get_global_openai_client():
 
 app = Flask(__name__)
 
+# Additive API safety: never let API routes leak HTML error pages into the frontend.
+from werkzeug.exceptions import HTTPException
 
 @app.errorhandler(Exception)
-def _api_json_error(e):
+def _api_json_error_handler(e):
     try:
-        path = request.path or ""
+        if (request.path or '').startswith('/api/'):
+            code = 500
+            if isinstance(e, HTTPException):
+                code = int(getattr(e, 'code', 500) or 500)
+            try:
+                append_log('api_unhandled_error', {'path': request.path, 'error': str(e), 'at': now_iso()})
+            except Exception:
+                pass
+            return jsonify({'ok': False, 'error': str(e) if code < 500 else 'Server error'}), code
     except Exception:
-        path = ""
-    if path.startswith('/api/'):
-        code = e.code if isinstance(e, HTTPException) else 500
-        msg = getattr(e, 'description', None) or str(e) or 'Internal Server Error'
-        try:
-            append_log('api_error', {'path': path, 'error': msg, 'at': now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({'ok': False, 'error': msg})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp, code
-    if isinstance(e, HTTPException):
-        return e
-    return make_response('Internal Server Error', 500)
-
+        pass
+    raise e
 
 # -----------------------------
 # Uploads static serving (additive)
@@ -396,6 +392,11 @@ def _load_or_create_secret() -> str:
 app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+try:
+    app.permanent_session_lifetime = timedelta(days=30)
+except Exception:
+    pass
 
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
@@ -443,10 +444,61 @@ def current_user() -> Optional[Dict[str, Any]]:
     # Some earlier builds accidentally stored a dict here; support both.
     if isinstance(uname, dict):
         uname = uname.get("username")
-    if not uname:
-        return None
     data = load_users()
-    return (data.get("users") or {}).get(uname)
+    users = (data.get("users") or {})
+
+    # Additive hardening for single-user/local deployments:
+    # if auth/session data was wiped during a redeploy and no users exist,
+    # silently bootstrap a local owner account so the app stays operational.
+    if not users:
+        try:
+            sole = ensure_local_owner_user()
+            data = load_users()
+            users = (data.get("users") or {})
+            session["user"] = sole
+            session.permanent = True
+            return users.get(sole)
+        except Exception:
+            return None
+
+    if not uname:
+        # If there is exactly one user, silently restore that user into session.
+        if len(users) == 1:
+            sole = next(iter(users.keys()))
+            session["user"] = sole
+            session.permanent = True
+            return users.get(sole)
+        # Fallback for local-owner installs even if a stale browser loses cookies.
+        if "local" in users:
+            session["user"] = "local"
+            session.permanent = True
+            return users.get("local")
+        return None
+    rec = users.get(uname)
+    if rec:
+        return rec
+    # Session points to a user that no longer exists. Recover safely for single-user setups.
+    if len(users) == 1:
+        sole = next(iter(users.keys()))
+        session["user"] = sole
+        session.permanent = True
+        return users.get(sole)
+    return None
+
+def _ensure_session_user_from_single_account() -> Optional[str]:
+    try:
+        if session.get("user"):
+            u = session.get("user")
+            return (u.get("username") if isinstance(u, dict) else u) if u else None
+        users = (load_users().get("users") or {})
+        if len(users) == 1:
+            sole = next(iter(users.keys()))
+            session["user"] = sole
+            session.permanent = True
+            return sole
+    except Exception:
+        return None
+    return None
 
 def ensure_local_owner_user() -> str:
     """Ensure a local owner user exists for first-run / setup-less deployments.
@@ -485,12 +537,31 @@ def _auth_guard():
         return None
 
     if request.path.startswith("/api/") and not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+        if not _ensure_session_user_from_single_account():
+            try:
+                # Additive fallback: keep single-user/local deployments alive even if
+                # the session cookie or users file was reset during redeploy.
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     if request.path == "/" and not session.get("user"):
         if not has_any_user():
-            return redirect(url_for("setup"))
-        return redirect(url_for("login"))
+            try:
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return redirect(url_for("setup"))
+        elif not _ensure_session_user_from_single_account():
+            try:
+                sole = ensure_local_owner_user()
+                session["user"] = sole
+                session.permanent = True
+            except Exception:
+                return redirect(url_for("login"))
 
     # attach per-user OpenAI client for this request
     u = current_user()
@@ -2272,6 +2343,48 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
     return {"to": to_val, "subject": subject_val, "body": body_val}
 
 
+def extract_sms_draft(text: str) -> Optional[Dict[str, str]]:
+    if not text:
+        return None
+
+    content = text.strip()
+    block = content
+    m = re.search(r"```sms\s*(.*?)```", content, re.IGNORECASE | re.DOTALL)
+    if m:
+        block = (m.group(1) or "").strip()
+
+    lines = [ln.rstrip("\n") for ln in block.splitlines()]
+    to_val = ""
+    body_lines: List[str] = []
+    in_body = False
+
+    for raw in lines:
+        if not raw.strip() and not in_body:
+            continue
+        if not in_body:
+            hm = re.match(r"^(to|body)\s*:\s*(.*)$", raw, re.IGNORECASE)
+            if hm:
+                key = (hm.group(1) or "").lower().strip()
+                val = (hm.group(2) or "").strip()
+                if key == "to":
+                    to_val = val
+                    continue
+                if key == "body":
+                    in_body = True
+                    if val:
+                        body_lines.append(val)
+                    continue
+        else:
+            body_lines.append(raw.rstrip())
+
+    body_val = "\n".join(body_lines).strip()
+    if not body_val:
+        body_val = block.strip()
+    if not body_val:
+        return None
+    return {"to": to_val, "body": body_val}
+
+
 # =========================
 # PROMPTS + LLM
 # =========================
@@ -2300,6 +2413,21 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "rest of body.\n"
         "```\n"
         "Do not claim the email was sent.\n"
+        "No em dashes.\n"
+    )
+
+    sms_rules = (
+        "SMS CAPABILITY\n"
+        "You can draft SMS messages, but you cannot send SMS messages.\n"
+        "If the user asks you to write a text message, output a structured SMS draft so the UI can auto fill fields.\n"
+        "Use this exact format when an SMS draft is appropriate:\n"
+        "```sms\n"
+        "To: +15555550123\n"
+        "Body: first line of text\n"
+        "rest of text.\n"
+        "```\n"
+        "Keep SMS drafts concise and natural.\n"
+        "Do not claim the text was sent.\n"
         "No em dashes.\n"
     )
 
@@ -2355,7 +2483,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
-        f"{email_rules}\n"
+        f"{email_rules}\n\n{sms_rules}\n"
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
@@ -2986,7 +3114,7 @@ def api_set_user_settings():
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
         new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
         if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
+            _mark_onboarding_step(uname, "preferred_ai", True)
     except Exception:
         pass
 
@@ -3444,6 +3572,7 @@ def api_followup():
     save_thread(name, new_thread)
 
     draft = extract_email_draft(text)
+    sms_draft = extract_sms_draft(text)
 
     append_log("followup", {
         "name": name,
@@ -3453,7 +3582,8 @@ def api_followup():
         "vision_images_count": len(vision_images),
         "framework_length": len(load_core_framework()),
         "response": text,
-        "email_draft": draft
+        "email_draft": draft,
+        "sms_draft": sms_draft
     })
 
 
@@ -3467,6 +3597,7 @@ def api_followup():
             "attachment_meta": attach_meta,
             "vision_images_count": len(vision_images),
             "email_draft": draft,
+            "sms_draft": sms_draft,
             "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
         },
         teammate=name,
@@ -3481,7 +3612,7 @@ def api_followup():
 
 
 
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "sms_draft": sms_draft, "attachment_meta": attach_meta})
 
 
 @app.get("/api/thread/<name>")
@@ -3619,6 +3750,32 @@ def api_send_email():
 
     return jsonify({"ok": True, "provider": provider})
 
+
+@app.post("/api/send_sms")
+def api_send_sms():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    to_phone = (data.get("to") or "").strip()
+    body = (data.get("body") or "").strip()
+    from_teammate = (data.get("from_teammate") or "").strip()
+
+    if not to_phone or not body:
+        return jsonify({"ok": False, "error": "Missing to or body"}), 400
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
+    if not ok_send:
+        return jsonify({"ok": False, "error": err or "SMS send failed"}), 400
+
+    try:
+        _crm_log_message(uname, {"type": "single_sms", "to": to_phone, "from_teammate": from_teammate, "sent": 1, "failed": 0})
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "provider": "twilio"})
 
 
 # =========================
@@ -6081,8 +6238,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="createTeamBtn">Create teammate</button>
         <button class="btn" id="installFullBtn">Install full team</button>
         <button class="btn" id="settingsBtn">Settings</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
         <button class="btn" id="calendarBtn">Calendar</button>
+        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
         <button class="btn" id="crmBtn">CRM</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
@@ -6122,7 +6279,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" data-click="operatorProfileBtn">Operator Profile</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">CRM</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
@@ -6464,8 +6620,63 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="tiny" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
 </div>
 
+<div class="modalForm" id="smsConsoleForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">When a teammate drafts a text message, fields auto fill here. You approve before sending.</div>
+  <div class="row2">
+    <input class="field" id="smsFrom" placeholder="From" readonly/>
+    <input class="field" id="smsTo" placeholder="To: +1..."/>
+  </div>
+  <div style="height:10px"></div>
+  <textarea class="field" id="smsBody" style="height:220px" placeholder="Text message body"></textarea>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <button class="btn" id="draftSmsWithSelected">Draft with selected</button>
+    <button class="btn btnPrimary" id="sendSmsBtn">Approve and send text</button>
+  </div>
+  <div class="tiny" id="smsConsoleStatus" style="margin-top:8px;">Sending is always manual. The teammate drafts. You approve.</div>
+</div>
+
+<div class="modalForm" id="leadHandoffForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Choose who should write the outreach, then the app will open the matching console with the draft loaded.</div>
+  <div class="grid">
+    <div>
+      <label>Teammate</label>
+      <select id="leadHandoffTeammate"></select>
+    </div>
+    <div>
+      <label>Channel</label>
+      <input id="leadHandoffChannel" readonly />
+    </div>
+    <div>
+      <label>Goal</label>
+      <select id="leadHandoffGoal">
+        <option value="intro">Intro</option>
+        <option value="follow_up">Follow up</option>
+        <option value="offer">Offer</option>
+        <option value="nurture">Nurture</option>
+        <option value="book_call">Book call</option>
+      </select>
+    </div>
+    <div>
+      <label>Tone</label>
+      <select id="leadHandoffTone">
+        <option value="warm">Warm</option>
+        <option value="professional">Professional</option>
+        <option value="direct">Direct</option>
+        <option value="casual">Casual</option>
+      </select>
+    </div>
+  </div>
+  <label style="margin-top:10px;">Lead context</label>
+  <textarea id="leadHandoffContext" rows="7" readonly></textarea>
+  <div class="actions" style="justify-content:flex-end;">
+    <button class="btn" id="leadHandoffCancel">Cancel</button>
+    <button class="btn btnPrimary" id="leadHandoffGenerate">Write draft</button>
+  </div>
+  <div class="tiny" id="leadHandoffStatus"></div>
+</div>
+
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">CRM. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -7161,7 +7372,9 @@ if (typeof window.showToast !== "function") {
     let lastGroupOutputs = {};
     let lastSeatAssistantText = "";
     let lastEmailDraftBy = "";
+    let lastSmsDraftBy = "";
     let lastImageState = {};
+    let leadHandoffState = null;
 
     let groupFileIds = [];
     let dmFileIds = [];
@@ -7325,6 +7538,8 @@ function applyModalPos(){
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -7724,16 +7939,160 @@ function showModal(title, body, imgUrl){
 
       lastEmailDraftBy = teammateName || selectedSeat || "";
 
-      if(draft.to) $("emailTo").value = draft.to;
-      if(draft.subject) $("emailSubject").value = draft.subject;
-      if(draft.body) $("emailBody").value = draft.body;
+      if($("emailTo") && draft.to) $("emailTo").value = draft.to;
+      if($("emailSubject") && draft.subject) $("emailSubject").value = draft.subject;
+      if($("emailBody") && draft.body) $("emailBody").value = draft.body;
 
       setEmailFrom(lastEmailDraftBy);
+      showEmailConsoleModal("Email Console");
+      showToast(`Email draft loaded${lastEmailDraftBy ? ' by ' + lastEmailDraftBy : ''}`);
+    }
 
-      showModal(
-        "Email draft ready",
-        "Fields were auto filled in the Email Console.\n\nReview them, then click Approve and send."
-      );
+    function setSmsFrom(teammate){
+      if($("smsFrom")) $("smsFrom").value = teammate ? `${teammate} via Twilio/CRM` : 'Twilio/CRM';
+    }
+
+    function applySmsDraft(draft, teammateName){
+      if(!draft) return;
+      lastSmsDraftBy = teammateName || selectedSeat || "";
+      if($("smsTo") && draft.to) $("smsTo").value = draft.to;
+      if($("smsBody") && draft.body) $("smsBody").value = draft.body;
+      setSmsFrom(lastSmsDraftBy);
+      showSMSConsoleModal("SMS Console");
+      showToast(`Text draft loaded${lastSmsDraftBy ? ' by ' + lastSmsDraftBy : ''}`);
+    }
+
+    function getActiveTeammateOptions(){
+      const installed = (state && state.installed) ? state.installed : {};
+      const active = (state && state.active_order && state.active_order.length) ? state.active_order : ((state && state.installed_order) ? state.installed_order : []);
+      const out = [];
+      (active || []).forEach(name=>{ if(installed && installed[name]) out.push(name); });
+      return out;
+    }
+
+    function buildLeadOutreachContext(item, channel){
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const phone = item.phone || '';
+      const site = item.website || item.domain || '';
+      const sourceQuery = item.source_query || '';
+      const parts = [
+        `Channel: ${channel}`,
+        `Lead name: ${item.name || ''}`,
+        `Company: ${item.company || ''}`,
+        `Title: ${item.title || ''}`,
+        `Website: ${site}`,
+        `Email: ${email}`,
+        `Phone: ${phone}`,
+        `Location: ${($("leadLabLocation")?.value || '').trim()}`,
+        `Specific areas: ${($("leadLabAreas")?.value || '').trim()}`,
+        `Search niche: ${($("leadLabNiche")?.value || '').trim()}`,
+        `Source query: ${sourceQuery}`,
+        `Notes: ${item.notes || ''}`
+      ].filter(x=>!/:\s*$/.test(x));
+      return parts.join('\n');
+    }
+
+    function openLeadHandoff(channel, item){
+      const options = getActiveTeammateOptions();
+      if(!options.length){
+        showModal('No teammates available', 'Install or activate at least one teammate first.');
+        return;
+      }
+      leadHandoffState = { channel, item: item || {} };
+      showModal();
+      try{ ensureModalMinSize(820, 680); }catch(e){}
+      hideAllModalForms();
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = 'block';
+      if($("modalBody")) $("modalBody").style.display = 'none';
+      if($("modalTitle")) $("modalTitle").innerText = channel === 'sms' ? 'Write lead text' : 'Write lead email';
+      const sel = $("leadHandoffTeammate");
+      if(sel){
+        sel.innerHTML = options.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+        if(selectedSeat && options.includes(selectedSeat)) sel.value = selectedSeat;
+      }
+      if($("leadHandoffChannel")) $("leadHandoffChannel").value = channel === 'sms' ? 'Text message' : 'Email';
+      if($("leadHandoffGoal")) $("leadHandoffGoal").value = 'intro';
+      if($("leadHandoffTone")) $("leadHandoffTone").value = channel === 'sms' ? 'warm' : 'professional';
+      if($("leadHandoffContext")) $("leadHandoffContext").value = buildLeadOutreachContext(item || {}, channel);
+      if($("leadHandoffStatus")) $("leadHandoffStatus").innerText = '';
+    }
+
+    async function generateLeadOutreachDraft(){
+      const cfg = leadHandoffState || {};
+      const item = cfg.item || {};
+      const channel = cfg.channel || 'email';
+      const teammate = ($("leadHandoffTeammate")?.value || '').trim();
+      const goal = ($("leadHandoffGoal")?.value || 'intro').trim();
+      const tone = ($("leadHandoffTone")?.value || 'warm').trim();
+      const st = $("leadHandoffStatus");
+      if(!teammate){
+        if(st) st.innerText = 'Choose a teammate first.';
+        return;
+      }
+      if(st) st.innerText = 'Writing draft...';
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const phone = item.phone || '';
+      if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
+      if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
+
+      let prompt = '';
+      if(channel === 'email'){
+        prompt = [
+          'Draft a prospecting email for this lead.',
+          'Write it in a ' + tone + ' tone.',
+          'Goal: ' + goal + '.',
+          'Use the exact structured format below so the Email Console can auto fill:',
+          '```email',
+          'To: recipient@email.com',
+          'Subject: subject line',
+          'Body: first line',
+          'rest of body...',
+          '```',
+          'Keep it specific, human, and ready to send.',
+          '',
+          buildLeadOutreachContext(item, channel)
+        ].join('\n');
+      }else{
+        prompt = [
+          'Draft a prospecting text message for this lead.',
+          'Write it in a ' + tone + ' tone.',
+          'Goal: ' + goal + '.',
+          'Use the exact structured format below so the SMS Console can auto fill:',
+          '```sms',
+          'To: +15555550123',
+          'Body: first line',
+          'rest of body...',
+          '```',
+          'Keep it concise, natural, and ready to send.',
+          '',
+          buildLeadOutreachContext(item, channel)
+        ].join('\n');
+      }
+
+      try{
+        const res = await fetch('/api/followup', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({name: teammate, message: prompt})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Draft failed');
+        if(channel === 'email'){
+          const draft = data.email_draft || {to: email, subject: '', body: ''};
+          if(!draft.to) draft.to = email;
+          applyEmailDraft(draft, teammate);
+        }else{
+          const draft = data.sms_draft || {to: phone, body: ''};
+          if(!draft.to) draft.to = phone;
+          if(!draft.body) draft.body = (data.response || '').trim();
+          applySmsDraft(draft, teammate);
+        }
+        try{ await refreshThread(); }catch(e){}
+      }catch(e){
+        if(st) st.innerText = e && e.message ? e.message : 'Draft failed';
+        return;
+      }
+      if(st) st.innerText = 'Draft loaded.';
     }
 
     async function openEditForTeammate(name){
@@ -8777,85 +9136,83 @@ function makeSeat(defn, idx){
 
 
 
-
-    function operatorProfileFormHtml(p){
-      const safe = (v)=> (v==null? "" : String(v)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      return `
-        <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this profile for your business context, goals, and rules.</div>
-        <div class="pillRow" style="gap:10px; flex-wrap:wrap">
-          <div style="flex:1; min-width:240px">
-            <div class="tiny">Display name</div>
-            <input id="opm_display_name" class="input" placeholder="Operator" value="${safe(p.display_name||"Operator")}" />
-          </div>
-          <div style="flex:1; min-width:240px">
-            <div class="tiny">Audience</div>
-            <input id="opm_audience" class="input" placeholder="Who you serve" value="${safe(p.audience||"")}" />
-          </div>
-        </div>
-        <div style="height:10px"></div>
-        <div class="tiny">Business</div>
-        <textarea id="opm_business" class="followBox" style="min-height:90px">${safe(p.business||"")}</textarea>
-        <div style="height:10px"></div>
-        <div class="tiny">Offers</div>
-        <textarea id="opm_offers" class="followBox" style="min-height:80px">${safe(p.offers||"")}</textarea>
-        <div style="height:10px"></div>
-        <div class="tiny">Goals</div>
-        <textarea id="opm_goals" class="followBox" style="min-height:70px">${safe(p.goals||"")}</textarea>
-        <div style="height:10px"></div>
-        <div class="tiny">Constraints</div>
-        <textarea id="opm_constraints" class="followBox" style="min-height:70px">${safe(p.constraints||"")}</textarea>
-        <div style="height:10px"></div>
-        <div class="tiny">Tone rules</div>
-        <textarea id="opm_tone_rules" class="followBox" style="min-height:70px">${safe(p.tone_rules||"")}</textarea>
-        <div style="height:10px"></div>
-        <div class="tiny">Notes</div>
-        <textarea id="opm_notes" class="followBox" style="min-height:70px">${safe(p.notes||"")}</textarea>
-        <div style="height:12px"></div>
-        <div class="pillRow" style="justify-content:flex-end">
-          <button class="btn btnMini" id="opmReload">Reload</button>
-          <button class="btn btnPrimary" id="opmSave">Save</button>
-        </div>`;
-    }
-
-    async function showOperatorProfileModal(){
+    async function showOperatorProfileStandalone(){
       try{
-        const res = await fetch('/api/operator_profile');
+        const res = await fetch("/api/operator_profile");
         const raw = await res.text();
         let data = null;
         try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Failed to load Operator Profile');
-        if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
-        const mb = $("modalBody");
-        if(mb){
-          mb.style.whiteSpace = 'normal';
-          mb.innerHTML = operatorProfileFormHtml(data.profile || {});
-        }
-        if($("modal")) $("modal").style.display = 'flex';
-        const bind = (id, fn)=>{ const el=$(id); if(el) el.onclick = fn; };
-        bind('opmReload', ()=> showOperatorProfileModal());
-        bind('opmSave', async ()=>{
-          try{
-            const payload = {
-              display_name: $("opm_display_name")?.value || '',
-              audience: $("opm_audience")?.value || '',
-              business: $("opm_business")?.value || '',
-              offers: $("opm_offers")?.value || '',
-              goals: $("opm_goals")?.value || '',
-              constraints: $("opm_constraints")?.value || '',
-              tone_rules: $("opm_tone_rules")?.value || '',
-              notes: $("opm_notes")?.value || ''
-            };
-            const res2 = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-            const raw2 = await res2.text();
-            let data2 = null;
-            try{ data2 = raw2 ? JSON.parse(raw2) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-            if(!res2.ok || !data2.ok) throw new Error(data2.error || 'Save failed');
-            showToast('Saved Operator Profile');
-            try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-          }catch(e){ showToast(e.message || 'Save failed'); }
-        });
-      }catch(e){
-        showModal('Operator Profile', String(e && e.message ? e.message : e));
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load Operator Profile');
+        const p = data.profile || {};
+        showModal('Operator Profile');
+        try{ ensureModalMinSize(980, 760); }catch(e){}
+        hideAllModalForms();
+        const body = $("modalBody");
+        if(!body) return;
+        body.style.display = 'block';
+        const safe = (v)=> (v==null ? '' : escapeHtml(String(v)));
+        body.innerHTML = `
+          <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
+          <div class="pillRow" style="gap:10px; flex-wrap:wrap">
+            <div style="flex:1; min-width:240px">
+              <div class="tiny">Display name</div>
+              <input id="op_display_name_modal" class="input" placeholder="Operator" value="${safe(p.display_name||"Operator")}" />
+            </div>
+            <div style="flex:1; min-width:240px">
+              <div class="tiny">Audience</div>
+              <input id="op_audience_modal" class="input" placeholder="Who you serve" value="${safe(p.audience||"")}" />
+            </div>
+          </div>
+          <div style="height:10px"></div>
+          <div class="tiny">Business</div>
+          <textarea id="op_business_modal" class="followBox" style="min-height:90px">${safe(p.business||"")}</textarea>
+          <div style="height:10px"></div>
+          <div class="tiny">Offers</div>
+          <textarea id="op_offers_modal" class="followBox" style="min-height:80px">${safe(p.offers||"")}</textarea>
+          <div style="height:10px"></div>
+          <div class="tiny">Goals</div>
+          <textarea id="op_goals_modal" class="followBox" style="min-height:70px">${safe(p.goals||"")}</textarea>
+          <div style="height:10px"></div>
+          <div class="tiny">Constraints</div>
+          <textarea id="op_constraints_modal" class="followBox" style="min-height:70px">${safe(p.constraints||"")}</textarea>
+          <div style="height:10px"></div>
+          <div class="tiny">Tone rules</div>
+          <textarea id="op_tone_rules_modal" class="followBox" style="min-height:70px">${safe(p.tone_rules||"")}</textarea>
+          <div style="height:10px"></div>
+          <div class="tiny">Notes</div>
+          <textarea id="op_notes_modal" class="followBox" style="min-height:70px">${safe(p.notes||"")}</textarea>
+          <div style="height:12px"></div>
+          <div class="pillRow" style="justify-content:flex-end">
+            <button class="btn btnMini" id="opReloadModal">Reload</button>
+            <button class="btn btnPrimary" id="opSaveModal">Save</button>
+          </div>
+        `;
+        if($("opReloadModal")) $("opReloadModal").onclick = ()=> showOperatorProfileStandalone();
+        if($("opSaveModal")) $("opSaveModal").onclick = async()=>{
+          const payload = {
+            display_name: $("op_display_name_modal")?.value || '',
+            audience: $("op_audience_modal")?.value || '',
+            business: $("op_business_modal")?.value || '',
+            offers: $("op_offers_modal")?.value || '',
+            goals: $("op_goals_modal")?.value || '',
+            constraints: $("op_constraints_modal")?.value || '',
+            tone_rules: $("op_tone_rules_modal")?.value || '',
+            notes: $("op_notes_modal")?.value || ''
+          };
+          const saveRes = await fetch('/api/operator_profile', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+          });
+          const saveRaw = await saveRes.text();
+          let saveData = null;
+          try{ saveData = saveRaw ? JSON.parse(saveRaw) : {}; }catch(_){ throw new Error('Operator Profile save returned an invalid server response'); }
+          if(!saveRes.ok || !saveData.ok) throw new Error(saveData.error || 'Could not save Operator Profile');
+          showToast('Operator Profile saved');
+          try{ selectedSeat = 'Operator'; markActiveSeat(); }catch(e){}
+        };
+      }catch(err){
+        showModal('Operator Profile', (err && err.message) ? err.message : 'Could not load Operator Profile');
       }
     }
 
@@ -9900,6 +10257,60 @@ $("draftWithSelected").onclick = async () => {
       showModal("Email sent", "Email sent successfully.");
     };
 
+    if($("draftSmsWithSelected")) $("draftSmsWithSelected").onclick = async () => {
+      if(!selectedSeat){
+        showModal("No seat selected", "Select a teammate first.");
+        return;
+      }
+      const toPhone = $("smsTo").value.trim();
+      const body = $("smsBody").value.trim();
+      const prompt =
+        "Draft a text message.\n\n" +
+        "Use the required structured format:\n" +
+        "```sms\n" +
+        "To: +15555550123\n" +
+        "Body: first line\n" +
+        "rest of body...\n" +
+        "```\n\n" +
+        `Existing fields:
+To: ${toPhone || "[empty]"}
+Body: ${body ? "[present]" : "[empty]"}
+`;
+      const res = await fetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
+      const data = await res.json();
+      if(!data.ok){ showModal('Error', data.error || 'Draft failed'); return; }
+      const draft = data.sms_draft || {to: toPhone, body: (data.response || '').trim()};
+      if(!draft.to) draft.to = toPhone;
+      applySmsDraft(draft, selectedSeat);
+      try{ await refreshThread(); }catch(e){}
+    };
+
+    if($("sendSmsBtn")) $("sendSmsBtn").onclick = async () => {
+      const toPhone = $("smsTo").value.trim();
+      const body = $("smsBody").value.trim();
+      if(!toPhone || !body){
+        showModal('Missing fields', 'To and Body are required to send a text.');
+        return;
+      }
+      const fromLabel = $("smsFrom").value || '';
+      const ok = confirm('Approve and send this text now?\n\nFrom: ' + fromLabel + '\nTo: ' + toPhone);
+      if(!ok) return;
+      const res = await fetch('/api/send_sms', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({to: toPhone, body, from_teammate: lastSmsDraftBy || selectedSeat || ''})
+      });
+      const data = await res.json();
+      if(!data.ok){
+        showModal('Text failed', data.error || 'Send failed');
+        return;
+      }
+      showModal('Text sent', 'Text sent successfully.');
+    };
+
+    if($("leadHandoffCancel")) $("leadHandoffCancel").onclick = () => closeModal();
+    if($("leadHandoffGenerate")) $("leadHandoffGenerate").onclick = generateLeadOutreachDraft;
+
     // Manage teammates (active seats)
     function renderManageList(){
       const list = $("manageList");
@@ -10158,6 +10569,8 @@ Challenge weak assumptions. Surface risks.`;
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10179,6 +10592,15 @@ Challenge weak assumptions. Surface risks.`;
       try{ updateSmtpStatus(); }catch(e){}
     }
 
+    function showSMSConsoleModal(titleText="SMS Console"){
+      showModal();
+      try{ ensureModalMinSize(900, 680); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = titleText;
+    }
+
     function showGrowthPlaybookModal(){
       showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
     }
@@ -10196,7 +10618,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     // =========================
-    // CRM UI (Client Command Center)
+    // CRM UI (CRM)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
     let crmEditingClientId = null;
@@ -10865,6 +11287,8 @@ async function crmFetchTasks(){
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
+      if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10890,6 +11314,7 @@ async function crmFetchTasks(){
       })();
     }
 
+    if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = ()=> showOperatorProfileStandalone();
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
@@ -10946,37 +11371,46 @@ async function crmFetchTasks(){
       }
       box.innerHTML = items.map((item, idx)=>{
         const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
-        const website = item.website || item.domain || '';
-        const topEmail = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
-        const phone = item.phone || (((item.phones||[])[0]||''));
+        const topEmail = ((item.email_candidates||[])[0]||{}).email || item.email || '';
+        const topPhone = item.phone || '';
+        const site = item.website || item.domain || '';
+        const sourceQuery = item.source_query || '';
         return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:flex-start;">
-            <div style="min-width:0; flex:1 1 420px;">
+            <div>
               <div style="font-weight:800;">${escapeHtml(item.name || item.company || '(no name)')}</div>
-              <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')}${item.title ? ' • ' + escapeHtml(item.title) : ''}</div>
-              ${website ? `<div class="tiny" style="opacity:.9; margin-top:6px;">Website: <a href="${escapeHtml((website.startsWith('http')?website:('https://' + website)))}" target="_blank" rel="noopener noreferrer">${escapeHtml(website)}</a></div>` : ''}
-              ${phone ? `<div class="tiny" style="opacity:.9; margin-top:4px;">Phone: ${escapeHtml(phone)}</div>` : ''}
-              ${topEmail ? `<div class="tiny" style="opacity:.9; margin-top:4px;">Top email: ${escapeHtml(topEmail)}</div>` : ''}
-              ${item.source_query ? `<div class="tiny" style="opacity:.75; margin-top:4px;">Source query: ${escapeHtml(item.source_query)}</div>` : ''}
-              ${item.notes ? `<div class="tiny" style="opacity:.75; margin-top:6px;">${escapeHtml(item.notes)}</div>` : ''}
+              <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
+              <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
+              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
+              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
+              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
             <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
           </div>
           <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnMini" data-lead-copy="${idx}">Copy top email</button>
-            <button class="btn btnMini" data-lead-email="${idx}">Email them</button>
-            <button class="btn btnMini" data-lead-text="${idx}">Text them</button>
+          <div class="actions" style="justify-content:flex-end; margin-top:10px; flex-wrap:wrap;">
+            <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
+            <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
+            <button class="btn btnMini" data-lead-email="${idx}">Email lead</button>
+            <button class="btn btnMini" data-lead-sms="${idx}">Text lead</button>
             <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
           </div>
         </div>`;
       }).join('');
-      box.querySelectorAll('[data-lead-copy]').forEach(btn=>{
+      box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy'))] || {};
+          const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
           const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
           if(!email) return showToast('No email found');
-          try{ await navigator.clipboard.writeText(email); showToast('Copied'); }catch(e){}
+          try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-copy-phone]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-copy-phone'))] || {};
+          const phone = item.phone || '';
+          if(!phone) return showToast('No phone found');
+          try{ await navigator.clipboard.writeText(phone); showToast('Phone copied'); }catch(e){}
         };
       });
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
@@ -10984,43 +11418,21 @@ async function crmFetchTasks(){
           const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
           const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
           if(!email) return showToast('No email found');
-          try{
-            if(typeof openEmailComposerForLead === 'function'){ openEmailComposerForLead(item); return; }
-            const subjectEl = $('emailSubject');
-            const bodyEl = $('emailBody');
-            const toEl = $('emailTo');
-            if(toEl) toEl.value = email;
-            if(subjectEl) subjectEl.value = `Quick question for ${item.company || item.name || 'your business'}`;
-            if(bodyEl) bodyEl.value = `Hi ${item.name || item.company || ''},
-
-I came across ${item.company || 'your business'} and wanted to reach out.
-
-Best,`;
-            if(typeof showEmailConsoleModal === 'function'){ showEmailConsoleModal(); } else if($('emailConsoleBtn')) { $('emailConsoleBtn').click(); }
-          }catch(e){ showToast('Could not open email console'); }
+          openLeadHandoff('email', item);
         };
       });
-      box.querySelectorAll('[data-lead-text]').forEach(btn=>{
+      box.querySelectorAll('[data-lead-sms]').forEach(btn=>{
         btn.onclick = ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-text'))] || {};
-          const phone = item.phone || (((item.phones||[])[0]||''));
+          const item = items[Number(btn.getAttribute('data-lead-sms'))] || {};
+          const phone = item.phone || '';
           if(!phone) return showToast('No phone found');
-          try{
-            const toEl = $('crmSmsTo');
-            const bodyEl = $('crmSmsBody');
-            if(toEl) toEl.value = phone;
-            if(bodyEl) bodyEl.value = `Hi ${item.name || item.company || ''}, quick question for you.`;
-            if($('crmBtn')) $('crmBtn').click();
-            setTimeout(()=>{ try{ if($('crmTabBroadcastSMS')) $('crmTabBroadcastSMS').click(); }catch(_){ } }, 120);
-          }catch(e){ showToast('Could not open SMS console'); }
+          openLeadHandoff('sms', item);
         };
       });
       box.querySelectorAll('[data-lead-add]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
           const top = ((item.email_candidates||[])[0]||{}).email || item.email || '';
-          const phone = item.phone || (((item.phones||[])[0]||''));
-          const website = item.website || item.domain || '';
           try{
             const res = await fetch('/api/crm/clients', {
               method:'POST',
@@ -11029,22 +11441,20 @@ Best,`;
                 name: item.name || item.company || 'New lead',
                 company: item.company || '',
                 email: top,
-                phone: phone,
-                website: website,
+                phone: item.phone || '',
+                website: item.website || item.domain || '',
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '\nTop email: ' + top : '') + (phone ? '\nPhone: ' + phone : '') + (website ? '\nWebsite: ' + website : '')
+                notes: (item.notes || '') + (top ? '\nTop email: ' + top : '') + (item.phone ? '\nPhone: ' + item.phone : '') + ((item.website || item.domain) ? '\nWebsite: ' + (item.website || item.domain) : '')
               })
             });
-            const raw = await res.text();
-            let data = null;
-            try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('CRM returned an invalid response'); }
+            const data = await res.json();
             if(!data.ok) throw new Error(data.error||'Add failed');
             showToast('Lead added to CRM');
             try{ await crmFetchClients(); }catch(e){}
           }catch(e){
-            showToast(e.message || 'Could not add lead');
+            showToast('Could not add lead');
           }
         };
       });
@@ -11588,7 +11998,6 @@ try{
 }catch(e){}
 
 
-if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = () => showOperatorProfileModal();
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
@@ -14186,17 +14595,24 @@ def api_crm_broadcast_email():
         filt["stage"] = str(payload.get("stage") or "").strip()
     if payload.get("status"):
         filt["status"] = str(payload.get("status") or "").strip()
+    explicit_numbers = payload.get("to_numbers") or []
     if payload.get("client_ids"):
         ids = payload.get("client_ids") or []
         if isinstance(ids, str):
             ids = [x.strip() for x in ids.split(",") if x.strip()]
         if isinstance(ids, list):
             filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
+    if isinstance(explicit_numbers, str):
+        explicit_numbers = [x.strip() for x in explicit_numbers.split(",") if x.strip()]
+    if not isinstance(explicit_numbers, list):
+        explicit_numbers = []
 
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+        if explicit_numbers:
+            recipients.extend([{"id": f"phone_{i}", "name": "", "company": "", "phone": str(num).strip()} for i, num in enumerate(explicit_numbers) if str(num).strip()])
 
         # safety cap
         if len(recipients) > 250:
@@ -14637,295 +15053,678 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
 
+def _crm_extract_domain(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"^https?://", "", s)
+    s = re.sub(r"^www\.", "", s)
+    s = s.split("/")[0].strip()
+    return s
+
+def _crm_name_bits(name: str) -> Tuple[str, str]:
+    bits = [x for x in re.split(r"\s+", (name or "").strip()) if x]
+    if not bits:
+        return ("", "")
+    first = re.sub(r"[^a-z]", "", bits[0].lower())
+    last = re.sub(r"[^a-z]", "", bits[-1].lower()) if len(bits) > 1 else ""
+    return first, last
+
+def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
+    domain = _crm_extract_domain(domain)
+    if not domain:
+        return []
+    first, last = _crm_name_bits(name)
+    if not first and not last:
+        first = "hello"
+    fi = first[:1]
+    li = last[:1]
+    vals = []
+    def add(local: str, score: float):
+        if local:
+            vals.append({"email": f"{local}@{domain}", "confidence": round(float(score), 2), "status": "estimated"})
+    add(first, 0.62)
+    add(f"{first}.{last}" if first and last else "", 0.76)
+    add(f"{fi}{last}" if fi and last else "", 0.71)
+    add(f"{first}{li}" if first and li else "", 0.66)
+    add("hello", 0.48)
+    add("info", 0.42)
+    out = []
+    seen = set()
+    for row in sorted(vals, key=lambda x: x["confidence"], reverse=True):
+        email = row["email"]
+        if email in seen:
+            continue
+        seen.add(email)
+        out.append(row)
+    return out
+
+def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
+    rows = []
+    for raw in (source_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+        else:
+            parts = [p.strip() for p in re.split(r",|\t", line)]
+        parts = [p for p in parts if p]
+        item = {"name": "", "company": "", "domain": "", "title": "", "notes": ""}
+        if len(parts) == 1:
+            item["company"] = parts[0]
+        elif len(parts) == 2:
+            item["company"], item["domain"] = parts[0], parts[1]
+        elif len(parts) == 3:
+            item["name"], item["company"], item["domain"] = parts[0], parts[1], parts[2]
+        else:
+            item["name"], item["company"], item["domain"], item["title"] = parts[0], parts[1], parts[2], parts[3]
+            if len(parts) > 4:
+                item["notes"] = " | ".join(parts[4:])
+        rows.append(item)
+    return rows
+
+def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
+    try:
+        reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
+        reply = (reply or "").strip()
+        if reply:
+            return reply
+    except Exception:
+        pass
+    return fallback
+
+
+def _crm_extract_json_block(text: str) -> str:
+    s = (text or '').strip()
+    if not s:
+        return ''
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, flags=re.I)
+    if m:
+        s = m.group(1).strip()
+    start = s.find('[')
+    end = s.rfind(']')
+    if start != -1 and end != -1 and end > start:
+        return s[start:end+1]
+    start = s.find('{')
+    end = s.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        return s[start:end+1]
+    return s
+
+
+def _crm_response_text(resp: Any) -> str:
+    try:
+        txt = getattr(resp, 'output_text', None)
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+    except Exception:
+        pass
+    try:
+        data = resp.model_dump() if hasattr(resp, 'model_dump') else resp
+    except Exception:
+        data = resp
+    parts: List[str] = []
+    try:
+        outputs = (data or {}).get('output') or []
+        for item in outputs:
+            for c in (item.get('content') or []):
+                if isinstance(c, dict):
+                    if c.get('type') in ('output_text', 'text') and c.get('text'):
+                        parts.append(str(c.get('text')))
+                    elif c.get('type') == 'message' and c.get('content'):
+                        for inner in (c.get('content') or []):
+                            if isinstance(inner, dict) and inner.get('text'):
+                                parts.append(str(inner.get('text')))
+    except Exception:
+        pass
+    return '\n'.join([p for p in parts if p]).strip()
+
+
+def _crm_openai_web_search(query: str, niche: str, location: str, max_results: int = 12) -> List[Dict[str, Any]]:
+    """Use OpenAI web search to find likely prospect businesses.
+
+    Returns lightweight candidate rows that are later validated against public pages.
+    This is additive: if the user's key or model does not support web search, we quietly fall back.
+    """
+    query = (query or '').strip()
+    if not query:
+        return []
+    try:
+        client = get_openai_client()
+    except Exception:
+        return []
+
+    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4.1-mini')
+    system = (
+        'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
+        'Return ONLY a JSON array. Each item must be an object with keys: '
+        'name, company, website, phone, email, notes. '
+        'Only include likely real prospects, not search engines, portals, directories, marketplaces, social networks, review sites, or aggregators. '
+        'Prefer official business websites. If email or phone is unknown, use an empty string. '
+        f'Return at most {max(1, min(25, int(max_results or 12)))} items.'
+    )
+    user = (
+        f'Niche: {niche or "businesses"}\n'
+        f'Location: {location or "target area"}\n'
+        f'Search query: {query}\n'
+        'Requirements: prioritize official websites and businesses clearly serving the niche and location. '
+        'Do not invent contact details. Return JSON only.'
+    )
+
+    try:
+        resp = client.responses.create(
+            model=model,
+            tools=[{'type': 'web_search_preview'}],
+            temperature=0.1,
+            input=[
+                {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
+                {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
+            ],
+            timeout=90,
+        )
+    except Exception:
+        # Older SDKs / unsupported accounts should not break Lead Lab.
+        return []
+
+    txt = _crm_response_text(resp)
+    raw = _crm_extract_json_block(txt)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return []
+    if isinstance(data, dict):
+        data = data.get('items') or data.get('results') or []
+    if not isinstance(data, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        website = (row.get('website') or row.get('url') or '').strip()
+        phone = _crm_clean_phone(row.get('phone') or '')
+        email = (row.get('email') or '').strip().lower()
+        domain = _crm_extract_domain(urlparse(website).netloc or website)
+        if not domain or _crm_is_blocked_domain(domain):
+            continue
+        key = domain.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            'url': website if website.startswith('http') else ('https://' + domain),
+            'title': (row.get('company') or row.get('name') or domain).strip(),
+            'domain': domain,
+            'snippet': (row.get('notes') or '').strip(),
+            'name_hint': (row.get('name') or '').strip(),
+            'company_hint': (row.get('company') or '').strip(),
+            'phone_hint': phone,
+            'email_hint': email,
+        })
+        if len(out) >= max_results:
+            break
+    return out
+
+_CRM_SEARCH_BLOCKED_DOMAINS = {
+    "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
+    "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
+    "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
+    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
+}
 _CRM_STATE_CITY_MAP = {
-    'new jersey': ['Newark', 'Jersey City', 'Hoboken', 'Princeton', 'Cherry Hill', 'Edison', 'Paterson', 'Elizabeth', 'Morristown', 'Freehold', 'Toms River', 'Paramus', 'Red Bank', 'Montclair', 'Hackensack', 'Bridgewater'],
-    'nj': ['Newark', 'Jersey City', 'Hoboken', 'Princeton', 'Cherry Hill', 'Edison', 'Paterson', 'Elizabeth', 'Morristown', 'Freehold', 'Toms River', 'Paramus', 'Red Bank', 'Montclair', 'Hackensack', 'Bridgewater'],
-    'texas': ['Houston', 'Dallas', 'Austin', 'San Antonio', 'Fort Worth', 'Plano', 'Frisco', 'Arlington', 'League City', 'Sugar Land', 'The Woodlands', 'McKinney'],
-    'florida': ['Miami', 'Orlando', 'Tampa', 'Jacksonville', 'Fort Lauderdale', 'Naples', 'Boca Raton', 'Sarasota'],
+    "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
+    "nj": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
 }
+_CRM_BAD_PERSON_WORDS = {"realty", "realtor", "realtors", "estate", "homes", "home", "properties", "property", "group", "team", "broker", "brokerage", "real", "contact", "about", "welcome", "new", "jersey", "nj", "duckduckgo", "search"}
 
-_CRM_BLOCKED_DOMAINS = {
-    'google.com','bing.com','duckduckgo.com','yahoo.com','yelp.com','facebook.com','instagram.com','linkedin.com','x.com','twitter.com','youtube.com','zillow.com','realtor.com','redfin.com','trulia.com','loopnet.com','homes.com','apartments.com','wikipedia.org','mapquest.com','yellowpages.com'
-}
-
-_CRM_BAD_PERSON_WORDS = {'team','group','realty','real','estate','homes','properties','broker','brokerage','contact','about','office','agent','agents','realtor','results','search','new','jersey','texas','florida'}
 
 def _crm_is_blocked_domain(domain: str) -> bool:
     d = _crm_extract_domain(domain)
-    return (not d) or d in _CRM_BLOCKED_DOMAINS or d.endswith('.gov') or d.endswith('.edu')
+    if not d:
+        return True
+    for item in _CRM_SEARCH_BLOCKED_DOMAINS:
+        if d == item or d.endswith("." + item):
+            return True
+    return False
+
 
 def _crm_clean_phone(phone: str) -> str:
-    digits = re.sub(r'\D', '', phone or '')
-    if len(digits) == 11 and digits.startswith('1'):
+    digits = re.sub(r"\D", "", phone or "")
+    if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
-    if len(digits) != 10:
-        return ''
-    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    return (phone or "").strip()
+
 
 def _crm_extract_emails_from_text(text: str) -> List[str]:
-    out, seen = [], set()
-    for e in re.findall(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}', text or '', flags=re.I):
-        e = e.strip().lower()
-        dom = _crm_extract_domain(e.split('@',1)[1]) if '@' in e else ''
-        if e not in seen and dom and not _crm_is_blocked_domain(dom):
+    vals = re.findall(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text or "", flags=re.I)
+    out = []
+    seen = set()
+    for e in vals:
+        e = e.strip(" .,;:>)]}\"'\n\r\t").lower()
+        if any(x in e for x in ["example.com", ".png", ".jpg", ".jpeg", ".gif", ".webp", "sentry.io"]):
+            continue
+        if e not in seen:
             seen.add(e)
             out.append(e)
-    return out[:10]
+    return out
+
 
 def _crm_extract_phones_from_text(text: str) -> List[str]:
-    vals = re.findall(r'(?:\+?1[\s.-]*)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4}', text or '')
-    out, seen = [], set()
+    vals = re.findall(r"(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?)\d{3}[\s\-.]?\d{4}", text or "")
+    out = []
+    seen = set()
     for v in vals:
         c = _crm_clean_phone(v)
-        if c and c not in seen:
+        digits = re.sub(r"\D", "", c)
+        if len(digits) == 10 and c not in seen:
             seen.add(c)
             out.append(c)
-    return out[:10]
+    return out
 
-def _crm_best_person_name(candidates: List[str], company: str = '') -> str:
-    company_words = set(re.findall(r'[a-z]+', (company or '').lower()))
-    for raw in candidates or []:
-        val = re.sub(r'\s+', ' ', (raw or '').strip(' |,-'))
+
+def _crm_best_person_name(candidates: List[str], company: str = "") -> str:
+    company_words = set(re.findall(r"[a-z]+", (company or "").lower()))
+    for raw in candidates:
+        val = re.sub(r"\s+", " ", (raw or "").strip(" |,-"))
         if not val:
             continue
-        parts = [p for p in re.split(r'\s+', val) if p]
+        parts = [p for p in re.split(r"\s+", val) if p]
         if len(parts) < 2 or len(parts) > 4:
             continue
-        cleaned = []
         bad = False
+        clean_parts = []
         for p in parts:
-            letters = re.sub(r'[^A-Za-z]', '', p)
+            letters = re.sub(r"[^A-Za-z]", "", p)
+            if not letters:
+                bad = True
+                break
             low = letters.lower()
-            if not letters or low in _CRM_BAD_PERSON_WORDS or low in company_words:
+            if low in _CRM_BAD_PERSON_WORDS or low in company_words:
                 bad = True
                 break
-            if not p[:1].isupper():
+            if not letters[0].isupper() and not p[:1].isupper():
                 bad = True
                 break
-            cleaned.append(letters.capitalize())
-        if not bad:
-            joined = ' '.join(cleaned)
-            if len(joined) >= 5:
-                return joined
-    return ''
+            clean_parts.append(letters.capitalize())
+        if bad:
+            continue
+        joined = " ".join(clean_parts)
+        if len(joined) >= 5:
+            return joined
+    return ""
+
 
 def _crm_guess_company(title: str, domain: str) -> str:
-    title = re.sub(r'\s+', ' ', (title or '').strip())
+    title = re.sub(r"\s+", " ", (title or "").strip())
     if title:
-        for piece in re.split(r'\||•|-|—|–', title):
+        for piece in re.split(r"\||•|-|—|–", title):
             piece = piece.strip()
             if not piece:
                 continue
-            words = set(re.findall(r'[a-z]+', piece.lower()))
-            if words & {'contact','about','search','duckduckgo','google','bing','results'}:
+            words = set(re.findall(r"[a-z]+", piece.lower()))
+            if words & {"contact", "about", "search", "duckduckgo", "google", "bing"}:
                 continue
             if len(piece) >= 3:
                 return piece[:140]
     d = _crm_extract_domain(domain)
     if not d:
-        return ''
-    return d.split('.')[0].replace('-', ' ').replace('_', ' ').title()
+        return ""
+    stem = d.split(".")[0].replace("-", " ").replace("_", " ").strip()
+    return stem.title()
+
 
 def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
     try:
         import requests
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0)'}
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        ctype = (r.headers.get('Content-Type') or '').lower()
+        ctype = (r.headers.get("Content-Type") or "").lower()
         if r.status_code >= 400:
-            return '', r.url or url
-        if ctype and ('text/html' not in ctype and 'application/xhtml+xml' not in ctype):
-            return '', r.url or url
-        return r.text or '', r.url or url
+            return "", r.url or url
+        if "text/html" not in ctype and "application/xhtml+xml" not in ctype and ctype:
+            return "", r.url or url
+        return r.text or "", r.url or url
     except Exception:
-        return '', url
+        return "", url
+
 
 def _crm_same_domain(url_a: str, url_b: str) -> bool:
-    return _crm_extract_domain(urlparse(url_a).netloc or url_a) == _crm_extract_domain(urlparse(url_b).netloc or url_b)
+    da = _crm_extract_domain(urlparse(url_a).netloc or url_a)
+    db = _crm_extract_domain(urlparse(url_b).netloc or url_b)
+    return bool(da and db and da == db)
+
 
 def _crm_find_contact_links(html: str, base_url: str) -> List[str]:
-    out, seen = [], set()
+    out = []
+    seen = set()
     if not html:
         return out
-    try:
-        if BeautifulSoup is not None:
-            soup = BeautifulSoup(html, 'html.parser')
-            anchors = soup.find_all('a', href=True)
-        else:
-            anchors = []
-        for a in anchors:
-            href = (a.get('href') or '').strip()
-            label = (' '.join([a.get_text(' ', strip=True), href])).lower()
-            if not any(k in label for k in ['contact','about','agent','team','staff','bio','our-agents','meet']):
-                continue
-            full = urljoin(base_url, href)
-            if full.startswith('mailto:') or full.startswith('tel:') or not _crm_same_domain(full, base_url):
-                continue
-            if full not in seen:
-                seen.add(full); out.append(full)
-    except Exception:
-        pass
-    return out[:5]
+    if BeautifulSoup is not None:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = (a.get("href") or "").strip()
+                label = " ".join([a.get_text(" ", strip=True), href]).lower()
+                if not any(k in label for k in ["contact", "about", "agent", "team", "staff", "bio"]):
+                    continue
+                full = urljoin(base_url, href)
+                if full.startswith("mailto:") or full.startswith("tel:"):
+                    continue
+                if not _crm_same_domain(full, base_url):
+                    continue
+                if full not in seen:
+                    seen.add(full)
+                    out.append(full)
+        except Exception:
+            pass
+    return out[:3]
+
 
 def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> Dict[str, Any]:
-    title = ''
+    title = ""
     headings = []
-    visible_text = re.sub(r'<script.*?</script>|<style.*?</style>', ' ', html or '', flags=re.I|re.S)
-    visible_text = re.sub(r'<[^>]+>', ' ', visible_text)
-    visible_text = re.sub(r'\s+', ' ', visible_text).strip()
-    try:
-        if BeautifulSoup is not None and html:
-            soup = BeautifulSoup(html, 'html.parser')
+    visible_text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html or "", flags=re.I | re.S)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+    visible_text = re.sub(r"\s+", " ", visible_text).strip()
+    if BeautifulSoup is not None and html:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
             if soup.title and soup.title.string:
                 title = soup.title.string.strip()
-            headings = [x.get_text(' ', strip=True) for x in soup.find_all(['h1','h2'], limit=12)]
-    except Exception:
-        pass
-    emails = _crm_extract_emails_from_text((html or '') + '\n' + visible_text)
-    phones = _crm_extract_phones_from_text((html or '') + '\n' + visible_text)
-    company = _crm_guess_company(title or (headings[0] if headings else ''), url)
+            if not title:
+                og = soup.find("meta", attrs={"property": "og:title"}) or soup.find("meta", attrs={"name": "title"})
+                if og and og.get("content"):
+                    title = og.get("content").strip()
+            headings = [x.get_text(" ", strip=True) for x in soup.find_all(["h1", "h2"], limit=8)]
+        except Exception:
+            pass
+    emails = _crm_extract_emails_from_text((html or "") + "\n" + visible_text)
+    phones = _crm_extract_phones_from_text((html or "") + "\n" + visible_text)
+    company = _crm_guess_company(title or (headings[0] if headings else ""), url)
     person_name = _crm_best_person_name(([title] if title else []) + headings, company=company)
-    text_l = (title + ' ' + ' '.join(headings) + ' ' + visible_text[:7000]).lower()
-    niche_toks = [t for t in re.findall(r'[a-z0-9]+', (niche or '').lower()) if len(t) > 2][:4]
-    location_toks = [t for t in re.findall(r'[a-z0-9]+', (location or '').lower()) if len(t) > 1][:4]
-    niche_hit = bool(niche_toks and any(tok in text_l for tok in niche_toks)) or any(k in text_l for k in ['realtor','real estate','broker','brokerage','homes for sale','properties'])
-    location_hit = bool(location_toks and any(tok in text_l for tok in location_toks))
-    return {'title': title, 'headings': headings, 'visible_text': visible_text, 'emails': emails, 'phones': phones, 'company': company, 'name': person_name, 'niche_hit': bool(niche_hit), 'location_hit': bool(location_hit)}
+    text_l = (title + " " + " ".join(headings) + " " + visible_text[:5000]).lower()
+    niche_hit = bool(niche and all(tok in text_l for tok in [t for t in re.findall(r"[a-z0-9]+", niche.lower())[:2]])) or any(k in text_l for k in ["realtor", "real estate", "broker", "brokerage", "homes for sale", "properties"]) 
+    location_hit = bool(location and any(tok in text_l for tok in re.findall(r"[a-z0-9]+", location.lower())[:2]))
+    return {
+        "title": title,
+        "headings": headings,
+        "visible_text": visible_text,
+        "emails": emails,
+        "phones": phones,
+        "company": company,
+        "name": person_name,
+        "niche_hit": bool(niche_hit),
+        "location_hit": bool(location_hit),
+    }
+
 
 def _crm_merge_email_candidates(public_emails: List[str], name: str, domain: str) -> List[Dict[str, Any]]:
-    out, seen = [], set()
+    out = []
+    seen = set()
     for e in public_emails[:5]:
         if e not in seen:
-            seen.add(e); out.append({'email': e, 'confidence': 0.97, 'status': 'public'})
-    for row in _crm_email_candidates(name or 'hello', domain):
-        em = row.get('email')
-        if em not in seen:
-            seen.add(em); out.append(row)
+            seen.add(e)
+            out.append({"email": e, "confidence": 0.97, "status": "public"})
+    for row in _crm_email_candidates(name, domain):
+        if row.get("email") not in seen:
+            seen.add(row.get("email"))
+            out.append(row)
     return out[:5]
 
+
 def _crm_score_candidate(candidate: Dict[str, Any], niche: str, location: str) -> int:
-    score = 28
-    if candidate.get('website'): score += 14
-    if candidate.get('phone'): score += 24
-    public_emails = [x for x in (candidate.get('email_candidates') or []) if x.get('status') == 'public']
-    if public_emails: score += 26
-    elif candidate.get('email_candidates'): score += 10
-    if candidate.get('name') and candidate.get('name') != candidate.get('company'): score += 10
-    if candidate.get('niche_hit'): score += 8
-    if candidate.get('location_hit'): score += 8
-    if candidate.get('company'): score += 6
+    score = 35
+    if candidate.get("website"):
+        score += 10
+    if candidate.get("phone"):
+        score += 18
+    public_emails = [x for x in (candidate.get("email_candidates") or []) if x.get("status") == "public"]
+    if public_emails:
+        score += 25
+    if candidate.get("name") and candidate.get("name") != candidate.get("company"):
+        score += 12
+    if candidate.get("niche_hit"):
+        score += 8
+    if candidate.get("location_hit"):
+        score += 8
+    if niche and any(tok in (candidate.get("notes") or "").lower() for tok in re.findall(r"[a-z0-9]+", niche.lower())[:2]):
+        score += 5
     return max(1, min(99, score))
 
-def _crm_search_provider_ddg(query: str, max_results: int = 12) -> List[Dict[str, str]]:
+
+def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0)'}
-        r = requests.post('https://html.duckduckgo.com/html/', data={'q': query}, headers=headers, timeout=18)
-        html = r.text or ''
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
+        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=18)
+        html = r.text or ""
     except Exception:
         return []
-    out, seen = [], set()
-    try:
-        if BeautifulSoup is None or not html:
-            return []
-        soup = BeautifulSoup(html, 'html.parser')
-        for a in soup.select('a.result__a'):
-            href = (a.get('href') or '').strip()
-            title = a.get_text(' ', strip=True)
-            if not href: continue
-            href = unquote(href)
-            if href.startswith('//'): href = 'https:' + href
-            if href.startswith('/') and 'uddg=' in href:
-                m = re.search(r'uddg=([^&]+)', href)
-                if m: href = unquote(m.group(1))
-            domain = _crm_extract_domain(urlparse(href).netloc or href)
-            if not href.startswith('http') or _crm_is_blocked_domain(domain) or domain in seen: continue
-            seen.add(domain)
-            out.append({'url': href, 'title': title, 'domain': domain, 'snippet': '', 'provider': 'ddg'})
-            if len(out) >= max_results: break
-    except Exception:
-        pass
-    return out
-
-def _crm_search_provider_bing(query: str, max_results: int = 12) -> List[Dict[str, str]]:
-    try:
-        import requests
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0)'}
-        r = requests.get('https://www.bing.com/search', params={'q': query}, headers=headers, timeout=18)
-        html = r.text or ''
-    except Exception:
-        return []
-    out, seen = [], set()
-    try:
-        if BeautifulSoup is None or not html:
-            return []
-        soup = BeautifulSoup(html, 'html.parser')
-        for li in soup.select('li.b_algo'):
-            a = li.select_one('h2 a') or li.select_one('a')
-            if not a: continue
-            href = (a.get('href') or '').strip()
-            title = a.get_text(' ', strip=True)
-            p = li.select_one('.b_caption p') or li.select_one('p')
-            snippet = p.get_text(' ', strip=True) if p else ''
-            domain = _crm_extract_domain(urlparse(href).netloc or href)
-            if not href.startswith('http') or _crm_is_blocked_domain(domain) or domain in seen: continue
-            seen.add(domain)
-            out.append({'url': href, 'title': title, 'domain': domain, 'snippet': snippet, 'provider': 'bing'})
-            if len(out) >= max_results: break
-    except Exception:
-        pass
-    return out
-
-def _crm_openai_web_search(query: str, username: str, max_results: int = 12) -> List[Dict[str, str]]:
-    try:
-        client = _get_openai_client_for_username(username)
-        prompt = (
-            'Search the public web and return ONLY valid JSON. ' 
-            'Return an array of up to %d objects with keys: name, company, website, phone, email, notes. ' 
-            'Only include real businesses or professionals likely matching this search: %s. ' 
-            'Prefer official websites. Do not include search engines, directories, portals, or aggregator sites. ' 
-            'If a field is unknown, use an empty string.'
-        ) % (max_results, query)
-        resp = client.responses.create(
-            model='gpt-4.1-mini',
-            tools=[{'type': 'web_search_preview'}],
-            input=prompt
-        )
-        raw = ''
+    out = []
+    seen = set()
+    if BeautifulSoup is not None and html:
         try:
-            raw = resp.output_text or ''
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.select("a.result__a"):
+                href = (a.get("href") or "").strip()
+                title = a.get_text(" ", strip=True)
+                if not href:
+                    continue
+                href = unquote(href)
+                if href.startswith("//"):
+                    href = "https:" + href
+                if href.startswith("/") and "uddg=" in href:
+                    m = re.search(r"uddg=([^&]+)", href)
+                    if m:
+                        href = unquote(m.group(1))
+                domain = _crm_extract_domain(urlparse(href).netloc or href)
+                if not href.startswith("http") or _crm_is_blocked_domain(domain):
+                    continue
+                if domain in seen:
+                    continue
+                seen.add(domain)
+                out.append({"url": href, "title": title, "domain": domain})
+                if len(out) >= max_results:
+                    break
         except Exception:
-            raw = str(resp)
-        m = re.search(r'\[.*\]', raw, flags=re.S)
-        if not m:
-            return []
-        data = json.loads(m.group(0))
-        out = []
-        for row in data if isinstance(data, list) else []:
-            if not isinstance(row, dict):
-                continue
-            website = (row.get('website') or '').strip()
-            domain = _crm_extract_domain(urlparse(website).netloc or website)
-            if not domain or _crm_is_blocked_domain(domain):
-                continue
-            out.append({'url': website if website.startswith('http') else ('https://' + website), 'title': (row.get('company') or row.get('name') or domain), 'domain': domain, 'snippet': (row.get('notes') or '').strip(), 'name': (row.get('name') or '').strip(), 'company': (row.get('company') or '').strip(), 'phone': _crm_clean_phone(row.get('phone') or ''), 'email': (row.get('email') or '').strip()})
-            if len(out) >= max_results: break
-        return out
+            pass
+    return out
+
+
+def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: str) -> List[str]:
+    niche = (niche or "businesses").strip()
+    location = (location or "United States").strip()
+    mode = (search_mode or "balanced").strip().lower()
+    locations = [location]
+    loc_key = location.strip().lower()
+    if loc_key in _CRM_STATE_CITY_MAP:
+        extra = _CRM_STATE_CITY_MAP[loc_key]
+        if mode == "precision":
+            locations.extend(extra[:4])
+        elif mode == "broad":
+            locations.extend(extra[:12])
+        else:
+            locations.extend(extra[:8])
+    templates = [
+        '{niche} in {loc} contact',
+        '{loc} {niche} office',
+        '{loc} {niche} realtor broker',
+        '{loc} {niche} team',
+        '{loc} {niche} real estate agent',
+    ]
+    queries = []
+    seen = set()
+    for loc in locations:
+        for tpl in templates:
+            q = tpl.format(niche=niche, loc=loc).strip()
+            if q.lower() not in seen:
+                seen.add(q.lower())
+                queries.append(q)
+    max_q = 8 if mode == "precision" else (14 if mode == "balanced" else 20)
+    return queries[:max_q]
+
+
+def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query: str) -> Optional[Dict[str, Any]]:
+    url = result.get("url") or ""
+    domain = result.get("domain") or _crm_extract_domain(urlparse(url).netloc or url)
+    if not url or _crm_is_blocked_domain(domain):
+        return None
+    html, final_url = _crm_fetch_text_url(url)
+    website = f"https://{_crm_extract_domain(urlparse(final_url or url).netloc or final_url or url)}" if (final_url or url) else (f"https://{domain}" if domain else "")
+    hint_name = (result.get('name_hint') or '').strip()
+    hint_company = (result.get('company_hint') or '').strip()
+    hint_phone = _crm_clean_phone(result.get('phone_hint') or '')
+    hint_email = (result.get('email_hint') or '').strip().lower()
+
+    if not html:
+        candidate = _crm_fallback_candidate_from_result(result, niche, location, query)
+        if not candidate:
+            return None
+        if hint_name and (candidate.get('name') == candidate.get('company') or not candidate.get('name')):
+            candidate['name'] = hint_name
+        if hint_company:
+            candidate['company'] = hint_company
+        if hint_phone and not candidate.get('phone'):
+            candidate['phone'] = hint_phone
+        if hint_email and not candidate.get('email'):
+            candidate['email'] = hint_email
+        candidate['website'] = website or candidate.get('website') or ''
+        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
+        candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
+        return candidate
+
+    signals = _crm_parse_page_signals(html, final_url, niche, location)
+    emails = list(signals.get("emails") or [])
+    phones = list(signals.get("phones") or [])
+    if hint_email and hint_email not in emails:
+        emails.insert(0, hint_email)
+    if hint_phone and hint_phone not in phones:
+        phones.insert(0, hint_phone)
+    for link in _crm_find_contact_links(html, final_url):
+        sub_html, _ = _crm_fetch_text_url(link)
+        if not sub_html:
+            continue
+        sub = _crm_parse_page_signals(sub_html, link, niche, location)
+        for e in sub.get("emails") or []:
+            if e not in emails:
+                emails.append(e)
+        for p in sub.get("phones") or []:
+            if p not in phones:
+                phones.append(p)
+        if not signals.get("name") and sub.get("name"):
+            signals["name"] = sub.get("name")
+        if not signals.get("company") and sub.get("company"):
+            signals["company"] = sub.get("company")
+        signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
+        signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
+    name = signals.get("name") or hint_name or ""
+    company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
+    title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
+    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
+    candidate = {
+        "name": name or company,
+        "company": company,
+        "title": title,
+        "domain": domain,
+        "website": website,
+        "phone": phones[0] if phones else "",
+        "email": emails[0] if emails else "",
+        "email_candidates": email_candidates,
+        "niche_hit": bool(signals.get("niche_hit")),
+        "location_hit": bool(signals.get("location_hit")),
+        "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
+        "source_query": query,
+    }
+    candidate["score"] = _crm_score_candidate(candidate, niche, location)
+    if candidate["score"] < 40:
+        return None
+    return candidate
+
+
+def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) -> List[Dict[str, Any]]:
+    items = []
+    for row in rows[:200]:
+        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
+        name = (row.get("name") or "").strip()
+        company = (row.get("company") or "").strip() or (domain.split(".")[0].replace("-", " ").title() if domain else "")
+        title = (row.get("title") or "").strip() or ("Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact")
+        if not name and company:
+            name = company
+        email_candidates = _crm_email_candidates(name, domain)
+        item = {
+            "name": name,
+            "company": company,
+            "title": title,
+            "domain": domain,
+            "website": f"https://{domain}" if domain else "",
+            "phone": "",
+            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
+            "email_candidates": email_candidates,
+            "niche_hit": True,
+            "location_hit": bool(location),
+            "notes": (row.get("notes") or "") + (f"\nSeed row for {niche} in {location}." if niche or location else "\nSeed row."),
+            "source_query": "seed rows",
+        }
+        item["score"] = _crm_score_candidate(item, niche, location)
+        items.append(item)
+    return items
+
+
+def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
+    try:
+        import requests
+        from urllib.parse import quote_plus
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
+        url = "https://www.bing.com/search?q=" + quote_plus(query)
+        r = requests.get(url, headers=headers, timeout=18)
+        html = r.text or ""
     except Exception:
         return []
+    out, seen = [], set()
+    if BeautifulSoup is None or not html:
+        return out
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for li in soup.select("li.b_algo"):
+            a = li.select_one("h2 a") or li.select_one("a")
+            if not a:
+                continue
+            href = (a.get("href") or "").strip()
+            title = a.get_text(" ", strip=True)
+            snippet_el = li.select_one(".b_caption p") or li.select_one("p")
+            snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+            domain = _crm_extract_domain(urlparse(href).netloc or href)
+            if not href.startswith("http") or not domain or _crm_is_blocked_domain(domain) or domain in seen:
+                continue
+            seen.add(domain)
+            out.append({"url": href, "title": title, "domain": domain, "snippet": snippet})
+            if len(out) >= max_results:
+                break
+    except Exception:
+        return out
+    return out
 
-def _crm_public_search(query: str, username: str, max_results: int = 18) -> List[Dict[str, str]]:
+
+def _crm_public_search(query: str, max_results: int = 18, niche: str = "", location: str = "") -> List[Dict[str, str]]:
     merged, seen = [], set()
-    for fn in (lambda q, mr=max_results: _crm_openai_web_search(q, username, mr), _crm_search_provider_bing, _crm_search_provider_ddg):
+    search_fns = [lambda q, max_results=max_results: _crm_openai_web_search(q, niche=niche, location=location, max_results=max_results)]
+    search_fns.extend([_crm_bing_search, _crm_ddg_search])
+    for fn in search_fns:
         try:
             rows = fn(query, max_results=max_results)
         except TypeError:
-            try: rows = fn(query)
-            except Exception: rows = []
+            try:
+                rows = fn(query)
+            except Exception:
+                rows = []
         except Exception:
             rows = []
         for row in rows:
-            dom = row.get('domain') or ''
+            dom = row.get("domain") or ""
             if not dom or dom in seen or _crm_is_blocked_domain(dom):
                 continue
             seen.add(dom)
@@ -14934,213 +15733,323 @@ def _crm_public_search(query: str, username: str, max_results: int = 18) -> List
                 return merged
     return merged
 
+
 def _crm_parse_specific_areas(val: str) -> List[str]:
-    raw = re.split(r'[\n,;|]+', val or '')
+    raw = re.split(r"[\n,;|]+", val or "")
     out, seen = [], set()
     for x in raw:
-        s = re.sub(r'\s+', ' ', (x or '').strip())
-        if not s: continue
+        s = re.sub(r"\s+", " ", (x or "").strip())
+        if not s:
+            continue
         k = s.lower()
-        if k in seen: continue
-        seen.add(k); out.append(s)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
     return out[:30]
 
+
 def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mode: str, specific_areas: Optional[List[str]] = None) -> List[str]:
-    niche = (niche or 'businesses').strip()
-    location = (location or 'United States').strip()
-    mode = (search_mode or 'balanced').strip().lower()
+    niche = (niche or "businesses").strip()
+    location = (location or "United States").strip()
+    mode = (search_mode or "balanced").strip().lower()
     locations = []
-    if specific_areas: locations.extend([x for x in specific_areas if x])
-    if location: locations.append(location)
+    if specific_areas:
+        locations.extend([x for x in specific_areas if x])
+    if location:
+        locations.append(location)
     loc_key = location.strip().lower()
     if loc_key in _CRM_STATE_CITY_MAP:
         extra = _CRM_STATE_CITY_MAP[loc_key]
-        locations.extend(extra[:4] if mode == 'precision' else extra[:10] if mode == 'balanced' else extra[:16])
+        locations.extend(extra[:4] if mode == "precision" else extra[:10] if mode == "balanced" else extra[:16])
+    # de-dupe while preserving order
     deduped, seen = [], set()
     for loc in locations:
         lk = loc.lower()
         if lk not in seen:
             seen.add(lk); deduped.append(loc)
     locations = deduped or [location]
-    realtorish = bool(re.search(r'real estate|realtor|broker', niche, flags=re.I))
-    templates = ['{niche} in {loc}','{loc} {niche}','{niche} {loc} contact','{loc} {niche} office','{loc} {niche} team']
+    realtorish = bool(re.search(r"real estate|realtor|broker", niche, flags=re.I))
+    templates = [
+        '{niche} in {loc}',
+        '{loc} {niche}',
+        '{niche} {loc} contact',
+        '{loc} {niche} office',
+        '{loc} {niche} team',
+    ]
     if realtorish:
-        templates.extend(['{loc} realtor','{loc} real estate agent','{loc} real estate broker','{loc} realty group','{loc} homes real estate'])
+        templates.extend([
+            '{loc} realtor',
+            '{loc} real estate agent',
+            '{loc} real estate broker',
+            '{loc} realty group',
+            '{loc} homes real estate',
+        ])
     queries, seen_q = [], set()
     for loc in locations:
         for tpl in templates:
-            q = re.sub(r'\s+', ' ', tpl.format(niche=niche, loc=loc)).strip()
+            q = re.sub(r"\s+", " ", tpl.format(niche=niche, loc=loc)).strip()
             key = q.lower()
-            if key in seen_q: continue
-            seen_q.add(key); queries.append(q)
-    max_q = 10 if mode == 'precision' else (18 if mode == 'balanced' else 28)
+            if key in seen_q:
+                continue
+            seen_q.add(key)
+            queries.append(q)
+    max_q = 10 if mode == "precision" else (18 if mode == "balanced" else 28)
     return queries[:max_q]
 
-def _crm_make_fallback_candidate(result: Dict[str, str], niche: str, location: str, query: str) -> Optional[Dict[str, Any]]:
-    domain = _crm_extract_domain(result.get('domain') or result.get('url') or '')
+
+def _crm_fallback_candidate_from_result(result: Dict[str, str], niche: str, location: str, query: str) -> Optional[Dict[str, Any]]:
+    domain = result.get("domain") or _crm_extract_domain(urlparse(result.get("url") or "").netloc or result.get("url") or "")
     if not domain or _crm_is_blocked_domain(domain):
         return None
-    title = (result.get('title') or '').strip()
-    snippet = (result.get('snippet') or '').strip()
-    company = (result.get('company') or '').strip() or _crm_guess_company(title, domain)
-    person = (result.get('name') or '').strip() or _crm_best_person_name([title], company=company)
-    email = (result.get('email') or '').strip().lower()
-    email_candidates = []
-    if email:
-        email_candidates.append({'email': email, 'confidence': 0.97, 'status': 'public'})
-    for row in _crm_email_candidates(person or company or 'hello', domain):
-        if row.get('email') not in [x.get('email') for x in email_candidates]:
-            email_candidates.append(row)
-    candidate = {'name': person or company, 'company': company or domain.split('.')[0].title(), 'title': 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact', 'domain': domain, 'website': result.get('url') or f'https://{domain}', 'phone': _crm_clean_phone(result.get('phone') or ''), 'email': email, 'email_candidates': email_candidates[:5], 'niche_hit': True, 'location_hit': bool(location), 'notes': f'Public web result. Source query: {query}. {snippet}'.strip(), 'source_query': query}
-    candidate['score'] = max(42, _crm_score_candidate(candidate, niche, location) - 6)
+    title = (result.get("title") or "").strip()
+    snippet = (result.get("snippet") or "").strip()
+    company = _crm_guess_company(title, domain)
+    name = _crm_best_person_name([title], company=company)
+    notes = f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}. {snippet}".strip()
+    candidate = {
+        "name": name or company or domain.split('.')[0].title(),
+        "company": company or domain.split('.')[0].title(),
+        "title": "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact",
+        "domain": domain,
+        "website": result.get("url") or (f"https://{domain}"),
+        "phone": "",
+        "email": "",
+        "email_candidates": _crm_email_candidates(name or company or domain, domain),
+        "niche_hit": True,
+        "location_hit": bool(location),
+        "notes": notes,
+        "source_query": query,
+    }
+    candidate["score"] = max(40, _crm_score_candidate(candidate, niche, location) - 10)
     return candidate
 
-def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query: str) -> Optional[Dict[str, Any]]:
-    url = result.get('url') or ''
-    domain = result.get('domain') or _crm_extract_domain(urlparse(url).netloc or url)
-    if not url or _crm_is_blocked_domain(domain):
+
+def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: str, query: str, min_score: int = 40) -> Optional[Dict[str, Any]]:
+    if not isinstance(row, dict):
         return None
-    html, final_url = _crm_fetch_text_url(url)
-    if not html:
-        return _crm_make_fallback_candidate(result, niche, location, query)
-    signals = _crm_parse_page_signals(html, final_url, niche, location)
-    emails = list(signals.get('emails') or [])
-    phones = list(signals.get('phones') or [])
-    website = f"https://{_crm_extract_domain(urlparse(final_url).netloc or final_url)}"
-    for link in _crm_find_contact_links(html, final_url):
-        sub_html, _ = _crm_fetch_text_url(link)
-        if not sub_html: continue
-        sub = _crm_parse_page_signals(sub_html, link, niche, location)
-        for e in sub.get('emails') or []:
-            if e not in emails: emails.append(e)
-        for p in sub.get('phones') or []:
-            if p not in phones: phones.append(p)
-        if not signals.get('name') and sub.get('name'): signals['name'] = sub.get('name')
-        if not signals.get('company') and sub.get('company'): signals['company'] = sub.get('company')
-        signals['niche_hit'] = signals.get('niche_hit') or sub.get('niche_hit')
-        signals['location_hit'] = signals.get('location_hit') or sub.get('location_hit')
-    name = signals.get('name') or (result.get('name') or '').strip()
-    company = signals.get('company') or (result.get('company') or '').strip() or _crm_guess_company(result.get('title') or '', domain)
+    domain = _crm_extract_domain(row.get('domain') or urlparse(row.get('url') or '').netloc or row.get('url') or '')
+    if not domain or _crm_is_blocked_domain(domain):
+        return None
+    website = (row.get('url') or '').strip()
+    if not website:
+        website = 'https://' + domain
+    elif not website.startswith('http'):
+        website = 'https://' + domain
+    company = (row.get('company_hint') or row.get('title') or '').strip()
+    if not company:
+        company = _crm_guess_company(row.get('title') or '', domain) or domain.split('.')[0].replace('-', ' ').title()
+    name = (row.get('name_hint') or '').strip()
+    if not name:
+        name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
+    phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
+    public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
+    email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name or company, domain)
     title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
-    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
-    candidate = {'name': name or company, 'company': company, 'title': title, 'domain': domain, 'website': website, 'phone': phones[0] if phones else _crm_clean_phone(result.get('phone') or ''), 'email': emails[0] if emails else ((email_candidates[0] or {}).get('email') if email_candidates else (result.get('email') or '').strip()), 'email_candidates': email_candidates, 'niche_hit': bool(signals.get('niche_hit')), 'location_hit': bool(signals.get('location_hit')), 'notes': f'Found from public web search for {niche or "lead"} in {location or "target area"}. Source query: {query}', 'source_query': query}
-    candidate['score'] = _crm_score_candidate(candidate, niche, location)
-    return candidate if candidate.get('company') and candidate.get('website') else None
+    notes = (row.get('snippet') or '').strip()
+    score = 55
+    if row.get('name_hint'):
+        score += 8
+    if phone:
+        score += 12
+    if public_email:
+        score += 12
+    if any(x.get('status') == 'public' for x in email_candidates):
+        score += 6
+    if location:
+        score += 3
+    score = max(int(min_score or 40), min(96, score))
+    return {
+        'name': name or company,
+        'company': company,
+        'title': title,
+        'domain': domain,
+        'website': website,
+        'phone': phone,
+        'email': public_email,
+        'email_candidates': email_candidates,
+        'score': score,
+        'confidence': score,
+        'niche_hit': True,
+        'location_hit': bool(location),
+        'notes': notes or f'Public web lead for {niche or "business"} in {location or "target area"}',
+        'source_query': query,
+    }
 
-def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) -> List[Dict[str, Any]]:
-    items = []
-    for row in rows[:200]:
-        domain = _crm_extract_domain(row.get('domain') or row.get('company') or '')
-        name = (row.get('name') or '').strip()
-        company = (row.get('company') or '').strip() or (domain.split('.')[0].replace('-', ' ').title() if domain else '')
-        title = (row.get('title') or '').strip() or ('Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact')
-        if not name and company: name = company
-        email_candidates = _crm_email_candidates(name or company or 'hello', domain)
-        item = {'name': name or company, 'company': company, 'domain': domain, 'website': f'https://{domain}' if domain else '', 'title': title, 'phone': '', 'email': ((email_candidates[0] or {}).get('email') if email_candidates else ''), 'score': 55 + (15 if domain else 0) + (15 if name and name != company else 0), 'notes': 'Seed row', 'email_candidates': email_candidates, 'source_query': 'seed'}
-        item['score'] = max(1, min(99, int(item['score'])))
-        items.append(item)
-    return items
 
-def _crm_merge_unique_items(items: List[Dict[str, Any]], limit: int = 25) -> List[Dict[str, Any]]:
-    out, seen = [], set()
-    for item in items or []:
-        if not isinstance(item, dict): continue
-        dom = (item.get('domain') or '').strip().lower()
-        key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
-        if not key or key in seen: continue
-        seen.add(key); out.append(item)
-        if len(out) >= max(1, int(limit or 25)): break
-    return out
-
-def _crm_apply_contact_filters(items: List[Dict[str, Any]], require_contact: str = 'any', min_score: int = 35, limit: int = 25) -> List[Dict[str, Any]]:
-    out = []
-    req = (require_contact or 'any').strip().lower()
-    for item in items or []:
-        has_phone = bool((item.get('phone') or '').strip())
-        has_email = bool((item.get('email') or '').strip()) or bool(item.get('email_candidates') or [])
-        if req == 'phone' and not has_phone: continue
-        if req == 'email' and not has_email: continue
-        if req == 'phone_or_email' and not (has_phone or has_email): continue
-        if int(item.get('score') or 0) < int(min_score or 35): continue
-        out.append(item)
-        if len(out) >= max(1, int(limit or 25)): break
-    return out
-
-def _crm_discover_public_leads(niche: str, location: str, username: str, lead_count: int, search_mode: str, specific_areas: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40) -> List[Dict[str, Any]]:
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
-    raw_results = []
-    seen_domains = set()
-    per_query = 10 if (search_mode or 'balanced').lower() == 'precision' else 14 if (search_mode or 'balanced').lower() == 'balanced' else 18
+    seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
+    out: List[Dict[str, Any]] = []
+    raw_results: List[Dict[str, Any]] = []
+    per_query = 8 if (search_mode or 'balanced').lower() == 'precision' else 12 if (search_mode or 'balanced').lower() == 'balanced' else 16
+
+    def include_item(item: Optional[Dict[str, Any]]) -> bool:
+        if not item:
+            return False
+        dom = (item.get('domain') or '').strip().lower()
+        if not dom or dom in seen_domains:
+            return False
+        has_phone = bool((item.get('phone') or '').strip())
+        public_email = bool((item.get('email') or '').strip())
+        any_email = public_email or bool(item.get('email_candidates') or [])
+        if require_contact == 'phone' and not has_phone:
+            return False
+        if require_contact == 'email' and not any_email:
+            return False
+        if require_contact == 'phone_or_email' and not (has_phone or any_email):
+            return False
+        if (item.get('score') or 0) < int(min_score or 40):
+            return False
+        seen_domains.add(dom)
+        out.append(item)
+        return True
+
+    # Pass 1: fast lead creation from search results, prioritizing OpenAI web search hints and official sites.
     for q in queries:
-        for row in _crm_public_search(q, username=username, max_results=per_query):
-            domain = row.get('domain') or ''
-            if not domain or domain in seen_domains or _crm_is_blocked_domain(domain):
+        rows = _crm_public_search(q, max_results=per_query, niche=niche, location=location)
+        for row in rows:
+            dom = _crm_extract_domain(row.get('domain') or urlparse(row.get('url') or '').netloc or row.get('url') or '')
+            if not dom or dom in seen_domains or _crm_is_blocked_domain(dom):
                 continue
-            seen_domains.add(domain)
             row['query'] = q
             raw_results.append(row)
-            if len(raw_results) >= max(lead_count * 6, 60):
+            item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, int(min_score or 40) - 5))
+            include_item(item)
+            if len(out) >= lead_count:
                 break
-        if len(raw_results) >= max(lead_count * 6, 60):
+        if len(out) >= lead_count:
             break
-    out = []
-    for row in raw_results:
-        item = _crm_enrich_result(row, niche, location, row.get('query') or '')
-        if not item:
-            item = _crm_make_fallback_candidate(row, niche, location, row.get('query') or '')
-        if item:
-            out.append(item)
-            if len(out) >= max(lead_count * 2, lead_count):
-                break
-    return out
 
-@app.post('/api/crm/lead_lab')
+    # Pass 2: enrich a small subset only, to keep the route fast and avoid server/proxy timeouts.
+    if len(out) < lead_count and raw_results:
+        enrich_pool = raw_results[:max(lead_count * 2, 12)]
+        max_workers = 4
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
+                for fut in as_completed(future_map, timeout=30):
+                    row = future_map.get(fut) or {}
+                    try:
+                        item = fut.result(timeout=0)
+                    except Exception:
+                        item = _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+                    include_item(item)
+                    if len(out) >= lead_count:
+                        break
+        except Exception:
+            pass
+
+    # Pass 3: deterministic fallback rows from raw results so the user always gets a usable list.
+    if len(out) < lead_count:
+        for row in raw_results:
+            item = _crm_fallback_candidate_from_result(row, niche, location, row.get('query') or '') or _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+            if include_item(item) and len(out) >= lead_count:
+                break
+
+    out.sort(key=lambda x: ((1 if x.get('phone') else 0) + (1 if (x.get('email') or x.get('email_candidates')) else 0), x.get('score') or 0), reverse=True)
+    return out[:lead_count]
+
+
+@app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
     if not u:
-        return jsonify({'ok': False, 'error': 'Not authenticated'}), 401
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     try:
         payload = request.get_json(silent=True) or {}
-        niche = (payload.get('niche') or '').strip()
-        location = (payload.get('location') or '').strip()
-        source_text = (payload.get('source_text') or '').strip()
-        specific_areas = _crm_parse_specific_areas(payload.get('specific_areas') or '')
-        search_mode = (payload.get('search_mode') or 'balanced').strip().lower()
-        require_contact = (payload.get('require_contact') or 'phone_or_email').strip().lower()
+        niche = (payload.get("niche") or "").strip()
+        location = (payload.get("location") or "").strip()
+        source_text = (payload.get("source_text") or "").strip()
+        specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
+        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
+        require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
         try:
-            lead_count = int(payload.get('lead_count') or 25)
+            lead_count = int(payload.get("lead_count") or 25)
         except Exception:
             lead_count = 25
         try:
-            min_score = int(payload.get('min_score') or 40)
+            min_score = int(payload.get("min_score") or 40)
         except Exception:
             min_score = 40
         lead_count = max(1, min(100, lead_count))
         min_score = max(20, min(90, min_score))
         if not niche and not location and not source_text and not specific_areas:
-            return jsonify({'ok': False, 'error': 'Add a niche, location, or specific areas to search'}), 400
+            return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
-        uname = (u.get('username') if isinstance(u, dict) else None) or 'anon'
-        seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location) if source_text else []
-        public_items = _crm_discover_public_leads(niche=niche, location=location, username=uname, lead_count=max(lead_count, 20), search_mode=search_mode, specific_areas=specific_areas)
-        merged = _crm_merge_unique_items(seed_items + public_items, lead_count * 3)
-        merged.sort(key=lambda x: (1 if (x.get('phone') or '').strip() else 0, 1 if ((x.get('email') or '').strip() or (x.get('email_candidates') or [])) else 0, int(x.get('score') or 0)), reverse=True)
-        final = _crm_apply_contact_filters(merged, require_contact=require_contact, min_score=min_score, limit=lead_count)
+        items: List[Dict[str, Any]] = []
+        existing_domains = set()
+        if source_text:
+            try:
+                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+            except Exception:
+                seed_items = []
+            for item in seed_items:
+                dom = item.get("domain") or ""
+                if dom:
+                    existing_domains.add(dom)
+            items.extend(seed_items)
+
+        remaining = max(0, lead_count - len(items))
+        if remaining > 0:
+            discovered = _crm_discover_public_leads(
+                niche, location, remaining, search_mode, existing_domains=existing_domains,
+                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
+            )
+            items.extend(discovered)
+
+        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
+        final: List[Dict[str, Any]] = []
+        seen = set()
+        for item in items:
+            dom = (item.get("domain") or "").strip().lower()
+            key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            final.append(item)
+            if len(final) >= lead_count:
+                break
+
         if len(final) < lead_count:
-            relaxed = _crm_apply_contact_filters(merged, require_contact='any', min_score=max(25, min_score - 15), limit=lead_count)
-            final = _crm_merge_unique_items(final + relaxed, lead_count)
-        warning = ''
+            need = max(0, lead_count - len(final))
+            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+            for q in ai_queries:
+                if len(final) >= lead_count:
+                    break
+                try:
+                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
+                except Exception as ai_err:
+                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
+                    rows = []
+                for row in rows:
+                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
+                    if not item:
+                        continue
+                    dom = (item.get('domain') or '').strip().lower()
+                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    final.append(item)
+                    if len(final) >= lead_count:
+                        break
+
+        warning = ""
         if not final:
-            warning = 'No public leads could be validated from the current search. Try Broad mode, add specific areas, or paste seed rows.'
+            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
         elif len(final) < lead_count:
-            warning = f'Built {len(final)} usable leads from official-site and public-web signals for this search.'
-        resp = jsonify({'ok': True, 'items': final, 'count': len(final), 'warning': warning})
+            warning = f"Built {len(final)} leads from public web signals for this search."
+
+        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     except Exception as e:
-        try: append_log('crm_lead_lab_error', {'error': str(e), 'at': now_iso()})
-        except Exception: pass
-        resp = jsonify({'ok': False, 'error': f'Lead Lab hit a server error: {str(e)[:220]}'})
+        try:
+            append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
         resp.headers['Cache-Control'] = 'no-store'
         return resp, 500
 
