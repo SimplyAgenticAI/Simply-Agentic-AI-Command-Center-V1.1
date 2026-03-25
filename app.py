@@ -576,6 +576,22 @@ def get_openai_client():
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
 
+@app.errorhandler(Exception)
+def _api_json_errors(err):
+    if not request.path.startswith("/api/"):
+        if isinstance(err, HTTPException):
+            return err
+        raise err
+    status = getattr(err, "code", 500)
+    msg = getattr(err, "description", None) or str(err) or "Server error"
+    try:
+        append_log("api_error", {"path": request.path, "error": str(err), "at": now_iso()})
+    except Exception:
+        pass
+    resp = jsonify({"ok": False, "error": msg if status < 500 else f"Server error: {msg}"})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp, status
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
@@ -6238,8 +6254,8 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="createTeamBtn">Create teammate</button>
         <button class="btn" id="installFullBtn">Install full team</button>
         <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="operatorProfileTopBtn">Operator Profile</button>
         <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
         <button class="btn" id="crmBtn">CRM</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
@@ -6280,7 +6296,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
-<button class="btn" data-click="crmBtn">CRM</button>
+<button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -6317,6 +6333,43 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
 
+
+<div class="modalForm" id="operatorProfileModalForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px; opacity:.9">Full operator profile. Teammates reference this for business context, goals, offers, and rules.</div>
+  <div class="pillRow" style="gap:10px; flex-wrap:wrap">
+    <div style="flex:1; min-width:240px">
+      <div class="tiny">Display name</div>
+      <input id="opm_display_name" class="input" placeholder="Operator" />
+    </div>
+    <div style="flex:1; min-width:240px">
+      <div class="tiny">Audience</div>
+      <input id="opm_audience" class="input" placeholder="Who you serve" />
+    </div>
+  </div>
+  <div style="height:10px"></div>
+  <div class="tiny">Business</div>
+  <textarea id="opm_business" class="followBox" style="min-height:110px" placeholder="What your business does..."></textarea>
+  <div style="height:10px"></div>
+  <div class="tiny">Offers</div>
+  <textarea id="opm_offers" class="followBox" style="min-height:100px" placeholder="Your offers, pricing model, deliverables..."></textarea>
+  <div style="height:10px"></div>
+  <div class="tiny">Goals</div>
+  <textarea id="opm_goals" class="followBox" style="min-height:90px" placeholder="Current goals and KPIs..."></textarea>
+  <div style="height:10px"></div>
+  <div class="tiny">Constraints</div>
+  <textarea id="opm_constraints" class="followBox" style="min-height:90px" placeholder="Rules, boundaries, what not to do..."></textarea>
+  <div style="height:10px"></div>
+  <div class="tiny">Tone rules</div>
+  <textarea id="opm_tone_rules" class="followBox" style="min-height:90px" placeholder="How teammates should speak and write..."></textarea>
+  <div style="height:10px"></div>
+  <div class="tiny">Notes</div>
+  <textarea id="opm_notes" class="followBox" style="min-height:110px" placeholder="Anything else teammates should know..."></textarea>
+  <div class="pillRow" style="justify-content:flex-end; gap:8px; margin-top:12px;">
+    <button class="btn btnMini" id="opmReload">Reload</button>
+    <button class="btn btnPrimary" id="opmSave">Save</button>
+  </div>
+  <div class="tiny" id="opmStatus" style="margin-top:8px;"></div>
+</div>
 
 <div id="stackForm" class="modalForm" style="display:none;">
   <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
@@ -6573,7 +6626,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
                   <div class="tiny" style="margin-top:8px; opacity:.9;">
-                    Used for Broadcast SMS in the CRM. This is stored in your personal settings.
+                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
                   </div>
 
                   <label>Twilio Account SID</label>
@@ -6676,7 +6729,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">CRM. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -9136,86 +9189,6 @@ function makeSeat(defn, idx){
 
 
 
-    async function showOperatorProfileStandalone(){
-      try{
-        const res = await fetch("/api/operator_profile");
-        const raw = await res.text();
-        let data = null;
-        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load Operator Profile');
-        const p = data.profile || {};
-        showModal('Operator Profile');
-        try{ ensureModalMinSize(980, 760); }catch(e){}
-        hideAllModalForms();
-        const body = $("modalBody");
-        if(!body) return;
-        body.style.display = 'block';
-        const safe = (v)=> (v==null ? '' : escapeHtml(String(v)));
-        body.innerHTML = `
-          <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
-          <div class="pillRow" style="gap:10px; flex-wrap:wrap">
-            <div style="flex:1; min-width:240px">
-              <div class="tiny">Display name</div>
-              <input id="op_display_name_modal" class="input" placeholder="Operator" value="${safe(p.display_name||"Operator")}" />
-            </div>
-            <div style="flex:1; min-width:240px">
-              <div class="tiny">Audience</div>
-              <input id="op_audience_modal" class="input" placeholder="Who you serve" value="${safe(p.audience||"")}" />
-            </div>
-          </div>
-          <div style="height:10px"></div>
-          <div class="tiny">Business</div>
-          <textarea id="op_business_modal" class="followBox" style="min-height:90px">${safe(p.business||"")}</textarea>
-          <div style="height:10px"></div>
-          <div class="tiny">Offers</div>
-          <textarea id="op_offers_modal" class="followBox" style="min-height:80px">${safe(p.offers||"")}</textarea>
-          <div style="height:10px"></div>
-          <div class="tiny">Goals</div>
-          <textarea id="op_goals_modal" class="followBox" style="min-height:70px">${safe(p.goals||"")}</textarea>
-          <div style="height:10px"></div>
-          <div class="tiny">Constraints</div>
-          <textarea id="op_constraints_modal" class="followBox" style="min-height:70px">${safe(p.constraints||"")}</textarea>
-          <div style="height:10px"></div>
-          <div class="tiny">Tone rules</div>
-          <textarea id="op_tone_rules_modal" class="followBox" style="min-height:70px">${safe(p.tone_rules||"")}</textarea>
-          <div style="height:10px"></div>
-          <div class="tiny">Notes</div>
-          <textarea id="op_notes_modal" class="followBox" style="min-height:70px">${safe(p.notes||"")}</textarea>
-          <div style="height:12px"></div>
-          <div class="pillRow" style="justify-content:flex-end">
-            <button class="btn btnMini" id="opReloadModal">Reload</button>
-            <button class="btn btnPrimary" id="opSaveModal">Save</button>
-          </div>
-        `;
-        if($("opReloadModal")) $("opReloadModal").onclick = ()=> showOperatorProfileStandalone();
-        if($("opSaveModal")) $("opSaveModal").onclick = async()=>{
-          const payload = {
-            display_name: $("op_display_name_modal")?.value || '',
-            audience: $("op_audience_modal")?.value || '',
-            business: $("op_business_modal")?.value || '',
-            offers: $("op_offers_modal")?.value || '',
-            goals: $("op_goals_modal")?.value || '',
-            constraints: $("op_constraints_modal")?.value || '',
-            tone_rules: $("op_tone_rules_modal")?.value || '',
-            notes: $("op_notes_modal")?.value || ''
-          };
-          const saveRes = await fetch('/api/operator_profile', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify(payload)
-          });
-          const saveRaw = await saveRes.text();
-          let saveData = null;
-          try{ saveData = saveRaw ? JSON.parse(saveRaw) : {}; }catch(_){ throw new Error('Operator Profile save returned an invalid server response'); }
-          if(!saveRes.ok || !saveData.ok) throw new Error(saveData.error || 'Could not save Operator Profile');
-          showToast('Operator Profile saved');
-          try{ selectedSeat = 'Operator'; markActiveSeat(); }catch(e){}
-        };
-      }catch(err){
-        showModal('Operator Profile', (err && err.message) ? err.message : 'Could not load Operator Profile');
-      }
-    }
-
     async function refreshThread(){
       if(!selectedSeat) return;
 
@@ -10618,7 +10591,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     // =========================
-    // CRM UI (CRM)
+    // CRM UI (Client Command Center)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
     let crmEditingClientId = null;
@@ -11274,6 +11247,55 @@ async function crmFetchTasks(){
       }
     }
 
+    function operatorProfileModalFill(profile){
+      const p = profile || {};
+      const set = (id, v)=>{ const el = $(id); if(el) el.value = (v==null ? '' : String(v)); };
+      set('opm_display_name', p.display_name || 'Operator');
+      set('opm_audience', p.audience || '');
+      set('opm_business', p.business || '');
+      set('opm_offers', p.offers || '');
+      set('opm_goals', p.goals || '');
+      set('opm_constraints', p.constraints || '');
+      set('opm_tone_rules', p.tone_rules || '');
+      set('opm_notes', p.notes || '');
+    }
+
+    function operatorProfileModalPayload(){
+      const get = (id)=> ($(id)?.value || '').trim();
+      return {
+        display_name: get('opm_display_name'),
+        audience: get('opm_audience'),
+        business: get('opm_business'),
+        offers: get('opm_offers'),
+        goals: get('opm_goals'),
+        constraints: get('opm_constraints'),
+        tone_rules: get('opm_tone_rules'),
+        notes: get('opm_notes')
+      };
+    }
+
+    async function showOperatorProfileModal(){
+      showModal();
+      try{ ensureModalMinSize(980, 760); }catch(e){}
+      ['frameworkForm','modalForm','manageForm','createForm','settingsForm','stackForm','apiKeyHelpForm','calendarForm','emailConsoleForm','crmForm','leadHandoffForm'].forEach(id=>{ const el=$(id); if(el) el.style.display='none'; });
+      if($('operatorProfileModalForm')) $('operatorProfileModalForm').style.display = 'block';
+      if($('modalBody')) $('modalBody').style.display = 'none';
+      if($('modalImg')) $('modalImg').style.display = 'none';
+      if($('modalTitle')) $('modalTitle').innerText = 'Operator Profile';
+      if($('opmStatus')) $('opmStatus').innerText = 'Loading...';
+      try{
+        const res = await fetch('/api/operator_profile');
+        const raw = await res.text();
+        let data = {};
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Could not load Operator Profile');
+        operatorProfileModalFill(data.profile || {});
+        if($('opmStatus')) $('opmStatus').innerText = 'Ready';
+      }catch(e){
+        if($('opmStatus')) $('opmStatus').innerText = e.message || 'Load failed';
+      }
+    }
+
     function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
@@ -11314,13 +11336,29 @@ async function crmFetchTasks(){
       })();
     }
 
-    if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = ()=> showOperatorProfileStandalone();
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
     if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
     if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
     if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
+    if($("operatorProfileTopBtn")) $("operatorProfileTopBtn").onclick = ()=> showOperatorProfileModal();
+    if($("opmReload")) $("opmReload").onclick = ()=> showOperatorProfileModal();
+    if($("opmSave")) $("opmSave").onclick = async ()=>{
+      if($("opmStatus")) $("opmStatus").innerText = 'Saving...';
+      try{
+        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(operatorProfileModalPayload())});
+        const raw = await res.text();
+        let data = {};
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
+        if($("opmStatus")) $("opmStatus").innerText = 'Saved';
+        showToast('Saved Operator Profile');
+        try{ if(selectedSeat === 'Operator') await refreshThread(); }catch(e){}
+      }catch(e){
+        if($("opmStatus")) $("opmStatus").innerText = e.message || 'Save failed';
+      }
+    };
 
     // CRM tab binds (safe if missing)
 
