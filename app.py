@@ -9,8 +9,6 @@ import hashlib
 import hmac
 import threading
 import tempfile
-import shutil
-import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -6053,8 +6051,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="installFullBtn">Install full team</button>
         <button class="btn" id="settingsBtn">Settings</button>
         <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
-        <button class="btn" id="crmBtn">CRM</button>
+        <button class="btn" id="crmBtn">Client Center</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
         <button class="btn" id="socialStudioBtn">Social Studio</button>
@@ -6094,8 +6091,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
-        <button class="btn" data-click="operatorProfileBtn">Operator Profile</button>
-<button class="btn" data-click="crmBtn">CRM</button>
+<button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -6725,7 +6721,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Build public lead lists from niche + location, or paste seed rows. Returns organized name, company, website, phone, email candidates, and match score.</div>
+    <div class="tiny" style="margin-bottom:8px;">Turn raw lead notes into structured leads. Paste rows as: Name | Company | Domain | Title. If you only know the company and domain, the system will still suggest likely contact paths.</div>
     <div class="grid">
       <div>
         <label>Target niche</label>
@@ -6734,56 +6730,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div>
         <label>Location</label>
         <input id="leadLabLocation" placeholder="New Jersey" />
-      </div>
-    </div>
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Specific areas</label>
-        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
-      </div>
-      <div>
-        <label>Lead count</label>
-        <select id="leadLabCount">
-          <option value="10">10</option>
-          <option value="25" selected>25</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
-      </div>
-    </div>
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Search mode</label>
-        <select id="leadLabMode">
-          <option value="precision">Precision</option>
-          <option value="balanced" selected>Balanced</option>
-          <option value="broad">Broad</option>
-        </select>
-      </div>
-      <div>
-        <label>Contact filter</label>
-        <select id="leadLabContactFilter">
-          <option value="any" selected>Any public contact</option>
-          <option value="email_or_phone">Email or phone</option>
-          <option value="phone">Phone required</option>
-          <option value="email">Email required</option>
-        </select>
-      </div>
-    </div>
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Minimum score</label>
-        <select id="leadLabMinScore">
-          <option value="0">0</option>
-          <option value="40">40</option>
-          <option value="50" selected>50</option>
-          <option value="60">60</option>
-          <option value="70">70</option>
-        </select>
-      </div>
-      <div>
-        <label>Seed rows (optional)</label>
-        <div class="tiny" style="margin-top:8px; opacity:.85;">Paste rows below to enrich known targets faster.</div>
       </div>
     </div>
     <label style="margin-top:10px;">Lead source text</label>
@@ -6879,37 +6825,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="playbookResults" style="margin-top:12px;"></div>
   </div>
 </div>
-
-              <div class="modalForm" id="operatorProfileForm" style="display:none;">
-                <div class="tiny" style="margin-bottom:10px;">Shared operator context the teammates can reference across the whole app.</div>
-                <div class="grid">
-                  <div>
-                    <label>Display name</label>
-                    <input id="opfDisplayName" placeholder="Operator" />
-                  </div>
-                  <div>
-                    <label>Audience</label>
-                    <input id="opfAudience" placeholder="Who you serve" />
-                  </div>
-                </div>
-                <label style="margin-top:10px;">Business</label>
-                <textarea id="opfBusiness" style="height:100px"></textarea>
-                <label style="margin-top:10px;">Offers</label>
-                <textarea id="opfOffers" style="height:100px"></textarea>
-                <label style="margin-top:10px;">Goals</label>
-                <textarea id="opfGoals" style="height:90px"></textarea>
-                <label style="margin-top:10px;">Constraints</label>
-                <textarea id="opfConstraints" style="height:90px"></textarea>
-                <label style="margin-top:10px;">Tone rules</label>
-                <textarea id="opfToneRules" style="height:90px"></textarea>
-                <label style="margin-top:10px;">Notes</label>
-                <textarea id="opfNotes" style="height:90px"></textarea>
-                <div class="actions">
-                  <button class="btn" id="cancelOperatorProfile">Cancel</button>
-                  <button class="btn btnPrimary" id="saveOperatorProfile">Save profile</button>
-                </div>
-                <div class="tiny" id="operatorProfileStatus" style="margin-top:10px;"></div>
-              </div>
 
               <div class="modalForm" id="calendarForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
@@ -7202,20 +7117,6 @@ if (typeof window.showToast !== "function") {
 
     const $ = (id) => document.getElementById(id);
 
-    async function safeJsonFetch(url, options){
-      const res = await fetch(url, options || {});
-      const raw = await res.text();
-      let data = null;
-      try{ data = raw ? JSON.parse(raw) : {}; }catch(e){
-        const msg = (raw || '').slice(0, 280);
-        throw new Error(msg ? ('Invalid server response: ' + msg) : 'Invalid server response');
-      }
-      if(!res.ok || !data || data.ok === false){
-        throw new Error((data && data.error) ? data.error : ('Request failed (' + res.status + ')'));
-      }
-      return data;
-    }
-
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -7350,7 +7251,6 @@ function applyModalPos(){
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -9973,15 +9873,15 @@ $("draftWithSelected").onclick = async () => {
         will_not_do: $("newWillNotDo").value || "",
       };
 
-      let data = null;
-      try{
-        data = await safeJsonFetch("/api/teammate/create", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(payload)
-        });
-      }catch(e){
-        $("createStatus").innerText = e.message || "Create failed";
+      const res = await fetch("/api/teammate/create", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if(!data.ok){
+        $("createStatus").innerText = data.error || "Create failed";
         return;
       }
 
@@ -10102,7 +10002,6 @@ Challenge weak assumptions. Surface risks.`;
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10122,34 +10021,6 @@ Challenge weak assumptions. Surface risks.`;
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
-    }
-
-    async function loadOperatorProfileModal(){
-      const st = $("operatorProfileStatus");
-      if(st) st.innerText = 'Loading...';
-      try{
-        const data = await safeJsonFetch('/api/operator_profile');
-        const p = data.profile || {};
-        if($("opfDisplayName")) $("opfDisplayName").value = p.display_name || 'Operator';
-        if($("opfAudience")) $("opfAudience").value = p.audience || '';
-        if($("opfBusiness")) $("opfBusiness").value = p.business || '';
-        if($("opfOffers")) $("opfOffers").value = p.offers || '';
-        if($("opfGoals")) $("opfGoals").value = p.goals || '';
-        if($("opfConstraints")) $("opfConstraints").value = p.constraints || '';
-        if($("opfToneRules")) $("opfToneRules").value = p.tone_rules || '';
-        if($("opfNotes")) $("opfNotes").value = p.notes || '';
-        if(st) st.innerText = 'Ready';
-      }catch(e){ if(st) st.innerText = e.message || 'Load failed'; }
-    }
-
-    function showOperatorProfileModal(){
-      showModal();
-      try{ ensureModalMinSize(980, 760); }catch(e){}
-      hideAllModalForms();
-      if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = 'block';
-      if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
-      loadOperatorProfileModal();
     }
 
     function showGrowthPlaybookModal(){
@@ -10825,7 +10696,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -10838,7 +10709,6 @@ async function crmFetchTasks(){
       if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("operatorProfileForm")) $("operatorProfileForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
@@ -10915,25 +10785,19 @@ async function crmFetchTasks(){
       const box = $("leadLabResults");
       if(!box) return;
       if(!Array.isArray(items) || !items.length){
-        box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads found yet.</div>';
+        box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
         return;
       }
       box.innerHTML = items.map((item, idx)=>{
         const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
-        const phones = Array.isArray(item.phones) ? item.phones.slice(0,3) : [];
-        const website = item.website || item.domain || '';
-        const topEmail = (((item.email_candidates||[])[0]||{}).email) || '';
         return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
-          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:flex-start;">
-            <div style="min-width:0; flex:1 1 420px;">
-              <div style="font-weight:800;">${escapeHtml(item.name || item.company || '(no name)')}</div>
-              <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')}${item.title ? ' • ' + escapeHtml(item.title) : ''}</div>
-              ${website ? `<div class="tiny" style="opacity:.9; margin-top:6px;">Website: <a href="${escapeHtml((website.startsWith('http')?website:('https://' + website)))}" target="_blank" rel="noopener noreferrer">${escapeHtml(website)}</a></div>` : ''}
-              ${phones.length ? `<div class="tiny" style="opacity:.9; margin-top:4px;">Phone: ${phones.map(p=>escapeHtml(p)).join(' • ')}</div>` : ''}
-              ${topEmail ? `<div class="tiny" style="opacity:.9; margin-top:4px;">Top email: ${escapeHtml(topEmail)}</div>` : ''}
-              ${item.notes ? `<div class="tiny" style="opacity:.75; margin-top:6px;">${escapeHtml(item.notes)}</div>` : ''}
+          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:800;">${escapeHtml(item.name || '(no name)')}</div>
+              <div class="tiny" style="opacity:.85;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
+              <div class="tiny" style="opacity:.85; margin-top:4px;">${escapeHtml(item.domain || '')}</div>
             </div>
-            <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
+            <div class="tiny" style="opacity:.9;">Match score ${(item.score || 0)}%</div>
           </div>
           <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
           <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -10962,13 +10826,10 @@ async function crmFetchTasks(){
                 name: item.name || item.company || 'New lead',
                 company: item.company || '',
                 email: top,
-                phone: ((item.phones||[])[0]||''),
-                website: item.website || item.domain || '',
                 status: 'lead',
                 pipeline_stage: 'Lead',
                 tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: (item.notes || '') + (top ? '
-Top email guess: ' + top : '')
+                notes: (item.notes || '') + (top ? '\nTop email guess: ' + top : '')
               })
             });
             const data = await res.json();
@@ -10986,20 +10847,17 @@ Top email guess: ' + top : '')
       const st = $("leadLabStatus");
       if(st) st.innerText = 'Building lead list...';
       try{
-          const data = await safeJsonFetch('/api/crm/lead_lab', {
+        const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             niche: ($("leadLabNiche")?.value || '').trim(),
             location: ($("leadLabLocation")?.value || '').trim(),
-            specific_areas: ($("leadLabAreas")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim(),
-            max_results: Number(($("leadLabCount")?.value || '25')) || 25,
-            search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
-            contact_filter: ($("leadLabContactFilter")?.value || 'any').trim(),
-            min_score: Number(($("leadLabMinScore")?.value || '50')) || 0
+            source_text: ($("leadLabInput")?.value || '').trim()
           })
         });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads`;
       }catch(e){
@@ -11015,13 +10873,8 @@ Top email guess: ' + top : '')
         'Morgan Lee | BrightPath Investors | brightpathinvestors.com | Founder',
         'Taylor Adams | Northshore Lending | northshorelending.com | Loan Officer'
       ].join('\n');
-      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate agents';
+      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate';
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
-      if($("leadLabAreas")) $("leadLabAreas").value = 'Newark, Jersey City, Hoboken, Morristown, Princeton';
-      if($("leadLabCount")) $("leadLabCount").value = '25';
-      if($("leadLabMode")) $("leadLabMode").value = 'balanced';
-      if($("leadLabContactFilter")) $("leadLabContactFilter").value = 'email_or_phone';
-      if($("leadLabMinScore")) $("leadLabMinScore").value = '50';
     }
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
@@ -11029,7 +10882,9 @@ Top email guess: ' + top : '')
       if(st) st.innerText = 'Generating...';
       if(box) box.innerHTML = '';
       try{
-        const data = await safeJsonFetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Generation failed');
         if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
         if(st) st.innerText = 'Ready';
       }catch(e){
@@ -11519,25 +11374,6 @@ try{
 
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
-    if($("cancelOperatorProfile")) $("cancelOperatorProfile").onclick = () => hideModal();
-    if($("saveOperatorProfile")) $("saveOperatorProfile").onclick = async () => {
-      const st = $("operatorProfileStatus");
-      if(st) st.innerText = "Saving...";
-      try{
-        await safeJsonFetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({
-          display_name: ($("opfDisplayName").value||"").trim(),
-          audience: ($("opfAudience").value||"").trim(),
-          business: ($("opfBusiness").value||"").trim(),
-          offers: ($("opfOffers").value||"").trim(),
-          goals: ($("opfGoals").value||"").trim(),
-          constraints: ($("opfConstraints").value||"").trim(),
-          tone_rules: ($("opfToneRules").value||"").trim(),
-          notes: ($("opfNotes").value||"").trim()
-        })});
-        if(st) st.innerText = "Saved";
-        showToast("Operator Profile saved");
-      }catch(e){ if(st) st.innerText = e.message || "Save failed"; }
-    };
 
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
@@ -14653,170 +14489,6 @@ def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
         rows.append(item)
     return rows
 
-def _crm_bad_result_domain(domain: str) -> bool:
-    d = _crm_extract_domain(domain)
-    if not d:
-        return True
-    blocked = {
-        'duckduckgo.com','bing.com','google.com','search.yahoo.com','yahoo.com','facebook.com','instagram.com','linkedin.com',
-        'yelp.com','youtube.com','realtor.com','zillow.com','homes.com','redfin.com','trulia.com','mapquest.com','wikipedia.org'
-    }
-    return d in blocked or d.endswith('.gov')
-
-def _crm_state_city_expansion(location: str) -> List[str]:
-    loc = (location or '').strip().lower()
-    if not loc:
-        return []
-    if 'new jersey' in loc or loc == 'nj':
-        return ['Newark NJ','Jersey City NJ','Hoboken NJ','Morristown NJ','Princeton NJ','Edison NJ','Cherry Hill NJ','Red Bank NJ','Montclair NJ','Paramus NJ','Toms River NJ','Freehold NJ']
-    return []
-
-def _crm_public_search_urls(query: str, limit: int = 12) -> List[str]:
-    urls = []
-    seen = set()
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    sources = [
-        ('https://html.duckduckgo.com/html/', {'q': query}),
-        ('https://www.bing.com/search', {'q': query}),
-    ]
-    patterns = [
-        r'nofollow" class="[^"]*result__a" href="([^"]+)"',
-        r'<a rel="nofollow" class="result__a" href="([^"]+)"',
-        r'<h2><a href="(https?://[^"]+)"',
-        r'<a href="(https?://[^"]+)" h="ID=SERP',
-    ]
-    for url, params in sources:
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=12)
-            html = r.text or ''
-        except Exception:
-            continue
-        for pat in patterns:
-            for m in re.finditer(pat, html, re.I):
-                found = html.unescape(m.group(1)) if hasattr(html, 'unescape') else m.group(1)
-                found = re.sub(r'^/l/\?kh=-1&uddg=', '', found)
-                try:
-                    from urllib.parse import unquote
-                    found = unquote(found)
-                except Exception:
-                    pass
-                dom = _crm_extract_domain(found)
-                if not found.startswith('http'):
-                    continue
-                if _crm_bad_result_domain(dom):
-                    continue
-                if dom in seen:
-                    continue
-                seen.add(dom)
-                urls.append(found)
-                if len(urls) >= limit:
-                    return urls
-    return urls
-
-def _crm_extract_contacts_from_page(url: str) -> Dict[str, Any]:
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        html_text = r.text or ''
-    except Exception:
-        return {'website': url, 'company': '', 'name': '', 'phones': [], 'email_candidates': [], 'score': 0, 'notes': 'Could not fetch page'}
-    title_m = re.search(r'<title>(.*?)</title>', html_text, re.I | re.S)
-    title = re.sub(r'\s+', ' ', title_m.group(1)).strip() if title_m else ''
-    title = re.sub(r'\s*[\-|–|•].*$', '', title).strip()
-    if not title:
-        title = _crm_extract_domain(url).split('.')[0].replace('-', ' ').title()
-    phones = []
-    for m in re.finditer(r'(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})', html_text):
-        p = re.sub(r'\s+', ' ', m.group(0)).strip()
-        if p not in phones:
-            phones.append(p)
-        if len(phones) >= 3:
-            break
-    emails = []
-    for m in re.finditer(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}', html_text, re.I):
-        em = m.group(0).strip()
-        if any(x in em.lower() for x in ['sentry.io','example.com','wixpress.com']):
-            continue
-        if em not in emails:
-            emails.append(em)
-        if len(emails) >= 4:
-            break
-    company = title
-    score = 35
-    if url: score += 15
-    if phones: score += 25
-    if emails: score += 25
-    score = min(98, score)
-    email_rows = [{'email': e, 'confidence': round(0.92 - (i * 0.08), 2), 'status': 'public'} for i, e in enumerate(emails)]
-    return {'website': url, 'company': company, 'name': '', 'phones': phones, 'email_candidates': email_rows, 'score': score, 'notes': title}
-
-def _crm_make_seed_rows(niche: str, location: str, source_text: str, max_results: int = 25, specific_areas: str = '', search_mode: str = 'balanced') -> List[Dict[str, Any]]:
-    rows = _crm_parse_lead_source_rows(source_text) if source_text else []
-    wanted = max(10, min(120, int(max_results or 25) * 3))
-    queries = []
-    areas = [x.strip() for x in re.split(r'[,
-]+', specific_areas or '') if x.strip()]
-    if not areas:
-        areas = _crm_state_city_expansion(location)[:6]
-    core_loc = (location or '').strip()
-    niche_q = (niche or '').strip() or 'businesses'
-    query_locs = areas[:8] if areas else ([core_loc] if core_loc else [''])
-    for loc in query_locs:
-        if loc:
-            queries.append(f'"{niche_q}" "{loc}" official site contact')
-            queries.append(f'"{niche_q}" "{loc}"')
-        else:
-            queries.append(f'"{niche_q}" official site contact')
-    if search_mode == 'broad' and core_loc:
-        queries.append(f'{niche_q} {core_loc} brokerage team contact')
-        queries.append(f'{niche_q} {core_loc} realtor official site')
-    urls = []
-    seen = set()
-    per_query = 8 if search_mode == 'precision' else (14 if search_mode == 'broad' else 10)
-    for q in queries:
-        for url in _crm_public_search_urls(q, limit=per_query):
-            dom = _crm_extract_domain(url)
-            if not dom or dom in seen or _crm_bad_result_domain(dom):
-                continue
-            seen.add(dom)
-            urls.append(url)
-            if len(urls) >= wanted:
-                break
-        if len(urls) >= wanted:
-            break
-    for url in urls:
-        dom = _crm_extract_domain(url)
-        rows.append({'name': '', 'company': '', 'domain': dom, 'website': url, 'title': '', 'notes': ''})
-    return rows
-
-def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dict[str, Any]:
-    website = (row.get('website') or row.get('domain') or '').strip()
-    if website and not website.startswith('http'):
-        website = 'https://' + website
-    details = _crm_extract_contacts_from_page(website) if website else {'website': '', 'company': row.get('company') or '', 'name': row.get('name') or '', 'phones': [], 'email_candidates': [], 'score': 0, 'notes': ''}
-    company = (row.get('company') or details.get('company') or '').strip()
-    name = (row.get('name') or details.get('name') or company).strip()
-    email_candidates = list(details.get('email_candidates') or [])
-    if not email_candidates and website:
-        email_candidates = _crm_email_candidates(name or company or 'hello', website)
-    score = int(details.get('score') or 0)
-    if company and company.lower() not in {'home','contact'}:
-        score += 8
-    if niche and niche.lower().split()[0] in (details.get('notes') or '').lower():
-        score += 5
-    score = min(99, score)
-    return {
-        'name': name,
-        'company': company or name,
-        'title': (row.get('title') or '').strip(),
-        'website': details.get('website') or website,
-        'domain': _crm_extract_domain(details.get('website') or website),
-        'phones': details.get('phones') or [],
-        'email_candidates': email_candidates,
-        'score': score,
-        'notes': details.get('notes') or (row.get('notes') or ''),
-    }
-
 def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
     try:
         reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
@@ -14835,47 +14507,47 @@ def api_crm_lead_lab():
     payload = request.get_json(silent=True) or {}
     niche = (payload.get("niche") or "").strip()
     location = (payload.get("location") or "").strip()
-    specific_areas = (payload.get("specific_areas") or "").strip()
     source_text = (payload.get("source_text") or "").strip()
-    search_mode = (payload.get("search_mode") or "balanced").strip().lower()
-    contact_filter = (payload.get("contact_filter") or "any").strip().lower()
-    min_score = int(payload.get("min_score") or 0)
-    max_results = int(payload.get("max_results") or 25)
-    max_results = max(1, min(100, max_results))
-    if not source_text and not niche and not location and not specific_areas:
-        return jsonify({"ok": False, "error": "Add a niche, a location, or paste source rows."}), 400
-    seeds = _crm_make_seed_rows(niche, location, source_text, max_results=max_results, specific_areas=specific_areas, search_mode=search_mode)
-    if not seeds:
-        return jsonify({"ok": False, "error": "No public leads could be found from the current search."}), 404
+    if not source_text:
+        return jsonify({"ok": False, "error": "Paste at least one lead row"}), 400
+
+    rows = _crm_parse_lead_source_rows(source_text)
     items = []
-    seen_domains = set()
-    for row in seeds[:max_results * 6]:
-        try:
-            item = _crm_enrich_seed_lead(row, niche, location)
-            dom = _crm_extract_domain(item.get("website") or item.get("domain") or "")
-            if dom and dom in seen_domains:
-                continue
-            has_email = bool(item.get('email_candidates'))
-            has_phone = bool(item.get('phones'))
-            if contact_filter == 'email' and not has_email:
-                continue
-            if contact_filter == 'phone' and not has_phone:
-                continue
-            if contact_filter == 'email_or_phone' and not (has_email or has_phone):
-                continue
-            if int(item.get('score') or 0) < min_score:
-                continue
-            if dom:
-                seen_domains.add(dom)
-            items.append(item)
-            if len(items) >= max_results:
-                break
-        except Exception:
-            continue
-    items.sort(key=lambda x: int(x.get("score") or 0), reverse=True)
-    if not items:
-        return jsonify({"ok": False, "error": "No public leads could be validated from the current search. Try Broad mode, add specific areas, or lower the minimum score."}), 404
-    return jsonify({"ok": True, "items": items[:max_results], "count": len(items[:max_results])})
+    for row in rows[:200]:
+        domain = _crm_extract_domain(row.get("domain") or row.get("company") or "")
+        name = (row.get("name") or "").strip()
+        company = (row.get("company") or "").strip() or domain.split(".")[0].replace("-", " ").title()
+        title = (row.get("title") or "").strip()
+        if not name and company:
+            name = company
+        email_candidates = _crm_email_candidates(name, domain)
+        score = 55
+        if domain:
+            score += 15
+        if name and name != company:
+            score += 15
+        if title:
+            score += 5
+        if niche:
+            score += 5
+        score = max(1, min(99, score))
+        notes = []
+        if niche:
+            notes.append(f"Niche target: {niche}")
+        if location:
+            notes.append(f"Location target: {location}")
+        if not domain:
+            notes.append("Add company domain for better email confidence.")
+        items.append({
+            "name": name,
+            "company": company,
+            "domain": domain,
+            "title": title,
+            "score": score,
+            "notes": " ".join(notes).strip(),
+            "email_candidates": email_candidates,
+        })
+    return jsonify({"ok": True, "items": items, "count": len(items)})
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
@@ -14967,16 +14639,6 @@ def api_crm_playbooks():
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
 
-
-@app.errorhandler(Exception)
-def _json_api_error_handler(e):
-    try:
-        if (request.path or "").startswith("/api/"):
-            code = 500
-            return jsonify({"ok": False, "error": str(e) or "Internal Server Error"}), code
-    except Exception:
-        pass
-    raise e
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
