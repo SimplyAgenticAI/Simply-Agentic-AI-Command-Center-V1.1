@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 from urllib.parse import urlparse, urljoin, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
@@ -444,40 +445,15 @@ def current_user() -> Optional[Dict[str, Any]]:
     # Some earlier builds accidentally stored a dict here; support both.
     if isinstance(uname, dict):
         uname = uname.get("username")
+    if not uname:
+        return None
     data = load_users()
     users = (data.get("users") or {})
-
-    # Additive hardening for single-user/local deployments:
-    # if auth/session data was wiped during a redeploy and no users exist,
-    # silently bootstrap a local owner account so the app stays operational.
-    if not users:
-        try:
-            sole = ensure_local_owner_user()
-            data = load_users()
-            users = (data.get("users") or {})
-            session["user"] = sole
-            session.permanent = True
-            return users.get(sole)
-        except Exception:
-            return None
-
-    if not uname:
-        # If there is exactly one user, silently restore that user into session.
-        if len(users) == 1:
-            sole = next(iter(users.keys()))
-            session["user"] = sole
-            session.permanent = True
-            return users.get(sole)
-        # Fallback for local-owner installs even if a stale browser loses cookies.
-        if "local" in users:
-            session["user"] = "local"
-            session.permanent = True
-            return users.get("local")
-        return None
     rec = users.get(uname)
     if rec:
         return rec
-    # Session points to a user that no longer exists. Recover safely for single-user setups.
+    # Session points to a user that no longer exists. Recover only when the
+    # session already referenced a user, so the login gate is preserved.
     if len(users) == 1:
         sole = next(iter(users.keys()))
         session["user"] = sole
@@ -529,48 +505,336 @@ def _auth_guard():
     if request.path.startswith("/static/"):
         return None
 
-    # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"}
+    if request.path.startswith("/api/") and request.path in public_api:
         return None
 
-    if request.path.startswith("/api/") and not session.get("user"):
-        if not _ensure_session_user_from_single_account():
-            try:
-                # Additive fallback: keep single-user/local deployments alive even if
-                # the session cookie or users file was reset during redeploy.
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    # Never let a stale or malformed session bypass the login gate.
+    if session.get("user") and not current_user():
+        try:
+            session.pop("user", None)
+        except Exception:
+            pass
+        session.modified = True
 
-    if request.path == "/" and not session.get("user"):
+    if request.path.startswith("/api/") and not current_user():
+        resp = jsonify({"ok": False, "error": "Not authenticated"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 401
+
+    if request.path == "/" and not current_user():
         if not has_any_user():
-            try:
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return redirect(url_for("setup"))
-        elif not _ensure_session_user_from_single_account():
-            try:
-                sole = ensure_local_owner_user()
-                session["user"] = sole
-                session.permanent = True
-            except Exception:
-                return redirect(url_for("login"))
+            return redirect(url_for("setup"))
+        return redirect(url_for("login"))
 
-    # attach per-user OpenAI client for this request
     u = current_user()
     user_key = ""
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
     g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
-
     return None
+
+@app.errorhandler(Exception)
+def _api_json_error_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            code = 500
+            if isinstance(e, HTTPException):
+                code = int(getattr(e, 'code', 500) or 500)
+            try:
+                append_log('api_unhandled_error', {'path': request.path, 'error': str(e), 'at': now_iso()})
+            except Exception:
+                pass
+            return jsonify({'ok': False, 'error': str(e) if code < 500 else 'Server error'}), code
+    except Exception:
+        pass
+    raise e
+
+# -----------------------------
+# Uploads static serving (additive)
+# -----------------------------
+@app.get("/uploads/<path:relpath>")
+def serve_upload(relpath):
+    """Serve files saved under DATA/uploads. Required for teammate image links."""
+    try:
+        # Prevent path traversal
+        relpath = relpath.replace("\\", "/")
+        if relpath.startswith("../") or "/../" in relpath:
+            return abort(400)
+        fp = UPLOADS_DIR / relpath
+        if not fp.exists():
+            return abort(404)
+        return send_from_directory(str(UPLOADS_DIR), relpath)
+    except Exception:
+        return abort(404)
+
+
+# =========================
+# OAuth state helpers (additive)
+# =========================
+def _push_oauth_state(key: str, val: str, keep: int = 5) -> None:
+    try:
+        lst = session.get(key) or []
+        if not isinstance(lst, list):
+            lst = []
+        lst = [val] + [x for x in lst if x != val]
+        session[key] = lst[:keep]
+    except Exception:
+        pass
+
+def _oauth_state_matches(key: str, incoming: str) -> bool:
+    try:
+        if not incoming:
+            return False
+        lst = session.get(key) or []
+        if isinstance(lst, list) and incoming in lst:
+            return True
+        single = session.get(key + "_single")
+        if isinstance(single, str) and single == incoming:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# Quiet noisy request logs (especially the stack tick poll)
+import logging
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+BASE = Path(__file__).parent
+
+# ===== NEW: Persistent data directory support (additive) =====
+# Use DATA_DIR env var if provided. Otherwise prefer /var/data when present (common persistent mount),
+# falling back to local ./data next to app.py.
+_DATA_ENV = (os.getenv("DATA_DIR") or "").strip()
+_DEFAULT_PERSIST = Path("/var/data")
+_OLD_DATA = BASE / "data"
+if _DATA_ENV:
+    DATA = Path(_DATA_ENV)
+elif _DEFAULT_PERSIST.exists():
+    DATA = _DEFAULT_PERSIST
+else:
+    DATA = _OLD_DATA
+
+# One-time best-effort migration from old local data folder if the new DATA dir is different and empty-ish.
+try:
+    DATA.mkdir(parents=True, exist_ok=True)
+    if DATA.resolve() != _OLD_DATA.resolve():
+        # migrate key json files if they exist in old dir and not in new
+        for fname in ["users.json", "registry.json", "memory.json", "secrets.json", "audit.json"]:
+            srcf = _OLD_DATA / fname
+            dstf = DATA / fname
+            if srcf.exists() and (not dstf.exists()):
+                shutil.copy2(srcf, dstf)
+except Exception:
+    pass
+
+DATA_DIR = str(DATA)
+REGISTRY_PATH = DATA / "teammates.json"
+THREADS_DIR = DATA / "threads"
+LOGS_DIR = DATA / "logs"
+UPLOADS_DIR = DATA / "uploads"
+UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
+IMAGE_STATE_DIR = DATA / "image_state"
+FRAMEWORK_PATH = DATA / "core_framework.txt"
+
+DATA.mkdir(exist_ok=True)
+THREADS_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
+IMAGE_STATE_DIR.mkdir(exist_ok=True)
+
+# =========================
+# IMAGE JOBS (non-blocking)
+# =========================
+# Hosting platforms often kill long-running requests. Image generation can exceed request timeouts.
+# So we run image generation in a background thread and let the UI poll for completion.
+IMAGE_JOBS: Dict[str, Dict[str, Any]] = {}
+IMAGE_JOBS_LOCK = threading.Lock()
+
+def _image_job_set(job_id: str, patch: Dict[str, Any]) -> None:
+    with IMAGE_JOBS_LOCK:
+        cur = IMAGE_JOBS.get(job_id) or {}
+        cur.update(patch or {})
+        IMAGE_JOBS[job_id] = cur
+
+def _image_job_get(job_id: str) -> Dict[str, Any]:
+    with IMAGE_JOBS_LOCK:
+        return dict(IMAGE_JOBS.get(job_id) or {})
+
+def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str) -> None:
+    try:
+        thread = load_thread(teammate)
+        replaced = False
+        for i in range(len(thread)-1, -1, -1):
+            msg = thread[i] or {}
+            if (msg.get("role") == "assistant") and (f"job:{job_id}" in (msg.get("content") or "")):
+                thread[i] = {"role": "assistant", "content": final_note}
+                replaced = True
+                break
+        if not replaced:
+            thread.append({"role": "assistant", "content": final_note})
+        save_thread(teammate, thread)
+    except Exception:
+        pass
+
+def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> None:
+    _image_job_set(job_id, {"status": "running"})
+    try:
+        # Background thread needs an application context for any Flask helpers used during image creation
+        with app.app_context():
+            rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
+        if err or not url:
+            _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
+            _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}")
+            return
+        _image_job_set(job_id, {"status": "done", "url": url, "image": rec})
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}")
+    except Exception as e:
+        _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}")
+
+def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
+    job_id = uuid.uuid4().hex
+    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
+    t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
+    t.start()
+    return job_id
+
+# =========================
+# AUTH + PER-USER SETTINGS
+# =========================
+
+USERS_PATH = DATA / "users.json"
+SECRET_PATH = DATA / "session_secret.key"
+
+def _load_or_create_secret() -> str:
+    try:
+        if SECRET_PATH.exists():
+            s = SECRET_PATH.read_text(encoding="utf-8").strip()
+            if s:
+                return s
+    except Exception:
+        pass
+    s = secrets.token_hex(32)
+    try:
+        SECRET_PATH.write_text(s, encoding="utf-8")
+    except Exception:
+        pass
+    return s
+
+app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+try:
+    app.permanent_session_lifetime = timedelta(days=30)
+except Exception:
+    pass
+
+def load_users() -> Dict[str, Any]:
+    data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"users": {}, "updated_at": None}
+    data.setdefault("users", {})
+    return data
+
+def save_users(data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(USERS_PATH, data)
+
+def has_any_user() -> bool:
+    data = load_users()
+    return bool((data.get("users") or {}))
+
+def _clean_username(u: str) -> str:
+    u = (u or "").strip().lower()
+    u = re.sub(r"[^a-z0-9_\.\-]+", "", u)
+    return u
+
+def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
+    return {
+        "username": username,
+        "password_hash": generate_password_hash(password),
+        "email": (email or "").strip(),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "settings": {
+            "openai_key": "",
+            "smtp": {
+                "host": "",
+                "port": 587,
+                "user": "",
+                "pass": "",
+                "from_name": ""
+            }
+        },
+        "reset": {"token_hash": "", "created_at": None}
+    }
+
+def current_user() -> Optional[Dict[str, Any]]:
+    uname = session.get("user")
+    # Historically we stored the username string in session["user"].
+    # Some earlier builds accidentally stored a dict here; support both.
+    if isinstance(uname, dict):
+        uname = uname.get("username")
+    if not uname:
+        return None
+    data = load_users()
+    users = (data.get("users") or {})
+    rec = users.get(uname)
+    if rec:
+        return rec
+    # Session points to a user that no longer exists. Recover only when the
+    # session already referenced a user, so the login gate is preserved.
+    if len(users) == 1:
+        sole = next(iter(users.keys()))
+        session["user"] = sole
+        session.permanent = True
+        return users.get(sole)
+    return None
+
+def _ensure_session_user_from_single_account() -> Optional[str]:
+    try:
+        if session.get("user"):
+            u = session.get("user")
+            return (u.get("username") if isinstance(u, dict) else u) if u else None
+        users = (load_users().get("users") or {})
+        if len(users) == 1:
+            sole = next(iter(users.keys()))
+            session["user"] = sole
+            session.permanent = True
+            return sole
+    except Exception:
+        return None
+    return None
+
+def ensure_local_owner_user() -> str:
+    """Ensure a local owner user exists for first-run / setup-less deployments.
+
+    Returns the username to place in session["user"].
+    """
+    data = load_users()
+    users = data.get("users") or {}
+    if "local" not in users:
+        # Create a deterministic local owner user.
+        # Password is irrelevant for this bootstrap flow; the UI can still
+        # support full login/reset if you later enable it.
+        users["local"] = _new_user("local", password=str(uuid.uuid4()), email="")
+        data["users"] = users
+        save_users(data)
+    return "local"
+
+def login_required_api() -> bool:
+    p = request.path or ""
+    if p.startswith("/api/") and p not in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
+        return True
+    return False
 
 def get_openai_client():
     c = getattr(g, "openai_client", None)
@@ -6238,8 +6502,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="createTeamBtn">Create teammate</button>
         <button class="btn" id="installFullBtn">Install full team</button>
         <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="operatorProfileTopBtn">Operator Profile</button>
         <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="crmBtn">Client Center</button>
+        <button class="btn" id="crmBtn">CRM</button>
         <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" id="leadLabBtn">Lead Lab</button>
         <button class="btn" id="socialStudioBtn">Social Studio</button>
@@ -6260,6 +6525,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileOperatorBtn">Operator</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -6279,7 +6545,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
                 <button class="btn" data-click="calendarBtn">Calendar</button>
-<button class="btn" data-click="crmBtn">Client Center</button>
+<button class="btn" data-click="crmBtn">CRM</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -6315,6 +6581,37 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
             <div class="modalBodyWrap" id="modalScroll">
               <pre id="modalBody"></pre>
+
+<div id="operatorProfileForm" class="modalForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
+  <div class="grid">
+    <div>
+      <label>Display name</label>
+      <input id="opf_display_name" placeholder="Operator" />
+    </div>
+    <div>
+      <label>Audience</label>
+      <input id="opf_audience" placeholder="Who you serve" />
+    </div>
+  </div>
+  <label style="margin-top:10px;">Business</label>
+  <textarea id="opf_business" rows="4" placeholder="What your business does..."></textarea>
+  <label style="margin-top:10px;">Offers</label>
+  <textarea id="opf_offers" rows="4" placeholder="Your offers, pricing model, deliverables..."></textarea>
+  <label style="margin-top:10px;">Goals</label>
+  <textarea id="opf_goals" rows="3" placeholder="Current goals and KPIs..."></textarea>
+  <label style="margin-top:10px;">Constraints</label>
+  <textarea id="opf_constraints" rows="3" placeholder="Rules, boundaries, what not to do..."></textarea>
+  <label style="margin-top:10px;">Tone rules</label>
+  <textarea id="opf_tone_rules" rows="3" placeholder="How teammates should speak and write..."></textarea>
+  <label style="margin-top:10px;">Notes</label>
+  <textarea id="opf_notes" rows="3" placeholder="Anything else teammates should know..."></textarea>
+  <div class="actions" style="justify-content:flex-end; margin-top:12px;">
+    <button class="btn" id="opfReloadBtn">Reload</button>
+    <button class="btn btnPrimary" id="opfSaveBtn">Save</button>
+  </div>
+  <div class="tiny" id="opfStatus" style="margin-top:8px;"></div>
+</div>
 
 
 <div id="stackForm" class="modalForm" style="display:none;">
@@ -6572,7 +6869,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <details style="margin-top:12px;">
                   <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
                   <div class="tiny" style="margin-top:8px; opacity:.9;">
-                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
+                    Used for Broadcast SMS in the CRM. This is stored in your personal settings.
                   </div>
 
                   <label>Twilio Account SID</label>
@@ -6675,7 +6972,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">CRM. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabClients">Clients</button>
@@ -6983,36 +7280,39 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <option value="100">100</option>
         </select>
       </div>
+    </div>
+    <div class="grid" style="margin-top:10px;">
       <div>
         <label>Search mode</label>
         <select id="leadLabMode">
+          <option value="precision">Precision</option>
           <option value="balanced" selected>Balanced</option>
           <option value="broad">Broad</option>
-          <option value="precision">Precision</option>
         </select>
+      </div>
+      <div>
+        <label>Specific areas</label>
+        <input id="leadLabAreas" placeholder="Newark NJ, Jersey City NJ, Hoboken NJ" />
       </div>
     </div>
     <div class="grid" style="margin-top:10px;">
       <div>
-        <label>Specific areas</label>
-        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
-      </div>
-      <div>
         <label>Contact filter</label>
-        <select id="leadLabRequireContact">
-          <option value="phone_or_email" selected>Phone or email preferred</option>
-          <option value="phone">Phone only</option>
-          <option value="email">Email only</option>
-          <option value="any">Any public lead</option>
+        <select id="leadLabContactFilter">
+          <option value="any">Any public contact</option>
+          <option value="email_or_phone" selected>Email or phone</option>
+          <option value="phone">Phone required</option>
+          <option value="email">Email required</option>
         </select>
       </div>
       <div>
         <label>Minimum score</label>
         <select id="leadLabMinScore">
-          <option value="30">30</option>
-          <option value="40" selected>40</option>
-          <option value="50">50</option>
+          <option value="0">0</option>
+          <option value="40">40</option>
+          <option value="50" selected>50</option>
           <option value="60">60</option>
+          <option value="70">70</option>
         </select>
       </div>
     </div>
@@ -8682,7 +8982,7 @@ function makeSeat(defn, idx){
       profBtn.innerText = "Profile";
       profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); selectSeat("Operator"); });
+      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); showOperatorProfileModal(); });
       tools.appendChild(profBtn);
 
       seat.appendChild(tools);
@@ -10537,7 +10837,7 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     // =========================
-    // CRM UI (Client Command Center)
+    // CRM UI (CRM)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
     let crmEditingClientId = null;
@@ -11193,7 +11493,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='Client Command Center', opts={}){
+    function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -11232,6 +11532,73 @@ async function crmFetchTasks(){
         }
       })();
     }
+
+    async function loadOperatorProfileIntoModal(){
+      const st = $("opfStatus");
+      if(st) st.innerText = 'Loading...';
+      try{
+        const res = await fetch('/api/operator_profile');
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Load failed');
+        const p = data.profile || {};
+        if($("opf_display_name")) $("opf_display_name").value = p.display_name || 'Operator';
+        if($("opf_audience")) $("opf_audience").value = p.audience || '';
+        if($("opf_business")) $("opf_business").value = p.business || '';
+        if($("opf_offers")) $("opf_offers").value = p.offers || '';
+        if($("opf_goals")) $("opf_goals").value = p.goals || '';
+        if($("opf_constraints")) $("opf_constraints").value = p.constraints || '';
+        if($("opf_tone_rules")) $("opf_tone_rules").value = p.tone_rules || '';
+        if($("opf_notes")) $("opf_notes").value = p.notes || '';
+        if(st) st.innerText = 'Ready';
+      }catch(e){
+        if(st) st.innerText = e.message || 'Load failed';
+      }
+    }
+
+    async function saveOperatorProfileFromModal(){
+      const st = $("opfStatus");
+      if(st) st.innerText = 'Saving...';
+      try{
+        const payload = {
+          display_name: $("opf_display_name")?.value || 'Operator',
+          audience: $("opf_audience")?.value || '',
+          business: $("opf_business")?.value || '',
+          offers: $("opf_offers")?.value || '',
+          goals: $("opf_goals")?.value || '',
+          constraints: $("opf_constraints")?.value || '',
+          tone_rules: $("opf_tone_rules")?.value || '',
+          notes: $("opf_notes")?.value || ''
+        };
+        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
+        if(st) st.innerText = 'Saved';
+        showToast('Saved Operator Profile');
+      }catch(e){
+        if(st) st.innerText = e.message || 'Save failed';
+      }
+    }
+
+    function showOperatorProfileModal(){
+      showModal();
+      try{ ensureModalMinSize(980, 760); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = 'none';
+      if($("operatorProfileForm")) $("operatorProfileForm").style.display = 'block';
+      $("modalTitle").innerText = 'Operator Profile';
+      const sc = $("modalScroll");
+      if(sc) sc.scrollTop = 0;
+      loadOperatorProfileIntoModal();
+    }
+
+    if($("operatorProfileTopBtn")) $("operatorProfileTopBtn").onclick = ()=> showOperatorProfileModal();
+    if($("mobileOperatorBtn")) $("mobileOperatorBtn").onclick = ()=> showOperatorProfileModal();
+    if($("opfReloadBtn")) $("opfReloadBtn").onclick = ()=> loadOperatorProfileIntoModal();
+    if($("opfSaveBtn")) $("opfSaveBtn").onclick = ()=> saveOperatorProfileFromModal();
 
     if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
     if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
@@ -11389,20 +11756,21 @@ async function crmFetchTasks(){
             niche: ($("leadLabNiche")?.value || '').trim(),
             location: ($("leadLabLocation")?.value || '').trim(),
             specific_areas: ($("leadLabAreas")?.value || '').trim(),
-            lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
+            source_text: ($("leadLabInput")?.value || '').trim(),
+            max_results: Number(($("leadLabCount")?.value || '25')) || 25,
             search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
-            require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
-            min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40,
-            source_text: ($("leadLabInput")?.value || '').trim()
+            contact_filter: ($("leadLabContactFilter")?.value || 'email_or_phone').trim(),
+            min_score: Number(($("leadLabMinScore")?.value || '50')) || 0
           })
         });
         const raw = await res.text();
-        let data = null;
+        let data = {};
         try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Lead Lab returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
+        if(!data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads` + (data.warning ? ` • ${data.warning}` : '');
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads`;
       }catch(e){
+        crmRenderLeadResults([]);
         if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
@@ -11412,11 +11780,11 @@ async function crmFetchTasks(){
       if(ta) ta.value = '';
       if($("leadLabNiche")) $("leadLabNiche").value = 'real estate agents';
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
-      if($("leadLabAreas")) $("leadLabAreas").value = 'Newark, Jersey City, Hoboken, Princeton, Cherry Hill';
+      if($("leadLabAreas")) $("leadLabAreas").value = 'Newark NJ, Jersey City NJ, Hoboken NJ, Morristown NJ, Princeton NJ';
       if($("leadLabCount")) $("leadLabCount").value = '25';
       if($("leadLabMode")) $("leadLabMode").value = 'broad';
-      if($("leadLabRequireContact")) $("leadLabRequireContact").value = 'phone_or_email';
-      if($("leadLabMinScore")) $("leadLabMinScore").value = '40';
+      if($("leadLabContactFilter")) $("leadLabContactFilter").value = 'email_or_phone';
+      if($("leadLabMinScore")) $("leadLabMinScore").value = '50';
     }
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
@@ -12975,7 +13343,7 @@ function applyRTTransformV4(){
 
 maybeAutoShowOnboarding();
 
-    // ===== Client Center: Pipeline (FlowChat-like columns) =====
+    // ===== CRM: Pipeline (FlowChat-like columns) =====
     function ccSelectTab(tab){
       const panels = ["Clients","Pipeline","EmailBroadcast","Tasks","Sequences","History","Calendar"];
       for(const p of panels){
@@ -15040,6 +15408,170 @@ def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
         rows.append(item)
     return rows
 
+def _crm_bad_result_domain(domain: str) -> bool:
+    d = _crm_extract_domain(domain)
+    if not d:
+        return True
+    blocked = {
+        'duckduckgo.com','bing.com','google.com','search.yahoo.com','yahoo.com','facebook.com','instagram.com','linkedin.com',
+        'yelp.com','youtube.com','realtor.com','zillow.com','homes.com','redfin.com','trulia.com','mapquest.com','wikipedia.org'
+    }
+    return d in blocked or d.endswith('.gov')
+
+def _crm_state_city_expansion(location: str) -> List[str]:
+    loc = (location or '').strip().lower()
+    if not loc:
+        return []
+    if 'new jersey' in loc or loc == 'nj':
+        return ['Newark NJ','Jersey City NJ','Hoboken NJ','Morristown NJ','Princeton NJ','Edison NJ','Cherry Hill NJ','Red Bank NJ','Montclair NJ','Paramus NJ','Toms River NJ','Freehold NJ']
+    return []
+
+def _crm_public_search_urls(query: str, limit: int = 12) -> List[str]:
+    urls = []
+    seen = set()
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    sources = [
+        ('https://html.duckduckgo.com/html/', {'q': query}),
+        ('https://www.bing.com/search', {'q': query}),
+    ]
+    patterns = [
+        r'nofollow" class="[^"]*result__a" href="([^"]+)"',
+        r'<a rel="nofollow" class="result__a" href="([^"]+)"',
+        r'<h2><a href="(https?://[^"]+)"',
+        r'<a href="(https?://[^"]+)" h="ID=SERP',
+    ]
+    for url, params in sources:
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=12)
+            html = r.text or ''
+        except Exception:
+            continue
+        for pat in patterns:
+            for m in re.finditer(pat, html, re.I):
+                found = html.unescape(m.group(1)) if hasattr(html, 'unescape') else m.group(1)
+                found = re.sub(r'^/l/\?kh=-1&uddg=', '', found)
+                try:
+                    from urllib.parse import unquote
+                    found = unquote(found)
+                except Exception:
+                    pass
+                dom = _crm_extract_domain(found)
+                if not found.startswith('http'):
+                    continue
+                if _crm_bad_result_domain(dom):
+                    continue
+                if dom in seen:
+                    continue
+                seen.add(dom)
+                urls.append(found)
+                if len(urls) >= limit:
+                    return urls
+    return urls
+
+def _crm_extract_contacts_from_page(url: str) -> Dict[str, Any]:
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        html_text = r.text or ''
+    except Exception:
+        return {'website': url, 'company': '', 'name': '', 'phones': [], 'email_candidates': [], 'score': 0, 'notes': 'Could not fetch page'}
+    title_m = re.search(r'<title>(.*?)</title>', html_text, re.I | re.S)
+    title = re.sub(r'\s+', ' ', title_m.group(1)).strip() if title_m else ''
+    title = re.sub(r'\s*[\-|–|•].*$', '', title).strip()
+    if not title:
+        title = _crm_extract_domain(url).split('.')[0].replace('-', ' ').title()
+    phones = []
+    for m in re.finditer(r'(?:\+?1[\s\-.]?)?(?:\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4})', html_text):
+        p = re.sub(r'\s+', ' ', m.group(0)).strip()
+        if p not in phones:
+            phones.append(p)
+        if len(phones) >= 3:
+            break
+    emails = []
+    for m in re.finditer(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}', html_text, re.I):
+        em = m.group(0).strip()
+        if any(x in em.lower() for x in ['sentry.io','example.com','wixpress.com']):
+            continue
+        if em not in emails:
+            emails.append(em)
+        if len(emails) >= 4:
+            break
+    company = title
+    score = 35
+    if url: score += 15
+    if phones: score += 25
+    if emails: score += 25
+    score = min(98, score)
+    email_rows = [{'email': e, 'confidence': round(0.92 - (i * 0.08), 2), 'status': 'public'} for i, e in enumerate(emails)]
+    return {'website': url, 'company': company, 'name': '', 'phones': phones, 'email_candidates': email_rows, 'score': score, 'notes': title}
+
+def _crm_make_seed_rows(niche: str, location: str, source_text: str, max_results: int = 25, specific_areas: str = '', search_mode: str = 'balanced') -> List[Dict[str, Any]]:
+    rows = _crm_parse_lead_source_rows(source_text) if source_text else []
+    wanted = max(10, min(120, int(max_results or 25) * 3))
+    queries = []
+    areas = [x.strip() for x in re.split(r'[,\\n]+', specific_areas or '') if x.strip()]
+    if not areas:
+        areas = _crm_state_city_expansion(location)[:6]
+    core_loc = (location or '').strip()
+    niche_q = (niche or '').strip() or 'businesses'
+    query_locs = areas[:8] if areas else ([core_loc] if core_loc else [''])
+    for loc in query_locs:
+        if loc:
+            queries.append(f'"{niche_q}" "{loc}" official site contact')
+            queries.append(f'"{niche_q}" "{loc}"')
+        else:
+            queries.append(f'"{niche_q}" official site contact')
+    if search_mode == 'broad' and core_loc:
+        queries.append(f'{niche_q} {core_loc} brokerage team contact')
+        queries.append(f'{niche_q} {core_loc} realtor official site')
+    urls = []
+    seen = set()
+    per_query = 8 if search_mode == 'precision' else (14 if search_mode == 'broad' else 10)
+    for q in queries:
+        for url in _crm_public_search_urls(q, limit=per_query):
+            dom = _crm_extract_domain(url)
+            if not dom or dom in seen or _crm_bad_result_domain(dom):
+                continue
+            seen.add(dom)
+            urls.append(url)
+            if len(urls) >= wanted:
+                break
+        if len(urls) >= wanted:
+            break
+    for url in urls:
+        dom = _crm_extract_domain(url)
+        rows.append({'name': '', 'company': '', 'domain': dom, 'website': url, 'title': '', 'notes': ''})
+    return rows
+
+def _crm_enrich_seed_lead(row: Dict[str, Any], niche: str, location: str) -> Dict[str, Any]:
+    website = (row.get('website') or row.get('domain') or '').strip()
+    if website and not website.startswith('http'):
+        website = 'https://' + website
+    details = _crm_extract_contacts_from_page(website) if website else {'website': '', 'company': row.get('company') or '', 'name': row.get('name') or '', 'phones': [], 'email_candidates': [], 'score': 0, 'notes': ''}
+    company = (row.get('company') or details.get('company') or '').strip()
+    name = (row.get('name') or details.get('name') or company).strip()
+    email_candidates = list(details.get('email_candidates') or [])
+    if not email_candidates and website:
+        email_candidates = _crm_email_candidates(name or company or 'hello', website)
+    score = int(details.get('score') or 0)
+    if company and company.lower() not in {'home','contact'}:
+        score += 8
+    if niche and niche.lower().split()[0] in (details.get('notes') or '').lower():
+        score += 5
+    score = min(99, score)
+    return {
+        'name': name,
+        'company': company or name,
+        'title': (row.get('title') or '').strip(),
+        'website': details.get('website') or website,
+        'domain': _crm_extract_domain(details.get('website') or website),
+        'phones': details.get('phones') or [],
+        'email_candidates': email_candidates,
+        'score': score,
+        'notes': details.get('notes') or (row.get('notes') or ''),
+    }
+
+
 def _crm_llm_or_fallback(system: str, prompt: str, fallback: str) -> str:
     try:
         reply = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7)
@@ -15874,102 +16406,50 @@ def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        payload = request.get_json(silent=True) or {}
-        niche = (payload.get("niche") or "").strip()
-        location = (payload.get("location") or "").strip()
-        source_text = (payload.get("source_text") or "").strip()
-        specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
-        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
-        require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
+    payload = request.get_json(silent=True) or {}
+    niche = (payload.get("niche") or "").strip()
+    location = (payload.get("location") or "").strip()
+    specific_areas = (payload.get("specific_areas") or "").strip()
+    source_text = (payload.get("source_text") or "").strip()
+    search_mode = (payload.get("search_mode") or "balanced").strip().lower()
+    contact_filter = (payload.get("contact_filter") or "any").strip().lower()
+    min_score = int(payload.get("min_score") or 0)
+    max_results = int(payload.get("max_results") or 25)
+    max_results = max(1, min(100, max_results))
+    if not source_text and not niche and not location and not specific_areas:
+        return jsonify({"ok": False, "error": "Add a niche, a location, or paste source rows."}), 400
+    seeds = _crm_make_seed_rows(niche, location, source_text, max_results=max_results, specific_areas=specific_areas, search_mode=search_mode)
+    if not seeds:
+        return jsonify({"ok": False, "error": "No public leads could be found from the current search."}), 404
+    items = []
+    seen_domains = set()
+    for row in seeds[:max_results * 6]:
         try:
-            lead_count = int(payload.get("lead_count") or 25)
-        except Exception:
-            lead_count = 25
-        try:
-            min_score = int(payload.get("min_score") or 40)
-        except Exception:
-            min_score = 40
-        lead_count = max(1, min(100, lead_count))
-        min_score = max(20, min(90, min_score))
-        if not niche and not location and not source_text and not specific_areas:
-            return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
-
-        items: List[Dict[str, Any]] = []
-        existing_domains = set()
-        if source_text:
-            try:
-                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
-            except Exception:
-                seed_items = []
-            for item in seed_items:
-                dom = item.get("domain") or ""
-                if dom:
-                    existing_domains.add(dom)
-            items.extend(seed_items)
-
-        remaining = max(0, lead_count - len(items))
-        if remaining > 0:
-            discovered = _crm_discover_public_leads(
-                niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
-            )
-            items.extend(discovered)
-
-        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
-        final: List[Dict[str, Any]] = []
-        seen = set()
-        for item in items:
-            dom = (item.get("domain") or "").strip().lower()
-            key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
-            if not key or key in seen:
+            item = _crm_enrich_seed_lead(row, niche, location)
+            dom = _crm_extract_domain(item.get("website") or item.get("domain") or "")
+            if dom and dom in seen_domains:
                 continue
-            seen.add(key)
-            final.append(item)
-            if len(final) >= lead_count:
+            has_email = bool(item.get('email_candidates'))
+            has_phone = bool(item.get('phones'))
+            if contact_filter == 'email' and not has_email:
+                continue
+            if contact_filter == 'phone' and not has_phone:
+                continue
+            if contact_filter == 'email_or_phone' and not (has_email or has_phone):
+                continue
+            if int(item.get('score') or 0) < min_score:
+                continue
+            if dom:
+                seen_domains.add(dom)
+            items.append(item)
+            if len(items) >= max_results:
                 break
-
-        if len(final) < lead_count:
-            need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
-            for q in ai_queries:
-                if len(final) >= lead_count:
-                    break
-                try:
-                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
-                except Exception as ai_err:
-                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
-                    rows = []
-                for row in rows:
-                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
-                    if not item:
-                        continue
-                    dom = (item.get('domain') or '').strip().lower()
-                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
-                    if not key or key in seen:
-                        continue
-                    seen.add(key)
-                    final.append(item)
-                    if len(final) >= lead_count:
-                        break
-
-        warning = ""
-        if not final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
-        elif len(final) < lead_count:
-            warning = f"Built {len(final)} leads from public web signals for this search."
-
-        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp
-    except Exception as e:
-        try:
-            append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
         except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp, 500
+            continue
+    items.sort(key=lambda x: int(x.get("score") or 0), reverse=True)
+    if not items:
+        return jsonify({"ok": False, "error": "No public leads could be validated from the current search. Try Broad mode, add specific areas, or lower the minimum score."}), 404
+    return jsonify({"ok": True, "items": items[:max_results], "count": len(items[:max_results])})
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
