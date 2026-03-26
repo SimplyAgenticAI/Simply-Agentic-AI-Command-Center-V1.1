@@ -4519,7 +4519,11 @@ def register_post():
     users[username] = _new_user(username, pw, email=email)
     data["users"] = users
     save_users(data)
-    return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok="Account created. You can log in now.", require_code=_require_invite_code())
+
+    # Auto-login after successful registration so the gate does not force a second login.
+    session["user"] = username
+    session.permanent = True
+    return redirect(url_for("index"))
 @app.get("/logout")
 def logout():
     session.clear()
@@ -8830,18 +8834,29 @@ function makeSeat(defn, idx){
 
     async function showOperatorProfileModal(){
       try{
-        const res = await fetch('/api/operator_profile');
+        showModal('Operator Profile', 'Loading...');
+        hideAllModalForms();
+        if($("modalBody")){
+          $("modalBody").style.display = 'block';
+          $("modalBody").style.whiteSpace = 'normal';
+        }
+        if($("modalImg")) $("modalImg").style.display = 'none';
+        try{ ensureModalMinSize(980, 760); }catch(e){}
+
+        const res = await fetch('/api/operator_profile', {headers:{'Accept':'application/json'}});
         const raw = await res.text();
         let data = null;
         try{ data = raw ? JSON.parse(raw) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Failed to load Operator Profile');
+        if(!res.ok || !data.ok) throw new Error(data && data.error ? data.error : 'Failed to load Operator Profile');
+
         if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
         const mb = $("modalBody");
         if(mb){
-          mb.style.whiteSpace = 'normal';
           mb.innerHTML = operatorProfileFormHtml(data.profile || {});
+          mb.style.display = 'block';
+          mb.style.whiteSpace = 'normal';
         }
-        if($("modal")) $("modal").style.display = 'flex';
+
         const bind = (id, fn)=>{ const el=$(id); if(el) el.onclick = fn; };
         bind('opmReload', ()=> showOperatorProfileModal());
         bind('opmSave', async ()=>{
@@ -8856,14 +8871,18 @@ function makeSeat(defn, idx){
               tone_rules: $("opm_tone_rules")?.value || '',
               notes: $("opm_notes")?.value || ''
             };
-            const res2 = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+            const res2 = await fetch('/api/operator_profile', {
+              method:'POST',
+              headers:{'Content-Type':'application/json','Accept':'application/json'},
+              body: JSON.stringify(payload)
+            });
             const raw2 = await res2.text();
             let data2 = null;
             try{ data2 = raw2 ? JSON.parse(raw2) : {}; }catch(_){ throw new Error('Operator Profile returned an invalid server response'); }
-            if(!res2.ok || !data2.ok) throw new Error(data2.error || 'Save failed');
+            if(!res2.ok || !data2.ok) throw new Error(data2 && data2.error ? data2.error : 'Save failed');
             showToast('Saved Operator Profile');
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-          }catch(e){ showToast(e.message || 'Save failed'); }
+          }catch(e){ showToast(e && e.message ? e.message : 'Save failed', 'error'); }
         });
       }catch(e){
         showModal('Operator Profile', String(e && e.message ? e.message : e));
@@ -15131,32 +15150,74 @@ def _crm_apply_contact_filters(items: List[Dict[str, Any]], require_contact: str
     return out
 
 def _crm_discover_public_leads(niche: str, location: str, username: str, lead_count: int, search_mode: str, specific_areas: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Fast, resilient lead discovery.
+
+    Strategy:
+    1) collect public search results quickly
+    2) build fallback candidates immediately so the feature always returns organized leads
+    3) enrich only a smaller top slice concurrently for higher accuracy
+    """
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
-    raw_results = []
+    mode = (search_mode or 'balanced').strip().lower()
+    per_query = 4 if mode == 'precision' else 5 if mode == 'balanced' else 6
+    target_raw = max(lead_count * 2, 24)
+    raw_results: List[Dict[str, str]] = []
     seen_domains = set()
-    per_query = 6 if (search_mode or 'balanced').lower() == 'precision' else 8 if (search_mode or 'balanced').lower() == 'balanced' else 10
+
+    # collect quickly from search providers
     for q in queries:
-        for row in _crm_public_search(q, username=username, max_results=per_query):
+        rows = _crm_public_search(q, username=username, max_results=per_query)
+        for row in rows:
             domain = row.get('domain') or ''
             if not domain or domain in seen_domains or _crm_is_blocked_domain(domain):
                 continue
             seen_domains.add(domain)
             row['query'] = q
             raw_results.append(row)
-            if len(raw_results) >= max(lead_count * 3, 36):
+            if len(raw_results) >= target_raw:
                 break
-        if len(raw_results) >= max(lead_count * 3, 36):
+        if len(raw_results) >= target_raw:
             break
-    out = []
+
+    if not raw_results:
+        return []
+
+    # Always build fallback candidates first so the route can return useful lead rows even if enrichment is thin.
+    fallback_items: List[Dict[str, Any]] = []
     for row in raw_results:
-        item = _crm_enrich_result(row, niche, location, row.get('query') or '')
-        if not item:
-            item = _crm_make_fallback_candidate(row, niche, location, row.get('query') or '')
+        item = _crm_make_fallback_candidate(row, niche, location, row.get('query') or '')
         if item:
-            out.append(item)
-            if len(out) >= max(int(lead_count * 1.4), lead_count):
-                break
-    return out
+            fallback_items.append(item)
+    fallback_items = _crm_merge_unique_items(fallback_items, max(lead_count * 2, lead_count))
+
+    # Enrich only the strongest subset, concurrently, to reduce proxy/server timeouts.
+    enriched: List[Dict[str, Any]] = []
+    enrich_pool = raw_results[:max(lead_count, min(12, len(raw_results)))]
+    try:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = [ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or '') for row in enrich_pool]
+            for fut in as_completed(futures, timeout=18):
+                try:
+                    item = fut.result(timeout=0)
+                except Exception:
+                    item = None
+                if item:
+                    enriched.append(item)
+                    if len(enriched) >= lead_count:
+                        break
+    except Exception:
+        pass
+
+    merged = _crm_merge_unique_items(enriched + fallback_items, max(lead_count * 2, lead_count))
+    merged.sort(
+        key=lambda x: (
+            int(x.get('score') or 0),
+            1 if (x.get('phone') or '').strip() else 0,
+            1 if ((x.get('email') or '').strip() or (x.get('email_candidates') or [])) else 0,
+        ),
+        reverse=True,
+    )
+    return merged[:max(lead_count, min(len(merged), lead_count * 2))]
 
 @app.post('/api/crm/lead_lab')
 def api_crm_lead_lab():
@@ -15191,8 +15252,11 @@ def api_crm_lead_lab():
         merged.sort(key=lambda x: (1 if (x.get('phone') or '').strip() else 0, 1 if ((x.get('email') or '').strip() or (x.get('email_candidates') or [])) else 0, int(x.get('score') or 0)), reverse=True)
         final = _crm_apply_contact_filters(merged, require_contact=require_contact, min_score=min_score, limit=lead_count)
         if len(final) < lead_count:
-            relaxed = _crm_apply_contact_filters(merged, require_contact='any', min_score=max(25, min_score - 15), limit=lead_count)
+            relaxed = _crm_apply_contact_filters(merged, require_contact='any', min_score=max(20, min_score - 20), limit=lead_count)
             final = _crm_merge_unique_items(final + relaxed, lead_count)
+        if len(final) < lead_count:
+            # last resort: keep the best organized rows instead of returning nothing
+            final = _crm_merge_unique_items((final or []) + merged, lead_count)
         warning = ''
         if not final:
             warning = 'No public leads could be validated from the current search. Try Broad mode, add specific areas, or paste seed rows.'
