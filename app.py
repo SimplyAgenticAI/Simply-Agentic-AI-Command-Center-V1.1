@@ -14657,6 +14657,50 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
 
+
+def _crm_extract_domain(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"^https?://", "", s)
+    s = re.sub(r"^www\.", "", s)
+    s = s.split("/")[0].strip()
+    return s
+
+def _crm_name_bits(name: str) -> Tuple[str, str]:
+    bits = [x for x in re.split(r"\s+", (name or "").strip()) if x]
+    if not bits:
+        return ("", "")
+    first = re.sub(r"[^a-z]", "", bits[0].lower())
+    last = re.sub(r"[^a-z]", "", bits[-1].lower()) if len(bits) > 1 else ""
+    return first, last
+
+def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
+    domain = _crm_extract_domain(domain)
+    if not domain:
+        return []
+    first, last = _crm_name_bits(name)
+    if not first and not last:
+        first = "hello"
+    fi = first[:1]
+    li = last[:1]
+    vals = []
+    def add(local: str, score: float):
+        if local:
+            vals.append({"email": f"{local}@{domain}", "confidence": round(float(score), 2), "status": "estimated"})
+    add(first, 0.62)
+    add(f"{first}.{last}" if first and last else "", 0.76)
+    add(f"{fi}{last}" if fi and last else "", 0.71)
+    add(f"{first}{li}" if first and li else "", 0.66)
+    add("hello", 0.48)
+    add("info", 0.42)
+    out = []
+    seen = set()
+    for row in sorted(vals, key=lambda x: x["confidence"], reverse=True):
+        email = row["email"]
+        if email in seen:
+            continue
+        seen.add(email)
+        out.append(row)
+    return out
 _CRM_STATE_CITY_MAP = {
     'new jersey': ['Newark', 'Jersey City', 'Hoboken', 'Princeton', 'Cherry Hill', 'Edison', 'Paterson', 'Elizabeth', 'Morristown', 'Freehold', 'Toms River', 'Paramus', 'Red Bank', 'Montclair', 'Hackensack', 'Bridgewater'],
     'nj': ['Newark', 'Jersey City', 'Hoboken', 'Princeton', 'Cherry Hill', 'Edison', 'Paterson', 'Elizabeth', 'Morristown', 'Freehold', 'Toms River', 'Paramus', 'Red Bank', 'Montclair', 'Hackensack', 'Bridgewater'],
