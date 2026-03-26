@@ -449,7 +449,7 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/static"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -458,13 +458,24 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    if request.path.startswith("/api/") and request.path in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/user/settings", "/api/action_stack_schedules/tick"):
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"}
+    if request.path.startswith("/api/") and request.path in public_api:
         return None
 
-    if request.path.startswith("/api/") and not session.get("user"):
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    # Clear stale sessions so the login gate shows cleanly instead of half-auth states.
+    if session.get("user") and not current_user():
+        try:
+            session.pop("user", None)
+        except Exception:
+            pass
+        session.modified = True
 
-    if request.path == "/" and not session.get("user"):
+    if request.path.startswith("/api/") and not current_user():
+        resp = jsonify({"ok": False, "error": "Not authenticated"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 401
+
+    if request.path == "/" and not current_user():
         if not has_any_user():
             return redirect(url_for("setup"))
         return redirect(url_for("login"))
