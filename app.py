@@ -6861,7 +6861,24 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid">
       <div>
         <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" />
+        <input id="leadLabNiche" list="leadLabNicheOptions" placeholder="real estate agents" />
+        <datalist id="leadLabNicheOptions">
+          <option value="real estate agents"></option>
+          <option value="real estate investors"></option>
+          <option value="wholesalers"></option>
+          <option value="mortgage brokers"></option>
+          <option value="loan officers"></option>
+          <option value="hard money lenders"></option>
+          <option value="restaurants"></option>
+          <option value="roofers"></option>
+          <option value="waterproofing companies"></option>
+          <option value="hvac companies"></option>
+          <option value="small manufacturers"></option>
+          <option value="supply chain companies"></option>
+          <option value="warehousing companies"></option>
+          <option value="logistics companies"></option>
+          <option value="procurement teams"></option>
+        </datalist>
       </div>
       <div>
         <label>Location</label>
@@ -6891,6 +6908,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
       </div>
       <div>
+        <label>Target keywords</label>
+        <input id="leadLabKeywords" placeholder="luxury, industrial, cold storage, investor friendly" />
+      </div>
+      <div>
         <label>Contact filter</label>
         <select id="leadLabRequireContact">
           <option value="phone_or_email" selected>Phone or email preferred</option>
@@ -6900,12 +6921,22 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         </select>
       </div>
       <div>
+        <label>Role focus</label>
+        <select id="leadLabRoleFocus">
+          <option value="any" selected>Any contact</option>
+          <option value="executive">CEO / COO / Founder</option>
+          <option value="operations">Supply Chain / Ops / Procurement</option>
+          <option value="sales">Owner / President</option>
+        </select>
+      </div>
+      <div>
         <label>Minimum score</label>
         <select id="leadLabMinScore">
           <option value="30">30</option>
           <option value="40" selected>40</option>
           <option value="50">50</option>
           <option value="60">60</option>
+          <option value="70">70</option>
         </select>
       </div>
       <div>
@@ -6917,6 +6948,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="leadLabSampleBtn">Sample</button>
+      <button class="btn" id="leadLabDownloadCsvBtn">Download CSV</button>
       <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
     </div>
     <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
@@ -10490,6 +10522,8 @@ Challenge weak assumptions. Surface risks.`;
     // CRM UI (Client Command Center)
     // =========================
     let crmCache = { clients: [], tasks: [], sequences: [], pipeline: [] };
+let leadLabLastCsvText = "";
+let leadLabLastCsvFilename = "lead_lab_export.csv";
     let crmEditingClientId = null;
     let crmEditingTaskId = null;
 
@@ -11242,6 +11276,8 @@ async function crmFetchTasks(){
         const topPhone = item.phone || '';
         const site = item.website || item.domain || '';
         const sourceQuery = item.source_query || '';
+        const overview = item.company_overview || '';
+        const executives = Array.isArray(item.executives) ? item.executives : [];
         return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:flex-start;">
             <div>
@@ -11250,6 +11286,8 @@ async function crmFetchTasks(){
               <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
               <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
               <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
+              ${overview ? `<div class="tiny" style="opacity:.95; margin-top:6px; white-space:pre-wrap; line-height:1.4;"><b>Overview:</b> ${escapeHtml(overview)}</div>` : ''}
+              ${executives.length ? `<div class="tiny" style="opacity:.95; margin-top:6px;"><b>Leadership:</b> ${executives.map(x=>escapeHtml((x.role||'Contact') + ': ' + (x.name||'Unknown'))).join(' • ')}</div>` : ''}
               ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
             <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
@@ -11258,6 +11296,7 @@ async function crmFetchTasks(){
           <div class="actions" style="justify-content:flex-end; margin-top:10px; flex-wrap:wrap;">
             <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
             <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
+            <button class="btn btnMini" data-lead-copy-overview="${idx}">Copy overview</button>
             <button class="btn btnMini" data-lead-email="${idx}">Email lead</button>
             <button class="btn btnMini" data-lead-sms="${idx}">Text lead</button>
             <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
@@ -11278,6 +11317,19 @@ async function crmFetchTasks(){
           const phone = item.phone || '';
           if(!phone) return showToast('No phone found');
           try{ await navigator.clipboard.writeText(phone); showToast('Phone copied'); }catch(e){}
+        };
+      });
+      box.querySelectorAll('[data-lead-copy-overview]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          const item = items[Number(btn.getAttribute('data-lead-copy-overview'))] || {};
+          const parts = [];
+          if(item.company_overview) parts.push(item.company_overview);
+          if(Array.isArray(item.executives) && item.executives.length){
+            parts.push('Leadership: ' + item.executives.map(x=>((x.role||'Contact') + ': ' + (x.name||'Unknown'))).join(' • '));
+          }
+          const payload = parts.join('\n');
+          if(!payload) return showToast('No overview found');
+          try{ await navigator.clipboard.writeText(payload); showToast('Overview copied'); }catch(e){}
         };
       });
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
@@ -11353,6 +11405,8 @@ async function crmFetchTasks(){
         }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
+        leadLabLastCsvText = data.csv_text || '';
+        leadLabLastCsvFilename = data.csv_filename || 'lead_lab_export.csv';
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
       }catch(e){
         if(st) st.innerText = e.message || 'Lead build failed';
@@ -11370,6 +11424,24 @@ async function crmFetchTasks(){
       if($("leadLabNiche")) $("leadLabNiche").value = 'real estate agents';
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
       if($("leadLabAreas")) $("leadLabAreas").value = 'Jersey City, Hoboken, Newark';
+      if($("leadLabKeywords")) $("leadLabKeywords").value = 'luxury, residential, top producers';
+      if($("leadLabRoleFocus")) $("leadLabRoleFocus").value = 'executive';
+    }
+
+    function crmDownloadLeadLabCsv(){
+      if(!leadLabLastCsvText){
+        showToast('Run Lead Lab first');
+        return;
+      }
+      const blob = new Blob([leadLabLastCsvText], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = leadLabLastCsvFilename || 'lead_lab_export.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=> URL.revokeObjectURL(url), 1200);
     }
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
@@ -15169,6 +15241,34 @@ _CRM_STATE_CITY_MAP = {
 _CRM_BAD_PERSON_WORDS = {"realty", "realtor", "realtors", "estate", "homes", "home", "properties", "property", "group", "team", "broker", "brokerage", "real", "contact", "about", "welcome", "new", "jersey", "nj", "duckduckgo", "search"}
 
 
+_CRM_LEAD_LAB_NICHES = [
+    "real estate agents", "real estate investors", "wholesalers", "mortgage brokers", "loan officers",
+    "hard money lenders", "title companies", "insurance agents", "roofers", "waterproofing companies",
+    "hvac companies", "plumbers", "electricians", "general contractors", "property managers",
+    "restaurants", "salons", "gyms", "chiropractors", "dentists", "law firms", "accountants",
+    "auto repair shops", "small manufacturers", "ecommerce brands", "supply chain companies", "freight brokers",
+    "warehousing companies", "logistics companies", "procurement teams", "construction suppliers"
+]
+_CRM_EXEC_ROLE_PATTERNS = [
+    ("CEO", [r"chief\s+executive\s+officer", r"\bceo\b"]),
+    ("COO", [r"chief\s+operating\s+officer", r"\bcoo\b"]),
+    ("CFO", [r"chief\s+financial\s+officer", r"\bcfo\b"]),
+    ("Founder", [r"\bfounder\b", r"co-?founder"]),
+    ("Owner", [r"\bowner\b", r"business\s+owner"]),
+    ("President", [r"\bpresident\b"]),
+    ("Operations", [r"vp\s+operations", r"operations\s+director", r"director\s+of\s+operations", r"head\s+of\s+operations"]),
+    ("Supply Chain", [r"supply\s+chain\s+director", r"director\s+of\s+supply\s+chain", r"head\s+of\s+supply\s+chain", r"vp\s+supply\s+chain"]),
+    ("Procurement", [r"procurement\s+director", r"director\s+of\s+procurement", r"head\s+of\s+procurement", r"vp\s+procurement"]),
+    ("Logistics", [r"logistics\s+director", r"director\s+of\s+logistics", r"head\s+of\s+logistics", r"vp\s+logistics"]),
+]
+_ROLE_FOCUS_TO_QUERY = {
+    "executive": ["CEO", "COO", "CFO", "Founder", "Owner", "President"],
+    "operations": ["Operations", "Supply Chain", "Procurement", "Logistics"],
+    "sales": ["President", "Owner", "Founder"],
+    "any": [],
+}
+
+
 def _crm_is_blocked_domain(domain: str) -> bool:
     d = _crm_extract_domain(domain)
     if not d:
@@ -15351,6 +15451,95 @@ def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> D
     }
 
 
+def _crm_extract_company_overview(visible_text: str, company: str, niche: str, location: str) -> str:
+    text = re.sub(r"\s+", " ", visible_text or "").strip()
+    if not text:
+        return ""
+    pieces = re.split(r"(?<=[\.!?])\s+", text)
+    company_bits = [b for b in re.findall(r"[A-Za-z0-9]+", company or "") if len(b) > 2][:3]
+    niche_bits = [b for b in re.findall(r"[A-Za-z0-9]+", niche or "") if len(b) > 2][:4]
+    location_bits = [b for b in re.findall(r"[A-Za-z0-9]+", location or "") if len(b) > 2][:3]
+
+    def score(piece: str) -> int:
+        p = piece.lower()
+        s = 0
+        if 40 <= len(piece) <= 260:
+            s += 2
+        if any(b.lower() in p for b in company_bits):
+            s += 4
+        if any(b.lower() in p for b in niche_bits):
+            s += 3
+        if any(b.lower() in p for b in location_bits):
+            s += 2
+        if any(k in p for k in ["we ", "our ", "specializ", "serv", "provid", "help", "support", "manufacturer", "supplier", "broker", "agency", "team"]):
+            s += 2
+        if any(k in p for k in ["cookie", "privacy", "javascript", "accept", "copyright", "login", "sign in"]):
+            s -= 5
+        return s
+
+    ranked = sorted(((score(piece), piece.strip()) for piece in pieces if piece.strip()), key=lambda x: x[0], reverse=True)
+    chosen = []
+    for sc, piece in ranked:
+        if sc < 2:
+            continue
+        if piece in chosen:
+            continue
+        chosen.append(piece)
+        if len(" ".join(chosen)) >= 240 or len(chosen) >= 2:
+            break
+    out = " ".join(chosen).strip()
+    return out[:320]
+
+
+def _crm_extract_exec_contacts(text: str, emails: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    blob = re.sub(r"\s+", " ", text or "")
+    out: List[Dict[str, str]] = []
+    seen = set()
+    email_list = list(emails or [])
+
+    def attach_email(window_text: str) -> str:
+        found = _crm_extract_emails_from_text(window_text or "")
+        if found:
+            return found[0]
+        return email_list[0] if email_list else ""
+
+    for role, patterns in _CRM_EXEC_ROLE_PATTERNS:
+        for pat in patterns:
+            for m in re.finditer(pat, blob, flags=re.I):
+                start = max(0, m.start() - 120)
+                end = min(len(blob), m.end() + 120)
+                win = blob[start:end]
+                names = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b", win)
+                name = ""
+                for cand in names:
+                    low = cand.lower()
+                    if low in {"Chief Executive", "Chief Operating", "Chief Financial", "Supply Chain", "Director Of", "Head Of"}:
+                        continue
+                    name = cand.strip()
+                    break
+                key = (role.lower(), name.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({
+                    "role": role,
+                    "name": name or role,
+                    "email": attach_email(win),
+                })
+                if len(out) >= 10:
+                    return out
+    return out
+
+
+def _crm_filter_executives(execs: List[Dict[str, str]], role_focus: str = "any") -> List[Dict[str, str]]:
+    focus = (role_focus or "any").strip().lower()
+    wanted = _ROLE_FOCUS_TO_QUERY.get(focus, [])
+    if not wanted:
+        return execs[:8]
+    ranked = [x for x in execs if (x.get("role") or "") in wanted]
+    return (ranked or execs)[:8]
+
+
 def _crm_merge_email_candidates(public_emails: List[str], name: str, domain: str) -> List[Dict[str, Any]]:
     out = []
     seen = set()
@@ -15508,6 +15697,19 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             signals["name"] = sub.get("name")
         if not signals.get("company") and sub.get("company"):
             signals["company"] = sub.get("company")
+        if not signals.get("company_overview") and sub.get("company_overview"):
+            signals["company_overview"] = sub.get("company_overview")
+        if sub.get("executives"):
+            merged_exec = list(signals.get("executives") or []) + list(sub.get("executives") or [])
+            dedup_exec = []
+            seen_exec = set()
+            for row2 in merged_exec:
+                key2 = ((row2.get('role') or '').lower(), (row2.get('name') or '').lower())
+                if key2 in seen_exec:
+                    continue
+                seen_exec.add(key2)
+                dedup_exec.append(row2)
+            signals["executives"] = dedup_exec[:10]
         signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
         signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
     name = signals.get("name") or hint_name or ""
@@ -15525,6 +15727,8 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "email_candidates": email_candidates,
         "niche_hit": bool(signals.get("niche_hit")),
         "location_hit": bool(signals.get("location_hit")),
+        "company_overview": (signals.get("company_overview") or "")[:320],
+        "executives": _crm_filter_executives(list(signals.get("executives") or []), 'any'),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
         "source_query": query,
     }
@@ -15638,7 +15842,7 @@ def _crm_parse_specific_areas(val: str) -> List[str]:
     return out[:30]
 
 
-def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mode: str, specific_areas: Optional[List[str]] = None) -> List[str]:
+def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mode: str, specific_areas: Optional[List[str]] = None, target_keywords: Optional[List[str]] = None, role_focus: str = "any") -> List[str]:
     niche = (niche or "businesses").strip()
     location = (location or "United States").strip()
     mode = (search_mode or "balanced").strip().lower()
@@ -15674,15 +15878,27 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
             '{loc} realty group',
             '{loc} homes real estate',
         ])
+    keyword_bits = []
+    for kw in (target_keywords or []):
+        s = re.sub(r"\s+", " ", str(kw or "").strip())
+        if s and s.lower() not in [x.lower() for x in keyword_bits]:
+            keyword_bits.append(s)
+    role_tokens = _ROLE_FOCUS_TO_QUERY.get((role_focus or 'any').strip().lower(), [])[:2]
     queries, seen_q = [], set()
     for loc in locations:
         for tpl in templates:
-            q = re.sub(r"\s+", " ", tpl.format(niche=niche, loc=loc)).strip()
-            key = q.lower()
-            if key in seen_q:
-                continue
-            seen_q.add(key)
-            queries.append(q)
+            base_q = re.sub(r"\s+", " ", tpl.format(niche=niche, loc=loc)).strip()
+            variants = [base_q]
+            if keyword_bits:
+                variants.append(base_q + " " + " ".join(keyword_bits[:3]))
+            if role_tokens:
+                variants.append(base_q + " " + " ".join(role_tokens))
+            for q in variants:
+                key = q.lower()
+                if key in seen_q:
+                    continue
+                seen_q.add(key)
+                queries.append(q)
     max_q = 10 if mode == "precision" else (18 if mode == "balanced" else 28)
     return queries[:max_q]
 
@@ -15761,13 +15977,15 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
         'confidence': score,
         'niche_hit': True,
         'location_hit': bool(location),
+        'company_overview': notes[:320] if notes else '',
+        'executives': _crm_filter_executives(_crm_extract_exec_contacts((row.get('snippet') or '') + ' ' + (row.get('title') or ''), emails=[public_email] if public_email else []), 'any'),
         'notes': notes or f'Public web lead for {niche or "business"} in {location or "target area"}',
         'source_query': query,
     }
 
 
-def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40) -> List[Dict[str, Any]]:
-    queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
+def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40, target_keywords: Optional[List[str]] = None, role_focus: str = "any") -> List[Dict[str, Any]]:
+    queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas, target_keywords=target_keywords, role_focus=role_focus)
     seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
     out: List[Dict[str, Any]] = []
     raw_results: List[Dict[str, Any]] = []
@@ -15789,6 +16007,9 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         if require_contact == 'phone_or_email' and not (has_phone or any_email):
             return False
         if (item.get('score') or 0) < int(min_score or 40):
+            return False
+        item['executives'] = _crm_filter_executives(list(item.get('executives') or []), role_focus=role_focus)
+        if role_focus in ('executive', 'operations') and not item.get('executives'):
             return False
         seen_domains.add(dom)
         out.append(item)
@@ -15840,6 +16061,52 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     return out[:lead_count]
 
 
+def _crm_parse_target_keywords(val: str) -> List[str]:
+    raw = re.split(r"[\n,;|]+", val or "")
+    out, seen = [], set()
+    for x in raw:
+        s = re.sub(r"\s+", " ", (x or "").strip())
+        if not s:
+            continue
+        k = s.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(s)
+    return out[:20]
+
+
+def _crm_lead_items_to_csv(items: List[Dict[str, Any]]) -> str:
+    fields = [
+        'name', 'company', 'title', 'website', 'domain', 'phone', 'email', 'top_email_guess',
+        'company_overview', 'executive_summary', 'match_score', 'source_query', 'notes'
+    ]
+    from io import StringIO
+    buf = StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields)
+    writer.writeheader()
+    for item in (items or []):
+        execs = item.get('executives') or []
+        exec_summary = '; '.join([f"{(x.get('role') or '').strip()}: {(x.get('name') or '').strip()}".strip(': ') for x in execs[:8] if (x.get('role') or x.get('name'))])
+        top_guess = (((item.get('email_candidates') or [{}])[0]) or {}).get('email') or item.get('email') or ''
+        writer.writerow({
+            'name': item.get('name') or '',
+            'company': item.get('company') or '',
+            'title': item.get('title') or '',
+            'website': item.get('website') or '',
+            'domain': item.get('domain') or '',
+            'phone': item.get('phone') or '',
+            'email': item.get('email') or '',
+            'top_email_guess': top_guess,
+            'company_overview': item.get('company_overview') or '',
+            'executive_summary': exec_summary,
+            'match_score': item.get('score') or item.get('confidence') or 0,
+            'source_query': item.get('source_query') or '',
+            'notes': item.get('notes') or '',
+        })
+    return buf.getvalue()
+
+
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
@@ -15851,8 +16118,10 @@ def api_crm_lead_lab():
         location = (payload.get("location") or "").strip()
         source_text = (payload.get("source_text") or "").strip()
         specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
+        target_keywords = _crm_parse_target_keywords(payload.get("target_keywords") or "")
         search_mode = (payload.get("search_mode") or "balanced").strip().lower()
         require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
+        role_focus = (payload.get("role_focus") or "any").strip().lower()
         try:
             lead_count = int(payload.get("lead_count") or 25)
         except Exception:
@@ -15863,8 +16132,8 @@ def api_crm_lead_lab():
             min_score = 40
         lead_count = max(1, min(100, lead_count))
         min_score = max(20, min(90, min_score))
-        if not niche and not location and not source_text and not specific_areas:
-            return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
+        if not niche and not location and not source_text and not specific_areas and not target_keywords:
+            return jsonify({"ok": False, "error": "Add a niche, location, keywords, or specific areas to search"}), 400
 
         items: List[Dict[str, Any]] = []
         existing_domains = set()
@@ -15883,7 +16152,8 @@ def api_crm_lead_lab():
         if remaining > 0:
             discovered = _crm_discover_public_leads(
                 niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
+                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score,
+                target_keywords=target_keywords, role_focus=role_focus
             )
             items.extend(discovered)
 
@@ -15902,7 +16172,7 @@ def api_crm_lead_lab():
 
         if len(final) < lead_count:
             need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas, target_keywords=target_keywords, role_focus=role_focus)[:12]
             for q in ai_queries:
                 if len(final) >= lead_count:
                     break
@@ -15924,13 +16194,33 @@ def api_crm_lead_lab():
                     if len(final) >= lead_count:
                         break
 
-        warning = ""
-        if not final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
-        elif len(final) < lead_count:
-            warning = f"Built {len(final)} leads from public web signals for this search."
+        enriched_final = []
+        for item in final[:lead_count]:
+            copy = dict(item or {})
+            copy['executives'] = _crm_filter_executives(list(copy.get('executives') or []), role_focus=role_focus)
+            enriched_final.append(copy)
 
-        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
+        warning = ""
+        if not enriched_final:
+            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
+        elif len(enriched_final) < lead_count:
+            warning = f"Built {len(enriched_final)} leads from public web signals for this search."
+
+        csv_text = _crm_lead_items_to_csv(enriched_final)
+        resp = jsonify({
+            "ok": True,
+            "items": enriched_final,
+            "count": min(len(enriched_final), lead_count),
+            "warning": warning,
+            "csv_text": csv_text,
+            "csv_filename": f"lead_lab_{re.sub(r'[^a-zA-Z0-9]+', '_', (niche or 'leads').strip()).strip('_').lower() or 'leads'}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
+            "filters": {
+                "target_keywords": target_keywords,
+                "role_focus": role_focus,
+                "require_contact": require_contact,
+                "min_score": min_score,
+            }
+        })
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     except Exception as e:
