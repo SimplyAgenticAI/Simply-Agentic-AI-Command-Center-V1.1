@@ -11396,8 +11396,7 @@ async function crmFetchTasks(){
         const v = String(sel.value).trim();
         if(v) focuses.push(v);
       }
-      const customRoles = (($("leadLabCustomRoles")?.value || '').split(/[
-,;|]+/).map(x=>x.trim()).filter(Boolean));
+      const customRoles = (($("leadLabCustomRoles")?.value || "").split(/[\n,;|]+/).map(x=>x.trim()).filter(Boolean));
       return {role_focuses: focuses, custom_roles: customRoles};
     }
 
