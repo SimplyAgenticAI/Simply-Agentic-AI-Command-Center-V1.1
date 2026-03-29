@@ -16190,22 +16190,67 @@ def _crm_lead_items_to_csv(items: List[Dict[str, Any]]) -> str:
     return buf.getvalue()
 
 
+
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    def _safe_json_item(item: Dict[str, Any]) -> Dict[str, Any]:
+        src = dict(item or {})
+        execs = []
+        for ex in (src.get("executives") or []):
+            if not isinstance(ex, dict):
+                continue
+            execs.append({
+                "name": str(ex.get("name") or "").strip(),
+                "role": str(ex.get("role") or "").strip(),
+                "email": str(ex.get("email") or "").strip(),
+                "phone": str(ex.get("phone") or "").strip(),
+                "source": str(ex.get("source") or "").strip(),
+            })
+        email_candidates = []
+        for cand in (src.get("email_candidates") or []):
+            if not isinstance(cand, dict):
+                continue
+            email_candidates.append({
+                "email": str(cand.get("email") or "").strip(),
+                "status": str(cand.get("status") or "").strip(),
+            })
+        return {
+            "name": str(src.get("name") or "").strip(),
+            "company": str(src.get("company") or "").strip(),
+            "title": str(src.get("title") or "").strip(),
+            "website": str(src.get("website") or "").strip(),
+            "domain": str(src.get("domain") or "").strip(),
+            "phone": str(src.get("phone") or "").strip(),
+            "email": str(src.get("email") or "").strip(),
+            "email_candidates": email_candidates,
+            "company_overview": str(src.get("company_overview") or "").strip(),
+            "executives": execs,
+            "score": int(src.get("score") or src.get("confidence") or 0),
+            "confidence": int(src.get("confidence") or src.get("score") or 0),
+            "niche_hit": bool(src.get("niche_hit")),
+            "location_hit": bool(src.get("location_hit")),
+            "notes": str(src.get("notes") or "").strip(),
+            "source_query": str(src.get("source_query") or "").strip(),
+        }
+
     try:
         payload = request.get_json(silent=True) or {}
-        niche = (payload.get("niche") or "").strip()
-        location = (payload.get("location") or "").strip()
-        source_text = (payload.get("source_text") or "").strip()
+        niche = str(payload.get("niche") or "").strip()
+        location = str(payload.get("location") or "").strip()
+        source_text = str(payload.get("source_text") or "").strip()
         specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
         target_keywords = _crm_parse_target_keywords(payload.get("target_keywords") or "")
-        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
-        require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
-        role_focus = payload.get("role_focuses") or payload.get("role_focus") or "any"
-        custom_roles = payload.get("custom_roles") or []
+        search_mode = str(payload.get("search_mode") or "balanced").strip().lower()
+        require_contact = str(payload.get("require_contact") or "phone_or_email").strip().lower()
+        raw_role_focus = payload.get("role_focuses") or payload.get("role_focus") or "any"
+        raw_custom_roles = payload.get("custom_roles") or []
+        role_focuses, custom_roles = _crm_parse_role_focuses(raw_role_focus, raw_custom_roles)
+        role_focus_value = ",".join(role_focuses) if role_focuses else "any"
+
         try:
             lead_count = int(payload.get("lead_count") or 25)
         except Exception:
@@ -16214,99 +16259,148 @@ def api_crm_lead_lab():
             min_score = int(payload.get("min_score") or 40)
         except Exception:
             min_score = 40
+
         lead_count = max(1, min(100, lead_count))
         min_score = max(20, min(90, min_score))
+
         if not niche and not location and not source_text and not specific_areas and not target_keywords:
             return jsonify({"ok": False, "error": "Add a niche, location, keywords, or specific areas to search"}), 400
 
-        items: List[Dict[str, Any]] = []
-        existing_domains = set()
-        if source_text:
-            try:
-                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
-            except Exception:
-                seed_items = []
-            for item in seed_items:
-                dom = item.get("domain") or ""
-                if dom:
-                    existing_domains.add(dom)
-            items.extend(seed_items)
-
-        remaining = max(0, lead_count - len(items))
-        if remaining > 0:
-            discovered = _crm_discover_public_leads(
-                niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score,
-                target_keywords=target_keywords, role_focus=role_focus, custom_roles=custom_roles
-            )
-            items.extend(discovered)
-
-        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
         final: List[Dict[str, Any]] = []
         seen = set()
-        for item in items:
+
+        def include_item(item: Optional[Dict[str, Any]]) -> bool:
+            if not item or not isinstance(item, dict):
+                return False
             dom = (item.get("domain") or "").strip().lower()
             key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
             if not key or key in seen:
-                continue
+                return False
+
+            has_phone = bool((item.get("phone") or "").strip())
+            public_email = bool((item.get("email") or "").strip())
+            any_email = public_email or bool(item.get("email_candidates") or [])
+
+            if require_contact == "phone" and not has_phone:
+                return False
+            if require_contact == "email" and not any_email:
+                return False
+            if require_contact == "phone_or_email" and not (has_phone or any_email):
+                return False
+            if int(item.get("score") or item.get("confidence") or 0) < min_score:
+                return False
+
+            try:
+                item["executives"] = _crm_filter_executives(list(item.get("executives") or []), role_focus=role_focus_value, custom_roles=custom_roles)
+            except Exception:
+                item["executives"] = []
+
+            wanted_titles = _crm_role_titles_for_focus(role_focus_value, custom_roles)
+            if wanted_titles and not item.get("executives"):
+                # allow a weaker fallback if the user explicitly included "any"
+                if "any" not in role_focuses:
+                    return False
+
             seen.add(key)
             final.append(item)
-            if len(final) >= lead_count:
-                break
+            return True
+
+        if source_text:
+            try:
+                seed_rows = _crm_parse_lead_source_rows(source_text)
+                seed_items = _crm_items_from_rows(seed_rows, niche, location)
+            except Exception:
+                seed_items = []
+            for item in seed_items:
+                include_item(item)
+                if len(final) >= lead_count:
+                    break
+
+        remaining = max(0, lead_count - len(final))
+        if remaining > 0:
+            try:
+                discovered = _crm_discover_public_leads(
+                    niche=niche,
+                    location=location,
+                    lead_count=remaining,
+                    search_mode=search_mode,
+                    existing_domains=set([x.get("domain") for x in final if isinstance(x, dict) and x.get("domain")]),
+                    specific_areas=specific_areas,
+                    require_contact=require_contact,
+                    min_score=min_score,
+                    target_keywords=target_keywords,
+                    role_focus=role_focus_value,
+                    custom_roles=custom_roles,
+                )
+            except Exception as discover_err:
+                append_log("crm_lead_lab_discover_error", {"error": str(discover_err), "at": now_iso()})
+                discovered = []
+
+            for item in discovered:
+                include_item(item)
+                if len(final) >= lead_count:
+                    break
 
         if len(final) < lead_count:
-            need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas, target_keywords=target_keywords, role_focus=role_focus)[:12]
-            for q in ai_queries:
+            fallback_queries = _crm_build_queries_v2(
+                niche=niche,
+                location=location,
+                lead_count=lead_count,
+                search_mode=("precision" if search_mode == "precision" else "balanced"),
+                specific_areas=specific_areas,
+                target_keywords=target_keywords,
+                role_focus=role_focus_value,
+            )[:6]
+
+            per_query = 6 if search_mode == "precision" else 8
+            for q in fallback_queries:
                 if len(final) >= lead_count:
                     break
                 try:
-                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
-                except Exception as ai_err:
-                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
+                    rows = _crm_public_search(q, max_results=per_query, niche=niche, location=location) or []
+                except Exception as search_err:
+                    append_log("crm_lead_lab_search_error", {"error": str(search_err), "query": q, "at": now_iso()})
                     rows = []
+
                 for row in rows:
-                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
+                    try:
+                        item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(30, min_score - 5))
+                    except Exception:
+                        item = None
                     if not item:
-                        continue
-                    dom = (item.get('domain') or '').strip().lower()
-                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
-                    if not key or key in seen:
-                        continue
-                    seen.add(key)
-                    final.append(item)
+                        try:
+                            item = _crm_fallback_candidate_from_result(row, niche, location, q)
+                        except Exception:
+                            item = None
+                    include_item(item)
                     if len(final) >= lead_count:
                         break
 
-        enriched_final = []
-        for item in final[:lead_count]:
-            copy = dict(item or {})
-            copy['executives'] = _crm_filter_executives(list(copy.get('executives') or []), role_focus=role_focus, custom_roles=custom_roles)
-            enriched_final.append(copy)
+        safe_items = [_safe_json_item(x) for x in final[:lead_count]]
+        csv_text = _crm_lead_items_to_csv(safe_items)
 
         warning = ""
-        if not enriched_final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
-        elif len(enriched_final) < lead_count:
-            warning = f"Built {len(enriched_final)} leads from public web signals for this search."
+        if not safe_items:
+            warning = "No public leads were found for that exact search. Try Broad mode, lower the minimum score, or add specific areas."
+        elif len(safe_items) < lead_count:
+            warning = f"Built {len(safe_items)} public leads for this search."
 
-        csv_text = _crm_lead_items_to_csv(enriched_final)
         resp = jsonify({
             "ok": True,
-            "items": enriched_final,
-            "count": min(len(enriched_final), lead_count),
+            "items": safe_items,
+            "count": len(safe_items),
             "warning": warning,
             "csv_text": csv_text,
             "csv_filename": f"lead_lab_{re.sub(r'[^a-zA-Z0-9]+', '_', (niche or 'leads').strip()).strip('_').lower() or 'leads'}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
             "filters": {
                 "target_keywords": target_keywords,
-                "role_focuses": _crm_parse_role_focuses(role_focus, custom_roles)[0],
-                "custom_roles": _crm_parse_role_focuses(role_focus, custom_roles)[1],
+                "role_focuses": role_focuses,
+                "custom_roles": custom_roles,
                 "require_contact": require_contact,
                 "min_score": min_score,
             }
         })
-        resp.headers['Cache-Control'] = 'no-store'
+        resp.headers["Cache-Control"] = "no-store"
         return resp
     except Exception as e:
         try:
@@ -16314,10 +16408,11 @@ def api_crm_lead_lab():
         except Exception:
             pass
         resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
-        resp.headers['Cache-Control'] = 'no-store'
+        resp.headers["Cache-Control"] = "no-store"
         return resp, 500
 
 @app.post("/api/crm/social_studio")
+
 def api_crm_social_studio():
     u = current_user()
     if not u:
