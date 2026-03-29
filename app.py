@@ -1,5 +1,6 @@
 import os
 import json
+import csv
 import re
 import smtplib
 import uuid
@@ -6922,12 +6923,17 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div>
         <label>Role focus</label>
-        <select id="leadLabRoleFocus">
-          <option value="any" selected>Any contact</option>
+        <select id="leadLabRoleFocus" multiple size="4" style="min-height:112px;">
           <option value="executive">CEO / COO / Founder</option>
           <option value="operations">Supply Chain / Ops / Procurement</option>
           <option value="sales">Owner / President</option>
+          <option value="any">Any contact fallback</option>
         </select>
+        <div class="tiny" style="margin-top:6px; opacity:.85;">Hold Ctrl or Command to select multiple focus groups.</div>
+      </div>
+      <div>
+        <label>Custom roles</label>
+        <input id="leadLabCustomRoles" placeholder="CEO, COO, Supply Chain Director, Procurement Manager" />
       </div>
       <div>
         <label>Minimum score</label>
@@ -11378,6 +11384,23 @@ async function crmFetchTasks(){
       });
     }
 
+    function getLeadLabRoleFocusPayload(){
+      const sel = $("leadLabRoleFocus");
+      const focuses = [];
+      if(sel && sel.selectedOptions && sel.selectedOptions.length){
+        Array.from(sel.selectedOptions).forEach(opt=>{
+          const v = (opt && opt.value ? String(opt.value) : '').trim();
+          if(v && !focuses.includes(v)) focuses.push(v);
+        });
+      }else if(sel && sel.value){
+        const v = String(sel.value).trim();
+        if(v) focuses.push(v);
+      }
+      const customRoles = (($("leadLabCustomRoles")?.value || '').split(/[
+,;|]+/).map(x=>x.trim()).filter(Boolean));
+      return {role_focuses: focuses, custom_roles: customRoles};
+    }
+
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
       if(st) st.innerText = 'Building lead list...';
@@ -11390,6 +11413,8 @@ async function crmFetchTasks(){
             location: ($("leadLabLocation")?.value || '').trim(),
             source_text: ($("leadLabInput")?.value || '').trim(),
             specific_areas: ($("leadLabAreas")?.value || '').trim(),
+            target_keywords: ($("leadLabKeywords")?.value || '').trim(),
+            ...getLeadLabRoleFocusPayload(),
             search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
             lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
             require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
@@ -11425,7 +11450,12 @@ async function crmFetchTasks(){
       if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
       if($("leadLabAreas")) $("leadLabAreas").value = 'Jersey City, Hoboken, Newark';
       if($("leadLabKeywords")) $("leadLabKeywords").value = 'luxury, residential, top producers';
-      if($("leadLabRoleFocus")) $("leadLabRoleFocus").value = 'executive';
+      if($("leadLabCustomRoles")) $("leadLabCustomRoles").value = 'CEO, Founder, Broker Owner';
+      if($("leadLabRoleFocus")){
+        Array.from($("leadLabRoleFocus").options || []).forEach(opt=>{
+          opt.selected = ['executive','sales'].includes(String(opt.value || '').trim());
+        });
+      }
     }
 
     function crmDownloadLeadLabCsv(){
@@ -11535,6 +11565,7 @@ async function crmFetchTasks(){
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
       b('leadLabSampleBtn', crmSampleLeadLab);
+      b('leadLabDownloadCsvBtn', crmDownloadLeadLabCsv);
       b('leadLabRunBtn', crmRunLeadLab);
       b('socialStudioRunBtn', ()=>crmRunGenerator('/api/crm/social_studio', {
         platform: ($("socialStudioPlatform")?.value || 'Facebook'),
@@ -15269,6 +15300,58 @@ _ROLE_FOCUS_TO_QUERY = {
 }
 
 
+def _crm_parse_role_focuses(role_focus: Any = None, custom_roles: Any = None) -> Tuple[List[str], List[str]]:
+    focuses: List[str] = []
+    explicit_titles: List[str] = []
+
+    def add_focus(val: Any) -> None:
+        s = re.sub(r"\s+", " ", str(val or "").strip()).lower()
+        if not s:
+            return
+        if s in _ROLE_FOCUS_TO_QUERY and s not in focuses:
+            focuses.append(s)
+        elif s not in explicit_titles:
+            explicit_titles.append(s)
+
+    if isinstance(role_focus, list):
+        for x in role_focus:
+            add_focus(x)
+    elif isinstance(role_focus, str):
+        for x in re.split(r"[\n,;|]+", role_focus):
+            add_focus(x)
+    elif role_focus is not None:
+        add_focus(role_focus)
+
+    if isinstance(custom_roles, list):
+        for x in custom_roles:
+            add_focus(x)
+    elif isinstance(custom_roles, str):
+        for x in re.split(r"[\n,;|]+", custom_roles):
+            add_focus(x)
+
+    if not focuses and not explicit_titles:
+        focuses = ['any']
+
+    return focuses, explicit_titles
+
+
+def _crm_role_titles_for_focus(role_focus: Any = None, custom_roles: Any = None) -> List[str]:
+    focuses, explicit_titles = _crm_parse_role_focuses(role_focus, custom_roles)
+    titles: List[str] = []
+    for focus in focuses:
+        for role in _ROLE_FOCUS_TO_QUERY.get(focus, []):
+            if role not in titles:
+                titles.append(role)
+    for raw in explicit_titles:
+        cleaned = re.sub(r"\s+", " ", str(raw or "").strip())
+        if not cleaned:
+            continue
+        pretty = " ".join([w.capitalize() if w.islower() else w for w in cleaned.split(" ")])
+        if pretty not in titles:
+            titles.append(pretty)
+    return titles
+
+
 def _crm_is_blocked_domain(domain: str) -> bool:
     d = _crm_extract_domain(domain)
     if not d:
@@ -15531,12 +15614,12 @@ def _crm_extract_exec_contacts(text: str, emails: Optional[List[str]] = None) ->
     return out
 
 
-def _crm_filter_executives(execs: List[Dict[str, str]], role_focus: str = "any") -> List[Dict[str, str]]:
-    focus = (role_focus or "any").strip().lower()
-    wanted = _ROLE_FOCUS_TO_QUERY.get(focus, [])
+def _crm_filter_executives(execs: List[Dict[str, str]], role_focus: Any = "any", custom_roles: Any = None) -> List[Dict[str, str]]:
+    wanted = _crm_role_titles_for_focus(role_focus, custom_roles)
     if not wanted:
         return execs[:8]
-    ranked = [x for x in execs if (x.get("role") or "") in wanted]
+    wanted_low = {str(x).strip().lower() for x in wanted if str(x).strip()}
+    ranked = [x for x in execs if (x.get("role") or "").strip().lower() in wanted_low]
     return (ranked or execs)[:8]
 
 
@@ -15883,7 +15966,7 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
         s = re.sub(r"\s+", " ", str(kw or "").strip())
         if s and s.lower() not in [x.lower() for x in keyword_bits]:
             keyword_bits.append(s)
-    role_tokens = _ROLE_FOCUS_TO_QUERY.get((role_focus or 'any').strip().lower(), [])[:2]
+    role_tokens = _crm_role_titles_for_focus(role_focus)[:3]
     queries, seen_q = [], set()
     for loc in locations:
         for tpl in templates:
@@ -15984,7 +16067,7 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
     }
 
 
-def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40, target_keywords: Optional[List[str]] = None, role_focus: str = "any") -> List[Dict[str, Any]]:
+def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40, target_keywords: Optional[List[str]] = None, role_focus: Any = "any", custom_roles: Any = None) -> List[Dict[str, Any]]:
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas, target_keywords=target_keywords, role_focus=role_focus)
     seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
     out: List[Dict[str, Any]] = []
@@ -16008,8 +16091,9 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
             return False
         if (item.get('score') or 0) < int(min_score or 40):
             return False
-        item['executives'] = _crm_filter_executives(list(item.get('executives') or []), role_focus=role_focus)
-        if role_focus in ('executive', 'operations') and not item.get('executives'):
+        item['executives'] = _crm_filter_executives(list(item.get('executives') or []), role_focus=role_focus, custom_roles=custom_roles)
+        wanted_titles = _crm_role_titles_for_focus(role_focus, custom_roles)
+        if wanted_titles and not item.get('executives'):
             return False
         seen_domains.add(dom)
         out.append(item)
@@ -16121,7 +16205,8 @@ def api_crm_lead_lab():
         target_keywords = _crm_parse_target_keywords(payload.get("target_keywords") or "")
         search_mode = (payload.get("search_mode") or "balanced").strip().lower()
         require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
-        role_focus = (payload.get("role_focus") or "any").strip().lower()
+        role_focus = payload.get("role_focuses") or payload.get("role_focus") or "any"
+        custom_roles = payload.get("custom_roles") or []
         try:
             lead_count = int(payload.get("lead_count") or 25)
         except Exception:
@@ -16153,7 +16238,7 @@ def api_crm_lead_lab():
             discovered = _crm_discover_public_leads(
                 niche, location, remaining, search_mode, existing_domains=existing_domains,
                 specific_areas=specific_areas, require_contact=require_contact, min_score=min_score,
-                target_keywords=target_keywords, role_focus=role_focus
+                target_keywords=target_keywords, role_focus=role_focus, custom_roles=custom_roles
             )
             items.extend(discovered)
 
@@ -16197,7 +16282,7 @@ def api_crm_lead_lab():
         enriched_final = []
         for item in final[:lead_count]:
             copy = dict(item or {})
-            copy['executives'] = _crm_filter_executives(list(copy.get('executives') or []), role_focus=role_focus)
+            copy['executives'] = _crm_filter_executives(list(copy.get('executives') or []), role_focus=role_focus, custom_roles=custom_roles)
             enriched_final.append(copy)
 
         warning = ""
@@ -16216,7 +16301,8 @@ def api_crm_lead_lab():
             "csv_filename": f"lead_lab_{re.sub(r'[^a-zA-Z0-9]+', '_', (niche or 'leads').strip()).strip('_').lower() or 'leads'}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv",
             "filters": {
                 "target_keywords": target_keywords,
-                "role_focus": role_focus,
+                "role_focuses": _crm_parse_role_focuses(role_focus, custom_roles)[0],
+                "custom_roles": _crm_parse_role_focuses(role_focus, custom_roles)[1],
                 "require_contact": require_contact,
                 "min_score": min_score,
             }
