@@ -6111,8 +6111,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <button class="btn" id="imageLibBtn">Image Library</button>
         <button class="btn" id="emailConsoleBtn">Email Console</button>
         <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+        <button class="btn" id="sessionObjectiveBtn" title="Set the current session objective">Session objective</button>
         <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
         <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
+      </div>
+    </div>
+    <div class="commandHeader" id="osCommandBarWrap" style="margin-top:10px;">
+      <div class="commandRow secondary" style="grid-template-columns:minmax(220px,1fr) auto auto; max-width:none;">
+        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" />
+        <button class="btn" id="globalCommandRunBtn">Run command</button>
+        <div class="pill" id="sessionObjectivePill" title="Current session objective">No session objective</div>
       </div>
     </div>
   </div>
@@ -6534,6 +6542,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <button class="btn btnPrimary" id="leadHandoffGenerate">Write draft</button>
   </div>
   <div class="tiny" id="leadHandoffStatus"></div>
+</div>
+
+<div class="modalForm" id="sessionObjectiveForm" style="display:none;">
+  <div class="tiny" style="margin-bottom:10px;">Set the current session objective so the whole system can align around one goal.</div>
+  <label>Objective</label>
+  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
+  <label style="margin-top:10px;">Context</label>
+  <textarea id="sessionObjectiveContext" rows="5" placeholder="What matters most right now, constraints, and what success looks like."></textarea>
+  <div class="actions">
+    <button class="btn" id="sessionObjectiveCloseBtn">Close</button>
+    <button class="btn btnPrimary" id="sessionObjectiveSaveBtn">Save objective</button>
+  </div>
+  <div class="tiny" id="sessionObjectiveStatus" style="margin-top:10px;"></div>
 </div>
 
 <div class="modalForm" id="operatorProfileModalForm" style="display:none;">
@@ -7437,6 +7458,7 @@ function applyModalPos(){
       if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
+      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -7989,6 +8011,83 @@ function showModal(title, body, imgUrl){
         return;
       }
       if(st) st.innerText = 'Draft loaded.';
+    }
+
+    async function refreshSessionObjectivePill(){
+      try{
+        const res = await fetch('/api/os/session_objective');
+        const data = await res.json();
+        if(!data.ok) return;
+        const obj = data.objective || {};
+        const txt = (obj.title || '').trim();
+        const pill = $("sessionObjectivePill");
+        if(pill) pill.innerText = txt ? txt : 'No session objective';
+      }catch(e){}
+    }
+
+    async function openSessionObjectiveModal(){
+      try{ document.body.style.overflow = 'hidden'; }catch(_){ }
+      showModal();
+      try{ ensureModalMinSize(860, 620); }catch(e){}
+      hideAllModalForms();
+      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = 'block';
+      if($("modalBody")) $("modalBody").style.display = 'none';
+      if($("modalTitle")) $("modalTitle").innerText = 'Session objective';
+      if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = 'Loading...';
+      try{
+        const res = await fetch('/api/os/session_objective');
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Load failed');
+        const obj = data.objective || {};
+        if($("sessionObjectiveInput")) $("sessionObjectiveInput").value = obj.title || '';
+        if($("sessionObjectiveContext")) $("sessionObjectiveContext").value = obj.context || '';
+        if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = 'Ready';
+      }catch(e){
+        if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = e && e.message ? e.message : 'Load failed';
+      }
+    }
+
+    async function saveSessionObjectiveModal(){
+      const st = $("sessionObjectiveStatus");
+      if(st) st.innerText = 'Saving...';
+      try{
+        const payload = {
+          title: (($("sessionObjectiveInput")||{}).value || '').trim(),
+          context: (($("sessionObjectiveContext")||{}).value || '').trim()
+        };
+        const res = await fetch('/api/os/session_objective', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Save failed');
+        if(st) st.innerText = 'Saved';
+        try{ await refreshSessionObjectivePill(); }catch(e){}
+        showToast('Session objective saved');
+      }catch(e){
+        if(st) st.innerText = e && e.message ? e.message : 'Save failed';
+      }
+    }
+
+    async function runGlobalCommandBar(){
+      const inp = $("globalCommandBar");
+      const q = ((inp && inp.value) ? inp.value : '').trim();
+      if(!q){ showModal('Missing command', 'Type a command first.'); return; }
+      showModal('Routing command', 'Thinking...');
+      try{
+        const res = await fetch('/api/os/intent_route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:q})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Route failed');
+        const preview = [
+          'Intent: ' + (data.intent || ''),
+          'Suggested module: ' + (data.module || ''),
+          data.plan ? ('\nPlan\n' + data.plan) : '',
+          data.next_action ? ('\nNext action\n' + data.next_action) : ''
+        ].filter(Boolean).join('\n');
+        showModal('Command router', preview);
+        if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
+          $("sessionObjectiveInput").value = data.prefill_objective;
+        }
+      }catch(e){
+        showModal('Command router error', String(e && e.message ? e.message : e));
+      }
     }
 
     async function openOperatorProfileModal(){
@@ -8804,6 +8903,7 @@ function makeSeat(defn, idx){
       setEmailFrom(selectedSeat || "");
       renderTable();
       updateAlwaysButtons();
+      try{ await refreshSessionObjectivePill(); }catch(e){}
     }
 
     function markActiveSeat(){
@@ -10191,6 +10291,11 @@ Body: ${body ? "[present]" : "[empty]"}
     if($("leadHandoffGenerate")) $("leadHandoffGenerate").onclick = generateLeadOutreachDraft;
     if($("operatorProfileCloseBtn")) $("operatorProfileCloseBtn").onclick = () => hideModal();
     if($("operatorProfileSaveBtn")) $("operatorProfileSaveBtn").onclick = saveOperatorProfileModal;
+    if($("sessionObjectiveBtn")) $("sessionObjectiveBtn").onclick = openSessionObjectiveModal;
+    if($("sessionObjectiveCloseBtn")) $("sessionObjectiveCloseBtn").onclick = () => hideModal();
+    if($("sessionObjectiveSaveBtn")) $("sessionObjectiveSaveBtn").onclick = saveSessionObjectiveModal;
+    if($("globalCommandRunBtn")) $("globalCommandRunBtn").onclick = runGlobalCommandBar;
+    if($("globalCommandBar")) $("globalCommandBar").addEventListener("keydown", (e)=>{ if(e.key === "Enter"){ e.preventDefault(); runGlobalCommandBar(); } });
     // Manage teammates (active seats)
     function renderManageList(){
       const list = $("manageList");
@@ -14284,6 +14389,8 @@ def api_crm_clients_create():
         "created_at": now,
         "updated_at": now,
     }
+    client = _crm_enrich_client_record(client)
+    client = _crm_apply_pipeline_rules(uname, client)
     crm["clients"][cid] = client
     _crm_save(uname, crm)
     return jsonify({"ok": True, "client": client})
@@ -14316,6 +14423,8 @@ def api_crm_clients_update(client_id: str):
     if "custom_fields" in payload and isinstance(payload.get("custom_fields"), dict):
         c["custom_fields"] = payload.get("custom_fields") or {}
     c["updated_at"] = now_iso()
+    c = _crm_enrich_client_record(c)
+    c = _crm_apply_pipeline_rules(uname, c)
     clients[client_id] = c
     crm["clients"] = clients
     _crm_save(uname, crm)
@@ -16499,6 +16608,883 @@ ADD_UI_POLISH_V8 = r'''
 '''
 
 
+
+
+
+# =========================
+# OS LAYER V2 (additive, non-breaking)
+# =========================
+OS_DIR = DATA / "os_state"
+OS_DIR.mkdir(parents=True, exist_ok=True)
+
+STACK_TEMPLATES: Dict[str, Dict[str, Any]] = {
+    "lead_followup": {
+        "name": "lead_followup",
+        "title": "Lead Follow Up",
+        "description": "Follow up with a lead, save memory, and route to Sunshine if needed.",
+        "steps": [
+            {"type": "prompt", "label": "Draft follow up", "prompt": "Draft a high-trust follow-up for {{input}}."},
+            {"type": "save_memory", "label": "Save last follow up", "key": "last_followup", "prompt": "{{last}}"},
+            {"type": "route", "label": "Sales polish", "to_teammate": "Sunshine", "prompt": "Improve this for ethical sales clarity without pressure:\n\n{{last}}"}
+        ]
+    },
+    "client_onboarding": {
+        "name": "client_onboarding",
+        "title": "Client Onboarding",
+        "description": "Welcome a new client, gather constraints, and create next steps.",
+        "steps": [
+            {"type": "prompt", "label": "Welcome email", "prompt": "Write a clean welcome and onboarding note for {{input}}."},
+            {"type": "route", "label": "Clarify scope", "to_teammate": "Alex", "prompt": "Turn this into an onboarding checklist with next steps:\n\n{{last}}"},
+            {"type": "save_memory", "label": "Save onboarding plan", "key": "onboarding_plan", "prompt": "{{last}}"}
+        ]
+    },
+    "content_pipeline": {
+        "name": "content_pipeline",
+        "title": "Content Pipeline",
+        "description": "Generate strategy, copy, and creative direction in one sequence.",
+        "steps": [
+            {"type": "route", "label": "Strategy", "to_teammate": "Alex", "prompt": "Create a content strategy for: {{input}}"},
+            {"type": "route", "label": "Copy", "to_teammate": "Willow", "prompt": "Write the post copy from this strategy:\n\n{{last}}"},
+            {"type": "route", "label": "Creative", "to_teammate": "Luna", "prompt": "Create the visual direction for this content:\n\n{{step2.output}}"}
+        ]
+    },
+    "lead_to_outreach": {
+        "name": "lead_to_outreach",
+        "title": "Lead To Outreach",
+        "description": "Find leads, score them, and draft the first outreach.",
+        "steps": [
+            {"type": "route", "label": "Research", "to_teammate": "Ava", "prompt": "Research a clean lead profile for: {{input}}"},
+            {"type": "route", "label": "Offer angle", "to_teammate": "Alex", "prompt": "Create the best angle for this lead:\n\n{{last}}"},
+            {"type": "route", "label": "Outreach", "to_teammate": "Sunshine", "prompt": "Write the first outreach based on this:\n\n{{step2.output}}"}
+        ]
+    },
+}
+
+
+def _os_path_for_user(username: str) -> Path:
+    return OS_DIR / f"{_safe_name(username or 'anon')}.json"
+
+
+def _os_default_state() -> Dict[str, Any]:
+    return {
+        "version": "os_v2",
+        "updated_at": None,
+        "mode": "operator",
+        "session_objective": {"title": "", "context": "", "updated_at": None},
+        "session_state": {"mode": "", "stage": "", "goal": "", "constraints": [], "updated_at": None},
+        "memory": {
+            "operator": {},
+            "clients": {},
+            "leads": {},
+            "campaigns": {},
+            "conversations": {},
+            "global_notes": []
+        },
+        "tool_preferences": {},
+        "pipeline_rules": [
+            {"id": "reply_to_interested", "name": "Reply => Interested", "trigger": "has_recent_reply", "action": "set_stage", "value": "Interested", "enabled": True},
+            {"id": "booked_to_call", "name": "Call Booked Tag", "trigger": "tag_present", "match": "booked", "action": "set_stage", "value": "Call booked", "enabled": True},
+            {"id": "vip_tag_to_vip", "name": "VIP Tag => VIP", "trigger": "tag_present", "match": "vip", "action": "set_stage", "value": "VIP", "enabled": True},
+        ],
+        "session_log": [],
+        "error_log": [],
+        "execution_timeline": []
+    }
+
+
+def _os_load(username: str) -> Dict[str, Any]:
+    data = load_json(_os_path_for_user(username), _os_default_state())
+    if not isinstance(data, dict):
+        data = _os_default_state()
+    base = _os_default_state()
+    for k, v in base.items():
+        data.setdefault(k, v)
+    if not isinstance(data.get("memory"), dict):
+        data["memory"] = base["memory"]
+    for mk, mv in base["memory"].items():
+        data["memory"].setdefault(mk, mv)
+    if not isinstance(data.get("pipeline_rules"), list):
+        data["pipeline_rules"] = list(base["pipeline_rules"])
+    if not isinstance(data.get("session_log"), list):
+        data["session_log"] = []
+    if not isinstance(data.get("error_log"), list):
+        data["error_log"] = []
+    if not isinstance(data.get("execution_timeline"), list):
+        data["execution_timeline"] = []
+    return data
+
+
+def _os_save(username: str, data: Dict[str, Any]) -> None:
+    data = data or {}
+    data["updated_at"] = now_iso()
+    for k in ["session_log", "error_log", "execution_timeline"]:
+        try:
+            if isinstance(data.get(k), list) and len(data[k]) > 500:
+                data[k] = data[k][-500:]
+        except Exception:
+            pass
+    save_json(_os_path_for_user(username), data)
+
+
+def _os_log(username: str, kind: str, payload: Dict[str, Any]) -> None:
+    try:
+        osd = _os_load(username)
+        rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "at": now_iso(), "payload": payload or {}}
+        osd.setdefault("session_log", []).append(rec)
+        osd.setdefault("execution_timeline", []).append(rec)
+        _os_save(username, osd)
+    except Exception:
+        pass
+
+
+def _os_log_error(username: str, where: str, error: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        osd = _os_load(username)
+        osd.setdefault("error_log", []).append({"id": uuid.uuid4().hex[:10], "where": where, "error": error, "extra": extra or {}, "at": now_iso()})
+        _os_save(username, osd)
+    except Exception:
+        pass
+
+
+def _safe_json_loads(text: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        val = json.loads((text or "").strip())
+        if isinstance(val, dict):
+            return val
+    except Exception:
+        pass
+    return fallback
+
+
+def _os_session_context(username: str) -> Dict[str, Any]:
+    osd = _os_load(username)
+    return {
+        "objective": (osd.get("session_objective") or {}),
+        "state": (osd.get("session_state") or {}),
+        "mode": (osd.get("mode") or "operator"),
+    }
+
+
+def _os_tool_candidates() -> List[str]:
+    return [
+        "round_table",
+        "lead_lab",
+        "crm_clients",
+        "crm_pipeline",
+        "crm_broadcast",
+        "calendar",
+        "social_studio",
+        "offer_builder",
+        "growth_playbook",
+        "action_stacks",
+        "image_library",
+        "email_console",
+    ]
+
+
+def _os_route_query(username: str, query: str) -> Dict[str, Any]:
+    q = (query or "").strip()
+    if not q:
+        return {"intent": "unknown", "module": "round_table", "plan": "Ask for a clear goal.", "next_action": "Type a clearer command."}
+    objective = ((_os_load(username).get("session_objective") or {}).get("title") or "").strip()
+    system = (
+        "You are an intent router for an AI operator OS. "
+        "Classify the user's request, choose the best module, and return strict JSON. "
+        "Modules: " + ", ".join(_os_tool_candidates()) + ". "
+        "Keys: intent, module, plan, next_action, confidence, prefill_objective."
+    )
+    user = json.dumps({"query": q, "objective": objective}, ensure_ascii=False)
+    fallback = {
+        "intent": "general_execution",
+        "module": "round_table",
+        "plan": "Use the round table to clarify and execute the request.",
+        "next_action": "Send the request to the round table.",
+        "confidence": 0.55,
+        "prefill_objective": q[:140],
+    }
+    try:
+        raw = call_llm(system, [{"role": "user", "content": user}], temperature=0.15)
+        out = _safe_json_loads(raw, fallback)
+        if out.get("module") not in _os_tool_candidates():
+            out["module"] = fallback["module"]
+        return out
+    except Exception as e:
+        _os_log_error(username, "intent_route", str(e), {"query": q})
+        return fallback
+
+
+def _crm_extract_first_name(name: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        return ""
+    return re.split(r"\s+", name)[0].strip()
+
+
+def _crm_compute_lead_score(client: Dict[str, Any]) -> int:
+    score = 0
+    if (client.get("name") or "").strip(): score += 10
+    if (client.get("email") or "").strip(): score += 20
+    if (client.get("phone") or "").strip(): score += 20
+    if (client.get("company") or "").strip(): score += 10
+    if (client.get("notes") or "").strip(): score += 5
+    tags = client.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    score += min(15, 3 * len(tags))
+    status = (client.get("status") or "").strip().lower()
+    if status in ("vip", "active"): score += 10
+    stage = (client.get("pipeline_stage") or "").strip().lower()
+    if stage in ("interested", "call booked", "client", "vip"): score += 10
+    return max(0, min(100, score))
+
+
+def _crm_enrich_client_record(client: Dict[str, Any]) -> Dict[str, Any]:
+    c = dict(client or {})
+    cf = dict(c.get("custom_fields") or {})
+    email = (c.get("email") or "").strip()
+    website = (c.get("company_website") or cf.get("website") or "").strip()
+    domain = ""
+    try:
+        if website:
+            domain = _crm_extract_domain(website)
+        elif email and "@" in email:
+            domain = email.split("@", 1)[1].strip().lower()
+    except Exception:
+        domain = ""
+    if domain:
+        cf["domain"] = domain
+        if not c.get("company"):
+            guessed = domain.split(".")[0].replace("-", " ").replace("_", " ").title()
+            if guessed:
+                c["company"] = guessed
+    c["lead_score"] = _crm_compute_lead_score(c)
+    c["first_name"] = _crm_extract_first_name(c.get("name") or "")
+    c["custom_fields"] = cf
+    return c
+
+
+def _crm_append_conversation(username: str, client_id: str, rec: Dict[str, Any]) -> None:
+    if not client_id:
+        return
+    crm = _crm_load(username)
+    clients = crm.get("clients") or {}
+    c = clients.get(client_id)
+    if not isinstance(c, dict):
+        return
+    cf = c.get("custom_fields") or {}
+    conv = cf.get("conversation") or []
+    if not isinstance(conv, list):
+        conv = []
+    item = {
+        "id": uuid.uuid4().hex[:10],
+        "at": now_iso(),
+        "channel": (rec.get("channel") or "note").strip(),
+        "direction": (rec.get("direction") or "system").strip(),
+        "subject": (rec.get("subject") or "").strip(),
+        "body": (rec.get("body") or "").strip(),
+        "meta": rec.get("meta") if isinstance(rec.get("meta"), dict) else {},
+    }
+    conv.append(item)
+    if len(conv) > 200:
+        conv = conv[-200:]
+    cf["conversation"] = conv
+    c["custom_fields"] = cf
+    c["updated_at"] = now_iso()
+    clients[client_id] = c
+    crm["clients"] = clients
+    _crm_save(username, crm)
+
+
+def _crm_apply_pipeline_rules(username: str, client: Dict[str, Any]) -> Dict[str, Any]:
+    c = dict(client or {})
+    osd = _os_load(username)
+    rules = osd.get("pipeline_rules") or []
+    tags = c.get("tags") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    conv = (((c.get("custom_fields") or {}).get("conversation")) or [])
+    has_recent_reply = False
+    try:
+        if conv:
+            last = conv[-1]
+            has_recent_reply = (last.get("direction") == "inbound")
+    except Exception:
+        has_recent_reply = False
+    for r in rules:
+        if not isinstance(r, dict) or not r.get("enabled", True):
+            continue
+        trig = (r.get("trigger") or "").strip()
+        if trig == "has_recent_reply" and has_recent_reply and (r.get("action") == "set_stage"):
+            c["pipeline_stage"] = (r.get("value") or c.get("pipeline_stage") or "Lead").strip()
+        elif trig == "tag_present" and (r.get("match") or "") in tags and (r.get("action") == "set_stage"):
+            c["pipeline_stage"] = (r.get("value") or c.get("pipeline_stage") or "Lead").strip()
+    return c
+
+
+def _next_followup_suggestion(client: Dict[str, Any]) -> str:
+    stage = (client.get("pipeline_stage") or "Lead").strip().lower()
+    if stage == "lead":
+        return "Send a first value-led outreach."
+    if stage == "conversation":
+        return "Reply with one clear next step."
+    if stage == "interested":
+        return "Offer a call or direct path forward."
+    if stage == "call booked":
+        return "Send confirmation and prep notes."
+    if stage in ("client", "vip"):
+        return "Deliver value and identify expansion opportunity."
+    return "Review the client and decide the cleanest next move."
+
+
+# -------- Action Stack engine upgrades (conditional logic, retries, fallback, timeline) --------
+def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if isinstance(steps, list):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            typ = (s.get("type") or "").strip().lower()
+            if typ not in ("prompt", "ask_user", "wait", "save_memory", "route", "branch"):
+                typ = "prompt"
+            out.append({
+                "type": typ,
+                "label": (s.get("label") or "").strip()[:80],
+                "prompt": (s.get("prompt") or ""),
+                "seconds": int(s.get("seconds") or 0),
+                "key": (s.get("key") or "").strip()[:80],
+                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
+                "condition_contains": (s.get("condition_contains") or "").strip(),
+                "goto_step": int(s.get("goto_step") or 0),
+                "retries": max(0, min(3, int(s.get("retries") or 0))),
+                "fallback_teammate": (s.get("fallback_teammate") or "").strip()[:64],
+                "continue_on_error": bool(s.get("continue_on_error")),
+            })
+    return out
+
+
+def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
+    u = run.get("user") or "anon"
+    steps = run.get("steps") or []
+    outputs = run.get("outputs") or {}
+    try:
+        if (run.get("status") == "waiting") and run.get("wait_until"):
+            w_dt = datetime.fromisoformat(str(run.get("wait_until")).replace("Z", ""))
+            if w_dt and datetime.utcnow() < w_dt:
+                _persist_run(run)
+                return run
+            run["status"] = "running"
+            run.pop("wait_until", None)
+    except Exception:
+        pass
+
+    mem = (_load_action_memory(u).get("memory") or {})
+    cursor = int(run.get("cursor") or 0)
+    last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
+
+    def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
+        try:
+            append_task_log(
+                action="stack_step" if status == "success" else "stack_error",
+                record={
+                    "teammate": run.get("teammate", ""),
+                    "stack": run.get("stack_name", ""),
+                    "run_id": run.get("id", ""),
+                    "step": step_num,
+                    "type": stype,
+                    "output": output,
+                    "extra": extra or {},
+                },
+                teammate=run.get("teammate", ""),
+                status=status,
+            )
+            _os_log(u, "stack_timeline", {
+                "run_id": run.get("id", ""),
+                "stack_name": run.get("stack_name", ""),
+                "step": step_num,
+                "type": stype,
+                "status": status,
+                "extra": extra or {},
+            })
+        except Exception:
+            pass
+
+    while cursor < len(steps):
+        step = steps[cursor]
+        stype = step.get("type", "prompt")
+        ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
+        for i, out in outputs.items():
+            try:
+                idx = int(i)
+                ctx[f"step{idx+1}.output"] = out
+            except Exception:
+                continue
+        for k, v in (mem or {}).items():
+            ctx[f"memory.{k}"] = v
+
+        if stype == "branch":
+            needle = (step.get("condition_contains") or "").strip().lower()
+            goto_step = int(step.get("goto_step") or 0)
+            hay = str(last_output or "").lower()
+            if needle and needle in hay and goto_step > 0 and goto_step <= len(steps):
+                _stack_task_log(cursor + 1, "branch", f"goto {goto_step}", {"matched": needle})
+                cursor = goto_step - 1
+                run["cursor"] = cursor
+                continue
+            outputs[str(cursor)] = last_output
+            cursor += 1
+            run["cursor"] = cursor
+            _persist_run(run)
+            continue
+
+        try:
+            if stype == "ask_user":
+                run["status"] = "needs_input"
+                run["cursor"] = cursor
+                _stack_task_log(cursor + 1, "ask_user", "", {"label": step.get("label", "")})
+                _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
+                _persist_run(run)
+                return run
+            if stype == "wait":
+                secs = max(0, min(3600, int(step.get("seconds") or 0)))
+                run["status"] = "waiting"
+                run["cursor"] = cursor
+                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
+                _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
+                _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
+                _persist_run(run)
+                return run
+            if stype == "save_memory":
+                key = (step.get("key") or "").strip()
+                val = _safe_render(step.get("prompt") or "{{last}}", ctx)
+                if key:
+                    mem2 = _load_action_memory(u)
+                    mem2.setdefault("memory", {})
+                    mem2["memory"][key] = val
+                    _save_action_memory(u, mem2)
+                    mem = mem2["memory"]
+                outputs[str(cursor)] = val
+                last_output = val
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
+                _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
+            else:
+                retries = max(0, int(step.get("retries") or 0))
+                fallback_teammate = (step.get("fallback_teammate") or "").strip()
+                continue_on_error = bool(step.get("continue_on_error"))
+                attempt = 0
+                out = ""
+                while True:
+                    attempt += 1
+                    try:
+                        if stype == "route":
+                            to_tm = (step.get("to_teammate") or "").strip()
+                            p = _safe_render(step.get("prompt") or "{{last}}", ctx)
+                            out = _call_teammate_prompt_for_user(u, to_tm, p)
+                            _stack_task_log(cursor + 1, "route", out, {"to": to_tm, "attempt": attempt})
+                            _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm, "attempt": attempt})
+                        else:
+                            p = _safe_render(step.get("prompt") or "", ctx)
+                            out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
+                            _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", ""), "attempt": attempt})
+                            _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", ""), "attempt": attempt})
+                        break
+                    except Exception as inner:
+                        if attempt <= retries:
+                            continue
+                        if fallback_teammate:
+                            try:
+                                p = _safe_render(step.get("prompt") or "{{last}}", ctx)
+                                out = _call_teammate_prompt_for_user(u, fallback_teammate, p)
+                                _stack_task_log(cursor + 1, "fallback", out, {"to": fallback_teammate, "error": str(inner)})
+                                break
+                            except Exception as inner2:
+                                if continue_on_error:
+                                    out = f"[continued after error] {inner2}"
+                                    _stack_task_log(cursor + 1, "continued_error", out, {"error": str(inner2)}, status="error")
+                                    break
+                                raise inner2
+                        if continue_on_error:
+                            out = f"[continued after error] {inner}"
+                            _stack_task_log(cursor + 1, "continued_error", out, {"error": str(inner)}, status="error")
+                            break
+                        raise inner
+                outputs[str(cursor)] = out
+                last_output = out
+                run["last_output"] = last_output
+            run["outputs"] = outputs
+            cursor += 1
+            run["cursor"] = cursor
+            run["status"] = "running"
+            _persist_run(run)
+        except Exception as e:
+            run["status"] = "failed"
+            run["error"] = str(e)
+            run["cursor"] = cursor
+            _stack_task_log(cursor + 1, "error", "", {"error": str(e)}, status="error")
+            _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
+            _persist_run(run)
+            return run
+
+    run["status"] = "complete"
+    run["cursor"] = len(steps)
+    try:
+        append_task_log(
+            action="stack_complete",
+            record={
+                "teammate": run.get("teammate", ""),
+                "stack": run.get("stack_name", ""),
+                "run_id": run.get("id", ""),
+                "steps": len(steps),
+                "last_output": run.get("last_output", ""),
+            },
+            teammate=run.get("teammate", ""),
+            status="success",
+        )
+        _os_log(u, "stack_complete", {"run_id": run.get("id", ""), "stack": run.get("stack_name", "")})
+    except Exception:
+        pass
+    _append_run_log(run, "complete", {"steps": len(steps)})
+    _persist_run(run)
+    return run
+
+
+# -------- OS endpoints --------
+@app.get("/api/os/session_objective")
+def api_os_session_objective_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd = _os_load(uname)
+    return jsonify({"ok": True, "objective": osd.get("session_objective") or {}, "mode": osd.get("mode") or "operator"})
+
+
+@app.post("/api/os/session_objective")
+def api_os_session_objective_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    osd = _os_load(uname)
+    osd["session_objective"] = {
+        "title": (payload.get("title") or "").strip(),
+        "context": (payload.get("context") or "").strip(),
+        "updated_at": now_iso(),
+    }
+    if "mode" in payload:
+        osd["mode"] = ((payload.get("mode") or "operator").strip() or "operator")
+    _os_save(uname, osd)
+    _os_log(uname, "session_objective", {"title": osd["session_objective"]["title"]})
+    return jsonify({"ok": True, "objective": osd["session_objective"], "mode": osd.get("mode")})
+
+
+@app.get("/api/os/memory")
+def api_os_memory_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd = _os_load(uname)
+    return jsonify({"ok": True, "memory": osd.get("memory") or {}, "session_state": osd.get("session_state") or {}, "mode": osd.get("mode") or "operator"})
+
+
+@app.post("/api/os/memory")
+def api_os_memory_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    osd = _os_load(uname)
+    memory = osd.get("memory") or {}
+    for scope in ["operator", "clients", "leads", "campaigns", "conversations"]:
+        if scope in payload and isinstance(payload.get(scope), dict):
+            cur = memory.get(scope) or {}
+            cur.update(payload.get(scope) or {})
+            memory[scope] = cur
+    note = (payload.get("note") or "").strip()
+    if note:
+        notes = memory.get("global_notes") or []
+        notes.append({"at": now_iso(), "note": note})
+        if len(notes) > 100:
+            notes = notes[-100:]
+        memory["global_notes"] = notes
+    osd["memory"] = memory
+    if isinstance(payload.get("session_state"), dict):
+        osd["session_state"].update(payload.get("session_state") or {})
+        osd["session_state"]["updated_at"] = now_iso()
+    _os_save(uname, osd)
+    return jsonify({"ok": True, "memory": memory, "session_state": osd.get("session_state") or {}})
+
+
+@app.post("/api/os/intent_route")
+def api_os_intent_route():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    query = (payload.get("query") or "").strip()
+    out = _os_route_query(uname, query)
+    _os_log(uname, "intent_route", {"query": query, "result": out})
+    return jsonify({"ok": True, **out})
+
+
+@app.get("/api/os/stack_templates")
+def api_os_stack_templates():
+    return jsonify({"ok": True, "templates": list(STACK_TEMPLATES.values())})
+
+
+@app.get("/api/os/stack_timeline/<run_id>")
+def api_os_stack_timeline(run_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    runs = _load_runs(uname).get("runs") or {}
+    run = runs.get(run_id)
+    if not isinstance(run, dict):
+        return jsonify({"ok": False, "error": "Run not found"}), 404
+    return jsonify({"ok": True, "timeline": run.get("log") or [], "run": run})
+
+
+@app.post("/api/os/collaborate")
+def api_os_collaborate():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get("prompt") or "").strip()
+    debate = bool(payload.get("debate"))
+    teammates = payload.get("teammates") or ["Alex", "Willow", "Sunshine"]
+    if not prompt:
+        return jsonify({"ok": False, "error": "Missing prompt"}), 400
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    selected = [t for t in teammates if t in installed][:6]
+    if not selected:
+        return jsonify({"ok": False, "error": "No valid teammates selected"}), 400
+    objective = ((_os_load(uname).get("session_objective") or {}).get("title") or "").strip()
+    outputs = {}
+    confidence = {}
+    prev = ""
+    for idx, name in enumerate(selected):
+        p = prompt
+        if prev:
+            p += "\n\nPrevious teammate context:\n" + prev
+        if objective:
+            p += "\n\nCurrent session objective: " + objective
+        if debate and idx > 0:
+            p += "\n\nChallenge weak assumptions in the prior reasoning and strengthen what survives."
+        try:
+            outputs[name] = _call_teammate_prompt_for_user(uname, name, p)
+            prev = outputs[name]
+            confidence[name] = max(0.35, min(0.95, 0.55 + (0.08 * idx)))
+        except Exception as e:
+            outputs[name] = f"[error] {e}"
+            confidence[name] = 0.25
+    synthesis_prompt = "Synthesize these teammate outputs into one aligned answer. Include disagreement if it matters.\n\n" + json.dumps(outputs, indent=2)
+    synthesis = _call_teammate_prompt_for_user(uname, "Atlis" if "Atlis" in installed else selected[0], synthesis_prompt)
+    return jsonify({"ok": True, "outputs": outputs, "synthesis": synthesis, "confidence": confidence, "debate": debate})
+
+
+@app.get("/api/os/next_actions")
+def api_os_next_actions():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    osd = _os_load(uname)
+    clients = list((crm.get("clients") or {}).values())
+    clients.sort(key=lambda x: str(x.get("updated_at") or ""), reverse=True)
+    suggestions = []
+    objective = (osd.get("session_objective") or {}).get("title") or ""
+    if objective:
+        suggestions.append({"type": "objective", "title": "Advance the session objective", "detail": objective})
+    if clients:
+        hottest = sorted(clients, key=lambda x: int(x.get("lead_score") or 0), reverse=True)[:3]
+        for c in hottest:
+            suggestions.append({
+                "type": "client",
+                "client_id": c.get("id"),
+                "title": f"Next move for {c.get('name') or 'client'}",
+                "detail": _next_followup_suggestion(c),
+                "score": int(c.get("lead_score") or 0),
+            })
+    tasks = list((crm.get("tasks") or {}).values())
+    due = [t for t in tasks if not t.get("done")]
+    due.sort(key=lambda x: str(x.get("due") or ""))
+    for t in due[:3]:
+        suggestions.append({"type": "task", "title": t.get("title") or "Task", "detail": t.get("due") or "No due date"})
+    return jsonify({"ok": True, "suggestions": suggestions[:10]})
+
+
+@app.get("/api/os/session_recap")
+def api_os_session_recap():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd = _os_load(uname)
+    log = osd.get("session_log") or []
+    recent = log[-20:]
+    bullets = []
+    for item in recent:
+        kind = item.get("kind") or "event"
+        payload = item.get("payload") or {}
+        if kind == "intent_route":
+            bullets.append(f"Routed command '{payload.get('query','')}' to {((payload.get('result') or {}).get('module') or 'round_table')}")
+        elif kind == "session_objective":
+            bullets.append(f"Session objective set to: {payload.get('title','')}")
+        elif kind == "stack_complete":
+            bullets.append(f"Completed stack: {payload.get('stack','')}")
+        else:
+            bullets.append(f"{kind}: {json.dumps(payload)[:140]}")
+    recap = "\n".join("- " + b for b in bullets) if bullets else "No major session events yet."
+    return jsonify({"ok": True, "recap": recap, "recent": recent})
+
+
+@app.post("/api/os/error_explain")
+def api_os_error_explain():
+    payload = request.get_json(silent=True) or {}
+    err = (payload.get("error") or "").strip()
+    if not err:
+        return jsonify({"ok": False, "error": "Missing error text"}), 400
+    hints = []
+    low = err.lower()
+    if "not authenticated" in low:
+        hints.append("Log in again and refresh the page.")
+    if "api key" in low:
+        hints.append("Open Settings and verify the OpenAI API key.")
+    if "smtp" in low or "gmail" in low:
+        hints.append("Check email settings or reconnect Gmail.")
+    if "calendar" in low:
+        hints.append("Reconnect Google Calendar and try again.")
+    if "twilio" in low:
+        hints.append("Verify Twilio SID, token, and from number.")
+    if not hints:
+        hints.append("Check the relevant settings for the feature that failed and try once more.")
+    return jsonify({"ok": True, "summary": err, "fixes": hints})
+
+
+@app.get("/api/os/integrity_audit")
+def api_os_integrity_audit():
+    reg = load_registry()
+    installed = reg.get("installed") or {}
+    issues = []
+    for name, t in installed.items():
+        if not isinstance(t, dict):
+            issues.append({"teammate": name, "issue": "Invalid registry entry"})
+            continue
+        if not (t.get("job_title") or "").strip():
+            issues.append({"teammate": name, "issue": "Missing job title"})
+        if not (t.get("version") or "").strip():
+            issues.append({"teammate": name, "issue": "Missing version"})
+        if not isinstance(t.get("responsibilities"), list):
+            issues.append({"teammate": name, "issue": "Responsibilities should be a list"})
+    return jsonify({"ok": True, "issues": issues, "healthy": len(issues) == 0})
+
+
+@app.get("/api/os/tool_select")
+def api_os_tool_select():
+    q = (request.args.get("query") or "").strip()
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    out = _os_route_query(uname, q)
+    return jsonify({"ok": True, "selection": out})
+
+
+@app.post("/api/os/outcomes/run")
+def api_os_outcomes_run():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    outcome = (payload.get("outcome") or "").strip().lower()
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
+    result = {"outcome": outcome, "steps": [], "status": "ready"}
+    if outcome == "get leads + dm them":
+        niche = (params.get("niche") or "real estate agents").strip()
+        location = (params.get("location") or "New Jersey").strip()
+        leads = _crm_discover_public_leads(niche=niche, location=location, lead_count=int(params.get("lead_count") or 10), search_mode="balanced")
+        result["steps"].append({"step": "lead_lab", "count": len(leads)})
+        previews = []
+        for lead in leads[:5]:
+            prompt = f"Write a short first outreach for {lead.get('name','lead')} at {lead.get('company','their company')}."
+            previews.append({"lead": lead.get("name",""), "draft": _call_teammate_prompt_for_user(uname, "Sunshine", prompt)})
+        result["steps"].append({"step": "outreach_preview", "items": previews})
+    elif outcome == "create content + schedule":
+        topic = (params.get("topic") or "your offer").strip()
+        strategy = _call_teammate_prompt_for_user(uname, "Alex", f"Create a short content plan for {topic}.")
+        copy = _call_teammate_prompt_for_user(uname, "Willow", f"Write the post copy from this strategy:\n\n{strategy}")
+        result["steps"].append({"step": "strategy", "text": strategy})
+        result["steps"].append({"step": "copy", "text": copy})
+    else:
+        result["status"] = "unknown_outcome"
+        result["steps"].append({"step": "hint", "text": "Try one of: get leads + dm them, create content + schedule"})
+    _os_log(uname, "outcome_run", result)
+    return jsonify({"ok": True, "result": result})
+
+
+@app.get("/api/crm/clients/<client_id>/conversation")
+def api_crm_client_conversation(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(client_id)
+    if not isinstance(c, dict):
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+    conv = (((c.get("custom_fields") or {}).get("conversation")) or [])
+    return jsonify({"ok": True, "conversation": conv, "client": c})
+
+
+@app.post("/api/crm/clients/<client_id>/conversation")
+def api_crm_client_conversation_add(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    _crm_append_conversation(uname, client_id, payload)
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(client_id) or {}
+    c = _crm_apply_pipeline_rules(uname, c)
+    crm["clients"][client_id] = c
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "client": c, "conversation": (((c.get("custom_fields") or {}).get("conversation")) or [])})
+
+
+@app.get("/api/os/pipeline_rules")
+def api_os_pipeline_rules_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "rules": _os_load(uname).get("pipeline_rules") or []})
+
+
+@app.post("/api/os/pipeline_rules")
+def api_os_pipeline_rules_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return jsonify({"ok": False, "error": "rules must be a list"}), 400
+    osd = _os_load(uname)
+    osd["pipeline_rules"] = rules
+    _os_save(uname, osd)
+    return jsonify({"ok": True, "rules": rules})
 
 
 # =========================
