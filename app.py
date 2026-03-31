@@ -8088,10 +8088,15 @@ function showModal(title, body, imgUrl){
           data.next_action ? ('\nNext action\n' + data.next_action) : ''
         ].filter(Boolean).join('\n');
         const acted = applyCommandRouteToUI(data, q);
-        showModal('Command router', (acted ? 'Opened suggested module.\n\n' : '') + preview);
         if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
+        if(acted){
+          try{ hideModal(); }catch(e){}
+          try{ showToast('Command executed'); }catch(e){}
+          return;
+        }
+        showModal('Command router', preview || 'Command routed, but no UI action was attached to this command yet.');
       }catch(e){
         showModal('Command router error', String(e && e.message ? e.message : e));
       }
@@ -11324,46 +11329,49 @@ async function crmFetchTasks(){
 
     function applyCommandRouteToUI(route, query){
       const module = ((route && route.module) || '').trim();
+      const nextAction = ((route && route.next_action) || '').trim().toUpperCase();
       const q = (query || '').trim();
       try{
-        if(module === 'lead_lab'){
-          showLeadLabModal();
+        if(module === 'lead_lab' || nextAction === 'OPEN_MODULE_LEAD_LAB'){
+          try{ showLeadLabModal(); }catch(e){ if($('leadLabBtn')) $('leadLabBtn').click(); }
           if($('leadLabInput') && !$('leadLabInput').value) $('leadLabInput').value = q;
           if($('leadLabNiche') && !$('leadLabNiche').value) $('leadLabNiche').value = q;
           return true;
         }
-        if(module === 'crm_clients' || module === 'crm_pipeline' || module === 'crm_broadcast'){
+        if(module === 'crm_clients' || module === 'crm_pipeline' || module === 'crm_broadcast' || nextAction === 'OPEN_MODULE_CRM'){
           const view = module === 'crm_pipeline' ? 'crmViewPipeline' : (module === 'crm_broadcast' ? 'crmViewBroadcast' : 'crmViewClients');
-          showCRMModal(view, module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients'));
+          try{ showCRMModal(view, module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients')); }
+          catch(e){ if($('crmBtn')) $('crmBtn').click(); }
           return true;
         }
-        if(module === 'calendar'){
+        if(module === 'calendar' || nextAction === 'OPEN_MODULE_CALENDAR'){
           if($('calendarBtn')) $('calendarBtn').click();
           return true;
         }
-        if(module === 'social_studio'){
-          showSocialStudioModal();
+        if(module === 'social_studio' || nextAction === 'OPEN_MODULE_SOCIAL_STUDIO'){
+          try{ showSocialStudioModal(); }catch(e){ if($('socialStudioBtn')) $('socialStudioBtn').click(); }
           if($('socialStudioOffer') && !$('socialStudioOffer').value) $('socialStudioOffer').value = q;
           return true;
         }
-        if(module === 'offer_builder'){
-          showOfferBuilderModal();
+        if(module === 'offer_builder' || nextAction === 'OPEN_MODULE_OFFER_BUILDER'){
+          try{ showOfferBuilderModal(); }catch(e){ if($('offerBuilderBtn')) $('offerBuilderBtn').click(); }
           if($('offerBuilderMethod') && !$('offerBuilderMethod').value) $('offerBuilderMethod').value = q;
           return true;
         }
-        if(module === 'growth_playbook'){
-          showGrowthPlaybookModal();
+        if(module === 'growth_playbook' || nextAction === 'OPEN_MODULE_GROWTH_PLAYBOOK'){
+          try{ showGrowthPlaybookModal(); }catch(e){ if($('growthPlaybookBtn')) $('growthPlaybookBtn').click(); }
           if($('playbookContext') && !$('playbookContext').value) $('playbookContext').value = q;
           return true;
         }
-        if(module === 'email_console'){
-          showEmailConsoleModal();
+        if(module === 'email_console' || nextAction === 'OPEN_MODULE_EMAIL_CONSOLE'){
+          try{ showEmailConsoleModal(); }catch(e){ if($('emailConsoleBtn')) $('emailConsoleBtn').click(); }
           if($('emailBody') && !$('emailBody').value) $('emailBody').value = q;
           return true;
         }
-        if(module === 'round_table'){
+        if(module === 'round_table' || nextAction === 'OPEN_MODULE_ROUND_TABLE'){
           if($('opPrompt')) $('opPrompt').value = q;
-          showToast('Command routed to the round table');
+          try{ hideModal(); }catch(e){}
+          try{ showToast('Command routed to the round table'); }catch(e){}
           return true;
         }
       }catch(e){}
