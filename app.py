@@ -6645,15 +6645,21 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <input id="crmName" />
         </div>
         <div>
-          <label>Email</label>
-          <input id="crmEmail" />
+          <label>Company</label>
+          <input id="crmCompany" />
         </div>
       </div>
       <div class="grid" style="margin-top:10px;">
         <div>
+          <label>Email</label>
+          <input id="crmEmail" />
+        </div>
+        <div>
           <label>Phone</label>
           <input id="crmPhone" placeholder="+15551234567" />
         </div>
+      </div>
+      <div class="grid" style="margin-top:10px;">
         <div>
           <label>Status</label>
           <select id="crmStatusSel">
@@ -8081,7 +8087,8 @@ function showModal(title, body, imgUrl){
           data.plan ? ('\nPlan\n' + data.plan) : '',
           data.next_action ? ('\nNext action\n' + data.next_action) : ''
         ].filter(Boolean).join('\n');
-        showModal('Command router', preview);
+        const acted = applyCommandRouteToUI(data, q);
+        showModal('Command router', (acted ? 'Opened suggested module.\n\n' : '') + preview);
         if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
@@ -10722,9 +10729,10 @@ Challenge weak assumptions. Surface risks.`;
       if(!ed) return;
       ed.style.display = 'block';
       crmEditingClientId = id || null;
-      const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
+      const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',company:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
       $("crmEditTitle").innerText = id ? 'Edit client' : 'Add client';
       $("crmName").value = c.name || '';
+      if($("crmCompany")) $("crmCompany").value = c.company || '';
       $("crmEmail").value = c.email || '';
       $("crmPhone").value = c.phone || '';
       $("crmStatusSel").value = c.status || 'lead';
@@ -10755,6 +10763,7 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Saving...';
       const payload = {
         name: ($("crmName").value||'').trim(),
+        company: ($("crmCompany") ? ($("crmCompany").value||'').trim() : ''),
         email: ($("crmEmail").value||'').trim(),
         phone: ($("crmPhone").value||'').trim(),
         status: ($("crmStatusSel").value||'lead').trim(),
@@ -10780,7 +10789,7 @@ Challenge weak assumptions. Surface risks.`;
         crmRenderPipelineBoard();
         showToast('Saved');
       }catch(e){
-        if(st) st.innerText = 'Save failed';
+        if(st) st.innerText = (e && e.message) ? e.message : 'Save failed';
       }
     }
 
@@ -11313,6 +11322,54 @@ async function crmFetchTasks(){
       }).join('');
     }
 
+    function applyCommandRouteToUI(route, query){
+      const module = ((route && route.module) || '').trim();
+      const q = (query || '').trim();
+      try{
+        if(module === 'lead_lab'){
+          showLeadLabModal();
+          if($('leadLabInput') && !$('leadLabInput').value) $('leadLabInput').value = q;
+          if($('leadLabNiche') && !$('leadLabNiche').value) $('leadLabNiche').value = q;
+          return true;
+        }
+        if(module === 'crm_clients' || module === 'crm_pipeline' || module === 'crm_broadcast'){
+          const view = module === 'crm_pipeline' ? 'crmViewPipeline' : (module === 'crm_broadcast' ? 'crmViewBroadcast' : 'crmViewClients');
+          showCRMModal(view, module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients'));
+          return true;
+        }
+        if(module === 'calendar'){
+          if($('calendarBtn')) $('calendarBtn').click();
+          return true;
+        }
+        if(module === 'social_studio'){
+          showSocialStudioModal();
+          if($('socialStudioOffer') && !$('socialStudioOffer').value) $('socialStudioOffer').value = q;
+          return true;
+        }
+        if(module === 'offer_builder'){
+          showOfferBuilderModal();
+          if($('offerBuilderMethod') && !$('offerBuilderMethod').value) $('offerBuilderMethod').value = q;
+          return true;
+        }
+        if(module === 'growth_playbook'){
+          showGrowthPlaybookModal();
+          if($('playbookContext') && !$('playbookContext').value) $('playbookContext').value = q;
+          return true;
+        }
+        if(module === 'email_console'){
+          showEmailConsoleModal();
+          if($('emailBody') && !$('emailBody').value) $('emailBody').value = q;
+          return true;
+        }
+        if(module === 'round_table'){
+          if($('opPrompt')) $('opPrompt').value = q;
+          showToast('Command routed to the round table');
+          return true;
+        }
+      }catch(e){}
+      return false;
+    }
+
     function crmGuessEmails(name, domain){
       const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
       const nm = (name||'').trim().toLowerCase();
@@ -11425,7 +11482,7 @@ async function crmFetchTasks(){
             showToast('Lead added to CRM');
             try{ await crmFetchClients(); }catch(e){}
           }catch(e){
-            showToast('Could not add lead');
+            showToast((e && e.message) ? e.message : 'Could not add lead');
           }
         };
       });
@@ -13827,7 +13884,7 @@ def api_clients_create():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
     if not name:
-        return jsonify({"ok": False, "error": "Name is required"}), 400
+        name = _crm_payload_fallback_name(payload)
     data = _load_clients(username)
     cid = _new_client_id()
     now = datetime.utcnow().isoformat() + "Z"
@@ -14349,6 +14406,25 @@ def api_crm_clients_list():
     clients.sort(key=_ts, reverse=True)
     return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}})
 
+def _crm_payload_fallback_name(payload: Dict[str, Any]) -> str:
+    try:
+        company = (payload.get("company") or "").strip()
+        if company:
+            return company
+        email = (payload.get("email") or "").strip()
+        if email:
+            local = email.split("@", 1)[0].strip()
+            if local:
+                return local.replace(".", " ").replace("_", " ").replace("-", " ").title()
+        phone = (payload.get("phone") or "").strip()
+        if phone:
+            digits = re.sub(r"\D+", "", phone)
+            if digits:
+                return f"Lead {digits[-4:]}"
+    except Exception:
+        pass
+    return "New lead"
+
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
     u = current_user()
@@ -14410,6 +14486,8 @@ def api_crm_clients_update(client_id: str):
     for k in ["name","company","email","phone","status","last_contact","next_followup","notes","last_summary"]:
         if k in payload:
             c[k] = (payload.get(k) or "").strip()
+    if not (c.get("name") or "").strip():
+        c["name"] = _crm_payload_fallback_name(c)
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
         if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
