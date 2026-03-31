@@ -8084,15 +8084,25 @@ function showModal(title, body, imgUrl){
         const preview = [
           'Intent: ' + (data.intent || ''),
           'Suggested module: ' + (data.module || ''),
-          data.plan ? ('\nPlan\n' + data.plan) : '',
-          data.next_action ? ('\nNext action\n' + data.next_action) : ''
-        ].filter(Boolean).join('\n');
-        const acted = applyCommandRouteToUI(data, q);
-        if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
+          data.plan ? ('
+Plan
+' + data.plan) : '',
+          data.next_action ? ('
+Next action
+' + data.next_action) : ''
+        ].filter(Boolean).join('
+');
+        if(data.prefill_objective && $("sessionObjectiveInput") && !((($("sessionObjectiveInput").value)||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
+
+        // Important: close the temporary router overlay before opening the target UI.
+        // The target modules reuse the same overlay/modal system, so hiding after action
+        // closes the module we just opened.
+        try{ hideModal(); }catch(e){}
+
+        const acted = applyCommandRouteToUI(data, q);
         if(acted){
-          try{ hideModal(); }catch(e){}
           try{ showToast('Command executed'); }catch(e){}
           return;
         }
@@ -11340,8 +11350,15 @@ async function crmFetchTasks(){
         }
         if(module === 'crm_clients' || module === 'crm_pipeline' || module === 'crm_broadcast' || nextAction === 'OPEN_MODULE_CRM'){
           const view = module === 'crm_pipeline' ? 'crmViewPipeline' : (module === 'crm_broadcast' ? 'crmViewBroadcast' : 'crmViewClients');
-          try{ showCRMModal(view, module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients')); }
-          catch(e){ if($('crmBtn')) $('crmBtn').click(); }
+          const title = module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients');
+          try{ showCRMModal(view, title); }
+          catch(e){
+            try{
+              if(typeof showCRMModal === 'function') showCRMModal(view, title);
+              else if($('crmBtn') && typeof $('crmBtn').onclick === 'function') $('crmBtn').onclick();
+              else if($('crmBtn')) $('crmBtn').click();
+            }catch(err){}
+          }
           return true;
         }
         if(module === 'calendar' || nextAction === 'OPEN_MODULE_CALENDAR'){
