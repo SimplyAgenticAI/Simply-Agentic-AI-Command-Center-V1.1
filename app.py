@@ -512,13 +512,28 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def save_json(path: Path, payload: Any) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
+
+@app.errorhandler(Exception)
+def _api_json_error_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            code = getattr(e, 'code', 500) or 500
+            resp = jsonify({'ok': False, 'error': str(e) or 'Internal server error'})
+            resp.headers['Cache-Control'] = 'no-store'
+            return resp, code
+    except Exception:
+        pass
+    raise e
 
 # =========================
 # TASK LOG (APPEND-ONLY)
@@ -6944,6 +6959,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="leadLabSampleBtn">Sample</button>
+      <button class="btn" id="leadLabClearBtn">Clear list</button>
       <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
     </div>
     <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
@@ -9814,26 +9830,22 @@ function makeSeat(defn, idx){
           if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
-
-            const targetBefore = currentAlwaysTarget();
-            if(targetBefore){
-              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
-                .replace(/\s+/g, " ")
-                .trim();
-            }
-
-            // Switch teammate and apply the same glow as clicking
+            // Switch teammate and apply the same glow as clicking.
+            // Important: do not type the teammate name into either prompt box.
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
+            // Baseline the recognizer history so the spoken name is not replayed into the new box.
             alwaysFinalBaseline = allFinalRaw;
 
-            // Start writing into the new target input from its existing content
+            // Start fresh in the new target from its existing text only.
             const t2 = currentAlwaysTarget();
-            alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
+            if(t2){
+              alwaysBaseText = (t2.value ? t2.value : "").trim();
+              try{ t2.focus(); }catch(_){ }
+            }else{
+              alwaysBaseText = "";
+            }
             alwaysFinalText = "";
             alwaysInterimText = "";
             return;
@@ -11533,23 +11545,44 @@ async function crmFetchTasks(){
       });
     }
 
+    let crmLeadLabAbortController = null;
+
+    function crmClearLeadLab(){
+      try{
+        if(crmLeadLabAbortController){ crmLeadLabAbortController.abort(); }
+      }catch(e){}
+      crmLeadLabAbortController = null;
+      const box = $("leadLabResults");
+      if(box) box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
+      const st = $("leadLabStatus");
+      if(st) st.innerText = 'Lead list cleared.';
+    }
+
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
+      const box = $("leadLabResults");
+      if(box) box.innerHTML = '<div class="tiny" style="opacity:.8;">Building lead list...</div>';
       if(st) st.innerText = 'Building lead list...';
       try{
-        const res = await fetch('/api/crm/lead_lab', {
+        try{ if(crmLeadLabAbortController){ crmLeadLabAbortController.abort(); } }catch(e){}
+        crmLeadLabAbortController = new AbortController();
+        const payload = {
+          niche: ($("leadLabNiche")?.value || '').trim(),
+          location: ($("leadLabLocation")?.value || '').trim(),
+          source_text: ($("leadLabInput")?.value || '').trim(),
+          specific_areas: ($("leadLabAreas")?.value || '').trim(),
+          search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
+          lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
+          require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
+          min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40,
+          _ts: Date.now()
+        };
+        const res = await fetch('/api/crm/lead_lab?ts=' + encodeURIComponent(String(Date.now())), {
           method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            niche: ($("leadLabNiche")?.value || '').trim(),
-            location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim(),
-            specific_areas: ($("leadLabAreas")?.value || '').trim(),
-            search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
-            lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
-            require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
-            min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40
-          })
+          headers:{'Content-Type':'application/json','Cache-Control':'no-store'},
+          cache:'no-store',
+          signal: crmLeadLabAbortController.signal,
+          body: JSON.stringify(payload)
         });
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         const raw = await res.text();
@@ -11562,7 +11595,13 @@ async function crmFetchTasks(){
         crmRenderLeadResults(data.items || []);
         if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
       }catch(e){
+        if(e && e.name === 'AbortError'){
+          if(st) st.innerText = 'Previous lead build canceled.';
+          return;
+        }
         if(st) st.innerText = e.message || 'Lead build failed';
+      }finally{
+        crmLeadLabAbortController = null;
       }
     }
 
@@ -13541,8 +13580,19 @@ maybeAutoShowOnboarding();
       }
 
       if(key === "first_prompt"){
-        focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
+        try{ if(typeof hideModal === "function") hideModal(); }catch(e){}
+        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
+        try{ if(typeof forceSeatSelectUI === "function") forceSeatSelectUI(selectedSeat || ''); }catch(e){}
+        setTimeout(()=>{
+          try{
+            const target = document.getElementById('opPrompt') || document.getElementById('followMsg');
+            if(target){
+              target.scrollIntoView({behavior:'smooth', block:'center'});
+              try{ target.focus(); }catch(_){ }
+            }
+            if(typeof showToast === 'function') showToast('You are back at the command center. Type your first prompt here.');
+          }catch(e){}
+        }, 140);
         return;
       }
     }finally{
