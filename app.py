@@ -7325,7 +7325,32 @@ if (typeof window.showToast !== "function") {
     // and only displaying the delta after a teammate name switch.
     let alwaysFinalBaseline = "";
 
-    const $ = (id) => document.getElementById(id);
+    const __NULL_CLASSLIST = { add(){}, remove(){}, toggle(){ return false; }, contains(){ return false; } };
+    const __NULL_STYLE = new Proxy({}, { get(){ return ""; }, set(){ return true; } });
+    const __NULL_DATASET = new Proxy({}, { get(){ return ""; }, set(){ return true; } });
+    const __NULL_RECT = () => ({ left:0, top:0, right:0, bottom:0, width:0, height:0, x:0, y:0 });
+    const __NULL_EL = new Proxy(function(){}, {
+      get(target, prop){
+        if(prop === '__missing') return true;
+        if(prop === 'style') return __NULL_STYLE;
+        if(prop === 'classList') return __NULL_CLASSLIST;
+        if(prop === 'dataset') return __NULL_DATASET;
+        if(prop === 'value' || prop === 'innerText' || prop === 'textContent' || prop === 'innerHTML' || prop === 'src' || prop === 'href') return '';
+        if(prop === 'checked') return false;
+        if(prop === 'files' || prop === 'children' || prop === 'childNodes') return [];
+        if(prop === 'offsetWidth' || prop === 'offsetHeight' || prop === 'clientWidth' || prop === 'clientHeight' || prop === 'scrollWidth' || prop === 'scrollHeight' || prop === 'scrollTop' || prop === 'scrollLeft') return 0;
+        if(prop === 'getBoundingClientRect') return __NULL_RECT;
+        if(prop === 'querySelector') return () => null;
+        if(prop === 'querySelectorAll') return () => [];
+        if(prop === 'closest') return () => null;
+        if(prop === 'appendChild' || prop === 'removeChild' || prop === 'insertBefore') return () => __NULL_EL;
+        if(prop === 'addEventListener' || prop === 'removeEventListener' || prop === 'setPointerCapture' || prop === 'releasePointerCapture' || prop === 'focus' || prop === 'blur' || prop === 'click' || prop === 'scrollIntoView' || prop === 'setAttribute' || prop === 'removeAttribute' || prop === 'select') return () => {};
+        return target[prop] || '';
+      },
+      set(target, prop, value){ target[prop] = value; return true; },
+      apply(){ return __NULL_EL; }
+    });
+    const $ = (id) => document.getElementById(id) || __NULL_EL;
 
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
@@ -8084,14 +8109,9 @@ function showModal(title, body, imgUrl){
         const preview = [
           'Intent: ' + (data.intent || ''),
           'Suggested module: ' + (data.module || ''),
-          data.plan ? ('
-Plan
-' + data.plan) : '',
-          data.next_action ? ('
-Next action
-' + data.next_action) : ''
-        ].filter(Boolean).join('
-');
+          data.plan ? ('\nPlan\n' + data.plan) : '',
+          data.next_action ? ('\nNext action\n' + data.next_action) : ''
+        ].filter(Boolean).join('\n');
         if(data.prefill_objective && $("sessionObjectiveInput") && !((($("sessionObjectiveInput").value)||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
