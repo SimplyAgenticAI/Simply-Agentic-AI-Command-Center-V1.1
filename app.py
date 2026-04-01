@@ -6445,10 +6445,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <input id="smtpPort" type="number" placeholder="587" />
 
                 <label>SMTP Username (from address)</label>
-                <input id="smtpUser" placeholder="you@example.com" />
+                <input id="smtpUser" placeholder="you@example.com" autocomplete="off" name="smtp_username_field" data-lpignore="true" data-1p-ignore="true" />
 
                 <label>SMTP Password (app password recommended)</label>
-                <input id="smtpPass" type="password" placeholder="••••••••" />
+                <input id="smtpPass" type="password" placeholder="••••••••" autocomplete="new-password" name="smtp_app_secret_field" data-lpignore="true" data-1p-ignore="true" />
 
                 <label>From Name</label>
                 <input id="smtpFromName" placeholder="Your Name" />
@@ -6464,7 +6464,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
 
                   <label>Twilio Auth Token</label>
-                  <input id="twilioToken" type="password" placeholder="••••••••" />
+                  <input id="twilioToken" type="password" placeholder="••••••••" autocomplete="new-password" name="twilio_api_secret_field" data-lpignore="true" data-1p-ignore="true" />
 
                   <label>Twilio From Number</label>
                   <input id="twilioFrom" placeholder="+15551234567" />
@@ -9713,6 +9713,23 @@ function makeSeat(defn, idx){
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
+
+    function stripLeadingTeammateWakeWord(text){
+      let out = (text || '').trim();
+      if(!out) return out;
+      const names = getInstalledNamesInOrder();
+      for(const name of names){
+        if(!name) continue;
+        const esc = name.replace(/[.*+?^${}()|[\]\]/g, "\$&");
+        const rx = new RegExp('^(?:hey\s+)?' + esc + '(?:[,:.!?\s]+|$)', 'i');
+        if(rx.test(out)){
+          out = out.replace(rx, '').replace(/^[-,.:;!?\s]+/, '').trim();
+          break;
+        }
+      }
+      return out;
+    }
+
     function currentAlwaysTarget(){
       return (alwaysMode === "group") ? $("opPrompt") : $("followMsg");
     }
@@ -9852,15 +9869,17 @@ function makeSeat(defn, idx){
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
-        alwaysFinalText = allFinal;
-        alwaysInterimText = interimRaw;
+        // UPDATE: strip teammate wake words from the text that gets typed into the prompt box.
+        // Saying a teammate name should switch seats only, not leave that name behind in the text area.
+        alwaysFinalText = stripLeadingTeammateWakeWord(allFinal);
+        alwaysInterimText = stripLeadingTeammateWakeWord(interimRaw);
 
         const target = currentAlwaysTarget();
         if(target){
-          target.value = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
+          const combined = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
             .replace(/\s+/g, " ")
             .trim();
+          target.value = stripLeadingTeammateWakeWord(combined);
         }
       };
 
@@ -11577,29 +11596,44 @@ async function crmFetchTasks(){
           min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40,
           _ts: Date.now()
         };
-        const res = await fetch('/api/crm/lead_lab?ts=' + encodeURIComponent(String(Date.now())), {
-          method:'POST',
-          headers:{'Content-Type':'application/json','Cache-Control':'no-store'},
-          cache:'no-store',
-          signal: crmLeadLabAbortController.signal,
-          body: JSON.stringify(payload)
-        });
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        const raw = await res.text();
-        let data = null;
-        try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-        if(!ct.includes('application/json') || !data){
-          throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
+        let lastErr = '';
+        for(let attempt = 1; attempt <= 2; attempt++){
+          crmLeadLabAbortController = new AbortController();
+          try{
+            const res = await fetch('/api/crm/lead_lab?ts=' + encodeURIComponent(String(Date.now())) + '&attempt=' + attempt, {
+              method:'POST',
+              headers:{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache'},
+              cache:'no-store',
+              signal: crmLeadLabAbortController.signal,
+              body: JSON.stringify(payload)
+            });
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            const raw = await res.text();
+            let data = null;
+            try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
+            if(!ct.includes('application/json') || !data){
+              throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
+            }
+            if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
+            crmRenderLeadResults(data.items || []);
+            if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
+            crmLeadLabAbortController = null;
+            return;
+          }catch(e){
+            if(e && e.name === 'AbortError'){
+              if(st) st.innerText = 'Previous lead build canceled.';
+              crmLeadLabAbortController = null;
+              return;
+            }
+            lastErr = e && e.message ? e.message : 'Lead build failed';
+            if(attempt < 2){
+              if(st) st.innerText = 'Lead Lab hit a temporary issue. Retrying...';
+              await new Promise(r => setTimeout(r, 500));
+              continue;
+            }
+          }
         }
-        if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
-        crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
-      }catch(e){
-        if(e && e.name === 'AbortError'){
-          if(st) st.innerText = 'Previous lead build canceled.';
-          return;
-        }
-        if(st) st.innerText = e.message || 'Lead build failed';
+        if(st) st.innerText = lastErr || 'Lead build failed';
       }finally{
         crmLeadLabAbortController = null;
       }
@@ -16122,6 +16156,49 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     return out[:lead_count]
 
 
+def _crm_make_stub_lead(niche: str, location: str, area: str, idx: int = 1) -> Dict[str, Any]:
+    area = (area or location or 'Target Area').strip() or 'Target Area'
+    niche_label = (niche or 'Business').strip() or 'Business'
+    company = f"{area} {niche_label.title()} {idx}"
+    slug = re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-") or f"lead-{idx}"
+    domain = f"{slug}.com"
+    website = f"https://{domain}"
+    return {
+        'name': company,
+        'company': company,
+        'title': 'Contact',
+        'domain': domain,
+        'website': website,
+        'phone': '',
+        'email': '',
+        'email_candidates': _crm_merge_email_candidates([], company, domain),
+        'score': 35,
+        'confidence': 35,
+        'niche_hit': True,
+        'location_hit': bool(location or area),
+        'notes': f'Fallback lead shell for {niche_label} in {area}. Replace with validated contact data before outreach.',
+        'source_query': f'{niche_label} in {area}',
+    }
+
+
+def _crm_fallback_shells(niche: str, location: str, lead_count: int, specific_areas: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    areas = [x for x in (specific_areas or []) if x]
+    if location:
+        areas.append(location)
+    if not areas:
+        areas = ['Target Area']
+    out: List[Dict[str, Any]] = []
+    i = 1
+    total = max(1, int(lead_count or 1))
+    while len(out) < total:
+        for area in areas:
+            out.append(_crm_make_stub_lead(niche, location, area, i))
+            i += 1
+            if len(out) >= total:
+                break
+    return out[:total]
+
+
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
     u = current_user()
@@ -16163,10 +16240,17 @@ def api_crm_lead_lab():
 
         remaining = max(0, lead_count - len(items))
         if remaining > 0:
-            discovered = _crm_discover_public_leads(
-                niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
-            )
+            try:
+                discovered = _crm_discover_public_leads(
+                    niche, location, remaining, search_mode, existing_domains=existing_domains,
+                    specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
+                )
+            except Exception as discover_err:
+                try:
+                    append_log('crm_lead_lab_discover_error', {'error': str(discover_err), 'at': now_iso(), 'niche': niche, 'location': location})
+                except Exception:
+                    pass
+                discovered = []
             items.extend(discovered)
 
         # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
@@ -16208,7 +16292,8 @@ def api_crm_lead_lab():
 
         warning = ""
         if not final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
+            final = _crm_fallback_shells(niche, location, lead_count, specific_areas=specific_areas)
+            warning = "Lead Lab could not validate live public results for this search, so it returned editable lead shells to keep your workflow moving."
         elif len(final) < lead_count:
             warning = f"Built {len(final)} leads from public web signals for this search."
 
