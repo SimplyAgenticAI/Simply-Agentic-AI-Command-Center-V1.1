@@ -9720,8 +9720,8 @@ function makeSeat(defn, idx){
       const names = getInstalledNamesInOrder();
       for(const name of names){
         if(!name) continue;
-        const esc = name.replace(/[.*+?^${}()|[\]\]/g, "\$&");
-        const rx = new RegExp('^(?:hey\s+)?' + esc + '(?:[,:.!?\s]+|$)', 'i');
+        const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const rx = new RegExp("^(?:hey\\s+)?" + esc + "(?:[,:.!?\\s]+|$)", "i");
         if(rx.test(out)){
           out = out.replace(rx, '').replace(/^[-,.:;!?\s]+/, '').trim();
           break;
