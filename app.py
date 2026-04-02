@@ -46,6 +46,7 @@ load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
+OPENAI_REQUEST_TIMEOUT_SECONDS = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "90"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
 
@@ -2397,14 +2398,30 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
+
+def _chat_completion_with_hard_timeout(client_obj, kwargs: Dict[str, Any], timeout_seconds: Optional[int] = None):
+    """Run the OpenAI chat completion in a worker thread so the request cannot hang forever."""
+    timeout_seconds = int(timeout_seconds or OPENAI_REQUEST_TIMEOUT_SECONDS or 90)
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(client_obj.chat.completions.create, **kwargs)
+        try:
+            return fut.result(timeout=timeout_seconds)
+        except Exception as e:
+            try:
+                fut.cancel()
+            except Exception:
+                pass
+            raise e
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
+    req = {
+        "model": MODEL,
+        "messages": [{"role": "system", "content": system}] + messages,
+        "temperature": temperature,
+        "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
+    }
     try:
-        resp = get_openai_client().chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "system", "content": system}] + messages,
-            temperature=temperature,
-                    timeout=60,
-        )
+        resp = _chat_completion_with_hard_timeout(get_openai_client(), req, OPENAI_REQUEST_TIMEOUT_SECONDS)
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         safe_msgs: List[Dict[str, Any]] = []
@@ -2421,16 +2438,13 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 safe_msgs.append({"role": m.get("role", "user"), "content": c2})
             else:
                 safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        try:
-            resp2 = get_openai_client().chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "system", "content": system}] + safe_msgs,
-            temperature=temperature,
-            timeout=60,
-        )
-        except Exception as e2:
-            # bubble up for route handlers to return a clean JSON error
-            raise e2
+        req2 = {
+            "model": MODEL,
+            "messages": [{"role": "system", "content": system}] + safe_msgs,
+            "temperature": temperature,
+            "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
+        }
+        resp2 = _chat_completion_with_hard_timeout(get_openai_client(), req2, OPENAI_REQUEST_TIMEOUT_SECONDS)
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
 
@@ -3444,7 +3458,25 @@ def api_followup():
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    text = call_llm(sys, msgs, temperature=0.65)
+    try:
+        text = call_llm(sys, msgs, temperature=0.65)
+    except Exception as e:
+        status, msg_err = _classify_openai_error(e)
+        append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
+        append_task_log(
+            "teammate_followup",
+            {
+                "name": name,
+                "message": msg,
+                "message_with_attachments": msg2,
+                "attachment_meta": attach_meta,
+                "vision_images_count": len(vision_images),
+                "error": str(e),
+            },
+            teammate=name,
+            status="failed"
+        )
+        return jsonify({"ok": False, "error": msg_err}), status
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -10056,7 +10088,7 @@ function makeSeat(defn, idx){
           const res = await fetch("/api/followup", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn}),
             signal: controller.signal
           });
           clearTimeout(t);
@@ -10098,7 +10130,7 @@ function makeSeat(defn, idx){
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
-      setOpStatus("Complete");
+      setOpStatus(Object.keys(outputs).length ? "Complete" : "AI unavailable");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       groupFileIds = [];
@@ -10168,17 +10200,29 @@ async function sendFollow(){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
-      });
-      const data = await res.json();
-
-      if(!data.ok){
+      let data = null;
+      try{
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 120000);
+        const res = await fetch("/api/followup", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn}),
+          signal: controller.signal
+        });
+        clearTimeout(t);
+        data = await res.json();
+      }catch(e){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
-        showModal("Error", data.error || "Send failed");
+        showModal("Error", String((e && e.message) ? e.message : "Send failed"));
+        return;
+      }
+
+      if(!data || !data.ok){
+        setSeatLive(selectedSeat, "waiting");
+        setOpStatus("Error");
+        showModal("Error", (data && data.error) ? data.error : "Send failed");
         return;
       }
 
