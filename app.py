@@ -2333,8 +2333,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
             client_block = (
                 "\n\nACTIVE CLIENT (memory profile)\n"
                 f"Client name: {(_active.get('name') or '').strip()}\n"
-                f"Email: {(_active.get('email') or '').strip()}\n"
-                f"Phone: {(_active.get('phone') or '').strip()}\n"
+                f"Verified email: {(_active.get('email') or '').strip()}\n"
+                f"Verified phone: {(_active.get('phone') or '').strip()}\n"
                 f"Company: {(_active.get('company') or '').strip()}\n"
                 f"Notes: {(_active.get('notes') or '').strip()}\n"
             )
@@ -2476,29 +2476,31 @@ def _pick_image_model() -> str:
     return "gpt-image-1"
 
 def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
-    # Refine prompt using the text model for better image outputs.
-    # Keep it short, tool-friendly.
+    # Refine prompt using the text model for stronger, more production-ready image outputs.
     sys = (
-        "You are an expert image prompt engineer. "
-        "Rewrite the user's request into a single, concise image prompt. "
-        "Include composition, subject, style, and any key text (if requested). "
-        "Do NOT mention policies, limitations, or tools. "
-        "Output ONLY the rewritten image prompt."
+        "You are an expert image prompt engineer. Rewrite the user's request into one strong image prompt that will produce a vivid, premium result. "
+        "Preserve the user's subject, composition, text requirements, and brand intent. "
+        "Make the output visually rich, cinematic, high-detail, and commercially polished. "
+        "When text is requested inside the image, explicitly say that the text must be clean, legible, and accurately spelled. "
+        "When the request is for a graphic, poster, ad, or branded piece, emphasize strong hierarchy, contrast, depth, and polished typography. "
+        "Output only the rewritten image prompt."
     )
     user = (raw or "").strip()
     if not user:
         return ""
-    # Lighting mode can bias toward higher contrast / cinematic looks.
+    style_suffix = (
+        " Style target: ultra-detailed, cinematic depth, crisp focus, layered lighting, rich contrast, premium composition, high realism where appropriate, "
+        "clean typography where appropriate, visually striking, not bland, not generic."
+    )
     if lighting_mode:
-        user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
+        style_suffix += " High contrast lighting, radiant highlights, rich shadows, vivid depth."
     try:
-        refined = call_llm(sys, [{"role": "user", "content": user}], temperature=0.25)
+        refined = call_llm(sys, [{"role": "user", "content": user + "\n\n" + style_suffix}], temperature=0.2)
         refined = (refined or "").strip()
-        # guard against multi-line chatter
         refined = refined.split("\n\n")[0].strip()
-        return refined or user
+        return refined or (user + " " + style_suffix).strip()
     except Exception:
-        return user
+        return (user + " " + style_suffix).strip()
 
 def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
     # Save into uploads like any other file and index it.
@@ -2556,6 +2558,7 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     source_rec = get_upload_record(source_file_id) if source_file_id else None
 
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
+    prompt2 = (prompt2 + "\n\nQuality target: cinematic, premium, high-detail, strong depth, rich contrast, polished composition, non-bland result.").strip()
 
     model = _pick_image_model()
     try:
@@ -7947,8 +7950,8 @@ function showModal(title, body, imgUrl){
         `Company: ${item.company || ''}`,
         `Title: ${item.title || ''}`,
         `Website: ${site}`,
-        `Email: ${email}`,
-        `Phone: ${phone}`,
+        `Verified email: ${email}`,
+        `Verified phone: ${phone}`,
         `Location: ${($("leadLabLocation")?.value || '').trim()}`,
         `Specific areas: ${($("leadLabAreas")?.value || '').trim()}`,
         `Search niche: ${($("leadLabNiche")?.value || '').trim()}`,
@@ -9437,81 +9440,128 @@ function makeSeat(defn, idx){
       await uploadFiles(files, "dm");
     });
 
-    async function captureScreenOnce(){
-      if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-        showModal("Screen share not supported", "This browser does not support screen capture. Try Chrome or Edge.");
-        return null;
-      }
+    let screenShareSessions = { group: null, dm: null };
 
+    function updateScreenShareButtons(){
+      const map = [
+        {id:'screenGroupBtn', key:'group'},
+        {id:'screenDmBtn', key:'dm'}
+      ];
+      map.forEach(row=>{
+        const el = $(row.id);
+        if(!el) return;
+        const active = !!(screenShareSessions[row.key] && screenShareSessions[row.key].stream);
+        el.classList.toggle('btnPrimary', active);
+        el.innerText = active ? 'Stop sharing' : 'Share screen';
+      });
+      const hint = $('uploadHint');
+      if(hint){
+        const activeTargets = Object.keys(screenShareSessions).filter(k => screenShareSessions[k] && screenShareSessions[k].stream);
+        hint.innerText = activeTargets.length ? 'Screen sharing is active. Your next message will attach a fresh frame from the live share.' : 'Attach files or use Share screen to attach a live screen frame to your next message.';
+      }
+    }
+
+    function stopScreenShare(target){
+      const sess = screenShareSessions[target];
+      if(!sess) return;
+      try{ if(sess.video){ try{ sess.video.pause(); }catch(e){} try{ sess.video.srcObject = null; }catch(e){} } }catch(e){}
+      try{ if(sess.stream){ sess.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); } }catch(e){}
+      screenShareSessions[target] = null;
+      updateScreenShareButtons();
+      const st = (target === 'group') ? $('opStatus') : $('micStatusDm');
+      if(st && st.innerText && /screen share|sharing/i.test(st.innerText)) st.innerText = target === 'group' ? 'Ready' : 'Mic: idle';
+    }
+
+    async function startPersistentScreenShare(target){
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+        showModal('Screen share not supported', 'This browser does not support screen capture. Try Chrome or Edge.');
+        return false;
+      }
+      stopScreenShare(target);
       let stream = null;
       try{
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'always' }, audio: false });
       }catch(e){
-        showModal("Screen share cancelled", "You closed the prompt or blocked permissions.");
-        return null;
+        showModal('Screen share cancelled', 'You closed the prompt or blocked permissions.');
+        return false;
       }
-
       try{
-        const track = stream.getVideoTracks()[0];
-        const video = document.createElement("video");
+        const video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
         video.srcObject = stream;
-
-        await new Promise((resolve) => {
-          video.onloadedmetadata = () => resolve(true);
-        });
-
-        video.play();
-        await new Promise(r => setTimeout(r, 120));
-
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.92));
-
-        try{ track.stop(); }catch(err){}
-        try{ stream.getTracks().forEach(t => t.stop()); }catch(err){}
-
-        if(!blob){
-          showModal("Capture failed", "Could not capture screenshot.");
-          return null;
+        await new Promise((resolve) => { video.onloadedmetadata = () => resolve(true); });
+        await video.play();
+        const endedTrack = stream.getVideoTracks()[0];
+        if(endedTrack){
+          endedTrack.addEventListener('ended', () => stopScreenShare(target), { once: true });
         }
-
-        const file = new File([blob], `screen_capture_${Date.now()}.png`, { type: "image/png" });
-        const url = URL.createObjectURL(blob);
-
-        return { file, previewUrl: url };
+        screenShareSessions[target] = { stream, video, startedAt: Date.now() };
+        updateScreenShareButtons();
+        const st = (target === 'group') ? $('opStatus') : $('micStatusDm');
+        if(st) st.innerText = 'Screen share active';
+        showToast('Screen sharing is active. Your next message will attach a fresh frame from the live share.');
+        return true;
       }catch(e){
         try{ if(stream) stream.getTracks().forEach(t => t.stop()); }catch(err){}
-        showModal("Capture failed", String(e && e.message ? e.message : e));
+        showModal('Screen share failed', String(e && e.message ? e.message : e));
+        return false;
+      }
+    }
+
+    async function captureFrameFromActiveShare(target){
+      const sess = screenShareSessions[target];
+      if(!sess || !sess.stream || !sess.video) return null;
+      try{
+        const video = sess.video;
+        if(video.readyState < 2){ await new Promise(r => setTimeout(r, 120)); }
+        const w = Math.max(640, video.videoWidth || 1280);
+        const h = Math.max(360, video.videoHeight || 720);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, w, h);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+        if(!blob) return null;
+        const file = new File([blob], `screen_share_${target}_${Date.now()}.png`, { type: 'image/png' });
+        const previewUrl = URL.createObjectURL(blob);
+        return { file, previewUrl };
+      }catch(e){
+        showModal('Capture failed', String(e && e.message ? e.message : e));
         return null;
       }
     }
 
-    async function captureAndAttach(target){
-      const cap = await captureScreenOnce();
+    async function ensureTargetHasCurrentShareAttachment(target){
+      const sess = screenShareSessions[target];
+      if(!sess || !sess.stream) return;
+      const cap = await captureFrameFromActiveShare(target);
       if(!cap) return;
-
-      showModal("Screen captured", "Screenshot captured and attached.", cap.previewUrl);
-
       try{
         const rec = await uploadOne(cap.file);
-        if(target === "group"){
+        if(target === 'group'){
           groupFileIds.push(rec.id);
-          renderAttachList("groupAttachList", groupFileIds);
+          renderAttachList('groupAttachList', groupFileIds);
         }else{
           dmFileIds.push(rec.id);
-          renderAttachList("dmAttachList", dmFileIds);
+          renderAttachList('dmAttachList', dmFileIds);
         }
       }catch(e){
-        showModal("Upload error", String(e && e.message ? e.message : e));
+        showModal('Upload error', String(e && e.message ? e.message : e));
+      } finally {
+        try{ URL.revokeObjectURL(cap.previewUrl); }catch(e){}
       }
     }
 
-    $("screenGroupBtn").onclick = () => captureAndAttach("group");
-    $("screenDmBtn").onclick = () => captureAndAttach("dm");
+    async function toggleScreenShare(target){
+      const sess = screenShareSessions[target];
+      if(sess && sess.stream){ stopScreenShare(target); return; }
+      await startPersistentScreenShare(target);
+    }
+
+    $("screenGroupBtn").onclick = () => toggleScreenShare("group");
+    $("screenDmBtn").onclick = () => toggleScreenShare("dm");
 
 
     // --- Voice / Mic reliability patch (ADD v6) ---
@@ -9935,6 +9985,7 @@ function makeSeat(defn, idx){
         return;
       }
 
+      await ensureTargetHasCurrentShareAttachment('group');
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
@@ -10103,6 +10154,7 @@ async function sendFollow(){
         showModal("No seat selected", "Click a teammate card first.");
         return;
       }
+      await ensureTargetHasCurrentShareAttachment('dm');
       const msg = $("followMsg").value.trim();
       if(!msg){
         showModal("Missing message", "Type a message for the selected teammate.");
@@ -11486,8 +11538,8 @@ async function crmFetchTasks(){
               <div style="font-weight:800;">${escapeHtml(item.name || item.company || '(no name)')}</div>
               <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
               <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
-              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
-              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
+              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Verified phone: ' + escapeHtml(topPhone) : 'Verified phone: —'}</div>
+              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Verified email: ' + escapeHtml(topEmail) : 'Verified email: —'}</div>
               ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
             <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
@@ -11580,11 +11632,24 @@ async function crmFetchTasks(){
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
       const box = $("leadLabResults");
-      if(box) box.innerHTML = '<div class="tiny" style="opacity:.8;">Building lead list...</div>';
-      if(st) st.innerText = 'Building lead list...';
+      const renderLoading = (msg, pct)=>{
+        const safeMsg = escapeHtml(msg || 'Building lead list...');
+        const width = Math.max(8, Math.min(100, Number(pct || 12)));
+        if(box){
+          box.innerHTML = `
+            <div class="diagCard" style="padding:12px;">
+              <div style="font-weight:800; margin-bottom:8px;">${safeMsg}</div>
+              <div style="height:12px; border-radius:999px; background: rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.08);">
+                <div style="height:100%; width:${width}%; background: linear-gradient(90deg, rgba(124,58,237,.92), rgba(59,130,246,.92)); transition: width .25s ease;"></div>
+              </div>
+              <div class="tiny" style="margin-top:8px; opacity:.85;">Lead Lab is validating live public contact data.</div>
+            </div>`;
+        }
+        if(st) st.innerText = '';
+      };
+      renderLoading('Building lead list...', 18);
       try{
         try{ if(crmLeadLabAbortController){ crmLeadLabAbortController.abort(); } }catch(e){}
-        crmLeadLabAbortController = new AbortController();
         const payload = {
           niche: ($("leadLabNiche")?.value || '').trim(),
           location: ($("leadLabLocation")?.value || '').trim(),
@@ -11600,6 +11665,7 @@ async function crmFetchTasks(){
         for(let attempt = 1; attempt <= 2; attempt++){
           crmLeadLabAbortController = new AbortController();
           try{
+            renderLoading(attempt === 1 ? 'Building lead list...' : 'Retrying lead list build...', attempt === 1 ? 42 : 65);
             const res = await fetch('/api/crm/lead_lab?ts=' + encodeURIComponent(String(Date.now())) + '&attempt=' + attempt, {
               method:'POST',
               headers:{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache'},
@@ -11616,7 +11682,7 @@ async function crmFetchTasks(){
             }
             if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
             crmRenderLeadResults(data.items || []);
-            if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
+            if(st) st.innerText = `Ready • ${((data.items||[]).length)} verified leads${data.warning ? ' • ' + data.warning : ''}`;
             crmLeadLabAbortController = null;
             return;
           }catch(e){
@@ -11627,12 +11693,13 @@ async function crmFetchTasks(){
             }
             lastErr = e && e.message ? e.message : 'Lead build failed';
             if(attempt < 2){
-              if(st) st.innerText = 'Lead Lab hit a temporary issue. Retrying...';
+              renderLoading('Retrying lead list build...', 72);
               await new Promise(r => setTimeout(r, 500));
               continue;
             }
           }
         }
+        if(box){ box.innerHTML = '<div class="tiny" style="opacity:.8;">No verified leads returned.</div>'; }
         if(st) st.innerText = lastErr || 'Lead build failed';
       }finally{
         crmLeadLabAbortController = null;
@@ -11657,9 +11724,20 @@ async function crmFetchTasks(){
       if(st) st.innerText = 'Generating...';
       if(box) box.innerHTML = '';
       try{
-        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Generation failed');
+        const res = await fetch(endpoint, {
+          method:'POST',
+          headers:{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache'},
+          cache:'no-store',
+          body: JSON.stringify(payload || {})
+        });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
+        if(!ct.includes('application/json') || !data){
+          throw new Error('Server response was invalid: ' + raw.slice(0, 220));
+        }
+        if(!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
         if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
         if(st) st.innerText = 'Ready';
       }catch(e){
@@ -11681,8 +11759,16 @@ async function crmFetchTasks(){
           </div>
           <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px; display:flex; flex-direction:column; gap:8px;">
             ${cards.map(c=>`<div class="pill" draggable="true" data-client-drag="${escapeHtml(c.id||'')}" style="display:block; cursor:grab;">
-                <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
-                <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
+                <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
+                  <div style="min-width:0;">
+                    <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
+                    <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
+                  </div>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+                    <button class="btn btnTiny" data-pipe-email="${escapeHtml(c.id||'')}" title="Email lead">✉️</button>
+                    <button class="btn btnTiny" data-pipe-sms="${escapeHtml(c.id||'')}" title="Text lead">💬</button>
+                  </div>
+                </div>
               </div>`).join('')}
           </div>
         </div>`;
@@ -11715,6 +11801,31 @@ async function crmFetchTasks(){
           }catch(e){
             showToast('Move failed');
           }
+        });
+      });
+      box.querySelectorAll('[data-pipe-email]').forEach(btn=>{
+        btn.addEventListener('click', ev=>{
+          ev.preventDefault(); ev.stopPropagation();
+          const id = btn.getAttribute('data-pipe-email') || '';
+          const c = (crmCache.clients||[]).find(x => x.id === id);
+          if(!c || !c.email) return showToast('No email found');
+          if($('emailTo')) $('emailTo').value = c.email || '';
+          if($('emailSubject')) $('emailSubject').value = '';
+          if($('emailBody')) $('emailBody').value = '';
+          setEmailFrom(selectedSeat || '');
+          showEmailConsoleModal('Email Console');
+        });
+      });
+      box.querySelectorAll('[data-pipe-sms]').forEach(btn=>{
+        btn.addEventListener('click', ev=>{
+          ev.preventDefault(); ev.stopPropagation();
+          const id = btn.getAttribute('data-pipe-sms') || '';
+          const c = (crmCache.clients||[]).find(x => x.id === id);
+          if(!c || !c.phone) return showToast('No phone found');
+          if($('smsTo')) $('smsTo').value = c.phone || '';
+          if($('smsBody')) $('smsBody').value = '';
+          setSmsFrom(selectedSeat || '');
+          showSMSConsoleModal('SMS Console');
         });
       });
     }
@@ -15798,7 +15909,8 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         if hint_email and not candidate.get('email'):
             candidate['email'] = hint_email
         candidate['website'] = website or candidate.get('website') or ''
-        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
+        candidate['email_candidates'] = ([{'email': hint_email, 'confidence': 0.97, 'status': 'public'}] if hint_email else [])
+        candidate['email'] = hint_email if hint_email else ''
         candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
@@ -15829,7 +15941,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     name = signals.get("name") or hint_name or ""
     company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
-    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
+    email_candidates = [{'email': e, 'confidence': 0.97, 'status': 'public'} for e in emails[:5]]
     candidate = {
         "name": name or company,
         "company": company,
@@ -15859,7 +15971,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
         title = (row.get("title") or "").strip() or ("Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact")
         if not name and company:
             name = company
-        email_candidates = _crm_email_candidates(name, domain)
+        email_candidates: List[Dict[str, Any]] = []
         item = {
             "name": name,
             "company": company,
@@ -15867,7 +15979,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
             "domain": domain,
             "website": f"https://{domain}" if domain else "",
             "phone": "",
-            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
+            "email": "",
             "email_candidates": email_candidates,
             "niche_hit": True,
             "location_hit": bool(location),
@@ -16020,7 +16132,7 @@ def _crm_fallback_candidate_from_result(result: Dict[str, str], niche: str, loca
         "website": result.get("url") or (f"https://{domain}"),
         "phone": "",
         "email": "",
-        "email_candidates": _crm_email_candidates(name or company or domain, domain),
+        "email_candidates": [],
         "niche_hit": True,
         "location_hit": bool(location),
         "notes": notes,
@@ -16049,7 +16161,7 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
         name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
     phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
     public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
-    email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name or company, domain)
+    email_candidates = ([{'email': public_email, 'confidence': 0.97, 'status': 'public'}] if public_email else [])
     title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
     notes = (row.get('snippet') or '').strip()
     score = 55
@@ -16096,13 +16208,12 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         if not dom or dom in seen_domains:
             return False
         has_phone = bool((item.get('phone') or '').strip())
-        public_email = bool((item.get('email') or '').strip())
-        any_email = public_email or bool(item.get('email_candidates') or [])
+        has_public_email = bool((item.get('email') or '').strip()) or any((x.get('status') == 'public' and (x.get('email') or '').strip()) for x in (item.get('email_candidates') or []))
         if require_contact == 'phone' and not has_phone:
             return False
-        if require_contact == 'email' and not any_email:
+        if require_contact == 'email' and not has_public_email:
             return False
-        if require_contact == 'phone_or_email' and not (has_phone or any_email):
+        if require_contact == 'phone_or_email' and not (has_phone or has_public_email):
             return False
         if (item.get('score') or 0) < int(min_score or 40):
             return False
@@ -16152,7 +16263,10 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
             if include_item(item) and len(out) >= lead_count:
                 break
 
-    out.sort(key=lambda x: ((1 if x.get('phone') else 0) + (1 if (x.get('email') or x.get('email_candidates')) else 0), x.get('score') or 0), reverse=True)
+    def _sort_key(item: Dict[str, Any]):
+        has_public_email = bool((item.get('email') or '').strip()) or any((r.get('status') == 'public' and (r.get('email') or '').strip()) for r in (item.get('email_candidates') or []))
+        return ((1 if item.get('phone') else 0) + (1 if has_public_email else 0), item.get('score') or 0)
+    out.sort(key=_sort_key, reverse=True)
     return out[:lead_count]
 
 
@@ -16289,13 +16403,11 @@ def api_crm_lead_lab():
                     final.append(item)
                     if len(final) >= lead_count:
                         break
-
         warning = ""
         if not final:
-            final = _crm_fallback_shells(niche, location, lead_count, specific_areas=specific_areas)
-            warning = "Lead Lab could not validate live public results for this search, so it returned editable lead shells to keep your workflow moving."
+            warning = "Lead Lab could not verify any live public email addresses or phone numbers for this search."
         elif len(final) < lead_count:
-            warning = f"Built {len(final)} leads from public web signals for this search."
+            warning = f"Built {len(final)} leads with publicly verifiable contact details for this search."
 
         resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
         resp.headers['Cache-Control'] = 'no-store'
@@ -16314,34 +16426,51 @@ def api_crm_social_studio():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    platform = (payload.get("platform") or "Facebook").strip()
-    asset_type = (payload.get("asset_type") or "content_pack").strip()
-    audience = (payload.get("audience") or "entrepreneurs").strip()
-    offer = (payload.get("offer") or "").strip()
-    if not offer:
-        return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
+    try:
+        payload = request.get_json(silent=True) or {}
+        platform = (payload.get("platform") or "Facebook").strip()
+        asset_type = (payload.get("asset_type") or "content_pack").strip()
+        audience = (payload.get("audience") or "entrepreneurs").strip()
+        offer = (payload.get("offer") or "").strip()
+        if not offer:
+            return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
-    fallback = (
-        f"Content pack for {platform}\n"
-        f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
-        f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
-        f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
-        f"Comments\n"
-        f"- Curious what part of this feels hardest right now?\n"
-        f"- This is the part most people skip, and it costs them momentum.\n"
-        f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
-        f"DM openers\n"
-        f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
-        f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
-        f"CTA ideas\n"
-        f"- Want the exact workflow? Comment \"system\".\n"
-        f"- If this is relevant to your business, message me and I will show you the simple version."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
+        system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings, short sections, bullets, and ready-to-use copy."
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Asset type: {asset_type}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            "Generate a useful asset pack with clear headings and polished copy."
+        )
+        fallback = (
+            f"Content pack for {platform}\n"
+            f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
+            f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
+            f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
+            f"Comments\n"
+            f"- Curious what part of this feels hardest right now?\n"
+            f"- This is the part most people skip, and it costs them momentum.\n"
+            f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
+            f"DM openers\n"
+            f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
+            f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
+            f"CTA ideas\n"
+            f"- Want the exact workflow? Comment \"system\".\n"
+            f"- If this is relevant to your business, message me and I will show you the simple version."
+        )
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        resp = jsonify({"ok": True, "output": output})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        try:
+            append_log("crm_social_studio_error", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Social Studio error: {str(e)}"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
 
 @app.post("/api/crm/offer_builder")
 def api_crm_offer_builder():
