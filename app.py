@@ -9136,29 +9136,33 @@ function makeSeat(defn, idx){
           openBtn.innerText = "Open";
           openBtn.onclick = ()=> openLightbox(url);
 
-          const useBtn = document.createElement("button");
-          useBtn.className = "btn btnMini";
-          useBtn.innerText = "Use for revisions";
-          useBtn.onclick = async ()=>{
-            try{
-              const imgs = await fetch('/api/images').then(r=>r.json());
-              const match = (imgs.images || []).find(x => x.url === url);
-              if(!match || !match.id) throw new Error('Could not find this image in the library');
-              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
-              const d = await r.json();
-              if(!d.ok) throw new Error(d.error || 'Could not set current image');
-              lastImageState = d.image_state || {};
-              await refreshThread();
-            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
-          };
+          const downloadBtn = document.createElement("a");
+          downloadBtn.className = "btn btnMini";
+          downloadBtn.innerText = "Download";
+          downloadBtn.href = url;
+          downloadBtn.download = '';
+          downloadBtn.target = '_blank';
+          downloadBtn.rel = 'noopener';
 
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
           editBtn.innerText = "Edit this";
-          editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
+          editBtn.onclick = async ()=>{
+            try{
+              const imgs = await fetch('/api/images').then(r=>r.json());
+              const match = (imgs.images || []).find(x => x.url === url);
+              if(match && match.id){
+                const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
+                const d = await r.json();
+                if(d.ok){ lastImageState = d.image_state || {}; }
+              }
+            }catch(e){}
+            const el = $('followMsg');
+            if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); }
+          };
 
           actions.appendChild(openBtn);
-          actions.appendChild(useBtn);
+          actions.appendChild(downloadBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
         }else{
@@ -11719,10 +11723,104 @@ async function crmFetchTasks(){
       if($("leadLabAreas")) $("leadLabAreas").value = 'Jersey City, Hoboken, Newark';
     }
 
+    function crmLocalGeneratorFallback(endpoint, payload){
+      const p = payload || {};
+      if((endpoint || '').includes('/social_studio')){
+        const platform = (p.platform || 'Facebook');
+        const audience = (p.audience || 'your audience');
+        const offer = (p.offer || 'your offer');
+        return [
+          `Social Studio fallback for ${platform}`,
+          '',
+          'Hooks',
+          `- The fastest way to lose good leads is to sound like everyone else in ${audience}.`,
+          `- Strong content should move people closer to ${offer}, not just collect likes.`,
+          `- If people are watching but not replying, the message is too broad.`,
+          '',
+          'Short post',
+          `Clarity beats volume. If your content is not moving people toward ${offer}, it is not doing its job. Tighten the angle, make the next step obvious, and speak directly to ${audience}.`,
+          '',
+          'Comments',
+          '- Curious what part of this feels hardest right now?',
+          '- This is the part that usually needs a cleaner system, not more effort.',
+          '- Strong point. I would tighten the promise and make the next step clearer.',
+          '',
+          'CTA',
+          '- Want the exact workflow? Comment "system".',
+          '- Message me and I will show you the simple version.'
+        ].join('\n');
+      }
+      if((endpoint || '').includes('/playbooks')){
+        const goal = String(p.goal || 'get_clients').replace(/_/g, ' ');
+        const timeline = p.timeline || '30 days';
+        const context = p.context || 'your current business';
+        return [
+          `Growth Playbook for ${goal}`,
+          `Timeline: ${timeline}`,
+          '',
+          'Step 1',
+          `- Clarify the exact offer and audience inside ${context}.`,
+          'Step 2',
+          '- Publish three authority posts that surface the real problem your audience feels.',
+          'Step 3',
+          '- Start daily conversations with people already engaging around that problem.',
+          'Step 4',
+          '- Move interested people into your pipeline and tag them by readiness.',
+          'Step 5',
+          '- Follow up with one useful message and one clear call to action.',
+          'Step 6',
+          `- Review what converted, tighten the message, and repeat for ${timeline}.`
+        ].join('\n');
+      }
+      if((endpoint || '').includes('/offer_builder')){
+        const audience = p.audience || 'your audience';
+        const result = p.result || 'a clear result';
+        const method = p.method || 'a simple system';
+        return [
+          'Offer statement',
+          `We help ${audience} get ${result} through ${method}.`,
+          '',
+          'Why it stands out',
+          '- Clear process',
+          '- Less guesswork',
+          '- Faster execution',
+          '',
+          'CTA',
+          '- Message me if you want the clean version.'
+        ].join('\n');
+      }
+      return '';
+    }
+
+    async function crmSafeJsonResponse(res){
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      const raw = await res.text();
+      let data = null;
+      try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
+      return {ct, raw, data};
+    }
+
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
       const st = $(statusId), box = $(resultsId);
-      if(st) st.innerText = 'Generating...';
-      if(box) box.innerHTML = '';
+      const title = (endpoint || '').includes('/playbooks') ? 'Building playbook...' :
+                    (endpoint || '').includes('/social_studio') ? 'Generating social assets...' :
+                    (endpoint || '').includes('/offer_builder') ? 'Building offer...' : 'Generating...';
+      const renderLoading = (msg, pct)=>{
+        const safeMsg = escapeHtml(msg || title);
+        const width = Math.max(8, Math.min(100, Number(pct || 18)));
+        if(box){
+          box.innerHTML = `
+            <div class="diagCard" style="padding:12px;">
+              <div style="font-weight:800; margin-bottom:8px;">${safeMsg}</div>
+              <div style="height:12px; border-radius:999px; background: rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.08);">
+                <div style="height:100%; width:${width}%; background: linear-gradient(90deg, rgba(124,58,237,.92), rgba(59,130,246,.92)); transition: width .25s ease;"></div>
+              </div>
+              <div class="tiny" style="margin-top:8px; opacity:.85;">The workspace is building your result.</div>
+            </div>`;
+        }
+        if(st) st.innerText = '';
+      };
+      renderLoading(title, 22);
       try{
         const res = await fetch(endpoint, {
           method:'POST',
@@ -11730,18 +11828,38 @@ async function crmFetchTasks(){
           cache:'no-store',
           body: JSON.stringify(payload || {})
         });
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        const raw = await res.text();
-        let data = null;
-        try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
+        const parsed = await crmSafeJsonResponse(res);
+        const ct = parsed.ct || '';
+        const raw = parsed.raw || '';
+        const data = parsed.data;
         if(!ct.includes('application/json') || !data){
+          const localFallback = crmLocalGeneratorFallback(endpoint, payload);
+          if(localFallback){
+            if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
+            if(st) st.innerText = 'Ready • local fallback used';
+            return;
+          }
           throw new Error('Server response was invalid: ' + raw.slice(0, 220));
         }
-        if(!res.ok || !data.ok) throw new Error(data.error || 'Generation failed');
+        if(!res.ok || !data.ok){
+          const localFallback = crmLocalGeneratorFallback(endpoint, payload);
+          if(localFallback){
+            if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
+            if(st) st.innerText = 'Ready • local fallback used';
+            return;
+          }
+          throw new Error(data.error || 'Generation failed');
+        }
         if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
         if(st) st.innerText = 'Ready';
       }catch(e){
-        if(st) st.innerText = e.message || 'Generation failed';
+        const localFallback = crmLocalGeneratorFallback(endpoint, payload);
+        if(localFallback){
+          if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
+          if(st) st.innerText = 'Ready • local fallback used';
+          return;
+        }
+        if(st) st.innerText = e && e.message ? e.message : 'Generation failed';
       }
     }
 
@@ -15904,23 +16022,16 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             candidate['name'] = hint_name
         if hint_company:
             candidate['company'] = hint_company
-        if hint_phone and not candidate.get('phone'):
-            candidate['phone'] = hint_phone
-        if hint_email and not candidate.get('email'):
-            candidate['email'] = hint_email
         candidate['website'] = website or candidate.get('website') or ''
-        candidate['email_candidates'] = ([{'email': hint_email, 'confidence': 0.97, 'status': 'public'}] if hint_email else [])
-        candidate['email'] = hint_email if hint_email else ''
+        candidate['email_candidates'] = []
+        candidate['email'] = ''
+        candidate['phone'] = ''
         candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
     signals = _crm_parse_page_signals(html, final_url, niche, location)
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
-    if hint_email and hint_email not in emails:
-        emails.insert(0, hint_email)
-    if hint_phone and hint_phone not in phones:
-        phones.insert(0, hint_phone)
     for link in _crm_find_contact_links(html, final_url):
         sub_html, _ = _crm_fetch_text_url(link)
         if not sub_html:
@@ -16159,8 +16270,8 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
     name = (row.get('name_hint') or '').strip()
     if not name:
         name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
-    phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
-    public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
+    phone = _crm_clean_phone(row.get('phone') or '')
+    public_email = ((row.get('email') or '')).strip().lower()
     email_candidates = ([{'email': public_email, 'confidence': 0.97, 'status': 'public'}] if public_email else [])
     title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
     notes = (row.get('snippet') or '').strip()
@@ -16477,56 +16588,78 @@ def api_crm_offer_builder():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    audience = (payload.get("audience") or "").strip()
-    result = (payload.get("result") or "").strip()
-    method = (payload.get("method") or "").strip()
-    if not audience or not result or not method:
-        return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
+    try:
+        payload = request.get_json(silent=True) or {}
+        audience = (payload.get("audience") or "").strip()
+        result = (payload.get("result") or "").strip()
+        method = (payload.get("method") or "").strip()
+        if not audience or not result or not method:
+            return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
 
-    system = "You are an offer strategist. Build clear, practical offers with concise sections."
-    prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
-    fallback = (
-        f"Offer statement\n"
-        f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
-        f"Core promise\n"
-        f"- Faster clarity\n"
-        f"- Less guesswork\n"
-        f"- More consistent execution\n\n"
-        f"Why it stands out\n"
-        f"- Done with you structure instead of generic advice\n"
-        f"- Clear next steps instead of random tactics\n"
-        f"- Built for speed and consistency\n\n"
-        f"CTA\n"
-        f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
-        f"DM pitch\n"
-        f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
+        system = "You are an offer strategist. Build clear, practical offers with concise sections."
+        prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
+        fallback = (
+            f"Offer statement\n"
+            f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
+            f"Core promise\n"
+            f"- Faster clarity\n"
+            f"- Less guesswork\n"
+            f"- More consistent execution\n\n"
+            f"Why it stands out\n"
+            f"- Done with you structure instead of generic advice\n"
+            f"- Clear next steps instead of random tactics\n"
+            f"- Built for speed and consistency\n\n"
+            f"CTA\n"
+            f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
+            f"DM pitch\n"
+            f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
+        )
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        resp = jsonify({"ok": True, "output": output})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        try:
+            append_log("crm_offer_builder_error", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Offer Builder error: {str(e)}"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    goal = (payload.get("goal") or "get_clients").strip()
-    timeline = (payload.get("timeline") or "30 days").strip()
-    context = (payload.get("context") or "").strip()
-    system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
-    prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
-    fallback = (
-        f"Playbook for {goal.replace('_',' ')}\n"
-        f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
-        f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
-        f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
-        f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
-        f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
-        f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
-    )
-    output = _crm_llm_or_fallback(system, prompt, fallback)
-    return jsonify({"ok": True, "output": output})
+    try:
+        payload = request.get_json(silent=True) or {}
+        goal = (payload.get("goal") or "get_clients").strip()
+        timeline = (payload.get("timeline") or "30 days").strip()
+        context = (payload.get("context") or "").strip()
+        system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
+        prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
+        fallback = (
+            f"Playbook for {goal.replace('_',' ')}\n"
+            f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
+            f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
+            f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
+            f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
+            f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
+            f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
+        )
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        resp = jsonify({"ok": True, "output": output})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        try:
+            append_log("crm_playbooks_error", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Growth Playbook error: {str(e)}"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
 
 
 if __name__ == "__main__":
