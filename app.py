@@ -7,6 +7,8 @@ import base64
 import secrets
 import hashlib
 import hmac
+import time
+import random
 import threading
 import shutil
 import tempfile
@@ -46,6 +48,10 @@ load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-5.2")
+OPENAI_FALLBACK_MODELS = [m.strip() for m in (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4.1-mini,gpt-4o-mini")).split(",") if m.strip()]
+OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "4"))
+OPENAI_BASE_RETRY_SECONDS = float(os.getenv("OPENAI_BASE_RETRY_SECONDS", "2.0"))
+OPENAI_CONCURRENCY = max(1, int(os.getenv("OPENAI_CONCURRENCY", "1")))
 OPENAI_REQUEST_TIMEOUT_SECONDS = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "90"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -187,6 +193,7 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = None  # lazy init to avoid import time crashes
+OPENAI_CALL_SEMAPHORE = threading.BoundedSemaphore(OPENAI_CONCURRENCY)
 
 def _get_global_openai_client():
     global client
@@ -2394,8 +2401,10 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
-    if "rate limit" in s or "429" in s:
-        return 429, "Rate limit hit. Try again in a moment."
+    if "rate limit" in s or "429" in s or "too many requests" in s:
+        return 429, "AI is temporarily busy. The app retried automatically, but the provider still rate-limited this request. Try again in a few seconds."
+    if "timeout" in s:
+        return 504, "AI request timed out. Try again."
     return 500, "AI request failed. Check server logs for details."
 
 
@@ -2413,6 +2422,50 @@ def _chat_completion_with_hard_timeout(client_obj, kwargs: Dict[str, Any], timeo
                 pass
             raise e
 
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    s = (str(e) or "").lower()
+    return ("rate limit" in s) or ("429" in s) or ("too many requests" in s)
+
+def _sleep_with_jitter(seconds: float) -> None:
+    try:
+        time.sleep(max(0.0, float(seconds)) + random.uniform(0, 0.35))
+    except Exception:
+        time.sleep(max(0.0, float(seconds)))
+
+def _candidate_models() -> List[str]:
+    seen: List[str] = []
+    for m in [MODEL] + list(OPENAI_FALLBACK_MODELS or []):
+        m2 = (m or "").strip()
+        if m2 and m2 not in seen:
+            seen.append(m2)
+    return seen
+
+def _chat_completion_resilient(req: Dict[str, Any]):
+    last_error: Optional[Exception] = None
+    models = _candidate_models()
+    max_attempts = max(1, int(OPENAI_MAX_RETRIES or 4))
+    for model_name in models:
+        for attempt in range(max_attempts):
+            req2 = dict(req)
+            req2["model"] = model_name
+            try:
+                with OPENAI_CALL_SEMAPHORE:
+                    return _chat_completion_with_hard_timeout(get_openai_client(), req2, OPENAI_REQUEST_TIMEOUT_SECONDS)
+            except Exception as e:
+                last_error = e
+                if _is_rate_limit_error(e):
+                    backoff = float(OPENAI_BASE_RETRY_SECONDS or 2.0) * (2 ** attempt)
+                    _sleep_with_jitter(min(backoff, 12.0))
+                    continue
+                s = (str(e) or "").lower()
+                if "model" in s and ("not found" in s or "does not exist" in s):
+                    break
+                raise e
+    if last_error:
+        raise last_error
+    raise RuntimeError("AI request failed")
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     req = {
         "model": MODEL,
@@ -2421,7 +2474,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
         "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
     }
     try:
-        resp = _chat_completion_with_hard_timeout(get_openai_client(), req, OPENAI_REQUEST_TIMEOUT_SECONDS)
+        resp = _chat_completion_resilient(req)
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         safe_msgs: List[Dict[str, Any]] = []
@@ -2444,7 +2497,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             "temperature": temperature,
             "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
         }
-        resp2 = _chat_completion_with_hard_timeout(get_openai_client(), req2, OPENAI_REQUEST_TIMEOUT_SECONDS)
+        resp2 = _chat_completion_resilient(req2)
         out = (resp2.choices[0].message.content or "").strip()
         return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
 
