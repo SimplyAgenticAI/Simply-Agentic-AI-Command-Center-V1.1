@@ -531,6 +531,18 @@ def append_log(name: str, payload: Dict[str, Any]) -> None:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
 
+
+@app.errorhandler(500)
+def _api_500_json_error_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            resp = jsonify({'ok': False, 'error': str(e) or 'Internal server error'})
+            resp.headers['Cache-Control'] = 'no-store'
+            return resp, 500
+    except Exception:
+        pass
+    raise e
+
 @app.errorhandler(Exception)
 def _api_json_error_handler(e):
     try:
@@ -3452,70 +3464,100 @@ def api_convene():
 
 @app.post("/api/followup")
 def api_followup():
-    data = request.get_json(force=True)
-    name = (data.get("name") or "").strip()
-    msg = (data.get("message") or "").strip()
-    file_ids = data.get("file_ids") or []
-    lighting_mode = bool(data.get("lighting_mode"))
-
-    if not name or not msg:
-        return jsonify({"ok": False, "error": "Missing name or message"}), 400
-
-    reg = load_registry()
-    installed = reg["installed"]
-    if name not in installed:
-        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-
-    msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
-    user_content = _build_user_content(msg2, vision_images)
-
-    defn = installed[name]
-    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
-
-    thread = load_thread(name)
-    thread = thread[-14:] if len(thread) > 14 else thread
-
-    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
-
     try:
-        uname = _get_session_username()
-    except Exception:
-        uname = "anon"
-    if is_image_request(msg2):
-        source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
-        source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
-        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
-        job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        msg = (data.get("message") or "").strip()
+        file_ids = data.get("file_ids") or []
+        lighting_mode = bool(data.get("lighting_mode"))
 
-        mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
-        placeholder = f"[{mode_label}] job:{job_id}"
-        thread2 = load_thread(name)
-        thread2 = thread2[-14:] if len(thread2) > 14 else thread2
-        new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
+        if not name or not msg:
+            return jsonify({"ok": False, "error": "Missing name or message"}), 400
+
+        reg = load_registry()
+        installed = reg["installed"]
+        if name not in installed:
+            return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+
+        msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
+        user_content = _build_user_content(msg2, vision_images)
+
+        defn = installed[name]
+        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
+
+        thread = load_thread(name)
+        thread = thread[-14:] if len(thread) > 14 else thread
+
+        latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
+
+        try:
+            uname = _get_session_username()
+        except Exception:
+            uname = "anon"
+        if is_image_request(msg2):
+            source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
+            mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
+            source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
+            job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
+            job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
+
+            mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
+            placeholder = f"[{mode_label}] job:{job_id}"
+            thread2 = load_thread(name)
+            thread2 = thread2[-14:] if len(thread2) > 14 else thread2
+            new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
+            save_thread(name, new_thread)
+
+            st0 = load_image_state(name)
+            st0["last_prompt"] = msg
+            st0["last_mode"] = mode
+            save_image_state(name, st0)
+
+            append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
+            append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
+
+            return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
+
+        msgs: List[Dict[str, Any]] = []
+        msgs.extend(thread)
+        msgs.append({"role": "user", "content": user_content})
+
+        try:
+            text_resp = call_llm(sys, msgs, temperature=0.65)
+        except Exception as e:
+            status, msg_err = _classify_openai_error(e)
+            append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
+            append_task_log(
+                "teammate_followup",
+                {
+                    "name": name,
+                    "message": msg,
+                    "message_with_attachments": msg2,
+                    "attachment_meta": attach_meta,
+                    "vision_images_count": len(vision_images),
+                    "error": str(e),
+                },
+                teammate=name,
+                status="failed"
+            )
+            return jsonify({"ok": False, "error": msg_err}), status
+
+        new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text_resp}]
         save_thread(name, new_thread)
 
-        st0 = load_image_state(name)
-        st0["last_prompt"] = msg
-        st0["last_mode"] = mode
-        save_image_state(name, st0)
+        draft = extract_email_draft(text_resp)
 
-        append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
-        append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
+        append_log("followup", {
+            "name": name,
+            "message": msg,
+            "message_with_attachments": msg2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "framework_length": len(load_core_framework()),
+            "response": text_resp,
+            "email_draft": draft
+        })
 
-        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
-
-
-
-    msgs: List[Dict[str, Any]] = []
-    msgs.extend(thread)
-    msgs.append({"role": "user", "content": user_content})
-
-    try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except Exception as e:
-        status, msg_err = _classify_openai_error(e)
-        append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
         append_task_log(
             "teammate_followup",
             {
@@ -3524,56 +3566,29 @@ def api_followup():
                 "message_with_attachments": msg2,
                 "attachment_meta": attach_meta,
                 "vision_images_count": len(vision_images),
-                "error": str(e),
+                "email_draft": draft,
+                "response_preview": (text_resp[:800] + ("..." if len(text_resp) > 800 else "")),
             },
             teammate=name,
-            status="failed"
+            status="success"
         )
-        return jsonify({"ok": False, "error": msg_err}), status
+        try:
+            uname = _get_session_username()
+            _mark_onboarding_step(uname, "first_prompt", True)
+        except Exception:
+            pass
 
-    new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
-    save_thread(name, new_thread)
-
-    draft = extract_email_draft(text)
-
-    append_log("followup", {
-        "name": name,
-        "message": msg,
-        "message_with_attachments": msg2,
-        "attachment_meta": attach_meta,
-        "vision_images_count": len(vision_images),
-        "framework_length": len(load_core_framework()),
-        "response": text,
-        "email_draft": draft
-    })
-
-
-    # Task log (append-only)
-    append_task_log(
-        "teammate_followup",
-        {
-            "name": name,
-            "message": msg,
-            "message_with_attachments": msg2,
-            "attachment_meta": attach_meta,
-            "vision_images_count": len(vision_images),
-            "email_draft": draft,
-            "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
-        },
-        teammate=name,
-        status="success"
-    )
-    # onboarding_first_prompt: mark after the first successful prompt is sent
-    try:
-        uname = _get_session_username()
-        _mark_onboarding_step(uname, "first_prompt", True)
-    except Exception:
-        pass
-
-
-
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
-
+        resp = jsonify({"ok": True, "name": name, "response": text_resp, "email_draft": draft, "attachment_meta": attach_meta})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    except Exception as e:
+        try:
+            append_log("followup_route_crash", {"error": str(e), "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Teammate request failed: {str(e)}"})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -7456,7 +7471,24 @@ if (typeof window.showToast !== "function") {
     });
     const $ = (id) => document.getElementById(id) || __NULL_EL;
 
-    function escapeHtml(str){
+    
+    async function safeJsonFromResponse(res, contextLabel){
+      const label = (contextLabel || 'Server').trim();
+      let raw = '';
+      try{
+        raw = await res.text();
+      }catch(e){
+        return {ok:false, error: label + ' response could not be read.'};
+      }
+      try{
+        return raw ? JSON.parse(raw) : {};
+      }catch(_){
+        const cleaned = String(raw || '').trim().slice(0, 800);
+        return {ok:false, error: label + ' response was invalid: ' + cleaned};
+      }
+    }
+
+function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
         .replace(/&/g,'&amp;')
@@ -10096,7 +10128,7 @@ function makeSeat(defn, idx){
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
           });
-          const data = await res.json();
+          const data = await safeJsonFromResponse(res, "Round table");
 
           if(!data.ok){
             order.forEach(n => setSeatLive(n, "waiting"));
@@ -10146,11 +10178,8 @@ function makeSeat(defn, idx){
           });
           clearTimeout(t);
 
-          let data = null;
-          try{
-            data = await res.json();
-          }catch(_){
-            // Non-JSON response from server: mark as failed but do not freeze
+          const data = await safeJsonFromResponse(res, "Teammate");
+          if(!data || data.ok === false && data.error && String(data.error).includes("response was invalid:")){
             setSeatLive(n, "waiting");
             continue;
           }
@@ -10264,7 +10293,7 @@ async function sendFollow(){
           signal: controller.signal
         });
         clearTimeout(t);
-        data = await res.json();
+        data = await safeJsonFromResponse(res, "Teammate");
       }catch(e){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
