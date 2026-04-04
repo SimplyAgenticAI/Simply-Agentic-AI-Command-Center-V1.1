@@ -5969,7 +5969,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div class="commandHeader" id="osCommandBarWrap" style="margin-top:10px;">
       <div class="commandRow secondary" style="grid-template-columns:minmax(220px,1fr) auto auto; max-width:none;">
-        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" />
         <button class="btn" id="globalCommandRunBtn">Run command</button>
         <div class="pill" id="sessionObjectivePill" title="Current session objective">No session objective</div>
       </div>
@@ -6044,7 +6044,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid" style="margin-top:10px;">
     <div>
       <label>Stack name</label>
-      <input id="stackName" placeholder="e.g. Welcome Sequence" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="stackName" placeholder="e.g. Welcome Sequence" />
     </div>
     <div>
       <label>Saved stacks</label>
@@ -6100,11 +6100,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="grid">
                   <div>
                     <label>Job Title</label>
-                    <input id="editJobTitle" placeholder="Job title" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+                    <input id="editJobTitle" placeholder="Job title"/>
                   </div>
                   <div>
                     <label>Version</label>
-                    <input id="editVersion" placeholder="v1.0" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+                    <input id="editVersion" placeholder="v1.0"/>
                   </div>
                 </div>
 
@@ -6180,18 +6180,18 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="grid">
                   <div>
                     <label>Name</label>
-                    <input id="newName" placeholder="Teammate name" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+                    <input id="newName" placeholder="Teammate name"/>
                   </div>
                   <div>
                     <label>Version</label>
-                    <input id="newVersion" placeholder="v1.0" value="v1.0" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+                    <input id="newVersion" placeholder="v1.0" value="v1.0"/>
                   </div>
                 </div>
 
                 <div style="height:10px"></div>
 
                 <label>Job Title</label>
-                <input id="newJobTitle" placeholder="Job title" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+                <input id="newJobTitle" placeholder="Job title"/>
 
                 <div style="height:10px"></div>
 
@@ -6275,19 +6275,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
                 <label>SMTP Host</label>
-                <input id="smtpHost" placeholder="smtp.gmail.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+                <input id="smtpHost" placeholder="smtp.gmail.com" />
 
                 <label>SMTP Port</label>
                 <input id="smtpPort" type="number" placeholder="587" />
 
                 <label>SMTP Username (from address)</label>
-                <input id="smtpUser" placeholder="you@example.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+                <input id="smtpUser" placeholder="you@example.com" />
 
                 <label>SMTP Password (app password recommended)</label>
                 <input id="smtpPass" type="password" placeholder="••••••••" />
 
                 <label>From Name</label>
-                <input id="smtpFromName" placeholder="Your Name" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+                <input id="smtpFromName" placeholder="Your Name" />
 
 
                 <details style="margin-top:12px;">
@@ -6297,13 +6297,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   </div>
 
                   <label>Twilio Account SID</label>
-                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
 
                   <label>Twilio Auth Token</label>
                   <input id="twilioToken" type="password" placeholder="••••••••" />
 
                   <label>Twilio From Number</label>
-                  <input id="twilioFrom" placeholder="+15551234567" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+                  <input id="twilioFrom" placeholder="+15551234567" />
 
                   <div class="actions" style="justify-content:flex-start; gap:8px;">
                     <button class="btn btnMini" id="twilioLoadBtn">Load</button>
@@ -6327,10 +6327,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div style="height:10px"></div>
   <div class="row2">
     <input class="field" id="emailFrom" placeholder="From" readonly/>
-    <input class="field" id="emailTo" placeholder="To: name@email.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+    <input class="field" id="emailTo" placeholder="To: name@email.com"/>
   </div>
   <div style="height:10px"></div>
-  <input class="field" id="emailSubject" placeholder="Subject" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+  <input class="field" id="emailSubject" placeholder="Subject"/>
   <div style="height:10px"></div>
   <textarea class="field" id="emailBody" style="height:280px" placeholder="Email body"></textarea>
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
@@ -6344,7 +6344,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts a text message, fields auto fill here. You approve before sending.</div>
   <div class="row2">
     <input class="field" id="smsFrom" placeholder="From" readonly/>
-    <input class="field" id="smsTo" placeholder="To: +1..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
+    <input class="field" id="smsTo" placeholder="To: +1..."/>
   </div>
   <div style="height:10px"></div>
   <textarea class="field" id="smsBody" style="height:220px" placeholder="Text message body"></textarea>
@@ -6398,7 +6398,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="sessionObjectiveForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Set the current session objective so the whole system can align around one goal.</div>
   <label>Objective</label>
-  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
   <label style="margin-top:10px;">Context</label>
   <textarea id="sessionObjectiveContext" rows="5" placeholder="What matters most right now, constraints, and what success looks like."></textarea>
   <div class="actions">
@@ -6413,11 +6413,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid">
     <div>
       <label>Display name</label>
-      <input id="opm_display_name" placeholder="Operator" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="opm_display_name" placeholder="Operator" />
     </div>
     <div>
       <label>Audience</label>
-      <input id="opm_audience" placeholder="Who you serve" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="opm_audience" placeholder="Who you serve" />
     </div>
   </div>
   <label style="margin-top:10px;">Business</label>
@@ -6456,7 +6456,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid">
       <div>
         <label>Search</label>
-        <input id="crmSearch" placeholder="Name, email, tag..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="crmSearch" placeholder="Name, email, tag..." />
       </div>
       <div>
         <label>Filter</label>
@@ -6493,17 +6493,17 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid">
         <div>
           <label>Name</label>
-          <input id="crmName" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmName" />
         </div>
         <div>
           <label>Email</label>
-          <input id="crmEmail" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmEmail" />
         </div>
       </div>
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Phone</label>
-          <input id="crmPhone" placeholder="+15551234567" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmPhone" placeholder="+15551234567" />
         </div>
         <div>
           <label>Status</label>
@@ -6519,11 +6519,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Pipeline stage</label>
-          <input id="crmStage" placeholder="Lead" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmStage" placeholder="Lead" />
         </div>
         <div>
           <label>Tags (comma separated)</label>
-          <input id="crmTags" placeholder="realtor, vip" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmTags" placeholder="realtor, vip" />
         </div>
       </div>
       <div style="margin-top:10px;">
@@ -6567,13 +6567,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div>
         <label>Value</label>
-        <input id="crmAudienceValue" placeholder="e.g. realtor" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="crmAudienceValue" placeholder="e.g. realtor" />
       </div>
     </div>
 
     <div style="margin-top:10px;">
       <label>Subject</label>
-      <input id="crmEmailSubject" placeholder="Quick update" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="crmEmailSubject" placeholder="Quick update" />
       <label style="margin-top:10px;">Message</label>
       <textarea id="crmEmailBody" style="height:180px" placeholder="Hey {first_name},\n\n..."></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: You can use {name} in the body for personalization.</div>
@@ -6607,7 +6607,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div>
       <label>Value (tag/stage/status or comma IDs)</label>
-      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" />
     </div>
   </div>
 
@@ -6633,7 +6633,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" id="crmTaskTitle" style="margin-bottom:8px;">Task</div>
       <label>Title</label>
-      <input id="crmTaskText" placeholder="Follow up with..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="crmTaskText" placeholder="Follow up with..." />
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Due date</label>
@@ -6650,7 +6650,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div style="margin-top:10px;">
         <label>Client ID (optional)</label>
-        <input id="crmTaskClientId" placeholder="client_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="crmTaskClientId" placeholder="client_..." />
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelTask">Cancel</button>
@@ -6674,7 +6674,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" style="margin-bottom:8px;">Create sequence</div>
       <label>Name</label>
-      <input id="crmSeqName" placeholder="Monthly Value Drop" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+      <input id="crmSeqName" placeholder="Monthly Value Drop" />
       <label style="margin-top:10px;">Steps (JSON array)</label>
       <textarea id="crmSeqSteps" style="height:180px" placeholder='[{"after_days":0,"channel":"email","subject":"Welcome","body":"Hi {name}..."}]'></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Each step: after_days, channel=email, subject, body. (This UI is minimal but fully operational.)</div>
@@ -6690,11 +6690,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid">
         <div>
           <label>Client ID</label>
-          <input id="crmEnrollClient" placeholder="client_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmEnrollClient" placeholder="client_..." />
         </div>
         <div>
           <label>Sequence ID</label>
-          <input id="crmEnrollSeq" placeholder="seq_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+          <input id="crmEnrollSeq" placeholder="seq_..." />
         </div>
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6708,7 +6708,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div id="crmViewCalendar" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
     <label>Title</label>
-    <input id="crmCalTitle" placeholder="Client check-in" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+    <input id="crmCalTitle" placeholder="Client check-in" />
     <div class="grid" style="margin-top:10px;">
       <div>
         <label>Start</label>
@@ -6733,11 +6733,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid">
       <div>
         <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="leadLabNiche" placeholder="real estate agents" />
       </div>
       <div>
         <label>Location</label>
-        <input id="leadLabLocation" placeholder="New Jersey" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="leadLabLocation" placeholder="New Jersey" />
       </div>
       <div>
         <label>Lead count</label>
@@ -6760,7 +6760,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid" style="margin-top:10px;">
       <div>
         <label>Specific areas</label>
-        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
       </div>
       <div>
         <label>Contact filter</label>
@@ -6819,7 +6819,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
     </div>
     <label style="margin-top:10px;">Audience</label>
-    <input id="socialStudioAudience" placeholder="solo real estate agents" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+    <input id="socialStudioAudience" placeholder="solo real estate agents" />
     <label style="margin-top:10px;">Offer / angle</label>
     <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6833,9 +6833,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div id="crmViewOfferBuilder" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
     <label>Who do you help?</label>
-    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
     <label style="margin-top:10px;">What result do you help them get?</label>
-    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
     <label style="margin-top:10px;">How do you deliver it?</label>
     <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6879,85 +6879,154 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Click a date to add a task or schedule a call.</div>
+              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;">
 
-  <div style="display:flex; gap:12px; flex-wrap:wrap;">
-    <div style="flex: 1 1 360px; min-width: 280px;">
-      <div class="pillRow" style="justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button class="btn btnMini" id="calPrevBtn">Prev</button>
-          <button class="btn btnMini" id="calTodayBtn">Today</button>
-          <button class="btn btnMini" id="calNextBtn">Next</button>
-        </div>
-        <div class="pill" id="calMonthLabel">Month</div>
+<style>
+/* ── Motion-style Calendar ── */
+.wcal-wrap { display:flex; height:calc(100vh - 120px); min-height:500px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
+.wcal-sidebar { width:220px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:12px; overflow-y:auto; }
+.wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.wcal-topbar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
+.wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
+.wcal-nav-btn:hover { background:rgba(30,40,80,.9); }
+.wcal-nav-btn.today { background:rgba(124,58,237,.25); border-color:rgba(124,58,237,.5); }
+.wcal-range-label { font-size:13px; font-weight:700; color:#c4b5fd; flex:1; }
+.wcal-view-btns { display:flex; gap:4px; }
+.wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
+.wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
+.wcal-grid-wrap { flex:1; overflow:auto; position:relative; }
+.wcal-grid { display:flex; position:relative; min-height:1440px; }
+.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
+.wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
+.wcal-days-area { flex:1; display:grid; position:relative; }
+.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; }
+.wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.2); position:relative; }
+.wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.1); top:50%; }
+.wcal-col-header { text-align:center; padding:6px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
+.wcal-col-header .wd { font-size:10px; color:rgba(148,163,184,.6); text-transform:uppercase; letter-spacing:.06em; }
+.wcal-col-header .dd { font-size:20px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
+.wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s; }
+.wcal-event:hover { filter:brightness(1.2); }
+.wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcal-event-time { font-size:9px; opacity:.75; }
+.wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
+.wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
+/* Sidebar mini-month */
+.wcal-mini-month { font-size:11px; }
+.wcal-mini-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.wcal-mini-month-label { font-size:12px; font-weight:700; color:#c4b5fd; }
+.wcal-mini-nav { background:transparent; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:12px; padding:2px 4px; }
+.wcal-mini-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; }
+.wcal-mini-day { text-align:center; padding:3px 1px; font-size:10px; border-radius:4px; cursor:pointer; color:rgba(148,163,184,.7); }
+.wcal-mini-day:hover { background:rgba(124,58,237,.2); color:#c4b5fd; }
+.wcal-mini-day.today { background:rgba(124,58,237,.6); color:#fff; border-radius:50%; }
+.wcal-mini-day.selected { background:rgba(59,130,246,.4); color:#93c5fd; border-radius:50%; }
+.wcal-mini-day.has-events::after { content:''; display:block; width:4px; height:4px; border-radius:50%; background:#7c3aed; margin:1px auto 0; }
+.wcal-mini-wd { font-size:9px; color:rgba(100,116,139,.5); text-align:center; padding:2px 0; }
+/* Quick-add form in sidebar */
+.wcal-add-form { background:rgba(14,22,48,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:10px; }
+.wcal-add-label { font-size:11px; font-weight:600; color:rgba(196,181,253,.8); margin-bottom:8px; }
+.wcal-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 8px; font-size:12px; color:#e2e8f0; margin-bottom:6px; outline:none; }
+.wcal-field:focus { border-color:rgba(124,58,237,.6); }
+.wcal-submit { width:100%; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#c4b5fd; border-radius:7px; padding:7px; font-size:12px; font-weight:600; cursor:pointer; }
+.wcal-submit:hover { background:rgba(124,58,237,.6); }
+.wcal-status { font-size:10px; color:rgba(148,163,184,.6); margin-top:4px; min-height:14px; }
+.wcal-section-title { font-size:10px; font-weight:700; color:rgba(100,116,139,.6); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+.wcal-upcoming { font-size:11px; }
+.wcal-upcoming-item { padding:5px 0; border-bottom:1px solid rgba(42,58,106,.25); }
+.wcal-upcoming-time { font-size:10px; color:rgba(100,116,139,.6); }
+.wcal-upcoming-title { color:rgba(226,232,240,.85); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>
+
+<div class="wcal-wrap">
+
+  <!-- LEFT SIDEBAR -->
+  <div class="wcal-sidebar">
+
+    <!-- Mini month -->
+    <div class="wcal-mini-month">
+      <div class="wcal-mini-header">
+        <button class="wcal-mini-nav" id="wcalMiniPrev">&#8249;</button>
+        <span class="wcal-mini-month-label" id="wcalMiniLabel">April 2026</span>
+        <button class="wcal-mini-nav" id="wcalMiniNext">&#8250;</button>
       </div>
-
-      <div class="calWeekdays" id="calWeekdays"></div>
-      <div class="calGrid" id="calGrid"></div>
-      <div class="tiny" id="calLoadStatus" style="margin-top:8px; opacity:.85;"></div>
+      <div class="wcal-mini-grid" id="wcalMiniGrid"></div>
     </div>
 
-    <div style="flex: 1 1 260px; min-width: 260px;">
-      <div class="diagCard" style="padding:10px;">
-        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:800;" id="calSelectedLabel">Select a date</div>
-            <div class="tiny" style="opacity:.85;" id="calSelectedSub"> </div>
-          </div>
-        </div>
+    <div style="border-top:1px solid rgba(42,58,106,.4);"></div>
 
-        <div style="height:10px"></div>
+    <!-- Quick add event -->
+    <div class="wcal-add-form">
+      <div class="wcal-add-label">+ Quick add</div>
+      <input class="wcal-field" id="wcalAddTitle" placeholder="Event title" autocomplete="off" data-lpignore="true" />
+      <input class="wcal-field" id="wcalAddDate" type="date" />
+      <div style="display:flex;gap:6px;">
+        <input class="wcal-field" id="wcalAddStart" type="time" value="09:00" style="flex:1;" />
+        <select class="wcal-field" id="wcalAddDur" style="flex:1;">
+          <option value="30">30m</option>
+          <option value="60" selected>1h</option>
+          <option value="90">1.5h</option>
+          <option value="120">2h</option>
+        </select>
+      </div>
+      <button class="wcal-submit" id="wcalAddBtn">Create event</button>
+      <div class="wcal-status" id="wcalAddStatus"></div>
+    </div>
 
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Add task</div>
-          <label>Title</label>
-          <input id="calTaskTitle" placeholder="Follow up with..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Time</label>
-              <input id="calTaskTime" type="time" value="17:00" />
-            </div>
-            <div style="display:flex; align-items:flex-end; justify-content:flex-end;">
-              <button class="btn btnPrimary" id="calAddTaskBtn">Add</button>
-            </div>
-          </div>
-          <div class="tiny" id="calTaskStatus" style="margin-top:8px;"></div>
-        </div>
+    <div style="border-top:1px solid rgba(42,58,106,.4);"></div>
 
-        <div style="height:10px"></div>
-
-        <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-          <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
-          <label>Title</label>
-          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
-          <div class="grid" style="margin-top:10px;">
-            <div>
-              <label>Start</label>
-              <input id="calCallTime" type="time" value="09:00" />
-            </div>
-            <div>
-              <label>Duration</label>
-              <select id="calCallDur">
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">60 min</option>
-              </select>
-            </div>
-          </div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn btnPrimary" id="calCreateCallBtn">Create</button>
-          </div>
-          <div class="tiny" id="calCallStatus" style="margin-top:8px;"></div>
-        </div>
-
-        <div style="height:10px"></div>
-
-        <div class="tiny" style="margin-bottom:6px;">Events</div>
-        <div id="calDayEvents" class="tiny" style="opacity:.95;"></div>
+    <!-- Upcoming events -->
+    <div>
+      <div class="wcal-section-title">Upcoming</div>
+      <div class="wcal-upcoming" id="wcalUpcoming">
+        <div class="wcal-upcoming-time">Loading...</div>
       </div>
     </div>
+
+    <!-- Load status -->
+    <div class="wcal-status" id="calLoadStatus"></div>
+
   </div>
+
+  <!-- MAIN CALENDAR -->
+  <div class="wcal-main">
+
+    <!-- Top nav bar -->
+    <div class="wcal-topbar">
+      <button class="wcal-nav-btn" id="calPrevBtn">&#8249;</button>
+      <button class="wcal-nav-btn today" id="calTodayBtn">Today</button>
+      <button class="wcal-nav-btn" id="calNextBtn">&#8250;</button>
+      <span class="wcal-range-label" id="wcalRangeLabel">Week</span>
+      <div class="wcal-view-btns">
+        <button class="wcal-view-btn active" id="wcalViewWeek" onclick="wcalSetView('week')">Week</button>
+        <button class="wcal-view-btn" id="wcalViewDay" onclick="wcalSetView('day')">Day</button>
+      </div>
+    </div>
+
+    <!-- Week grid -->
+    <div class="wcal-grid-wrap" id="wcalGridWrap">
+      <div class="wcal-grid" id="wcalGrid">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Hidden inputs kept for backward compat with existing JS functions -->
+<input id="calTaskTitle" type="hidden" />
+<input id="calTaskTime" type="hidden" value="17:00" />
+<input id="calCallTitle" type="hidden" value="Strategy call" />
+<input id="calCallTime" type="hidden" value="09:00" />
+<select id="calCallDur" style="display:none;"><option value="60">60</option></select>
+<div id="calSelectedLabel" style="display:none;"></div>
+<div id="calSelectedSub" style="display:none;"></div>
+<div id="calDayEvents" style="display:none;"></div>
+<div id="calMonthLabel" style="display:none;"></div>
+<div id="calWeekdays" style="display:none;"></div>
+<div id="calGrid_old" style="display:none;"></div>
+
 </div>
 
 <img id="modalImg" class="imgPreview" alt="Preview"/>
@@ -9502,8 +9571,7 @@ function makeSeat(defn, idx){
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
-      // Remove ALL occurrences (global flag) to prevent name buildup
-      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
@@ -9515,10 +9583,9 @@ function makeSeat(defn, idx){
     }
 
     function resetAlwaysBuffers(){
-      alwaysInterimText   = "";
-      alwaysFinalText     = "";
+      alwaysInterimText = "";
+      alwaysFinalText = "";
       alwaysFinalBaseline = "";
-      _resetCanonicalSpeech();
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
@@ -9546,36 +9613,22 @@ function makeSeat(defn, idx){
 
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
-    // Accumulates only NEW final results since last reset
-    let _alwaysAccumFinals = "";
-
     function getCanonicalSpeech(event){
-      let newFinals = "";
-      let interim   = "";
+      let allFinal = "";
+      let interim = "";
 
-      // Only process results we haven't seen yet
-      for(let i = event.resultIndex; i < event.results.length; i++){
+      for(let i = 0; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          newFinals += txt + " ";
-        } else {
+          allFinal += txt + " ";
+        }else{
           interim += txt;
         }
       }
 
-      newFinals = newFinals.replace(/\s+/g, " ").trim();
-      interim   = interim.replace(/\s+/g, " ").trim();
-
-      // Accumulate finals (never replay old ones)
-      if(newFinals){
-        _alwaysAccumFinals = (_alwaysAccumFinals + " " + newFinals).replace(/\s+/g, " ").trim();
-      }
-
-      return { allFinal: _alwaysAccumFinals, interim };
-    }
-
-    function _resetCanonicalSpeech(){
-      _alwaysAccumFinals = "";
+      allFinal = allFinal.replace(/\s+/g, " ").trim();
+      interim = interim.replace(/\s+/g, " ").trim();
+      return { allFinal, interim };
     }
 
     function subtractBaseline(allFinal){
@@ -9626,42 +9679,47 @@ function makeSeat(defn, idx){
       alwaysRec = rec;
 
       rec.onresult = async (event) => {
-        const canon      = getCanonicalSpeech(event);
-        const allFinal   = canon.allFinal;   // accumulated new finals only
+        const canon = getCanonicalSpeech(event);
+        const allFinalRaw = canon.allFinal;
         const interimRaw = canon.interim;
 
-        // ── Name detection: ONLY look at interim speech, not finalized text ──
-        // This prevents the name from ever landing in the text box.
-        const hit = findFirstNameMention(interimRaw);
+        const allFinal = subtractBaseline(allFinalRaw);
+        const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
+        const hit = findFirstNameMention(candidateText);
 
         if(hit){
           const now = Date.now();
-          if(now - lastNameSwitchAt > 800){
+          if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            // Save whatever clean text we already have (without the name)
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
+            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
+
             const targetBefore = currentAlwaysTarget();
-            if(targetBefore && cleanedFinal){
-              targetBefore.value = cleanedFinal.trim();
+            if(targetBefore){
+              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
+                .replace(/\s+/g, " ")
+                .trim();
             }
 
-            // Switch to named teammate
+            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Reset accumulators for the new target
-            _resetCanonicalSpeech();
-            alwaysFinalText   = "";
-            alwaysInterimText = "";
+            // Baseline the recognizer history so we do not replay old finals after switching
+            alwaysFinalBaseline = allFinalRaw;
+
+            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
+            alwaysFinalText = "";
+            alwaysInterimText = "";
             return;
           }
         }
 
-        // Normal update: show accumulated finals + current interim
-        alwaysFinalText   = allFinal;
+        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
+        alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
@@ -9716,37 +9774,6 @@ function makeSeat(defn, idx){
         startAlwaysListening("dm");
       }
     };
-
-
-    // ── Suppress password manager on all app inputs (not login/register forms) ──
-    (function suppressPasswordManager() {
-      const AUTH_IDS = new Set(['username','password','password2','invite_code','new_password','token','email']);
-      function applyNoAutocomplete(root) {
-        (root || document).querySelectorAll('input, textarea').forEach(function(el) {
-          if (AUTH_IDS.has(el.name) || AUTH_IDS.has(el.id)) return;
-          if (el.type === 'hidden' || el.type === 'file' || el.type === 'checkbox' || el.type === 'radio') return;
-          if (el.getAttribute('autocomplete') === 'off') return;
-          // Only suppress if not already a legit autocomplete field
-          el.setAttribute('autocomplete', 'off');
-          el.setAttribute('data-lpignore', 'true');
-          el.setAttribute('data-1p-ignore', 'true');
-          el.setAttribute('data-form-type', 'other');
-        });
-      }
-      // Run on load
-      applyNoAutocomplete(document);
-      // Run when modals open (DOM changes)
-      if (window.MutationObserver) {
-        new MutationObserver(function(muts) {
-          muts.forEach(function(m) {
-            m.addedNodes.forEach(function(n) {
-              if (n.nodeType === 1) applyNoAutocomplete(n);
-            });
-          });
-        }).observe(document.body, { childList: true, subtree: true });
-      }
-    })();
-    // ── End password manager suppression ──
 
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
@@ -11508,235 +11535,495 @@ async function crmFetchTasks(){
 // =========================
 // Calendar modal (month grid + date click actions)
 // =========================
+// ── Motion-style Calendar Engine ──────────────────────────────
 const cal = {
   y: (new Date()).getFullYear(),
-  m: (new Date()).getMonth(), // 0-11
-  selected: null, // 'YYYY-MM-DD'
-  events: {}, // date -> [{summary, start, end, link}]
-  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York")
+  m: (new Date()).getMonth(),
+  selected: null,
+  events: {},
+  tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
+  view: "week",
+  weekStart: null // Date object, Monday of current week
 };
 
 function pad2(n){ return (n<10?('0'+n):(''+n)); }
 function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-
-function calSetStatus(t){ const el=$("calLoadStatus"); if(el) el.innerText = t||""; }
-
-function calWeekdayHeader(){
-  const box = $("calWeekdays");
-  if(!box) return;
-  const names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  box.innerHTML = names.map(n=>`<div class="calWd">${n}</div>`).join('');
+function wcalMonday(d){
+  const day = d.getDay();
+  const diff = (day === 0) ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  return mon;
 }
 
-async function calFetchEventsForVisibleRange(){
-  const first = new Date(cal.y, cal.m, 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
+// ── Event colours ──────────────────────────────────────────────
+const EVENT_COLORS = [
+  {bg:'rgba(124,58,237,.75)',  text:'#f3e8ff'},
+  {bg:'rgba(59,130,246,.75)',  text:'#dbeafe'},
+  {bg:'rgba(16,185,129,.75)',  text:'#d1fae5'},
+  {bg:'rgba(245,158,11,.75)',  text:'#fef3c7'},
+  {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
+  {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
+];
+function eventColor(ev){
+  const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+  return EVENT_COLORS[h % EVENT_COLORS.length];
+}
 
-  const last = new Date(cal.y, cal.m + 1, 0);
-  const end = new Date(last);
-  end.setDate(last.getDate() + (6 - last.getDay()) + 1);
-
-  const timeMin = start.toISOString();
-  const timeMax = end.toISOString();
-
-  calSetStatus('Loading events...');
+// ── Fetch events for a date range ─────────────────────────────
+async function wcalFetchRange(start, end){
+  const st = document.getElementById('calLoadStatus');
+  if(st) st.innerText = 'Loading...';
   try{
-    const res = await fetch(`/api/calendar/events?time_min=${encodeURIComponent(timeMin)}&time_max=${encodeURIComponent(timeMax)}&timezone=${encodeURIComponent(cal.tz)}`);
+    const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
     if(!data.ok){
-      cal.events = {};
-      calSetStatus(data.error || 'Calendar not connected (connect in Settings)');
+      if(st) st.innerText = data.error || 'Calendar not connected — connect in Settings';
       return;
     }
     const events = data.events || [];
     const map = {};
     events.forEach(ev=>{
-      const s = (ev.start || '').slice(0,10);
+      const s = (ev.start||'').slice(0,10);
       if(!s) return;
-      map[s] = map[s] || [];
+      map[s] = map[s]||[];
       map[s].push(ev);
     });
-    cal.events = map;
-    calSetStatus('');
+    cal.events = Object.assign(cal.events, map);
+    if(st) st.innerText = '';
   }catch(e){
-    cal.events = {};
-    calSetStatus('Could not load events');
+    if(st) st.innerText = 'Could not load events';
   }
 }
 
-function calRenderMonth(){
-  const label = $("calMonthLabel");
-  const grid = $("calGrid");
+// ── Now line ───────────────────────────────────────────────────
+function wcalNowMinutes(){
+  const n = new Date();
+  return n.getHours()*60 + n.getMinutes();
+}
+function wcalUpdateNowLine(){
+  const line = document.getElementById('wcalNowLine');
+  if(!line) return;
+  const mins = wcalNowMinutes();
+  line.style.top = (mins)+'px'; // 1px per minute (60px per hour)
+}
+
+// ── Week view renderer ─────────────────────────────────────────
+function wcalRenderWeek(){
+  const grid = document.getElementById('wcalGrid');
   if(!grid) return;
 
-  const monthName = new Date(cal.y, cal.m, 1).toLocaleString(undefined, {month:'long', year:'numeric'});
-  if(label) label.innerText = monthName;
+  const mon = cal.weekStart || wcalMonday(new Date());
+  cal.weekStart = mon;
 
-  const first = new Date(cal.y, cal.m, 1);
-  const start = new Date(first);
-  start.setDate(first.getDate() - first.getDay());
+  // Update range label
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const opts = {month:'short', day:'numeric'};
+  const label = document.getElementById('wcalRangeLabel');
+  if(label) label.innerText = mon.toLocaleDateString('en-US',{month:'long',day:'numeric'}) + ' – ' + sun.toLocaleDateString('en-US',opts) + ', ' + sun.getFullYear();
 
-  const cells = [];
-  for(let i=0;i<42;i++){
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const inMonth = d.getMonth() === cal.m;
-    const key = ymd(d);
-    const evs = cal.events[key] || [];
-    const dots = evs.slice(0,6).map(()=>'<span class="calDot"></span>').join('');
-    const cls = ['calCell', inMonth ? '' : 'muted', (cal.selected===key ? 'selected':'')].filter(Boolean).join(' ');
-    cells.push(`
-      <div class="${cls}" data-cal-date="${key}">
-        <div class="calNum">${d.getDate()}</div>
-        <div class="calDots">${dots}</div>
-      </div>
-    `);
+  const today = ymd(new Date());
+  const days = [];
+  for(let i=0;i<7;i++){
+    const d = new Date(mon);
+    d.setDate(mon.getDate()+i);
+    days.push(d);
   }
-  grid.innerHTML = cells.join('');
 
-  grid.querySelectorAll('[data-cal-date]').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const dt = el.getAttribute('data-cal-date');
-      calSelectDate(dt);
-      calRenderMonth();
+  // Build HTML
+  let html = '';
+
+  // Time column + day columns header row
+  html += '<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;">';
+  html += '<div style="width:54px;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);"></div>';
+  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  days.forEach((d,i)=>{
+    const isToday = ymd(d) === today;
+    const numEl = isToday
+      ? '<div class="dd today-num">'+d.getDate()+'</div>'
+      : '<div class="dd">'+d.getDate()+'</div>';
+    html += '<div class="wcal-col-header" style="flex:1;">';
+    html += '<div class="wd">'+dayNames[i]+'</div>'+numEl;
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Time + event area
+  html += '<div style="display:flex;position:relative;">';
+
+  // Time labels column
+  html += '<div class="wcal-time-col">';
+  for(let h=0;h<24;h++){
+    const label = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
+    html += '<div class="wcal-time-label">'+label+'</div>';
+  }
+  html += '</div>';
+
+  // Day columns
+  days.forEach((d,di)=>{
+    const dt = ymd(d);
+    const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
+    html += '<div class="wcal-day-col" style="flex:1;position:relative;" data-date="'+dt+'">';
+
+    // Hour lines
+    for(let h=0;h<24;h++){
+      html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
+    }
+
+    // Events
+    evs.forEach((ev,ei)=>{
+      const startStr = ev.start||'';
+      const endStr   = ev.end||ev.start||'';
+      const startDate = new Date(startStr);
+      const endDate   = new Date(endStr);
+      if(isNaN(startDate)) return;
+      const startMins = startDate.getHours()*60 + startDate.getMinutes();
+      const durationMins = Math.max(30, (endDate - startDate)/60000);
+      const top = startMins; // 1px per minute
+      const height = Math.max(22, durationMins);
+      const color = eventColor(ev);
+      const timeStr = startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      const title = (ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      const link = ev.htmlLink||ev.hangoutLink||'';
+      html += '<div class="wcal-event" style="top:'+top+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';" ';
+      if(link) html += 'onclick="window.open(''+link+'','_blank')" ';
+      html += 'title="'+title+'">';
+      html += '<div class="wcal-event-title">'+title+'</div>';
+      if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
+      html += '</div>';
+    });
+
+    // All-day events (no T in start)
+    const allDay = (cal.events[dt]||[]).filter(ev=>ev.start && !ev.start.includes('T'));
+    if(allDay.length){
+      allDay.forEach(ev=>{
+        const color = eventColor(ev);
+        const title = (ev.summary||'Event').replace(/</g,'&lt;');
+        html += '<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" title="'+title+'">';
+        html += '<div class="wcal-event-title">'+title+'</div></div>';
+      });
+    }
+
+    html += '</div>';
+  });
+
+  // Now line (only if today is in view)
+  const todayInView = days.some(d=>ymd(d)===today);
+  if(todayInView){
+    const todayIdx = days.findIndex(d=>ymd(d)===today);
+    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:'+(54+todayIdx*(100/7))+'%;width:'+(100/7)+'%;"><div class="wcal-now-dot"></div></div>';
+  }
+
+  html += '</div>'; // end time+event area
+
+  grid.innerHTML = html;
+
+  // Scroll to 8 AM on load
+  const wrap = document.getElementById('wcalGridWrap');
+  if(wrap && wrap._firstRender !== false){
+    wrap._firstRender = false;
+    setTimeout(()=>{ wrap.scrollTop = 8*60; }, 50);
+  }
+
+  // Wire click on day columns to set date + prefill quick-add
+  grid.querySelectorAll('.wcal-day-col').forEach(col=>{
+    col.addEventListener('click', function(e){
+      if(e.target.classList.contains('wcal-event')) return;
+      const dt = col.dataset.date;
+      if(dt){
+        const dateEl = document.getElementById('wcalAddDate');
+        if(dateEl) dateEl.value = dt;
+        cal.selected = dt;
+        wcalRenderMiniMonth();
+        const titleEl = document.getElementById('wcalAddTitle');
+        if(titleEl) titleEl.focus();
+      }
     });
   });
+
+  wcalRenderUpcoming();
 }
 
-function calRenderDayPanel(){
-  const lab = $("calSelectedLabel");
-  const sub = $("calSelectedSub");
-  const list = $("calDayEvents");
-  const dt = cal.selected;
+// ── Day view renderer ─────────────────────────────────────────
+function wcalRenderDay(){
+  const grid = document.getElementById('wcalGrid');
+  if(!grid) return;
+  const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
+  const dt = ymd(d);
+  const today = ymd(new Date());
 
-  if(!dt){
-    if(lab) lab.innerText = 'Select a date';
-    if(sub) sub.innerText = '';
-    if(list) list.innerHTML = '<div style="opacity:.85;">No date selected.</div>';
-    return;
+  const label = document.getElementById('wcalRangeLabel');
+  if(label) label.innerText = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+
+  const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
+
+  let html = '<div style="display:flex;">';
+  html += '<div class="wcal-time-col">';
+  for(let h=0;h<24;h++){
+    const lbl = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
+    html += '<div class="wcal-time-label">'+lbl+'</div>';
   }
+  html += '</div>';
+  html += '<div style="flex:1;position:relative;">';
+  for(let h=0;h<24;h++) html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
 
-  const pretty = new Date(dt+'T00:00:00').toLocaleDateString(undefined, {weekday:'long', month:'short', day:'numeric', year:'numeric'});
-  if(lab) lab.innerText = pretty;
-  if(sub) sub.innerText = cal.tz;
+  evs.forEach(ev=>{
+    const startDate = new Date(ev.start);
+    const endDate   = new Date(ev.end||ev.start);
+    if(isNaN(startDate)) return;
+    const startMins = startDate.getHours()*60+startDate.getMinutes();
+    const height = Math.max(28,(endDate-startDate)/60000);
+    const color = eventColor(ev);
+    const timeStr = startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+    const title = (ev.summary||'Event').replace(/</g,'&lt;');
+    const link = ev.htmlLink||ev.hangoutLink||'';
+    html += '<div class="wcal-event" style="top:'+startMins+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';left:8px;right:8px;" ';
+    if(link) html += 'onclick="window.open(''+link+'','_blank')" ';
+    html += 'title="'+title+'">';
+    html += '<div class="wcal-event-title">'+title+'</div>';
+    if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
+    html += '</div>';
+  });
 
-  const evs = cal.events[dt] || [];
-  if(!evs.length){
-    if(list) list.innerHTML = '<div style="opacity:.85;">No events.</div>';
-  }else{
-    const rows = evs.slice(0,12).map(ev=>{
-      const t = (ev.start || '').replace('T',' ').slice(0,16);
-      const title = escapeHtml(ev.summary || 'Event');
-      const join = ev.hangoutLink ? `<a href="${ev.hangoutLink}" target="_blank" rel="noopener">Join</a>` : (ev.htmlLink ? `<a href="${ev.htmlLink}" target="_blank" rel="noopener">Open</a>` : '');
-      return `<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08);">
-        <div style="opacity:.95;">${title}<div style="opacity:.8; font-size:11px;">${escapeHtml(t)}</div></div>
-        <div style="white-space:nowrap; opacity:.95;">${join}</div>
-      </div>`;
-    }).join('');
-    if(list) list.innerHTML = `<div>${rows}</div>`;
+  if(dt===today){
+    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
   }
+  html += '</div></div>';
+  grid.innerHTML = html;
+  const wrap = document.getElementById('wcalGridWrap');
+  if(wrap) setTimeout(()=>{ wrap.scrollTop = 8*60; }, 50);
 }
 
-function calSelectDate(dt){
+// ── Mini month ────────────────────────────────────────────────
+function wcalRenderMiniMonth(){
+  const grid = document.getElementById('wcalMiniGrid');
+  const label = document.getElementById('wcalMiniLabel');
+  if(!grid) return;
+  const y = cal.y, m = cal.m;
+  if(label) label.innerText = new Date(y,m,1).toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const today = ymd(new Date());
+  const firstDay = new Date(y,m,1).getDay();
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const dayNames = ['S','M','T','W','T','F','S'];
+  let html = dayNames.map(d=>'<div class="wcal-mini-wd">'+d+'</div>').join('');
+  for(let i=0;i<firstDay;i++) html += '<div></div>';
+  for(let d=1;d<=daysInMonth;d++){
+    const dt = y+'-'+pad2(m+1)+'-'+pad2(d);
+    let cls = 'wcal-mini-day';
+    if(dt===today) cls += ' today';
+    if(dt===cal.selected) cls += ' selected';
+    const hasEv = cal.events[dt] && cal.events[dt].length;
+    if(hasEv) cls += ' has-events';
+    html += '<div class="'+cls+'" onclick="wcalSelectDate(''+dt+'')" >'+d+'</div>';
+  }
+  grid.innerHTML = html;
+}
+
+function wcalSelectDate(dt){
   cal.selected = dt;
-  calRenderDayPanel();
-  if($("calTaskStatus")) $("calTaskStatus").innerText = '';
-  if($("calCallStatus")) $("calCallStatus").innerText = '';
+  const d = new Date(dt+'T12:00:00');
+  if(cal.view==='week'){
+    cal.weekStart = wcalMonday(d);
+  }
+  const dateEl = document.getElementById('wcalAddDate');
+  if(dateEl) dateEl.value = dt;
+  wcalRenderMiniMonth();
+  wcalRefresh();
 }
 
-async function calAddTask(){
-  const st = $("calTaskStatus");
-  if(st) st.innerText = 'Adding...';
-  const dt = cal.selected;
-  const title = ($("calTaskTitle").value||'').trim();
-  const tm = ($("calTaskTime").value||'').trim();
-  if(!dt){
-    if(st) st.innerText = 'Pick a date first';
+// ── Upcoming events sidebar ───────────────────────────────────
+function wcalRenderUpcoming(){
+  const box = document.getElementById('wcalUpcoming');
+  if(!box) return;
+  const now = new Date();
+  const items = [];
+  Object.keys(cal.events).sort().forEach(dt=>{
+    if(dt < ymd(now)) return;
+    (cal.events[dt]||[]).forEach(ev=>{
+      if(ev.start) items.push(ev);
+    });
+  });
+  if(!items.length){
+    box.innerHTML = '<div class="wcal-upcoming-time">No upcoming events</div>';
     return;
   }
-  if(!title){
-    if(st) st.innerText = 'Title required';
-    return;
-  }
-  const due = tm ? `${dt}T${tm}` : dt;
-  try{
-    const res = await fetch('/api/crm/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, due})});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'task failed');
-    if(st) st.innerText = 'Added';
-    $("calTaskTitle").value = '';
-    showToast('Task added');
-  }catch(e){
-    if(st) st.innerText = 'Add failed';
-  }
+  box.innerHTML = items.slice(0,8).map(ev=>{
+    const d = new Date(ev.start);
+    const dateStr = isNaN(d)?ev.start:d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const timeStr = isNaN(d)||!ev.start.includes('T')?'':d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+    const title = (ev.summary||'Event').replace(/</g,'&lt;');
+    const link = ev.htmlLink||ev.hangoutLink||'';
+    return '<div class="wcal-upcoming-item">'
+      +(link?'<a href="'+link+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">':'')
+      +'<div class="wcal-upcoming-title">'+title+'</div>'
+      +'<div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div>'
+      +(link?'</a>':'')
+      +'</div>';
+  }).join('');
 }
 
-async function calCreateCall(){
-  const st = $("calCallStatus");
+// ── View switch ───────────────────────────────────────────────
+function wcalSetView(v){
+  cal.view = v;
+  document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
+  const btn = document.getElementById('wcalView'+v.charAt(0).toUpperCase()+v.slice(1));
+  if(btn) btn.classList.add('active');
+  wcalRefresh();
+}
+
+// ── Navigation ────────────────────────────────────────────────
+async function wcalNav(dir){
+  if(cal.view==='week'){
+    const mon = cal.weekStart || wcalMonday(new Date());
+    mon.setDate(mon.getDate() + dir*7);
+    cal.weekStart = mon;
+    // Update cal.y and cal.m to match
+    cal.y = mon.getFullYear();
+    cal.m = mon.getMonth();
+  } else {
+    const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
+    d.setDate(d.getDate() + dir);
+    cal.selected = ymd(d);
+    cal.y = d.getFullYear();
+    cal.m = d.getMonth();
+  }
+  await wcalFetchCurrentRange();
+  wcalRenderMiniMonth();
+  wcalRefresh();
+}
+
+async function wcalFetchCurrentRange(){
+  let start, end;
+  if(cal.view==='week'){
+    const mon = cal.weekStart || wcalMonday(new Date());
+    start = new Date(mon);
+    end = new Date(mon); end.setDate(mon.getDate()+7);
+  } else {
+    const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
+    start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    end = new Date(start); end.setDate(start.getDate()+1);
+  }
+  // Also fetch mini-month range
+  const first = new Date(cal.y, cal.m, 1);
+  const mStart = new Date(first); mStart.setDate(1-first.getDay());
+  const last = new Date(cal.y, cal.m+1, 0);
+  const mEnd = new Date(last); mEnd.setDate(last.getDate()+(6-last.getDay())+1);
+  const fetchStart = start < mStart ? start : mStart;
+  const fetchEnd   = end   > mEnd   ? end   : mEnd;
+  await wcalFetchRange(fetchStart, fetchEnd);
+}
+
+function wcalRefresh(){
+  if(cal.view==='week') wcalRenderWeek();
+  else wcalRenderDay();
+}
+
+// ── Quick-add event ───────────────────────────────────────────
+async function wcalAddEvent(){
+  const st = document.getElementById('wcalAddStatus');
   if(st) st.innerText = 'Creating...';
-  const dt = cal.selected;
-  if(!dt){
-    if(st) st.innerText = 'Pick a date first';
-    return;
-  }
-  const title = ($("calCallTitle").value||'Call').trim() || 'Call';
-  const tm = ($("calCallTime").value||'09:00').trim();
-  const dur = parseInt(($("calCallDur").value||'30').trim(),10) || 30;
-
-  const startLocal = new Date(dt+'T'+tm+':00');
-  const endLocal = new Date(startLocal.getTime() + dur*60000);
-
+  const title = (document.getElementById('wcalAddTitle')?.value||'').trim();
+  const date  = (document.getElementById('wcalAddDate')?.value||'').trim();
+  const start = (document.getElementById('wcalAddStart')?.value||'09:00').trim();
+  const dur   = parseInt(document.getElementById('wcalAddDur')?.value||'60',10);
+  if(!title){ if(st) st.innerText = 'Title required'; return; }
+  if(!date){  if(st) st.innerText = 'Date required';  return; }
+  const startDt = new Date(date+'T'+start+':00');
+  const endDt   = new Date(startDt.getTime()+dur*60000);
   try{
-    const res = await fetch('/api/calendar/create_event', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        title,
-        start: startLocal.toISOString(),
-        end: endLocal.toISOString(),
-        timezone: cal.tz
-      })
+    const res = await fetch('/api/calendar/create_event',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title, start:startDt.toISOString(), end:endDt.toISOString(), timezone:cal.tz})
     });
     const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'calendar failed');
-    if(st) st.innerText = 'Created';
-    showToast('Call scheduled');
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-    calRenderDayPanel();
+    if(!data.ok) throw new Error(data.error||'Failed');
+    if(st) st.innerText = '✓ Created';
+    document.getElementById('wcalAddTitle').value = '';
+    showToast('Event created');
+    // Add to local cache immediately
+    const dt = date;
+    cal.events[dt] = cal.events[dt]||[];
+    cal.events[dt].push({summary:title, start:startDt.toISOString(), end:endDt.toISOString()});
+    wcalRefresh();
+    setTimeout(()=>{ if(st) st.innerText=''; }, 2000);
   }catch(e){
-    if(st) st.innerText = 'Create failed (connect Calendar in Settings)';
+    if(st) st.innerText = (e.message||'Failed') + ' (connect Calendar in Settings)';
   }
 }
 
+// ── Wire buttons ──────────────────────────────────────────────
+function wcalWireButtons(){
+  const prev = document.getElementById('calPrevBtn');
+  const next = document.getElementById('calNextBtn');
+  const today = document.getElementById('calTodayBtn');
+  const miniPrev = document.getElementById('wcalMiniPrev');
+  const miniNext = document.getElementById('wcalMiniNext');
+  const addBtn = document.getElementById('wcalAddBtn');
+
+  if(prev)    prev.onclick    = ()=>wcalNav(-1);
+  if(next)    next.onclick    = ()=>wcalNav(1);
+  if(today)   today.onclick   = ()=>{ cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date()); wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); }); };
+  if(miniPrev) miniPrev.onclick = ()=>{ cal.m--; if(cal.m<0){cal.m=11;cal.y--;} wcalRenderMiniMonth(); };
+  if(miniNext) miniNext.onclick = ()=>{ cal.m++; if(cal.m>11){cal.m=0;cal.y++;} wcalRenderMiniMonth(); };
+  if(addBtn)  addBtn.onclick  = ()=>wcalAddEvent();
+
+  // Enter key on title field
+  const titleField = document.getElementById('wcalAddTitle');
+  if(titleField) titleField.addEventListener('keydown', e=>{ if(e.key==='Enter') wcalAddEvent(); });
+
+  // Set today's date in quick-add
+  const dateField = document.getElementById('wcalAddDate');
+  if(dateField && !dateField.value) dateField.value = ymd(new Date());
+}
+
+// ── showCalendarModal ─────────────────────────────────────────
+// (keep the function that existing calendarBtn calls)
 function showCalendarModal(){
   showModal();
-  if($("frameworkForm")) $("frameworkForm").style.display = "none";
-  if($("modalForm")) $("modalForm").style.display = "none";
-  if($("manageForm")) $("manageForm").style.display = "none";
-  if($("createForm")) $("createForm").style.display = "none";
-  if($("settingsForm")) $("settingsForm").style.display = "none";
-  if($("stackForm")) $("stackForm").style.display = "none";
-  if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
-  if($("crmForm")) $("crmForm").style.display = "none";
-  if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-  if($("calendarForm")) $("calendarForm").style.display = "block";
-  if($("modalBody")) $("modalBody").style.display = "none";
-  if($("modalImg")) $("modalImg").style.display = "none";
+  if(typeof hideAllModalForms === 'function') hideAllModalForms();
+  else {
+    ['frameworkForm','modalForm','manageForm','createForm','settingsForm',
+     'stackForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.style.display = 'none';
+    });
+  }
+  const calForm = document.getElementById('calendarForm');
+  if(calForm) calForm.style.display = 'block';
+  const modalBody = document.getElementById('modalBody');
+  if(modalBody) modalBody.style.display = 'none';
+  const modalImg = document.getElementById('modalImg');
+  if(modalImg) modalImg.style.display = 'none';
+  const modalTitle = document.getElementById('modalTitle');
+  if(modalTitle) modalTitle.innerText = 'Calendar';
 
-  $("modalTitle").innerText = "Calendar";
-  calWeekdayHeader();
+  // Maximise modal for the week view
+  try{ ensureModalMinSize(1200, 820); }catch(_){}
 
-  if(!cal.selected) cal.selected = ymd(new Date());
-  calSelectDate(cal.selected);
+  cal.weekStart = wcalMonday(new Date());
+  cal.selected  = ymd(new Date());
+  cal.y = (new Date()).getFullYear();
+  cal.m = (new Date()).getMonth();
 
-  (async()=>{
-    await calFetchEventsForVisibleRange();
-    calRenderMonth();
-    calRenderDayPanel();
-  })();
+  wcalWireButtons();
+  wcalRenderMiniMonth();
+  wcalFetchCurrentRange().then(()=>{
+    wcalRenderMiniMonth();
+    wcalRefresh();
+  });
+
+  // Update now-line every minute
+  clearInterval(window._wcalNowInterval);
+  window._wcalNowInterval = setInterval(wcalUpdateNowLine, 60000);
 }
+
+// Keep backward-compat stubs
+async function calFetchEventsForVisibleRange(){ await wcalFetchCurrentRange(); }
+function calRenderMonth(){ wcalRenderMiniMonth(); }
+function calRenderDayPanel(){ }
+function calSetStatus(t){ const el=document.getElementById('calLoadStatus'); if(el) el.innerText=t||''; }
+function calWeekdayHeader(){}
+function calSelectDate(dt){ wcalSelectDate(dt); }
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
