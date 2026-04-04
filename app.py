@@ -531,18 +531,6 @@ def append_log(name: str, payload: Dict[str, Any]) -> None:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
 
-
-@app.errorhandler(500)
-def _api_500_json_error_handler(e):
-    try:
-        if (request.path or '').startswith('/api/'):
-            resp = jsonify({'ok': False, 'error': str(e) or 'Internal server error'})
-            resp.headers['Cache-Control'] = 'no-store'
-            return resp, 500
-    except Exception:
-        pass
-    raise e
-
 @app.errorhandler(Exception)
 def _api_json_error_handler(e):
     try:
@@ -916,25 +904,6 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     user_content = _build_user_content(msg2, vision_images)
     return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
 
-def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    if isinstance(steps, list):
-        for s in steps:
-            if not isinstance(s, dict):
-                continue
-            typ = (s.get("type") or "").strip().lower()
-            if typ not in ("prompt", "ask_user", "wait", "save_memory", "route"):
-                typ = "prompt"
-            out.append({
-                "type": typ,
-                "label": (s.get("label") or "").strip()[:80],
-                "prompt": (s.get("prompt") or ""),
-                "seconds": int(s.get("seconds") or 0),
-                "key": (s.get("key") or "").strip()[:80],
-                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
-            })
-    return out
-
 def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
     run_id = uuid.uuid4().hex
     return {
@@ -962,165 +931,6 @@ def _persist_run(run: Dict[str, Any]) -> None:
 def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> None:
     run.setdefault("log", [])
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
-
-def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Run a stack until it completes or pauses.
-
-    Pause states:
-      - needs_input: stops on an ask_user step until resumed via API
-      - waiting: stops on a wait step until wait_until (UTC) has passed
-    """
-    u = run.get("user") or "anon"
-    steps = run.get("steps") or []
-    outputs = run.get("outputs") or {}
-
-    # If we were waiting, only resume when due
-    try:
-        if (run.get("status") == "waiting") and run.get("wait_until"):
-            w = str(run.get("wait_until"))
-            w_dt = None
-            try:
-                w_dt = datetime.fromisoformat(w.replace("Z", ""))
-            except Exception:
-                w_dt = None
-            if w_dt and datetime.utcnow() < w_dt:
-                # still waiting
-                _persist_run(run)
-                return run
-            # due now, continue
-            run["status"] = "running"
-            run.pop("wait_until", None)
-    except Exception:
-        pass
-
-    mem = (_load_action_memory(u).get("memory") or {})
-    cursor = int(run.get("cursor") or 0)
-    last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
-
-    def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
-        # Logging must never break execution
-        try:
-            append_task_log(
-                action="stack_step" if status == "success" else "stack_error",
-                record={
-                    "teammate": run.get("teammate", ""),
-                    "stack": run.get("stack_name", ""),
-                    "run_id": run.get("id", ""),
-                    "step": step_num,
-                    "type": stype,
-                    "output": output,
-                    "extra": extra or {},
-                },
-                teammate=run.get("teammate", ""),
-                status=status,
-            )
-        except Exception:
-            pass
-
-    while cursor < len(steps):
-        step = steps[cursor]
-        stype = step.get("type", "prompt")
-
-        # Build a render context
-        ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
-        for i, out in outputs.items():
-            try:
-                idx = int(i)
-                ctx[f"step{idx+1}.output"] = out
-            except Exception:
-                continue
-        for k, v in (mem or {}).items():
-            ctx[f"memory.{k}"] = v
-
-        try:
-            if stype == "ask_user":
-                run["status"] = "needs_input"
-                run["cursor"] = cursor
-                _stack_task_log(cursor + 1, "ask_user", "", {"label": step.get("label", "")})
-                _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
-                _persist_run(run)
-                return run
-
-            if stype == "wait":
-                secs = max(0, min(3600, int(step.get("seconds") or 0)))
-                run["status"] = "waiting"
-                run["cursor"] = cursor
-                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
-                _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
-                _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
-                _persist_run(run)
-                return run
-
-            if stype == "save_memory":
-                key = (step.get("key") or "").strip()
-                val_t = step.get("prompt") or "{{last}}"
-                val = _safe_render(val_t, ctx)
-                if key:
-                    mem2 = _load_action_memory(u)
-                    mem2.setdefault("memory", {})
-                    mem2["memory"][key] = val
-                    _save_action_memory(u, mem2)
-                    mem = mem2["memory"]
-                outputs[str(cursor)] = val
-                last_output = val
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
-                _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
-
-            elif stype == "route":
-                to_tm = (step.get("to_teammate") or "").strip()
-                p = _safe_render(step.get("prompt") or "{{last}}", ctx)
-                out = _call_teammate_prompt_for_user(u, to_tm, p)
-                outputs[str(cursor)] = out
-                last_output = out
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "route", out, {"to": to_tm})
-                _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm})
-
-            else:  # "prompt" default
-                p = _safe_render(step.get("prompt") or "", ctx)
-                out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
-                outputs[str(cursor)] = out
-                last_output = out
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", "")})
-                _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", "")})
-
-            run["outputs"] = outputs
-            cursor += 1
-            run["cursor"] = cursor
-            run["status"] = "running"
-            _persist_run(run)
-
-        except Exception as e:
-            run["status"] = "failed"
-            run["error"] = str(e)
-            run["cursor"] = cursor
-            _stack_task_log(cursor + 1, "error", "", {"error": str(e)}, status="error")
-            _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
-            _persist_run(run)
-            return run
-
-    run["status"] = "complete"
-    run["cursor"] = len(steps)
-    try:
-        append_task_log(
-            action="stack_complete",
-            record={
-                "teammate": run.get("teammate", ""),
-                "stack": run.get("stack_name", ""),
-                "run_id": run.get("id", ""),
-                "steps": len(steps),
-                "last_output": run.get("last_output", ""),
-            },
-            teammate=run.get("teammate", ""),
-            status="success",
-        )
-    except Exception:
-        pass
-    _append_run_log(run, "complete", {"steps": len(steps)})
-    _persist_run(run)
-    return run
 
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
@@ -2480,7 +2290,6 @@ def _chat_completion_resilient(req: Dict[str, Any]):
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
     req = {
-        "model": MODEL,
         "messages": [{"role": "system", "content": system}] + messages,
         "temperature": temperature,
         "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
@@ -3464,100 +3273,70 @@ def api_convene():
 
 @app.post("/api/followup")
 def api_followup():
+    data = request.get_json(force=True)
+    name = (data.get("name") or "").strip()
+    msg = (data.get("message") or "").strip()
+    file_ids = data.get("file_ids") or []
+    lighting_mode = bool(data.get("lighting_mode"))
+
+    if not name or not msg:
+        return jsonify({"ok": False, "error": "Missing name or message"}), 400
+
+    reg = load_registry()
+    installed = reg["installed"]
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+
+    msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
+    user_content = _build_user_content(msg2, vision_images)
+
+    defn = installed[name]
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
+
+    thread = load_thread(name)
+    thread = thread[-14:] if len(thread) > 14 else thread
+
+    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
+
     try:
-        data = request.get_json(silent=True) or {}
-        name = (data.get("name") or "").strip()
-        msg = (data.get("message") or "").strip()
-        file_ids = data.get("file_ids") or []
-        lighting_mode = bool(data.get("lighting_mode"))
+        uname = _get_session_username()
+    except Exception:
+        uname = "anon"
+    if is_image_request(msg2):
+        source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
+        source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
+        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
+        job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
 
-        if not name or not msg:
-            return jsonify({"ok": False, "error": "Missing name or message"}), 400
-
-        reg = load_registry()
-        installed = reg["installed"]
-        if name not in installed:
-            return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-
-        msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
-        user_content = _build_user_content(msg2, vision_images)
-
-        defn = installed[name]
-        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
-
-        thread = load_thread(name)
-        thread = thread[-14:] if len(thread) > 14 else thread
-
-        latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
-
-        try:
-            uname = _get_session_username()
-        except Exception:
-            uname = "anon"
-        if is_image_request(msg2):
-            source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
-            mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
-            source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
-            job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
-            job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
-
-            mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
-            placeholder = f"[{mode_label}] job:{job_id}"
-            thread2 = load_thread(name)
-            thread2 = thread2[-14:] if len(thread2) > 14 else thread2
-            new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
-            save_thread(name, new_thread)
-
-            st0 = load_image_state(name)
-            st0["last_prompt"] = msg
-            st0["last_mode"] = mode
-            save_image_state(name, st0)
-
-            append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
-            append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
-
-            return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
-
-        msgs: List[Dict[str, Any]] = []
-        msgs.extend(thread)
-        msgs.append({"role": "user", "content": user_content})
-
-        try:
-            text_resp = call_llm(sys, msgs, temperature=0.65)
-        except Exception as e:
-            status, msg_err = _classify_openai_error(e)
-            append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
-            append_task_log(
-                "teammate_followup",
-                {
-                    "name": name,
-                    "message": msg,
-                    "message_with_attachments": msg2,
-                    "attachment_meta": attach_meta,
-                    "vision_images_count": len(vision_images),
-                    "error": str(e),
-                },
-                teammate=name,
-                status="failed"
-            )
-            return jsonify({"ok": False, "error": msg_err}), status
-
-        new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text_resp}]
+        mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
+        placeholder = f"[{mode_label}] job:{job_id}"
+        thread2 = load_thread(name)
+        thread2 = thread2[-14:] if len(thread2) > 14 else thread2
+        new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread)
 
-        draft = extract_email_draft(text_resp)
+        st0 = load_image_state(name)
+        st0["last_prompt"] = msg
+        st0["last_mode"] = mode
+        save_image_state(name, st0)
 
-        append_log("followup", {
-            "name": name,
-            "message": msg,
-            "message_with_attachments": msg2,
-            "attachment_meta": attach_meta,
-            "vision_images_count": len(vision_images),
-            "framework_length": len(load_core_framework()),
-            "response": text_resp,
-            "email_draft": draft
-        })
+        append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
+        append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
 
+        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
+
+
+
+    msgs: List[Dict[str, Any]] = []
+    msgs.extend(thread)
+    msgs.append({"role": "user", "content": user_content})
+
+    try:
+        text = call_llm(sys, msgs, temperature=0.65)
+    except Exception as e:
+        status, msg_err = _classify_openai_error(e)
+        append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
         append_task_log(
             "teammate_followup",
             {
@@ -3566,29 +3345,56 @@ def api_followup():
                 "message_with_attachments": msg2,
                 "attachment_meta": attach_meta,
                 "vision_images_count": len(vision_images),
-                "email_draft": draft,
-                "response_preview": (text_resp[:800] + ("..." if len(text_resp) > 800 else "")),
+                "error": str(e),
             },
             teammate=name,
-            status="success"
+            status="failed"
         )
-        try:
-            uname = _get_session_username()
-            _mark_onboarding_step(uname, "first_prompt", True)
-        except Exception:
-            pass
+        return jsonify({"ok": False, "error": msg_err}), status
 
-        resp = jsonify({"ok": True, "name": name, "response": text_resp, "email_draft": draft, "attachment_meta": attach_meta})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
-    except Exception as e:
-        try:
-            append_log("followup_route_crash", {"error": str(e), "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Teammate request failed: {str(e)}"})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp, 500
+    new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
+    save_thread(name, new_thread)
+
+    draft = extract_email_draft(text)
+
+    append_log("followup", {
+        "name": name,
+        "message": msg,
+        "message_with_attachments": msg2,
+        "attachment_meta": attach_meta,
+        "vision_images_count": len(vision_images),
+        "framework_length": len(load_core_framework()),
+        "response": text,
+        "email_draft": draft
+    })
+
+
+    # Task log (append-only)
+    append_task_log(
+        "teammate_followup",
+        {
+            "name": name,
+            "message": msg,
+            "message_with_attachments": msg2,
+            "attachment_meta": attach_meta,
+            "vision_images_count": len(vision_images),
+            "email_draft": draft,
+            "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
+        },
+        teammate=name,
+        status="success"
+    )
+    # onboarding_first_prompt: mark after the first successful prompt is sent
+    try:
+        uname = _get_session_username()
+        _mark_onboarding_step(uname, "first_prompt", True)
+    except Exception:
+        pass
+
+
+
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
@@ -7471,24 +7277,7 @@ if (typeof window.showToast !== "function") {
     });
     const $ = (id) => document.getElementById(id) || __NULL_EL;
 
-    
-    async function safeJsonFromResponse(res, contextLabel){
-      const label = (contextLabel || 'Server').trim();
-      let raw = '';
-      try{
-        raw = await res.text();
-      }catch(e){
-        return {ok:false, error: label + ' response could not be read.'};
-      }
-      try{
-        return raw ? JSON.parse(raw) : {};
-      }catch(_){
-        const cleaned = String(raw || '').trim().slice(0, 800);
-        return {ok:false, error: label + ' response was invalid: ' + cleaned};
-      }
-    }
-
-function escapeHtml(str){
+    function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
         .replace(/&/g,'&amp;')
@@ -10128,7 +9917,7 @@ function makeSeat(defn, idx){
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
           });
-          const data = await safeJsonFromResponse(res, "Round table");
+          const data = await res.json();
 
           if(!data.ok){
             order.forEach(n => setSeatLive(n, "waiting"));
@@ -10178,8 +9967,11 @@ function makeSeat(defn, idx){
           });
           clearTimeout(t);
 
-          const data = await safeJsonFromResponse(res, "Teammate");
-          if(!data || data.ok === false && data.error && String(data.error).includes("response was invalid:")){
+          let data = null;
+          try{
+            data = await res.json();
+          }catch(_){
+            // Non-JSON response from server: mark as failed but do not freeze
             setSeatLive(n, "waiting");
             continue;
           }
@@ -10293,7 +10085,7 @@ async function sendFollow(){
           signal: controller.signal
         });
         clearTimeout(t);
-        data = await safeJsonFromResponse(res, "Teammate");
+        data = await res.json();
       }catch(e){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
@@ -15586,33 +15378,6 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
 
-def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
-    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
-    # No hard dependency. Only works if configured.
-    try:
-        crm = _crm_load(username)
-        sms = ((crm.get("settings") or {}).get("sms") or {})
-        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
-        if provider != "twilio":
-            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
-        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
-        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
-        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
-        if not sid or not token or not from_num:
-            return False, "Twilio missing SID/TOKEN/FROM."
-        import requests
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
-        if r.status_code >= 400:
-            return False, f"Twilio error: {r.text}"
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-
-
-
-
 def _crm_extract_domain(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"^https?://", "", s)
@@ -15831,7 +15596,16 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
-    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
+    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
+    # Directories, portals, and aggregators — never contain direct business contacts
+    "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com", "houzz.com",
+    "homeadvisor.com", "bbb.org", "superpages.com", "manta.com", "alignable.com",
+    "indeed.com", "glassdoor.com", "ziprecruiter.com", "craigslist.org",
+    "apartments.com", "apartmentlist.com", "rent.com", "hotpads.com",
+    "tripadvisor.com", "booking.com", "foursquare.com",
+    "houzeo.com", "opendoor.com", "offerpad.com", "compass.com",
+    "wikipedia.org", "wikihow.com", "reddit.com", "quora.com",
+    "amazonaws.com", "googleusercontent.com", "gstatic.com",
 }
 _CRM_STATE_CITY_MAP = {
     "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
@@ -15937,7 +15711,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
@@ -16109,13 +15883,19 @@ def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: 
             locations.extend(extra[:12])
         else:
             locations.extend(extra[:8])
+    _is_realty = bool(re.search(r"real.?estate|realtor|broker|realty|property|properties", niche, flags=re.I))
     templates = [
         '{niche} in {loc} contact',
         '{loc} {niche} office',
-        '{loc} {niche} realtor broker',
         '{loc} {niche} team',
-        '{loc} {niche} real estate agent',
+        '{loc} {niche} website',
+        '{loc} {niche} phone number',
     ]
+    if _is_realty:
+        templates += [
+            '{loc} {niche} realtor broker',
+            '{loc} {niche} real estate agent',
+        ]
     queries = []
     seen = set()
     for loc in locations:
@@ -16158,23 +15938,28 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     signals = _crm_parse_page_signals(html, final_url, niche, location)
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
-    for link in _crm_find_contact_links(html, final_url):
-        sub_html, _ = _crm_fetch_text_url(link)
-        if not sub_html:
-            continue
-        sub = _crm_parse_page_signals(sub_html, link, niche, location)
-        for e in sub.get("emails") or []:
-            if e not in emails:
-                emails.append(e)
-        for p in sub.get("phones") or []:
-            if p not in phones:
-                phones.append(p)
-        if not signals.get("name") and sub.get("name"):
-            signals["name"] = sub.get("name")
-        if not signals.get("company") and sub.get("company"):
-            signals["company"] = sub.get("company")
-        signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
-        signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
+    # Early exit: skip sub-page crawl if we already have both email and phone
+    if not (emails and phones):
+        for link in _crm_find_contact_links(html, final_url):
+            sub_html, _ = _crm_fetch_text_url(link)
+            if not sub_html:
+                continue
+            sub = _crm_parse_page_signals(sub_html, link, niche, location)
+            for e in sub.get("emails") or []:
+                if e not in emails:
+                    emails.append(e)
+            for p in sub.get("phones") or []:
+                if p not in phones:
+                    phones.append(p)
+            if not signals.get("name") and sub.get("name"):
+                signals["name"] = sub.get("name")
+            if not signals.get("company") and sub.get("company"):
+                signals["company"] = sub.get("company")
+            signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
+            signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
+            # Stop once we have enough contact info
+            if emails and phones:
+                break
     name = signals.get("name") or hint_name or ""
     company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
@@ -16294,7 +16079,6 @@ def _crm_public_search(query: str, max_results: int = 12, niche: str = "", locat
             merged.append(row)
             if len(merged) >= hard_cap:
                 return merged
-    return merged
     return merged
 
 
@@ -16502,19 +16286,26 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     enrich_pool = raw_results[:max(lead_count * 2, 10)]
     if enrich_pool:
         try:
-            max_workers = 2
+            max_workers = 3
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 futures = {ex.submit(_crm_enrich_result, row, niche, location, row.get("query") or ""): row for row in enrich_pool}
-                for fut in as_completed(futures, timeout=12):
+                for fut in as_completed(futures, timeout=55):
                     try:
                         item = fut.result(timeout=0)
-                    except Exception:
+                    except Exception as enrich_err:
+                        try:
+                            append_log("lead_lab_enrich_error", {"error": str(enrich_err), "at": now_iso()})
+                        except Exception:
+                            pass
                         item = None
                     include_verified(item)
                     if len(verified) >= lead_count:
                         break
-        except Exception:
-            pass
+        except Exception as pool_err:
+            try:
+                append_log("lead_lab_pool_error", {"error": str(pool_err), "at": now_iso()})
+            except Exception:
+                pass
 
     def _sort_key(item: Dict[str, Any]):
         return ((1 if (item.get("phone") or "").strip() else 0) + (1 if (item.get("email") or "").strip() else 0), int(item.get("score") or 0))
@@ -16630,10 +16421,35 @@ def api_crm_lead_lab():
                     pass
                 verified = []
 
+        # Fallback: retry with relaxed thresholds if zero leads found
+        if not verified and remaining > 0 and (niche or location):
+            try:
+                verified = _crm_discover_public_leads(
+                    niche=niche,
+                    location=location,
+                    lead_count=remaining,
+                    search_mode=search_mode,
+                    existing_domains=existing_domains,
+                    specific_areas=specific_areas,
+                    require_contact="any",
+                    min_score=25,
+                )
+                relaxed_fallback = bool(verified)
+            except Exception as fallback_err:
+                try:
+                    append_log("crm_lead_lab_fallback_error", {"error": str(fallback_err), "at": now_iso()})
+                except Exception:
+                    pass
+                relaxed_fallback = False
+        else:
+            relaxed_fallback = False
+
         final = items + verified
         warning = ""
         if not verified:
-            warning = "No verified leads were found for this search."
+            warning = "No verified leads were found for this search. Try broadening your niche or location."
+        elif relaxed_fallback:
+            warning = f"Found {len(verified)} leads using relaxed matching. Review carefully before outreach."
         elif len(verified) < remaining:
             warning = f"Built {len(verified)} verified public-contact leads for this search."
 
