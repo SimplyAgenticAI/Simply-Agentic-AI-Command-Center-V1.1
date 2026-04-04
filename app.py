@@ -47,8 +47,8 @@ except Exception:
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
-MODEL = os.getenv("MODEL", "gpt-4.1")
-OPENAI_FALLBACK_MODELS = [m.strip() for m in (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4.1-mini,gpt-4o-mini")).split(",") if m.strip()]
+MODEL = os.getenv("MODEL", "gpt-4o")
+OPENAI_FALLBACK_MODELS = [m.strip() for m in (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4o,gpt-4o-mini")).split(",") if m.strip()]
 OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "4"))
 OPENAI_BASE_RETRY_SECONDS = float(os.getenv("OPENAI_BASE_RETRY_SECONDS", "2.0"))
 OPENAI_CONCURRENCY = max(1, int(os.getenv("OPENAI_CONCURRENCY", "1")))
@@ -534,14 +534,53 @@ def append_log(name: str, payload: Dict[str, Any]) -> None:
 @app.errorhandler(Exception)
 def _api_json_error_handler(e):
     try:
-        if (request.path or '').startswith('/api/'):
-            code = getattr(e, 'code', 500) or 500
+        code = getattr(e, 'code', 500) or 500
+        path = ''
+        try:
+            path = request.path or ''
+        except Exception:
+            pass
+        try:
+            append_log("unhandled_error", {"path": path, "error": str(e), "type": type(e).__name__})
+        except Exception:
+            pass
+        if path.startswith('/api/'):
             resp = jsonify({'ok': False, 'error': str(e) or 'Internal server error'})
             resp.headers['Cache-Control'] = 'no-store'
+            resp.headers['Content-Type'] = 'application/json'
             return resp, code
+        # For non-API routes return a plain error page instead of crashing
+        return f"<h1>Error {code}</h1><p>{str(e)}</p>", code
+    except Exception as inner:
+        # Last resort — always return JSON for API paths
+        try:
+            if '/api/' in (request.path or ''):
+                return '{"ok": false, "error": "Internal server error"}', 500, {'Content-Type': 'application/json'}
+        except Exception:
+            pass
+        raise e
+
+@app.errorhandler(404)
+def _404_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            resp = jsonify({'ok': False, 'error': f'Endpoint not found: {request.path}'})
+            resp.headers['Content-Type'] = 'application/json'
+            return resp, 404
     except Exception:
         pass
-    raise e
+    return "<h1>404 Not Found</h1>", 404
+
+@app.errorhandler(500)
+def _500_handler(e):
+    try:
+        if (request.path or '').startswith('/api/'):
+            resp = jsonify({'ok': False, 'error': 'Internal server error. Check server logs.'})
+            resp.headers['Content-Type'] = 'application/json'
+            return resp, 500
+    except Exception:
+        pass
+    return "<h1>500 Internal Server Error</h1>", 500
 
 # =========================
 # TASK LOG (APPEND-ONLY)
@@ -3137,7 +3176,23 @@ def api_image_job_status(job_id: str):
 
 @app.post("/api/convene")
 def api_convene():
-    data = request.get_json(force=True)
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+    try:
+        return _api_convene_inner(data)
+    except Exception as e:
+        try:
+            append_log("convene_crash", {"error": str(e), "type": type(e).__name__, "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Server error: {str(e)}"})
+        resp.headers["Content-Type"] = "application/json"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
+
+def _api_convene_inner(data):
     prompt = (data.get("prompt") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
@@ -3273,7 +3328,23 @@ def api_convene():
 
 @app.post("/api/followup")
 def api_followup():
-    data = request.get_json(force=True)
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+    try:
+        return _api_followup_inner(data)
+    except Exception as e:
+        try:
+            append_log("followup_crash", {"error": str(e), "type": type(e).__name__, "at": now_iso()})
+        except Exception:
+            pass
+        resp = jsonify({"ok": False, "error": f"Server error: {str(e)}"})
+        resp.headers["Content-Type"] = "application/json"
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, 500
+
+def _api_followup_inner(data):
     name = (data.get("name") or "").strip()
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
@@ -15597,7 +15668,7 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
     "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
-    # Directories and aggregators — never contain direct business contacts
+    # Directories, portals, and aggregators — never contain direct business contacts
     "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com", "houzz.com",
     "homeadvisor.com", "bbb.org", "superpages.com", "manta.com", "alignable.com",
     "indeed.com", "glassdoor.com", "ziprecruiter.com", "craigslist.org",
@@ -15957,6 +16028,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
                 signals["company"] = sub.get("company")
             signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
             signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
+            # Stop once we have enough contact info
             if emails and phones:
                 break
     name = signals.get("name") or hint_name or ""
@@ -16446,7 +16518,7 @@ def api_crm_lead_lab():
         final = items + verified
         warning = ""
         if not verified:
-            warning = "No verified leads were found. Try broadening your niche or location."
+            warning = "No verified leads were found for this search. Try broadening your niche or location."
         elif relaxed_fallback:
             warning = f"Found {len(verified)} leads using relaxed matching. Review carefully before outreach."
         elif len(verified) < remaining:
@@ -16601,7 +16673,7 @@ def api_crm_playbooks():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
 
 
 # === Additive Patch: Move Diagnostics Panel Into Settings ===
