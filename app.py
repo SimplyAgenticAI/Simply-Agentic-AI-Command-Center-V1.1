@@ -4903,15 +4903,17 @@ HTML = r"""
     .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     .thread{
-      height: 40vh;
+      height: 52vh;
+      min-height: 200px;
       overflow:auto;
       background: rgba(7,10,20,.65);
       border:1px solid rgba(42,58,106,.6);
       border-radius: 14px;
       padding: 10px;
       font-size: 13px;
-      line-height: 1.35;
+      line-height: 1.55;
       white-space: pre-wrap;
+      transition: height 0.2s;
     }
 
     .msg{
@@ -7049,7 +7051,24 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
-        <div class="thread" id="thread"></div>
+        <div style="position:relative;">
+          <div class="thread" id="thread"></div>
+          <button id="expandThreadBtn" title="Expand response window" style="position:absolute;top:6px;right:6px;background:rgba(14,22,48,.85);border:1px solid rgba(124,58,237,.5);color:rgba(180,160,255,.9);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;z-index:10;backdrop-filter:blur(4px);">⤢ Expand</button>
+        </div>
+
+        <!-- Response Expand Modal -->
+        <div id="threadExpandModal" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);">
+          <div id="threadExpandBox" style="position:absolute;top:5vh;left:50%;transform:translateX(-50%);width:80vw;max-width:1100px;min-width:320px;height:85vh;background:rgba(10,14,30,.97);border:1px solid rgba(124,58,237,.5);border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 80px rgba(0,0,0,.7);resize:both;">
+            <div id="threadExpandDragBar" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(14,22,48,.95);border-bottom:1px solid rgba(42,58,106,.8);cursor:move;flex-shrink:0;">
+              <span id="threadExpandTitle" style="font-weight:700;font-size:14px;color:#c4b5fd;">Response</span>
+              <div style="display:flex;gap:8px;">
+                <button id="threadExpandCopyBtn" style="background:rgba(42,58,106,.6);border:1px solid rgba(124,58,237,.4);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">Copy</button>
+                <button id="threadExpandCloseBtn" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+              </div>
+            </div>
+            <div id="threadExpandContent" style="flex:1;overflow:auto;padding:16px;font-size:14px;line-height:1.6;white-space:pre-wrap;color:#e2e8f0;"></div>
+          </div>
+        </div>
 
         <div style="height:10px"></div>
         <textarea class="followBox" id="followMsg" placeholder="Send an individual message to the selected teammate..."></textarea>
@@ -7921,23 +7940,61 @@ function showModal(title, body, imgUrl){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
       if(!q){ showModal('Missing command', 'Type a command first.'); return; }
-      showModal('Routing command', 'Thinking...');
+      showModal('Running command...', 'Routing your request...');
       try{
         const res = await fetch('/api/os/intent_route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:q})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Route failed');
-        const preview = [
-          'Intent: ' + (data.intent || ''),
-          'Suggested module: ' + (data.module || ''),
-          data.plan ? ('\nPlan\n' + data.plan) : '',
-          data.next_action ? ('\nNext action\n' + data.next_action) : ''
-        ].filter(Boolean).join('\n');
-        showModal('Command router', preview);
+
+        const module = (data.module || 'round_table').toLowerCase().trim();
+
+        // Auto-navigate to the right module tab
+        const moduleMap = {
+          'lead_lab':      () => { try{ $('leadLabBtn') && $('leadLabBtn').click(); }catch(_){} },
+          'crm_clients':   () => { try{ const b = document.querySelector('[data-click="crmClientsBtn"]') || $('crmClientsBtn'); if(b) b.click(); }catch(_){} },
+          'crm_pipeline':  () => { try{ const b = document.querySelector('[data-click="crmPipelineBtn"]') || $('crmPipelineBtn'); if(b) b.click(); }catch(_){} },
+          'crm_broadcast': () => { try{ const b = document.querySelector('[data-click="crmBroadcastBtn"]') || $('crmBroadcastBtn'); if(b) b.click(); }catch(_){} },
+          'social_studio': () => { try{ const b = $('socialStudioBtn') || document.querySelector('[data-click="socialStudioBtn"]'); if(b) b.click(); }catch(_){} },
+          'offer_builder': () => { try{ const b = $('offerBuilderBtn') || document.querySelector('[data-click="offerBuilderBtn"]'); if(b) b.click(); }catch(_){} },
+          'action_stacks': () => { try{ const b = $('actionStacksBtn') || document.querySelector('[data-click="actionStacksBtn"]'); if(b) b.click(); }catch(_){} },
+        };
+
+        if(moduleMap[module]){
+          try{ moduleMap[module](); }catch(_){}
+        }
+
+        // Prefill objective if available
         if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
+
+        // Prefill the group command bar with the query if routing to round table
+        if(module === 'round_table' && $("opPrompt") && !($("opPrompt").value||'').trim()){
+          $("opPrompt").value = q;
+        }
+
+        // Prefill Lead Lab niche/location if routing there
+        if(module === 'lead_lab'){
+          const niche = data.niche || '';
+          const location = data.location || '';
+          if(niche && $("leadLabNiche") && !$("leadLabNiche").value) $("leadLabNiche").value = niche;
+          if(location && $("leadLabLocation") && !$("leadLabLocation").value) $("leadLabLocation").value = location;
+        }
+
+        const plan = data.plan || '';
+        const nextAction = data.next_action || '';
+        const moduleLabel = module.replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
+        const preview = [
+          '→ Module: ' + moduleLabel,
+          plan ? 'Plan: ' + plan : '',
+          nextAction ? 'Next: ' + nextAction : '',
+        ].filter(Boolean).join('\n');
+
+        showModal('Command routed to ' + moduleLabel, preview);
+
+        if(inp) inp.value = '';
       }catch(e){
-        showModal('Command router error', String(e && e.message ? e.message : e));
+        showModal('Command error', String(e && e.message ? e.message : e));
       }
     }
 
@@ -9502,7 +9559,8 @@ function makeSeat(defn, idx){
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
-      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      // Remove ALL occurrences of the name to prevent buildup
+      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
@@ -9517,6 +9575,7 @@ function makeSeat(defn, idx){
       alwaysInterimText = "";
       alwaysFinalText = "";
       alwaysFinalBaseline = "";
+      alwaysFinalCount = 0;
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
@@ -9544,22 +9603,31 @@ function makeSeat(defn, idx){
 
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
+    // Track how many final results we have already committed
+    let alwaysFinalCount = 0;
+
     function getCanonicalSpeech(event){
-      let allFinal = "";
+      let newFinal = "";
       let interim = "";
 
-      for(let i = 0; i < event.results.length; i++){
+      for(let i = event.resultIndex; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          allFinal += txt + " ";
+          newFinal += txt + " ";
         }else{
           interim += txt;
         }
       }
 
-      allFinal = allFinal.replace(/\s+/g, " ").trim();
+      newFinal = newFinal.replace(/\s+/g, " ").trim();
       interim = interim.replace(/\s+/g, " ").trim();
-      return { allFinal, interim };
+
+      // Accumulate committed finals separately
+      if(newFinal){
+        alwaysFinalText = ((alwaysFinalText || "") + " " + newFinal).replace(/\s+/g, " ").trim();
+      }
+
+      return { allFinal: alwaysFinalText, interim };
     }
 
     function subtractBaseline(allFinal){
@@ -9611,46 +9679,41 @@ function makeSeat(defn, idx){
 
       rec.onresult = async (event) => {
         const canon = getCanonicalSpeech(event);
-        const allFinalRaw = canon.allFinal;
+        const allFinal = canon.allFinal;   // accumulated finals (no replay)
         const interimRaw = canon.interim;
 
-        const allFinal = subtractBaseline(allFinalRaw);
-        const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
+        // Build candidate for name detection — use only interim + very recent text
+        const candidateText = (interimRaw).replace(/\s+/g, " ").trim();
         const hit = findFirstNameMention(candidateText);
 
         if(hit){
           const now = Date.now();
-          if(now - lastNameSwitchAt > 650){
+          if(now - lastNameSwitchAt > 800){
             lastNameSwitchAt = now;
 
+            // Clean the name out of what we have so far
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
 
+            // Save cleaned text to current target before switching
             const targetBefore = currentAlwaysTarget();
             if(targetBefore){
-              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
-                .replace(/\s+/g, " ")
-                .trim();
+              targetBefore.value = cleanedFinal.trim();
             }
 
-            // Switch teammate and apply the same glow as clicking
+            // Switch teammate
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
-            alwaysFinalBaseline = allFinalRaw;
-
-            // Start writing into the new target input from its existing content
-            const t2 = currentAlwaysTarget();
-            alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
+            // Reset buffers for the new target — start fresh
             alwaysFinalText = "";
             alwaysInterimText = "";
+            alwaysFinalCount = 0;
+            const t2 = currentAlwaysTarget();
+            alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             return;
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
-        alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
@@ -9705,6 +9768,124 @@ function makeSeat(defn, idx){
         startAlwaysListening("dm");
       }
     };
+
+
+    // ── Response Expand Modal ────────────────────────────────────────
+    (function(){
+      function openExpandModal(){
+        const modal = $("threadExpandModal");
+        const content = $("threadExpandContent");
+        const title = $("threadExpandTitle");
+        const threadEl = $("thread");
+        if(!modal || !content || !threadEl) return;
+
+        // Copy thread HTML into expand modal
+        content.innerHTML = threadEl.innerHTML;
+
+        // Set title to current seat
+        if(title) title.innerText = (window.selectedSeat || "Response") + " — Thread";
+
+        modal.style.display = "block";
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeExpandModal(){
+        const modal = $("threadExpandModal");
+        if(modal) modal.style.display = "none";
+        document.body.style.overflow = "";
+      }
+
+      // Wire expand button
+      const expandBtn = $("expandThreadBtn");
+      if(expandBtn) expandBtn.onclick = openExpandModal;
+
+      // Double-click on thread also expands
+      const threadEl = $("thread");
+      if(threadEl){
+        threadEl.ondblclick = openExpandModal;
+        threadEl.title = "Double-click to expand";
+        threadEl.style.cursor = "pointer";
+      }
+
+      // Close button
+      const closeBtn = $("threadExpandCloseBtn");
+      if(closeBtn) closeBtn.onclick = closeExpandModal;
+
+      // Close on backdrop click
+      const modal = $("threadExpandModal");
+      if(modal){
+        modal.addEventListener("click", (e) => {
+          if(e.target === modal) closeExpandModal();
+        });
+      }
+
+      // Copy button
+      const copyBtn = $("threadExpandCopyBtn");
+      if(copyBtn){
+        copyBtn.onclick = () => {
+          const content = $("threadExpandContent");
+          const text = content ? (content.innerText || "") : "";
+          navigator.clipboard.writeText(text).then(() => {
+            copyBtn.innerText = "Copied!";
+            setTimeout(() => { copyBtn.innerText = "Copy"; }, 1500);
+          }).catch(() => {
+            copyBtn.innerText = "Copy failed";
+            setTimeout(() => { copyBtn.innerText = "Copy"; }, 1500);
+          });
+        };
+      }
+
+      // Draggable modal
+      const dragBar = $("threadExpandDragBar");
+      const box = $("threadExpandBox");
+      if(dragBar && box){
+        let isDragging = false, startX, startY, startLeft, startTop;
+        dragBar.addEventListener("mousedown", (e) => {
+          if(e.target === $("threadExpandCloseBtn") || e.target === $("threadExpandCopyBtn")) return;
+          isDragging = true;
+          const rect = box.getBoundingClientRect();
+          startX = e.clientX;
+          startY = e.clientY;
+          startLeft = rect.left;
+          startTop = rect.top;
+          box.style.transform = "none";
+          box.style.left = startLeft + "px";
+          box.style.top = startTop + "px";
+          e.preventDefault();
+        });
+        document.addEventListener("mousemove", (e) => {
+          if(!isDragging) return;
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          box.style.left = Math.max(0, startLeft + dx) + "px";
+          box.style.top = Math.max(0, startTop + dy) + "px";
+        });
+        document.addEventListener("mouseup", () => { isDragging = false; });
+      }
+
+      // Escape key closes modal
+      document.addEventListener("keydown", (e) => {
+        if(e.key === "Escape" && $("threadExpandModal") && $("threadExpandModal").style.display !== "none"){
+          closeExpandModal();
+        }
+      });
+
+      // Auto-refresh expand modal content when thread updates
+      const origRenderThread = window.renderThread;
+      if(typeof origRenderThread === "function"){
+        window.renderThread = function(){
+          origRenderThread.apply(this, arguments);
+          // If expand modal is open, refresh its content too
+          const modal = $("threadExpandModal");
+          if(modal && modal.style.display !== "none"){
+            const content = $("threadExpandContent");
+            const threadEl = $("thread");
+            if(content && threadEl) content.innerHTML = threadEl.innerHTML;
+          }
+        };
+      }
+    })();
+    // ── End Response Expand Modal ────────────────────────────────────
 
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
@@ -15021,7 +15202,7 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
     except Exception:
         return []
 
-    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4.1-mini')
+    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini')
     system = (
         'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
         'Return ONLY a JSON array. Each item must be an object with keys: '
@@ -16671,8 +16852,17 @@ def _os_route_query(username: str, query: str) -> Dict[str, Any]:
     try:
         raw = call_llm(system, [{"role": "user", "content": user}], temperature=0.15)
         out = _safe_json_loads(raw, fallback)
+        if not isinstance(out, dict):
+            out = fallback
         if out.get("module") not in _os_tool_candidates():
             out["module"] = fallback["module"]
+        # Extract niche/location hints for Lead Lab prefill
+        if out.get("module") == "lead_lab":
+            import re as _re
+            niche_m = _re.search(r"niche[:\s]+([\w\s]+?)(?:,|in|\n|$)", q, _re.I)
+            loc_m   = _re.search(r"(?:in|location[:\s]+)\s*([A-Z][\w\s,]+?)(?:\.|,|\n|$)", q)
+            if niche_m: out["niche"]    = niche_m.group(1).strip()
+            if loc_m:   out["location"] = loc_m.group(1).strip()
         return out
     except Exception as e:
         _os_log_error(username, "intent_route", str(e), {"query": q})
