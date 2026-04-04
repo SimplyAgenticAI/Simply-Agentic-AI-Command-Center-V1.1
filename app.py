@@ -4586,7 +4586,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      grid-template-columns: minmax(0, 1fr) 500px;
       align-items:start;
     }
 
@@ -4873,10 +4873,10 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 12px;
+      top: 0;
       align-self:start;
-      height: calc(100vh - 24px);
-      overflow:auto;
+      height: 100vh;
+      overflow: hidden;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
@@ -4902,18 +4902,195 @@ HTML = r"""
     .sideTitle .h1{ font-weight:800; }
     .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+
+    /* ===== REDESIGNED NAV BAR ===== */
+    .saNavBar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: rgba(10,14,30,.95);
+      border-bottom: 1px solid rgba(42,58,106,.7);
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 900;
+      backdrop-filter: blur(12px);
+    }
+    .saNavLeft { display:flex; gap:6px; align-items:center; flex-shrink:0; }
+    .saNavCenter { flex:1; display:flex; flex-direction:column; gap:5px; min-width:240px; }
+    .saNavRight { flex-shrink:0; }
+    .saModelTag { font-size:11px; color:rgba(148,163,184,.6); white-space:nowrap; }
+
+    /* Dropdown buttons */
+    .saDropWrap { position:relative; }
+    .saNavBtn {
+      display:flex; align-items:center; gap:5px;
+      padding: 7px 14px;
+      background: rgba(14,22,48,.8);
+      border: 1px solid rgba(42,58,106,.8);
+      border-radius: 10px;
+      color: rgba(196,181,253,.9);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .saNavBtn:hover { background: rgba(30,40,80,.9); border-color: rgba(124,58,237,.5); }
+    .saChevron { font-size: 9px; opacity: 0.7; transition: transform 0.2s; }
+    .saNavBtn.open .saChevron { transform: rotate(180deg); }
+
+    /* Dropdown menus */
+    .saDrop {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      min-width: 200px;
+      background: rgba(10,14,30,.98);
+      border: 1px solid rgba(42,58,106,.9);
+      border-radius: 12px;
+      padding: 6px;
+      z-index: 9999;
+      box-shadow: 0 16px 48px rgba(0,0,0,.6);
+    }
+    .saDrop.open { display: block; }
+    .saDropItem {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 9px 12px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      color: rgba(226,232,240,.85);
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .saDropItem:hover { background: rgba(124,58,237,.15); color: #c4b5fd; }
+
+    /* Command bar */
+    .saCommandWrap {
+      display: flex;
+      align-items: center;
+      background: rgba(14,22,48,.8);
+      border: 1px solid rgba(80,100,180,.5);
+      border-radius: 12px;
+      padding: 0 12px;
+      gap: 8px;
+      transition: border-color 0.2s;
+    }
+    .saCommandWrap:focus-within { border-color: rgba(124,58,237,.7); }
+    .saCmdIcon { font-size:14px; color:rgba(124,58,237,.7); flex-shrink:0; }
+    .saCmdInput {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: rgba(226,232,240,.9);
+      font-size: 13px;
+      padding: 10px 0;
+      min-width: 0;
+    }
+    .saCmdInput::placeholder { color: rgba(100,116,139,.6); }
+    .saCmdBtn {
+      background: rgba(124,58,237,.3);
+      border: 1px solid rgba(124,58,237,.5);
+      color: #c4b5fd;
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .saCmdBtn:hover { background: rgba(124,58,237,.5); }
+    .saObjectivePill {
+      font-size: 11px;
+      color: rgba(148,163,184,.5);
+      padding: 2px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Message expand modal */
+    #saMsgModal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 99998;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(4px);
+      align-items: center;
+      justify-content: center;
+    }
+    #saMsgModal.open { display: flex; }
+    #saMsgModalBox {
+      background: rgba(10,14,30,.98);
+      border: 1px solid rgba(42,58,106,.9);
+      border-radius: 18px;
+      width: min(860px, 92vw);
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0,0,0,.7);
+    }
+    #saMsgModalHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(42,58,106,.6);
+      flex-shrink: 0;
+    }
+    #saMsgModalTitle { font-weight: 700; font-size: 14px; color: #c4b5fd; }
+    #saMsgModalBody {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      font-size: 15px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      color: #e2e8f0;
+    }
+    #saMsgModalFooter {
+      display: flex;
+      gap: 8px;
+      padding: 12px 18px;
+      border-top: 1px solid rgba(42,58,106,.6);
+      flex-shrink: 0;
+    }
+    .saMsgModalBtn {
+      padding: 6px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid rgba(42,58,106,.8);
+      background: transparent;
+      color: rgba(226,232,240,.7);
+    }
+    .saMsgModalBtn:hover { background: rgba(30,40,80,.6); }
+    .saMsgModalBtn.primary { background: rgba(124,58,237,.3); border-color: rgba(124,58,237,.5); color: #c4b5fd; }
+
+    /* Hide old commandRow/commandHeader — they're replaced */
+    .commandHeader, .commandRow { display: none !important; }
+    /* ===== END NAV BAR CSS ===== */
+
     .thread{
-      height: 52vh;
-      min-height: 200px;
+      height: 40vh;
       overflow:auto;
       background: rgba(7,10,20,.65);
       border:1px solid rgba(42,58,106,.6);
       border-radius: 14px;
       padding: 10px;
       font-size: 13px;
-      line-height: 1.55;
+      line-height: 1.35;
       white-space: pre-wrap;
-      transition: height 0.2s;
     }
 
     .msg{
@@ -5945,37 +6122,76 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div id="modelTag">Model: {{model}}</div>
       </div>
     </div>
-    <div class="commandHeader">
-      <div class="commandRow primary">
-        <button class="btn" id="frameworkBtn">Core framework</button>
-        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
-        <button class="btn" id="createTeamBtn">Create teammate</button>
-        <button class="btn" id="installFullBtn">Install full team</button>
-        <button class="btn" id="settingsBtn">Settings</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
-        <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="crmBtn">CRM</button>
-        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
-        <button class="btn" id="leadLabBtn">Lead Lab</button>
-        <button class="btn" id="socialStudioBtn">Social Studio</button>
-        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
+    <!-- ===== REDESIGNED NAV BAR ===== -->
+    <div class="saNavBar" id="saNavBar">
+
+      <!-- Left: 3 dropdown groups -->
+      <div class="saNavLeft">
+
+        <!-- Team dropdown -->
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saTeamDropBtn" onclick="saToggleDrop('saTeamDrop')">
+            <span>Team</span><span class="saChevron">▾</span>
+          </button>
+          <div class="saDrop" id="saTeamDrop">
+            <button class="saDropItem" id="frameworkBtn">Core framework</button>
+            <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
+            <button class="saDropItem" id="createTeamBtn">Create teammate</button>
+            <button class="saDropItem" id="installFullBtn">Install full team</button>
+            <button class="saDropItem" id="onboardingBtn">Onboarding checklist</button>
+            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
+          </div>
+        </div>
+
+        <!-- Tools dropdown -->
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saToolsDropBtn" onclick="saToggleDrop('saToolsDrop')">
+            <span>Tools</span><span class="saChevron">▾</span>
+          </button>
+          <div class="saDrop" id="saToolsDrop">
+            <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
+            <button class="saDropItem" id="crmBtn">CRM</button>
+            <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
+            <button class="saDropItem" id="socialStudioBtn">Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn">Offer Builder</button>
+            <button class="saDropItem" id="imageLibBtn">Image Library</button>
+            <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
+            <button class="saDropItem" id="calendarBtn">Calendar</button>
+          </div>
+        </div>
+
+        <!-- Settings dropdown -->
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
+            <span>Settings</span><span class="saChevron">▾</span>
+          </button>
+          <div class="saDrop" id="saSettingsDrop">
+            <button class="saDropItem" id="settingsBtn">User settings</button>
+            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
+            <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
+            <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
+          </div>
+        </div>
+
       </div>
-      <div class="commandRow secondary">
-        <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="emailConsoleBtn">Email Console</button>
-        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
-        <button class="btn" id="sessionObjectiveBtn" title="Set the current session objective">Session objective</button>
-        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
-        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
+
+      <!-- Center: Command bar -->
+      <div class="saNavCenter">
+        <div class="saCommandWrap">
+          <span class="saCmdIcon">⌘</span>
+          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" />
+          <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
+        </div>
+        <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
+
+      <!-- Right: model tag -->
+      <div class="saNavRight">
+        <div class="saModelTag" id="modelTag">Model: {{model}}</div>
+      </div>
+
     </div>
-    <div class="commandHeader" id="osCommandBarWrap" style="margin-top:10px;">
-      <div class="commandRow secondary" style="grid-template-columns:minmax(220px,1fr) auto auto; max-width:none;">
-        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" />
-        <button class="btn" id="globalCommandRunBtn">Run command</button>
-        <div class="pill" id="sessionObjectivePill" title="Current session objective">No session objective</div>
-      </div>
-    </div>
+    <!-- ===== END REDESIGNED NAV BAR ===== -->
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
@@ -7033,65 +7249,65 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
 
     <div class="side">
-      <div class="sideCard">
-        <div class="sideHead">
+      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;">
+
+        <!-- Header — always visible -->
+        <div class="sideHead" style="flex-shrink:0;">
           <div class="sideTitle">
             <div class="h1" id="seatTitle">Select a seat</div>
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
-            <div class="modalResizeGrip" id="modalResizeGrip" aria-label="Resize window" title="Resize window"></div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
 
-        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
-          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
-          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
-          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
+        <!-- Pass row — always visible -->
+        <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability Ranking">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Failure Simulator">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraint Scan">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimization Pass">⚡ Optimize</button>
         </div>
 
-        <div style="position:relative;">
-          <div class="thread" id="thread"></div>
-          <button id="expandThreadBtn" title="Expand response window" style="position:absolute;top:6px;right:6px;background:rgba(14,22,48,.85);border:1px solid rgba(124,58,237,.5);color:rgba(180,160,255,.9);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;z-index:10;backdrop-filter:blur(4px);">⤢ Expand</button>
-        </div>
+        <!-- Thread — fills all available space, scrollable -->
+        <div class="thread" id="thread" style="flex:1;height:auto;min-height:100px;overflow-y:auto;cursor:pointer;" title="Click any message to expand it" ondblclick="saExpandLastMessage()"></div>
 
-        <!-- Response Expand Modal -->
-        <div id="threadExpandModal" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);">
-          <div id="threadExpandBox" style="position:absolute;top:5vh;left:50%;transform:translateX(-50%);width:80vw;max-width:1100px;min-width:320px;height:85vh;background:rgba(10,14,30,.97);border:1px solid rgba(124,58,237,.5);border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 80px rgba(0,0,0,.7);resize:both;">
-            <div id="threadExpandDragBar" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(14,22,48,.95);border-bottom:1px solid rgba(42,58,106,.8);cursor:move;flex-shrink:0;">
-              <span id="threadExpandTitle" style="font-weight:700;font-size:14px;color:#c4b5fd;">Response</span>
-              <div style="display:flex;gap:8px;">
-                <button id="threadExpandCopyBtn" style="background:rgba(42,58,106,.6);border:1px solid rgba(124,58,237,.4);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">Copy</button>
-                <button id="threadExpandCloseBtn" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-              </div>
-            </div>
-            <div id="threadExpandContent" style="flex:1;overflow:auto;padding:16px;font-size:14px;line-height:1.6;white-space:pre-wrap;color:#e2e8f0;"></div>
+        <!-- STICKY BOTTOM INPUT — never requires scrolling -->
+        <div class="saInputArea" style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
+          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;"></textarea>
+          <div class="pillRow" style="margin-top:6px;">
+            <input type="file" id="dmFiles" multiple style="display:none" />
+            <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
+            <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
+            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
+            <button class="btn btnMini" id="alwaysListenDmBtn">👂 Listen</button>
+            <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
           </div>
+          <div id="dmAttachList" class="pillRow"></div>
+          <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
         </div>
 
-        <div style="height:10px"></div>
-        <textarea class="followBox" id="followMsg" placeholder="Send an individual message to the selected teammate..."></textarea>
-
-        <div class="pillRow">
-          <input type="file" id="dmFiles" multiple style="display:none" />
-          <button class="btn btnMini" id="pickDmFiles">Upload files</button>
-          <button class="btn btnMini" id="screenDmBtn">Share screen</button>
-          <button class="btn btnMini" id="talkDmBtn">Talk</button>
-          <!-- CHANGE: Always Listening toggle (DM) -->
-          <button class="btn btnMini" id="alwaysListenDmBtn">Always listen</button>
-          <button class="btn btnPrimary" id="sendFollow">Send to selected</button>
-        </div>
-        <div id="dmAttachList" class="pillRow"></div>
-
-        <div class="tiny" style="margin-top:8px;">
-          Tip: Share screen captures a screenshot and attaches it to your next message.
-        </div>
-        <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
     </div>
 
+
+  <!-- Message Expand Modal -->
+  <div id="saMsgModal" onclick="if(event.target===this)saCloseMsgModal()">
+    <div id="saMsgModalBox">
+      <div id="saMsgModalHeader">
+        <span id="saMsgModalTitle">Response</span>
+        <div style="display:flex;gap:8px;">
+          <button class="saMsgModalBtn primary" id="saMsgModalCopyBtn" onclick="saCopyMsgModal()">Copy</button>
+          <button class="saMsgModalBtn" onclick="saCloseMsgModal()">✕ Close</button>
+        </div>
+      </div>
+      <div id="saMsgModalBody"></div>
+      <div id="saMsgModalFooter">
+        <span style="font-size:12px;color:rgba(148,163,184,.4);">Press Esc to close · Click outside to close</span>
+      </div>
+    </div>
+  </div>
 
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
@@ -7940,61 +8156,23 @@ function showModal(title, body, imgUrl){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
       if(!q){ showModal('Missing command', 'Type a command first.'); return; }
-      showModal('Running command...', 'Routing your request...');
+      showModal('Routing command', 'Thinking...');
       try{
         const res = await fetch('/api/os/intent_route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:q})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Route failed');
-
-        const module = (data.module || 'round_table').toLowerCase().trim();
-
-        // Auto-navigate to the right module tab
-        const moduleMap = {
-          'lead_lab':      () => { try{ $('leadLabBtn') && $('leadLabBtn').click(); }catch(_){} },
-          'crm_clients':   () => { try{ const b = document.querySelector('[data-click="crmClientsBtn"]') || $('crmClientsBtn'); if(b) b.click(); }catch(_){} },
-          'crm_pipeline':  () => { try{ const b = document.querySelector('[data-click="crmPipelineBtn"]') || $('crmPipelineBtn'); if(b) b.click(); }catch(_){} },
-          'crm_broadcast': () => { try{ const b = document.querySelector('[data-click="crmBroadcastBtn"]') || $('crmBroadcastBtn'); if(b) b.click(); }catch(_){} },
-          'social_studio': () => { try{ const b = $('socialStudioBtn') || document.querySelector('[data-click="socialStudioBtn"]'); if(b) b.click(); }catch(_){} },
-          'offer_builder': () => { try{ const b = $('offerBuilderBtn') || document.querySelector('[data-click="offerBuilderBtn"]'); if(b) b.click(); }catch(_){} },
-          'action_stacks': () => { try{ const b = $('actionStacksBtn') || document.querySelector('[data-click="actionStacksBtn"]'); if(b) b.click(); }catch(_){} },
-        };
-
-        if(moduleMap[module]){
-          try{ moduleMap[module](); }catch(_){}
-        }
-
-        // Prefill objective if available
+        const preview = [
+          'Intent: ' + (data.intent || ''),
+          'Suggested module: ' + (data.module || ''),
+          data.plan ? ('\nPlan\n' + data.plan) : '',
+          data.next_action ? ('\nNext action\n' + data.next_action) : ''
+        ].filter(Boolean).join('\n');
+        showModal('Command router', preview);
         if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
-
-        // Prefill the group command bar with the query if routing to round table
-        if(module === 'round_table' && $("opPrompt") && !($("opPrompt").value||'').trim()){
-          $("opPrompt").value = q;
-        }
-
-        // Prefill Lead Lab niche/location if routing there
-        if(module === 'lead_lab'){
-          const niche = data.niche || '';
-          const location = data.location || '';
-          if(niche && $("leadLabNiche") && !$("leadLabNiche").value) $("leadLabNiche").value = niche;
-          if(location && $("leadLabLocation") && !$("leadLabLocation").value) $("leadLabLocation").value = location;
-        }
-
-        const plan = data.plan || '';
-        const nextAction = data.next_action || '';
-        const moduleLabel = module.replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
-        const preview = [
-          '→ Module: ' + moduleLabel,
-          plan ? 'Plan: ' + plan : '',
-          nextAction ? 'Next: ' + nextAction : '',
-        ].filter(Boolean).join('\n');
-
-        showModal('Command routed to ' + moduleLabel, preview);
-
-        if(inp) inp.value = '';
       }catch(e){
-        showModal('Command error', String(e && e.message ? e.message : e));
+        showModal('Command router error', String(e && e.message ? e.message : e));
       }
     }
 
@@ -9559,8 +9737,7 @@ function makeSeat(defn, idx){
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
-      // Remove ALL occurrences of the name to prevent buildup
-      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
@@ -9575,7 +9752,6 @@ function makeSeat(defn, idx){
       alwaysInterimText = "";
       alwaysFinalText = "";
       alwaysFinalBaseline = "";
-      alwaysFinalCount = 0;
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
@@ -9603,31 +9779,22 @@ function makeSeat(defn, idx){
 
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
-    // Track how many final results we have already committed
-    let alwaysFinalCount = 0;
-
     function getCanonicalSpeech(event){
-      let newFinal = "";
+      let allFinal = "";
       let interim = "";
 
-      for(let i = event.resultIndex; i < event.results.length; i++){
+      for(let i = 0; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          newFinal += txt + " ";
+          allFinal += txt + " ";
         }else{
           interim += txt;
         }
       }
 
-      newFinal = newFinal.replace(/\s+/g, " ").trim();
+      allFinal = allFinal.replace(/\s+/g, " ").trim();
       interim = interim.replace(/\s+/g, " ").trim();
-
-      // Accumulate committed finals separately
-      if(newFinal){
-        alwaysFinalText = ((alwaysFinalText || "") + " " + newFinal).replace(/\s+/g, " ").trim();
-      }
-
-      return { allFinal: alwaysFinalText, interim };
+      return { allFinal, interim };
     }
 
     function subtractBaseline(allFinal){
@@ -9679,41 +9846,46 @@ function makeSeat(defn, idx){
 
       rec.onresult = async (event) => {
         const canon = getCanonicalSpeech(event);
-        const allFinal = canon.allFinal;   // accumulated finals (no replay)
+        const allFinalRaw = canon.allFinal;
         const interimRaw = canon.interim;
 
-        // Build candidate for name detection — use only interim + very recent text
-        const candidateText = (interimRaw).replace(/\s+/g, " ").trim();
+        const allFinal = subtractBaseline(allFinalRaw);
+        const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
         const hit = findFirstNameMention(candidateText);
 
         if(hit){
           const now = Date.now();
-          if(now - lastNameSwitchAt > 800){
+          if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            // Clean the name out of what we have so far
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
+            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
 
-            // Save cleaned text to current target before switching
             const targetBefore = currentAlwaysTarget();
             if(targetBefore){
-              targetBefore.value = cleanedFinal.trim();
+              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
+                .replace(/\s+/g, " ")
+                .trim();
             }
 
-            // Switch teammate
+            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Reset buffers for the new target — start fresh
-            alwaysFinalText = "";
-            alwaysInterimText = "";
-            alwaysFinalCount = 0;
+            // Baseline the recognizer history so we do not replay old finals after switching
+            alwaysFinalBaseline = allFinalRaw;
+
+            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
+            alwaysFinalText = "";
+            alwaysInterimText = "";
             return;
           }
         }
 
+        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
+        alwaysFinalText = allFinal;
         alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
@@ -9770,122 +9942,133 @@ function makeSeat(defn, idx){
     };
 
 
-    // ── Response Expand Modal ────────────────────────────────────────
-    (function(){
-      function openExpandModal(){
-        const modal = $("threadExpandModal");
-        const content = $("threadExpandContent");
-        const title = $("threadExpandTitle");
-        const threadEl = $("thread");
-        if(!modal || !content || !threadEl) return;
+    // ===== SIMPLY AGENTIC NAV BAR + UI IMPROVEMENTS =====
 
-        // Copy thread HTML into expand modal
-        content.innerHTML = threadEl.innerHTML;
+    // ── Dropdown toggle ──────────────────────────────────────
+    function saToggleDrop(dropId) {
+      const allDrops = document.querySelectorAll('.saDrop');
+      const allBtns  = document.querySelectorAll('.saNavBtn');
+      const target   = document.getElementById(dropId);
+      const isOpen   = target && target.classList.contains('open');
 
-        // Set title to current seat
-        if(title) title.innerText = (window.selectedSeat || "Response") + " — Thread";
+      // Close all first
+      allDrops.forEach(d => d.classList.remove('open'));
+      allBtns.forEach(b  => b.classList.remove('open'));
 
-        modal.style.display = "block";
-        document.body.style.overflow = "hidden";
+      if (!isOpen && target) {
+        target.classList.add('open');
+        // Mark the parent button open
+        const btn = target.previousElementSibling;
+        if (btn) btn.classList.add('open');
       }
+    }
 
-      function closeExpandModal(){
-        const modal = $("threadExpandModal");
-        if(modal) modal.style.display = "none";
-        document.body.style.overflow = "";
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.saDropWrap')) {
+        document.querySelectorAll('.saDrop').forEach(d => d.classList.remove('open'));
+        document.querySelectorAll('.saNavBtn').forEach(b => b.classList.remove('open'));
       }
+    });
 
-      // Wire expand button
-      const expandBtn = $("expandThreadBtn");
-      if(expandBtn) expandBtn.onclick = openExpandModal;
+    // ── Message expand modal ─────────────────────────────────
+    function saOpenMsgModal(title, html) {
+      const modal = document.getElementById('saMsgModal');
+      const body  = document.getElementById('saMsgModalBody');
+      const t     = document.getElementById('saMsgModalTitle');
+      if (!modal || !body) return;
+      if (t) t.innerText = title || 'Response';
+      body.innerHTML = html || '';
+      modal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
 
-      // Double-click on thread also expands
-      const threadEl = $("thread");
-      if(threadEl){
-        threadEl.ondblclick = openExpandModal;
-        threadEl.title = "Double-click to expand";
-        threadEl.style.cursor = "pointer";
-      }
+    function saCloseMsgModal() {
+      const modal = document.getElementById('saMsgModal');
+      if (modal) modal.classList.remove('open');
+      document.body.style.overflow = '';
+    }
 
-      // Close button
-      const closeBtn = $("threadExpandCloseBtn");
-      if(closeBtn) closeBtn.onclick = closeExpandModal;
-
-      // Close on backdrop click
-      const modal = $("threadExpandModal");
-      if(modal){
-        modal.addEventListener("click", (e) => {
-          if(e.target === modal) closeExpandModal();
-        });
-      }
-
-      // Copy button
-      const copyBtn = $("threadExpandCopyBtn");
-      if(copyBtn){
-        copyBtn.onclick = () => {
-          const content = $("threadExpandContent");
-          const text = content ? (content.innerText || "") : "";
-          navigator.clipboard.writeText(text).then(() => {
-            copyBtn.innerText = "Copied!";
-            setTimeout(() => { copyBtn.innerText = "Copy"; }, 1500);
-          }).catch(() => {
-            copyBtn.innerText = "Copy failed";
-            setTimeout(() => { copyBtn.innerText = "Copy"; }, 1500);
-          });
-        };
-      }
-
-      // Draggable modal
-      const dragBar = $("threadExpandDragBar");
-      const box = $("threadExpandBox");
-      if(dragBar && box){
-        let isDragging = false, startX, startY, startLeft, startTop;
-        dragBar.addEventListener("mousedown", (e) => {
-          if(e.target === $("threadExpandCloseBtn") || e.target === $("threadExpandCopyBtn")) return;
-          isDragging = true;
-          const rect = box.getBoundingClientRect();
-          startX = e.clientX;
-          startY = e.clientY;
-          startLeft = rect.left;
-          startTop = rect.top;
-          box.style.transform = "none";
-          box.style.left = startLeft + "px";
-          box.style.top = startTop + "px";
-          e.preventDefault();
-        });
-        document.addEventListener("mousemove", (e) => {
-          if(!isDragging) return;
-          const dx = e.clientX - startX;
-          const dy = e.clientY - startY;
-          box.style.left = Math.max(0, startLeft + dx) + "px";
-          box.style.top = Math.max(0, startTop + dy) + "px";
-        });
-        document.addEventListener("mouseup", () => { isDragging = false; });
-      }
-
-      // Escape key closes modal
-      document.addEventListener("keydown", (e) => {
-        if(e.key === "Escape" && $("threadExpandModal") && $("threadExpandModal").style.display !== "none"){
-          closeExpandModal();
-        }
+    function saCopyMsgModal() {
+      const body = document.getElementById('saMsgModalBody');
+      const text = body ? (body.innerText || '') : '';
+      const btn  = document.getElementById('saMsgModalCopyBtn');
+      navigator.clipboard.writeText(text).then(() => {
+        if (btn) { btn.innerText = 'Copied!'; setTimeout(() => { btn.innerText = 'Copy'; }, 1500); }
+      }).catch(() => {
+        if (btn) { btn.innerText = 'Failed'; setTimeout(() => { btn.innerText = 'Copy'; }, 1500); }
       });
+    }
 
-      // Auto-refresh expand modal content when thread updates
-      const origRenderThread = window.renderThread;
-      if(typeof origRenderThread === "function"){
-        window.renderThread = function(){
-          origRenderThread.apply(this, arguments);
-          // If expand modal is open, refresh its content too
-          const modal = $("threadExpandModal");
-          if(modal && modal.style.display !== "none"){
-            const content = $("threadExpandContent");
-            const threadEl = $("thread");
-            if(content && threadEl) content.innerHTML = threadEl.innerHTML;
-          }
+    function saExpandLastMessage() {
+      const thread = document.getElementById('thread');
+      if (!thread) return;
+      // Find last assistant message
+      const msgs = thread.querySelectorAll('.msg.assistant, .msg');
+      const last  = msgs[msgs.length - 1];
+      if (last) {
+        const who = (last.querySelector('.who') || {}).innerText || (window.selectedSeat || 'Response');
+        saOpenMsgModal(who, last.innerHTML);
+      }
+    }
+
+    // Make every message bubble in the thread clickable to expand
+    function saWireThreadClicks() {
+      const thread = document.getElementById('thread');
+      if (!thread) return;
+      thread.querySelectorAll('.msg.assistant, .msg').forEach(function(msg) {
+        if (msg._saWired) return;
+        msg._saWired = true;
+        msg.style.cursor = 'pointer';
+        msg.title = 'Click to expand';
+        msg.addEventListener('click', function(e) {
+          if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' || e.target.tagName === 'IMG') return;
+          const who = (msg.querySelector('.who') || {}).innerText || (window.selectedSeat || 'Response');
+          saOpenMsgModal(who, msg.innerHTML);
+        });
+      });
+    }
+
+    // Escape key closes modal
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') saCloseMsgModal();
+    });
+
+    // Re-wire clicks whenever thread renders (hook into renderThread)
+    (function() {
+      const orig = window.renderThread;
+      if (typeof orig === 'function') {
+        window.renderThread = function() {
+          orig.apply(this, arguments);
+          setTimeout(saWireThreadClicks, 50);
         };
+      }
+      // Also observe DOM changes in thread
+      const thread = document.getElementById('thread');
+      if (thread && window.MutationObserver) {
+        new MutationObserver(saWireThreadClicks).observe(thread, { childList: true, subtree: true });
       }
     })();
-    // ── End Response Expand Modal ────────────────────────────────────
+
+    // ── Wire new command bar to existing function ────────────
+    (function() {
+      const cmdInput = document.getElementById('globalCommandBar');
+      const runBtn   = document.getElementById('globalCommandRunBtn');
+      if (cmdInput) {
+        cmdInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') { e.preventDefault(); if (typeof runGlobalCommandBar === 'function') runGlobalCommandBar(); }
+        });
+      }
+      if (runBtn) {
+        runBtn.onclick = function() { if (typeof runGlobalCommandBar === 'function') runGlobalCommandBar(); };
+      }
+    })();
+
+    // Initial wire on load
+    setTimeout(saWireThreadClicks, 500);
+
+    // ===== END NAV BAR + UI IMPROVEMENTS =====
+
 
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
@@ -16852,17 +17035,8 @@ def _os_route_query(username: str, query: str) -> Dict[str, Any]:
     try:
         raw = call_llm(system, [{"role": "user", "content": user}], temperature=0.15)
         out = _safe_json_loads(raw, fallback)
-        if not isinstance(out, dict):
-            out = fallback
         if out.get("module") not in _os_tool_candidates():
             out["module"] = fallback["module"]
-        # Extract niche/location hints for Lead Lab prefill
-        if out.get("module") == "lead_lab":
-            import re as _re
-            niche_m = _re.search(r"niche[:\s]+([\w\s]+?)(?:,|in|\n|$)", q, _re.I)
-            loc_m   = _re.search(r"(?:in|location[:\s]+)\s*([A-Z][\w\s,]+?)(?:\.|,|\n|$)", q)
-            if niche_m: out["niche"]    = niche_m.group(1).strip()
-            if loc_m:   out["location"] = loc_m.group(1).strip()
         return out
     except Exception as e:
         _os_log_error(username, "intent_route", str(e), {"query": q})
