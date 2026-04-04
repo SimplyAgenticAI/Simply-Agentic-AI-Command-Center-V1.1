@@ -2383,39 +2383,40 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     return 500, "AI request failed. Check server logs for details."
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    # Strip image content for text-only fallback
-    def _safe_messages(msgs):
+    """Call OpenAI with automatic fallback for image/content errors."""
+    def _strip_images(msgs):
         out = []
         for m in msgs:
             c = m.get("content", "")
             if isinstance(c, list):
-                texts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                texts = [p.get("text","") for p in c if isinstance(p,dict) and p.get("type")=="text"]
                 c = " ".join(texts).strip()
-            out.append({"role": m.get("role", "user"), "content": str(c)})
+            out.append({"role": m.get("role","user"), "content": str(c)})
         return out
 
     client = get_openai_client()
     sys_msg = [{"role": "system", "content": system}]
+    timeout = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
 
-    # First attempt with original messages
+    # Primary attempt
     try:
         resp = client.chat.completions.create(
             model=MODEL,
             messages=sys_msg + messages,
             temperature=temperature,
-            timeout=45,
+            timeout=timeout,
         )
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
-        err_str = str(e).lower()
-        # If it's an image/content error, retry with text-only messages
-        if any(x in err_str for x in ["image", "vision", "content", "invalid"]):
+        err = str(e).lower()
+        # Retry with text-only messages if it's an image/content issue
+        if any(x in err for x in ["image", "vision", "content_policy", "invalid_image", "content"]):
             try:
                 resp2 = client.chat.completions.create(
                     model=MODEL,
-                    messages=sys_msg + _safe_messages(messages),
+                    messages=sys_msg + _strip_images(messages),
                     temperature=temperature,
-                    timeout=45,
+                    timeout=timeout,
                 )
                 return (resp2.choices[0].message.content or "").strip()
             except Exception as e2:
@@ -3241,6 +3242,10 @@ def api_convene():
     try:
         return _api_convene_impl(data)
     except Exception as e:
+        try:
+            append_log("convene_crash", {"error": str(e), "type": type(e).__name__})
+        except Exception:
+            pass
         resp = jsonify({"ok": False, "error": str(e)})
         resp.headers["Content-Type"] = "application/json"
         return resp, 500
@@ -3388,6 +3393,10 @@ def api_followup():
     try:
         return _api_followup_impl(data)
     except Exception as e:
+        try:
+            append_log("followup_crash", {"error": str(e), "type": type(e).__name__})
+        except Exception:
+            pass
         resp = jsonify({"ok": False, "error": str(e)})
         resp.headers["Content-Type"] = "application/json"
         return resp, 500
@@ -15294,7 +15303,11 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
-    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
+    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
+    "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com",
+    "homeadvisor.com", "bbb.org", "superpages.com", "manta.com",
+    "indeed.com", "glassdoor.com", "craigslist.org", "tripadvisor.com",
+    "wikipedia.org", "reddit.com", "quora.com", "houzz.com",
 }
 _CRM_STATE_CITY_MAP = {
     "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
@@ -15400,7 +15413,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
@@ -15572,13 +15585,19 @@ def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: 
             locations.extend(extra[:12])
         else:
             locations.extend(extra[:8])
+    _is_realty = bool(re.search(r"real.?estate|realtor|broker|realty|property", niche, flags=re.I))
     templates = [
         '{niche} in {loc} contact',
         '{loc} {niche} office',
-        '{loc} {niche} realtor broker',
         '{loc} {niche} team',
-        '{loc} {niche} real estate agent',
+        '{loc} {niche} website',
+        '{loc} {niche} phone number',
     ]
+    if _is_realty:
+        templates += [
+            '{loc} {niche} realtor broker',
+            '{loc} {niche} real estate agent',
+        ]
     queries = []
     seen = set()
     for loc in locations:
@@ -15754,7 +15773,6 @@ def _crm_public_search(query: str, max_results: int = 18, niche: str = "", locat
             merged.append(row)
             if len(merged) >= max_results:
                 return merged
-    return merged
 
 
 def _crm_parse_specific_areas(val: str) -> List[str]:
@@ -15951,7 +15969,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=30):
+                for fut in as_completed(future_map, timeout=55):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
@@ -16167,16 +16185,15 @@ def api_crm_playbooks():
     return jsonify({"ok": True, "output": output})
 
 
-# ── Global error handlers: always return JSON for /api/ routes ───────────────
+# ── Always return JSON for /api/ errors ──────────────────────
 @app.errorhandler(Exception)
 def _handle_exception(e):
     try:
         code = getattr(e, "code", 500) or 500
-        path = ""
         try:
             path = request.path or ""
         except Exception:
-            pass
+            path = ""
         if path.startswith("/api/"):
             resp = jsonify({"ok": False, "error": str(e) or "Internal server error"})
             resp.headers["Content-Type"] = "application/json"
