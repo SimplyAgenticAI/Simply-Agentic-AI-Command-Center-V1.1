@@ -881,25 +881,6 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     user_content = _build_user_content(msg2, vision_images)
     return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
 
-def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    if isinstance(steps, list):
-        for s in steps:
-            if not isinstance(s, dict):
-                continue
-            typ = (s.get("type") or "").strip().lower()
-            if typ not in ("prompt", "ask_user", "wait", "save_memory", "route"):
-                typ = "prompt"
-            out.append({
-                "type": typ,
-                "label": (s.get("label") or "").strip()[:80],
-                "prompt": (s.get("prompt") or ""),
-                "seconds": int(s.get("seconds") or 0),
-                "key": (s.get("key") or "").strip()[:80],
-                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
-            })
-    return out
-
 def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
     run_id = uuid.uuid4().hex
     return {
@@ -927,165 +908,6 @@ def _persist_run(run: Dict[str, Any]) -> None:
 def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> None:
     run.setdefault("log", [])
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
-
-def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
-    """Run a stack until it completes or pauses.
-
-    Pause states:
-      - needs_input: stops on an ask_user step until resumed via API
-      - waiting: stops on a wait step until wait_until (UTC) has passed
-    """
-    u = run.get("user") or "anon"
-    steps = run.get("steps") or []
-    outputs = run.get("outputs") or {}
-
-    # If we were waiting, only resume when due
-    try:
-        if (run.get("status") == "waiting") and run.get("wait_until"):
-            w = str(run.get("wait_until"))
-            w_dt = None
-            try:
-                w_dt = datetime.fromisoformat(w.replace("Z", ""))
-            except Exception:
-                w_dt = None
-            if w_dt and datetime.utcnow() < w_dt:
-                # still waiting
-                _persist_run(run)
-                return run
-            # due now, continue
-            run["status"] = "running"
-            run.pop("wait_until", None)
-    except Exception:
-        pass
-
-    mem = (_load_action_memory(u).get("memory") or {})
-    cursor = int(run.get("cursor") or 0)
-    last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
-
-    def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
-        # Logging must never break execution
-        try:
-            append_task_log(
-                action="stack_step" if status == "success" else "stack_error",
-                record={
-                    "teammate": run.get("teammate", ""),
-                    "stack": run.get("stack_name", ""),
-                    "run_id": run.get("id", ""),
-                    "step": step_num,
-                    "type": stype,
-                    "output": output,
-                    "extra": extra or {},
-                },
-                teammate=run.get("teammate", ""),
-                status=status,
-            )
-        except Exception:
-            pass
-
-    while cursor < len(steps):
-        step = steps[cursor]
-        stype = step.get("type", "prompt")
-
-        # Build a render context
-        ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
-        for i, out in outputs.items():
-            try:
-                idx = int(i)
-                ctx[f"step{idx+1}.output"] = out
-            except Exception:
-                continue
-        for k, v in (mem or {}).items():
-            ctx[f"memory.{k}"] = v
-
-        try:
-            if stype == "ask_user":
-                run["status"] = "needs_input"
-                run["cursor"] = cursor
-                _stack_task_log(cursor + 1, "ask_user", "", {"label": step.get("label", "")})
-                _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
-                _persist_run(run)
-                return run
-
-            if stype == "wait":
-                secs = max(0, min(3600, int(step.get("seconds") or 0)))
-                run["status"] = "waiting"
-                run["cursor"] = cursor
-                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
-                _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
-                _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
-                _persist_run(run)
-                return run
-
-            if stype == "save_memory":
-                key = (step.get("key") or "").strip()
-                val_t = step.get("prompt") or "{{last}}"
-                val = _safe_render(val_t, ctx)
-                if key:
-                    mem2 = _load_action_memory(u)
-                    mem2.setdefault("memory", {})
-                    mem2["memory"][key] = val
-                    _save_action_memory(u, mem2)
-                    mem = mem2["memory"]
-                outputs[str(cursor)] = val
-                last_output = val
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
-                _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
-
-            elif stype == "route":
-                to_tm = (step.get("to_teammate") or "").strip()
-                p = _safe_render(step.get("prompt") or "{{last}}", ctx)
-                out = _call_teammate_prompt_for_user(u, to_tm, p)
-                outputs[str(cursor)] = out
-                last_output = out
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "route", out, {"to": to_tm})
-                _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm})
-
-            else:  # "prompt" default
-                p = _safe_render(step.get("prompt") or "", ctx)
-                out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
-                outputs[str(cursor)] = out
-                last_output = out
-                run["last_output"] = last_output
-                _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", "")})
-                _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", "")})
-
-            run["outputs"] = outputs
-            cursor += 1
-            run["cursor"] = cursor
-            run["status"] = "running"
-            _persist_run(run)
-
-        except Exception as e:
-            run["status"] = "failed"
-            run["error"] = str(e)
-            run["cursor"] = cursor
-            _stack_task_log(cursor + 1, "error", "", {"error": str(e)}, status="error")
-            _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
-            _persist_run(run)
-            return run
-
-    run["status"] = "complete"
-    run["cursor"] = len(steps)
-    try:
-        append_task_log(
-            action="stack_complete",
-            record={
-                "teammate": run.get("teammate", ""),
-                "stack": run.get("stack_name", ""),
-                "run_id": run.get("id", ""),
-                "steps": len(steps),
-                "last_output": run.get("last_output", ""),
-            },
-            teammate=run.get("teammate", ""),
-            status="success",
-        )
-    except Exception:
-        pass
-    _append_run_log(run, "complete", {"steps": len(steps)})
-    _persist_run(run)
-    return run
 
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
@@ -2383,22 +2205,19 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     return 500, "AI request failed. Check server logs for details."
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    """Call OpenAI with automatic fallback for image/content errors."""
-    def _strip_images(msgs):
+    """Robust OpenAI call with 45s timeout and image-content fallback."""
+    def _text_only(msgs):
         out = []
         for m in msgs:
             c = m.get("content", "")
             if isinstance(c, list):
-                texts = [p.get("text","") for p in c if isinstance(p,dict) and p.get("type")=="text"]
-                c = " ".join(texts).strip()
-            out.append({"role": m.get("role","user"), "content": str(c)})
+                parts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                c = " ".join(parts).strip()
+            out.append({"role": m.get("role", "user"), "content": str(c)})
         return out
-
     client = get_openai_client()
-    sys_msg = [{"role": "system", "content": system}]
     timeout = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
-
-    # Primary attempt
+    sys_msg = [{"role": "system", "content": system}]
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -2409,12 +2228,11 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
         return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         err = str(e).lower()
-        # Retry with text-only messages if it's an image/content issue
-        if any(x in err for x in ["image", "vision", "content_policy", "invalid_image", "content"]):
+        if any(x in err for x in ["image", "vision", "invalid_image", "content"]):
             try:
                 resp2 = client.chat.completions.create(
                     model=MODEL,
-                    messages=sys_msg + _strip_images(messages),
+                    messages=sys_msg + _text_only(messages),
                     temperature=temperature,
                     timeout=timeout,
                 )
@@ -2422,7 +2240,6 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             except Exception as e2:
                 raise e2
         raise e
-
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -3243,12 +3060,12 @@ def api_convene():
         return _api_convene_impl(data)
     except Exception as e:
         try:
-            append_log("convene_crash", {"error": str(e), "type": type(e).__name__})
+            append_log("convene_crash", {"error": str(e)})
         except Exception:
             pass
-        resp = jsonify({"ok": False, "error": str(e)})
-        resp.headers["Content-Type"] = "application/json"
-        return resp, 500
+        r = jsonify({"ok": False, "error": str(e)})
+        r.headers["Content-Type"] = "application/json"
+        return r, 500
 
 def _api_convene_impl(data):
     prompt = (data.get("prompt") or "").strip()
@@ -3394,12 +3211,12 @@ def api_followup():
         return _api_followup_impl(data)
     except Exception as e:
         try:
-            append_log("followup_crash", {"error": str(e), "type": type(e).__name__})
+            append_log("followup_crash", {"error": str(e)})
         except Exception:
             pass
-        resp = jsonify({"ok": False, "error": str(e)})
-        resp.headers["Content-Type"] = "application/json"
-        return resp, 500
+        r = jsonify({"ok": False, "error": str(e)})
+        r.headers["Content-Type"] = "application/json"
+        return r, 500
 
 def _api_followup_impl(data):
     name = (data.get("name") or "").strip()
@@ -15004,7 +14821,7 @@ def api_passes_run():
         result = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.2)
         return jsonify({"ok": True, "result": result})
     except Exception as e:
-        code, msg = _map_openai_error(e)
+        code, msg = _classify_openai_error(e)
         return jsonify({"ok": False, "error": msg}), code
 
 
@@ -15057,33 +14874,6 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 # =========================
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
-
-def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
-    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
-    # No hard dependency. Only works if configured.
-    try:
-        crm = _crm_load(username)
-        sms = ((crm.get("settings") or {}).get("sms") or {})
-        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
-        if provider != "twilio":
-            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
-        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
-        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
-        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
-        if not sid or not token or not from_num:
-            return False, "Twilio missing SID/TOKEN/FROM."
-        import requests
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
-        if r.status_code >= 400:
-            return False, f"Twilio error: {r.text}"
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-
-
-
 
 def _crm_extract_domain(s: str) -> str:
     s = (s or "").strip().lower()
@@ -15185,6 +14975,12 @@ def _crm_extract_json_block(text: str) -> str:
 
 def _crm_response_text(resp: Any) -> str:
     try:
+        txt = resp.choices[0].message.content
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+    except Exception:
+        pass
+    try:
         txt = getattr(resp, 'output_text', None)
         if isinstance(txt, str) and txt.strip():
             return txt.strip()
@@ -15243,15 +15039,14 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
     )
 
     try:
-        resp = client.responses.create(
-            model=model,
-            tools=[{'type': 'web_search_preview'}],
-            temperature=0.1,
-            input=[
-                {'role': 'system', 'content': [{'type': 'input_text', 'text': system}]},
-                {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
+        resp = client.chat.completions.create(
+            model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
+            messages=[
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user},
             ],
-            timeout=90,
+            temperature=0.1,
+            timeout=45,
         )
     except Exception:
         # Older SDKs / unsupported accounts should not break Lead Lab.
@@ -15304,10 +15099,10 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
     "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
-    "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com",
-    "homeadvisor.com", "bbb.org", "superpages.com", "manta.com",
+    "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com", "houzz.com",
+    "homeadvisor.com", "bbb.org", "superpages.com", "manta.com", "alignable.com",
     "indeed.com", "glassdoor.com", "craigslist.org", "tripadvisor.com",
-    "wikipedia.org", "reddit.com", "quora.com", "houzz.com",
+    "wikipedia.org", "reddit.com", "quora.com", "amazonaws.com",
 }
 _CRM_STATE_CITY_MAP = {
     "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
@@ -15585,19 +15380,10 @@ def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: 
             locations.extend(extra[:12])
         else:
             locations.extend(extra[:8])
-    _is_realty = bool(re.search(r"real.?estate|realtor|broker|realty|property", niche, flags=re.I))
-    templates = [
-        '{niche} in {loc} contact',
-        '{loc} {niche} office',
-        '{loc} {niche} team',
-        '{loc} {niche} website',
-        '{loc} {niche} phone number',
-    ]
+    _is_realty = bool(re.search(r'real.?estate|realtor|broker|realty', niche, flags=re.I))
+    templates = ['{niche} in {loc} contact', '{loc} {niche} office', '{loc} {niche} team', '{loc} {niche} website']
     if _is_realty:
-        templates += [
-            '{loc} {niche} realtor broker',
-            '{loc} {niche} real estate agent',
-        ]
+        templates += ['{loc} {niche} realtor broker', '{loc} {niche} real estate agent']
     queries = []
     seen = set()
     for loc in locations:
@@ -15773,6 +15559,7 @@ def _crm_public_search(query: str, max_results: int = 18, niche: str = "", locat
             merged.append(row)
             if len(merged) >= max_results:
                 return merged
+    return merged
 
 
 def _crm_parse_specific_areas(val: str) -> List[str]:
@@ -16022,14 +15809,15 @@ def api_crm_lead_lab():
         existing_domains = set()
         if source_text:
             try:
-                seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
+                parsed = _crm_parse_lead_source_rows(source_text) or []
+                seed_items = _crm_items_from_rows(parsed, niche, location) or []
             except Exception:
                 seed_items = []
-            for item in seed_items:
+            for item in (seed_items or []):
                 dom = item.get("domain") or ""
                 if dom:
                     existing_domains.add(dom)
-            items.extend(seed_items)
+            items.extend(seed_items or [])
 
         remaining = max(0, lead_count - len(items))
         if remaining > 0:
@@ -16037,7 +15825,7 @@ def api_crm_lead_lab():
                 niche, location, remaining, search_mode, existing_domains=existing_domains,
                 specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
             )
-            items.extend(discovered)
+            items.extend(discovered or [])
 
         # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
         final: List[Dict[str, Any]] = []
@@ -16185,7 +15973,6 @@ def api_crm_playbooks():
     return jsonify({"ok": True, "output": output})
 
 
-# ── Always return JSON for /api/ errors ──────────────────────
 @app.errorhandler(Exception)
 def _handle_exception(e):
     try:
