@@ -7,8 +7,6 @@ import base64
 import secrets
 import hashlib
 import hmac
-import time
-import random
 import threading
 import shutil
 import tempfile
@@ -48,11 +46,6 @@ load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
 MODEL = os.getenv("MODEL", "gpt-4o")
-OPENAI_FALLBACK_MODELS = [m.strip() for m in (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4o,gpt-4o-mini")).split(",") if m.strip()]
-OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "4"))
-OPENAI_BASE_RETRY_SECONDS = float(os.getenv("OPENAI_BASE_RETRY_SECONDS", "2.0"))
-OPENAI_CONCURRENCY = max(1, int(os.getenv("OPENAI_CONCURRENCY", "1")))
-OPENAI_REQUEST_TIMEOUT_SECONDS = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "90"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
 
@@ -193,7 +186,6 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = None  # lazy init to avoid import time crashes
-OPENAI_CALL_SEMAPHORE = threading.BoundedSemaphore(OPENAI_CONCURRENCY)
 
 def _get_global_openai_client():
     global client
@@ -520,67 +512,13 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def save_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
-
-@app.errorhandler(Exception)
-def _api_json_error_handler(e):
-    try:
-        code = getattr(e, 'code', 500) or 500
-        path = ''
-        try:
-            path = request.path or ''
-        except Exception:
-            pass
-        try:
-            append_log("unhandled_error", {"path": path, "error": str(e), "type": type(e).__name__})
-        except Exception:
-            pass
-        if path.startswith('/api/'):
-            resp = jsonify({'ok': False, 'error': str(e) or 'Internal server error'})
-            resp.headers['Cache-Control'] = 'no-store'
-            resp.headers['Content-Type'] = 'application/json'
-            return resp, code
-        # For non-API routes return a plain error page instead of crashing
-        return f"<h1>Error {code}</h1><p>{str(e)}</p>", code
-    except Exception as inner:
-        # Last resort — always return JSON for API paths
-        try:
-            if '/api/' in (request.path or ''):
-                return '{"ok": false, "error": "Internal server error"}', 500, {'Content-Type': 'application/json'}
-        except Exception:
-            pass
-        raise e
-
-@app.errorhandler(404)
-def _404_handler(e):
-    try:
-        if (request.path or '').startswith('/api/'):
-            resp = jsonify({'ok': False, 'error': f'Endpoint not found: {request.path}'})
-            resp.headers['Content-Type'] = 'application/json'
-            return resp, 404
-    except Exception:
-        pass
-    return "<h1>404 Not Found</h1>", 404
-
-@app.errorhandler(500)
-def _500_handler(e):
-    try:
-        if (request.path or '').startswith('/api/'):
-            resp = jsonify({'ok': False, 'error': 'Internal server error. Check server logs.'})
-            resp.headers['Content-Type'] = 'application/json'
-            return resp, 500
-    except Exception:
-        pass
-    return "<h1>500 Internal Server Error</h1>", 500
 
 # =========================
 # TASK LOG (APPEND-ONLY)
@@ -943,6 +881,25 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     user_content = _build_user_content(msg2, vision_images)
     return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
 
+def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    if isinstance(steps, list):
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            typ = (s.get("type") or "").strip().lower()
+            if typ not in ("prompt", "ask_user", "wait", "save_memory", "route"):
+                typ = "prompt"
+            out.append({
+                "type": typ,
+                "label": (s.get("label") or "").strip()[:80],
+                "prompt": (s.get("prompt") or ""),
+                "seconds": int(s.get("seconds") or 0),
+                "key": (s.get("key") or "").strip()[:80],
+                "to_teammate": (s.get("to_teammate") or "").strip()[:64],
+            })
+    return out
+
 def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
     run_id = uuid.uuid4().hex
     return {
@@ -970,6 +927,165 @@ def _persist_run(run: Dict[str, Any]) -> None:
 def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> None:
     run.setdefault("log", [])
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
+
+def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a stack until it completes or pauses.
+
+    Pause states:
+      - needs_input: stops on an ask_user step until resumed via API
+      - waiting: stops on a wait step until wait_until (UTC) has passed
+    """
+    u = run.get("user") or "anon"
+    steps = run.get("steps") or []
+    outputs = run.get("outputs") or {}
+
+    # If we were waiting, only resume when due
+    try:
+        if (run.get("status") == "waiting") and run.get("wait_until"):
+            w = str(run.get("wait_until"))
+            w_dt = None
+            try:
+                w_dt = datetime.fromisoformat(w.replace("Z", ""))
+            except Exception:
+                w_dt = None
+            if w_dt and datetime.utcnow() < w_dt:
+                # still waiting
+                _persist_run(run)
+                return run
+            # due now, continue
+            run["status"] = "running"
+            run.pop("wait_until", None)
+    except Exception:
+        pass
+
+    mem = (_load_action_memory(u).get("memory") or {})
+    cursor = int(run.get("cursor") or 0)
+    last_output = outputs.get(str(cursor - 1), "") if cursor > 0 else ""
+
+    def _stack_task_log(step_num: int, stype: str, output: str, extra: Optional[Dict[str, Any]] = None, status: str = "success") -> None:
+        # Logging must never break execution
+        try:
+            append_task_log(
+                action="stack_step" if status == "success" else "stack_error",
+                record={
+                    "teammate": run.get("teammate", ""),
+                    "stack": run.get("stack_name", ""),
+                    "run_id": run.get("id", ""),
+                    "step": step_num,
+                    "type": stype,
+                    "output": output,
+                    "extra": extra or {},
+                },
+                teammate=run.get("teammate", ""),
+                status=status,
+            )
+        except Exception:
+            pass
+
+    while cursor < len(steps):
+        step = steps[cursor]
+        stype = step.get("type", "prompt")
+
+        # Build a render context
+        ctx: Dict[str, Any] = {"input": run.get("input", ""), "last": last_output, "teammate": run.get("teammate", "")}
+        for i, out in outputs.items():
+            try:
+                idx = int(i)
+                ctx[f"step{idx+1}.output"] = out
+            except Exception:
+                continue
+        for k, v in (mem or {}).items():
+            ctx[f"memory.{k}"] = v
+
+        try:
+            if stype == "ask_user":
+                run["status"] = "needs_input"
+                run["cursor"] = cursor
+                _stack_task_log(cursor + 1, "ask_user", "", {"label": step.get("label", "")})
+                _append_run_log(run, "needs_input", {"step": cursor + 1, "label": step.get("label", "")})
+                _persist_run(run)
+                return run
+
+            if stype == "wait":
+                secs = max(0, min(3600, int(step.get("seconds") or 0)))
+                run["status"] = "waiting"
+                run["cursor"] = cursor
+                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
+                _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
+                _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
+                _persist_run(run)
+                return run
+
+            if stype == "save_memory":
+                key = (step.get("key") or "").strip()
+                val_t = step.get("prompt") or "{{last}}"
+                val = _safe_render(val_t, ctx)
+                if key:
+                    mem2 = _load_action_memory(u)
+                    mem2.setdefault("memory", {})
+                    mem2["memory"][key] = val
+                    _save_action_memory(u, mem2)
+                    mem = mem2["memory"]
+                outputs[str(cursor)] = val
+                last_output = val
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "save_memory", val, {"key": key})
+                _append_run_log(run, "save_memory", {"step": cursor + 1, "key": key})
+
+            elif stype == "route":
+                to_tm = (step.get("to_teammate") or "").strip()
+                p = _safe_render(step.get("prompt") or "{{last}}", ctx)
+                out = _call_teammate_prompt_for_user(u, to_tm, p)
+                outputs[str(cursor)] = out
+                last_output = out
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "route", out, {"to": to_tm})
+                _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm})
+
+            else:  # "prompt" default
+                p = _safe_render(step.get("prompt") or "", ctx)
+                out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
+                outputs[str(cursor)] = out
+                last_output = out
+                run["last_output"] = last_output
+                _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", "")})
+                _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", "")})
+
+            run["outputs"] = outputs
+            cursor += 1
+            run["cursor"] = cursor
+            run["status"] = "running"
+            _persist_run(run)
+
+        except Exception as e:
+            run["status"] = "failed"
+            run["error"] = str(e)
+            run["cursor"] = cursor
+            _stack_task_log(cursor + 1, "error", "", {"error": str(e)}, status="error")
+            _append_run_log(run, "error", {"step": cursor + 1, "error": str(e)})
+            _persist_run(run)
+            return run
+
+    run["status"] = "complete"
+    run["cursor"] = len(steps)
+    try:
+        append_task_log(
+            action="stack_complete",
+            record={
+                "teammate": run.get("teammate", ""),
+                "stack": run.get("stack_name", ""),
+                "run_id": run.get("id", ""),
+                "steps": len(steps),
+                "last_output": run.get("last_output", ""),
+            },
+            teammate=run.get("teammate", ""),
+            status="success",
+        )
+    except Exception:
+        pass
+    _append_run_log(run, "complete", {"steps": len(steps)})
+    _persist_run(run)
+    return run
 
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
@@ -2202,8 +2318,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
             client_block = (
                 "\n\nACTIVE CLIENT (memory profile)\n"
                 f"Client name: {(_active.get('name') or '').strip()}\n"
-                f"Verified email: {(_active.get('email') or '').strip()}\n"
-                f"Verified phone: {(_active.get('phone') or '').strip()}\n"
+                f"Email: {(_active.get('email') or '').strip()}\n"
+                f"Phone: {(_active.get('phone') or '').strip()}\n"
                 f"Company: {(_active.get('company') or '').strip()}\n"
                 f"Notes: {(_active.get('notes') or '').strip()}\n"
             )
@@ -2262,104 +2378,49 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
     if "model" in s and ("not found" in s or "does not exist" in s):
         return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
-    if "rate limit" in s or "429" in s or "too many requests" in s:
-        return 429, "AI is temporarily busy. The app retried automatically, but the provider still rate-limited this request. Try again in a few seconds."
-    if "timeout" in s:
-        return 504, "AI request timed out. Try again."
+    if "rate limit" in s or "429" in s:
+        return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
-
-def _chat_completion_with_hard_timeout(client_obj, kwargs: Dict[str, Any], timeout_seconds: Optional[int] = None):
-    """Run the OpenAI chat completion in a worker thread so the request cannot hang forever."""
-    timeout_seconds = int(timeout_seconds or OPENAI_REQUEST_TIMEOUT_SECONDS or 90)
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(client_obj.chat.completions.create, **kwargs)
-        try:
-            return fut.result(timeout=timeout_seconds)
-        except Exception as e:
-            try:
-                fut.cancel()
-            except Exception:
-                pass
-            raise e
-
-
-def _is_rate_limit_error(e: Exception) -> bool:
-    s = (str(e) or "").lower()
-    return ("rate limit" in s) or ("429" in s) or ("too many requests" in s)
-
-def _sleep_with_jitter(seconds: float) -> None:
-    try:
-        time.sleep(max(0.0, float(seconds)) + random.uniform(0, 0.35))
-    except Exception:
-        time.sleep(max(0.0, float(seconds)))
-
-def _candidate_models() -> List[str]:
-    seen: List[str] = []
-    for m in [MODEL] + list(OPENAI_FALLBACK_MODELS or []):
-        m2 = (m or "").strip()
-        if m2 and m2 not in seen:
-            seen.append(m2)
-    return seen
-
-def _chat_completion_resilient(req: Dict[str, Any]):
-    last_error: Optional[Exception] = None
-    models = _candidate_models()
-    max_attempts = max(1, int(OPENAI_MAX_RETRIES or 4))
-    for model_name in models:
-        for attempt in range(max_attempts):
-            req2 = dict(req)
-            req2["model"] = model_name
-            try:
-                with OPENAI_CALL_SEMAPHORE:
-                    return _chat_completion_with_hard_timeout(get_openai_client(), req2, OPENAI_REQUEST_TIMEOUT_SECONDS)
-            except Exception as e:
-                last_error = e
-                if _is_rate_limit_error(e):
-                    backoff = float(OPENAI_BASE_RETRY_SECONDS or 2.0) * (2 ** attempt)
-                    _sleep_with_jitter(min(backoff, 12.0))
-                    continue
-                s = (str(e) or "").lower()
-                if "model" in s and ("not found" in s or "does not exist" in s):
-                    break
-                raise e
-    if last_error:
-        raise last_error
-    raise RuntimeError("AI request failed")
-
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    req = {
-        "messages": [{"role": "system", "content": system}] + messages,
-        "temperature": temperature,
-        "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
-    }
-    try:
-        resp = _chat_completion_resilient(req)
-        return (resp.choices[0].message.content or "").strip()
-    except Exception as e:
-        safe_msgs: List[Dict[str, Any]] = []
-        for m in messages:
+    # Strip image content for text-only fallback
+    def _safe_messages(msgs):
+        out = []
+        for m in msgs:
             c = m.get("content", "")
             if isinstance(c, list):
-                texts = []
-                for part in c:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        texts.append(part.get("text", ""))
-                    elif isinstance(part, dict) and part.get("type") == "image_url":
-                        texts.append("[Image attached but model did not accept image input]")
-                c2 = "\n".join([t for t in texts if t]).strip()
-                safe_msgs.append({"role": m.get("role", "user"), "content": c2})
-            else:
-                safe_msgs.append({"role": m.get("role", "user"), "content": c})
-        req2 = {
-            "model": MODEL,
-            "messages": [{"role": "system", "content": system}] + safe_msgs,
-            "temperature": temperature,
-            "timeout": OPENAI_REQUEST_TIMEOUT_SECONDS,
-        }
-        resp2 = _chat_completion_resilient(req2)
-        out = (resp2.choices[0].message.content or "").strip()
-        return out + f"\n\n[Note: image input fallback used due to error: {str(e)}]"
+                texts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+                c = " ".join(texts).strip()
+            out.append({"role": m.get("role", "user"), "content": str(c)})
+        return out
+
+    client = get_openai_client()
+    sys_msg = [{"role": "system", "content": system}]
+
+    # First attempt with original messages
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=sys_msg + messages,
+            temperature=temperature,
+            timeout=45,
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        err_str = str(e).lower()
+        # If it's an image/content error, retry with text-only messages
+        if any(x in err_str for x in ["image", "vision", "content", "invalid"]):
+            try:
+                resp2 = client.chat.completions.create(
+                    model=MODEL,
+                    messages=sys_msg + _safe_messages(messages),
+                    temperature=temperature,
+                    timeout=45,
+                )
+                return (resp2.choices[0].message.content or "").strip()
+            except Exception as e2:
+                raise e2
+        raise e
 
 
 # =========================
@@ -2403,31 +2464,29 @@ def _pick_image_model() -> str:
     return "gpt-image-1"
 
 def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
-    # Refine prompt using the text model for stronger, more production-ready image outputs.
+    # Refine prompt using the text model for better image outputs.
+    # Keep it short, tool-friendly.
     sys = (
-        "You are an expert image prompt engineer. Rewrite the user's request into one strong image prompt that will produce a vivid, premium result. "
-        "Preserve the user's subject, composition, text requirements, and brand intent. "
-        "Make the output visually rich, cinematic, high-detail, and commercially polished. "
-        "When text is requested inside the image, explicitly say that the text must be clean, legible, and accurately spelled. "
-        "When the request is for a graphic, poster, ad, or branded piece, emphasize strong hierarchy, contrast, depth, and polished typography. "
-        "Output only the rewritten image prompt."
+        "You are an expert image prompt engineer. "
+        "Rewrite the user's request into a single, concise image prompt. "
+        "Include composition, subject, style, and any key text (if requested). "
+        "Do NOT mention policies, limitations, or tools. "
+        "Output ONLY the rewritten image prompt."
     )
     user = (raw or "").strip()
     if not user:
         return ""
-    style_suffix = (
-        " Style target: ultra-detailed, cinematic depth, crisp focus, layered lighting, rich contrast, premium composition, high realism where appropriate, "
-        "clean typography where appropriate, visually striking, not bland, not generic."
-    )
+    # Lighting mode can bias toward higher contrast / cinematic looks.
     if lighting_mode:
-        style_suffix += " High contrast lighting, radiant highlights, rich shadows, vivid depth."
+        user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
     try:
-        refined = call_llm(sys, [{"role": "user", "content": user + "\n\n" + style_suffix}], temperature=0.2)
+        refined = call_llm(sys, [{"role": "user", "content": user}], temperature=0.25)
         refined = (refined or "").strip()
+        # guard against multi-line chatter
         refined = refined.split("\n\n")[0].strip()
-        return refined or (user + " " + style_suffix).strip()
+        return refined or user
     except Exception:
-        return (user + " " + style_suffix).strip()
+        return user
 
 def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
     # Save into uploads like any other file and index it.
@@ -2485,7 +2544,6 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     source_rec = get_upload_record(source_file_id) if source_file_id else None
 
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
-    prompt2 = (prompt2 + "\n\nQuality target: cinematic, premium, high-detail, strong depth, rich contrast, polished composition, non-bland result.").strip()
 
     model = _pick_image_model()
     try:
@@ -3181,18 +3239,13 @@ def api_convene():
     except Exception:
         data = {}
     try:
-        return _api_convene_inner(data)
+        return _api_convene_impl(data)
     except Exception as e:
-        try:
-            append_log("convene_crash", {"error": str(e), "type": type(e).__name__, "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Server error: {str(e)}"})
+        resp = jsonify({"ok": False, "error": str(e)})
         resp.headers["Content-Type"] = "application/json"
-        resp.headers["Cache-Control"] = "no-store"
         return resp, 500
 
-def _api_convene_inner(data):
+def _api_convene_impl(data):
     prompt = (data.get("prompt") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
@@ -3333,18 +3386,13 @@ def api_followup():
     except Exception:
         data = {}
     try:
-        return _api_followup_inner(data)
+        return _api_followup_impl(data)
     except Exception as e:
-        try:
-            append_log("followup_crash", {"error": str(e), "type": type(e).__name__, "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Server error: {str(e)}"})
+        resp = jsonify({"ok": False, "error": str(e)})
         resp.headers["Content-Type"] = "application/json"
-        resp.headers["Cache-Control"] = "no-store"
         return resp, 500
 
-def _api_followup_inner(data):
+def _api_followup_impl(data):
     name = (data.get("name") or "").strip()
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
@@ -3403,25 +3451,7 @@ def _api_followup_inner(data):
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    try:
-        text = call_llm(sys, msgs, temperature=0.65)
-    except Exception as e:
-        status, msg_err = _classify_openai_error(e)
-        append_log("followup_error", {"where": name, "error": str(e), "at": now_iso()})
-        append_task_log(
-            "teammate_followup",
-            {
-                "name": name,
-                "message": msg,
-                "message_with_attachments": msg2,
-                "attachment_meta": attach_meta,
-                "vision_images_count": len(vision_images),
-                "error": str(e),
-            },
-            teammate=name,
-            status="failed"
-        )
-        return jsonify({"ok": False, "error": msg_err}), status
+    text = call_llm(sys, msgs, temperature=0.65)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -6425,10 +6455,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <input id="smtpPort" type="number" placeholder="587" />
 
                 <label>SMTP Username (from address)</label>
-                <input id="smtpUser" placeholder="you@example.com" autocomplete="off" name="smtp_username_field" data-lpignore="true" data-1p-ignore="true" />
+                <input id="smtpUser" placeholder="you@example.com" />
 
                 <label>SMTP Password (app password recommended)</label>
-                <input id="smtpPass" type="password" placeholder="••••••••" autocomplete="new-password" name="smtp_app_secret_field" data-lpignore="true" data-1p-ignore="true" />
+                <input id="smtpPass" type="password" placeholder="••••••••" />
 
                 <label>From Name</label>
                 <input id="smtpFromName" placeholder="Your Name" />
@@ -6444,7 +6474,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
 
                   <label>Twilio Auth Token</label>
-                  <input id="twilioToken" type="password" placeholder="••••••••" autocomplete="new-password" name="twilio_api_secret_field" data-lpignore="true" data-1p-ignore="true" />
+                  <input id="twilioToken" type="password" placeholder="••••••••" />
 
                   <label>Twilio From Number</label>
                   <input id="twilioFrom" placeholder="+15551234567" />
@@ -6640,21 +6670,15 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <input id="crmName" />
         </div>
         <div>
-          <label>Company</label>
-          <input id="crmCompany" />
-        </div>
-      </div>
-      <div class="grid" style="margin-top:10px;">
-        <div>
           <label>Email</label>
           <input id="crmEmail" />
         </div>
+      </div>
+      <div class="grid" style="margin-top:10px;">
         <div>
           <label>Phone</label>
           <input id="crmPhone" placeholder="+15551234567" />
         </div>
-      </div>
-      <div class="grid" style="margin-top:10px;">
         <div>
           <label>Status</label>
           <select id="crmStatusSel">
@@ -6939,7 +6963,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="leadLabSampleBtn">Sample</button>
-      <button class="btn" id="leadLabClearBtn">Clear list</button>
       <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
     </div>
     <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
@@ -7321,32 +7344,7 @@ if (typeof window.showToast !== "function") {
     // and only displaying the delta after a teammate name switch.
     let alwaysFinalBaseline = "";
 
-    const __NULL_CLASSLIST = { add(){}, remove(){}, toggle(){ return false; }, contains(){ return false; } };
-    const __NULL_STYLE = new Proxy({}, { get(){ return ""; }, set(){ return true; } });
-    const __NULL_DATASET = new Proxy({}, { get(){ return ""; }, set(){ return true; } });
-    const __NULL_RECT = () => ({ left:0, top:0, right:0, bottom:0, width:0, height:0, x:0, y:0 });
-    const __NULL_EL = new Proxy(function(){}, {
-      get(target, prop){
-        if(prop === '__missing') return true;
-        if(prop === 'style') return __NULL_STYLE;
-        if(prop === 'classList') return __NULL_CLASSLIST;
-        if(prop === 'dataset') return __NULL_DATASET;
-        if(prop === 'value' || prop === 'innerText' || prop === 'textContent' || prop === 'innerHTML' || prop === 'src' || prop === 'href') return '';
-        if(prop === 'checked') return false;
-        if(prop === 'files' || prop === 'children' || prop === 'childNodes') return [];
-        if(prop === 'offsetWidth' || prop === 'offsetHeight' || prop === 'clientWidth' || prop === 'clientHeight' || prop === 'scrollWidth' || prop === 'scrollHeight' || prop === 'scrollTop' || prop === 'scrollLeft') return 0;
-        if(prop === 'getBoundingClientRect') return __NULL_RECT;
-        if(prop === 'querySelector') return () => null;
-        if(prop === 'querySelectorAll') return () => [];
-        if(prop === 'closest') return () => null;
-        if(prop === 'appendChild' || prop === 'removeChild' || prop === 'insertBefore') return () => __NULL_EL;
-        if(prop === 'addEventListener' || prop === 'removeEventListener' || prop === 'setPointerCapture' || prop === 'releasePointerCapture' || prop === 'focus' || prop === 'blur' || prop === 'click' || prop === 'scrollIntoView' || prop === 'setAttribute' || prop === 'removeAttribute' || prop === 'select') return () => {};
-        return target[prop] || '';
-      },
-      set(target, prop, value){ target[prop] = value; return true; },
-      apply(){ return __NULL_EL; }
-    });
-    const $ = (id) => document.getElementById(id) || __NULL_EL;
+    const $ = (id) => document.getElementById(id);
 
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
@@ -7927,8 +7925,8 @@ function showModal(title, body, imgUrl){
         `Company: ${item.company || ''}`,
         `Title: ${item.title || ''}`,
         `Website: ${site}`,
-        `Verified email: ${email}`,
-        `Verified phone: ${phone}`,
+        `Email: ${email}`,
+        `Phone: ${phone}`,
         `Location: ${($("leadLabLocation")?.value || '').trim()}`,
         `Specific areas: ${($("leadLabAreas")?.value || '').trim()}`,
         `Search niche: ${($("leadLabNiche")?.value || '').trim()}`,
@@ -8108,21 +8106,10 @@ function showModal(title, body, imgUrl){
           data.plan ? ('\nPlan\n' + data.plan) : '',
           data.next_action ? ('\nNext action\n' + data.next_action) : ''
         ].filter(Boolean).join('\n');
-        if(data.prefill_objective && $("sessionObjectiveInput") && !((($("sessionObjectiveInput").value)||'').trim())){
+        showModal('Command router', preview);
+        if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
-
-        // Important: close the temporary router overlay before opening the target UI.
-        // The target modules reuse the same overlay/modal system, so hiding after action
-        // closes the module we just opened.
-        try{ hideModal(); }catch(e){}
-
-        const acted = applyCommandRouteToUI(data, q);
-        if(acted){
-          try{ showToast('Command executed'); }catch(e){}
-          return;
-        }
-        showModal('Command router', preview || 'Command routed, but no UI action was attached to this command yet.');
       }catch(e){
         showModal('Command router error', String(e && e.message ? e.message : e));
       }
@@ -9113,33 +9100,29 @@ function makeSeat(defn, idx){
           openBtn.innerText = "Open";
           openBtn.onclick = ()=> openLightbox(url);
 
-          const downloadBtn = document.createElement("a");
-          downloadBtn.className = "btn btnMini";
-          downloadBtn.innerText = "Download";
-          downloadBtn.href = url;
-          downloadBtn.download = '';
-          downloadBtn.target = '_blank';
-          downloadBtn.rel = 'noopener';
+          const useBtn = document.createElement("button");
+          useBtn.className = "btn btnMini";
+          useBtn.innerText = "Use for revisions";
+          useBtn.onclick = async ()=>{
+            try{
+              const imgs = await fetch('/api/images').then(r=>r.json());
+              const match = (imgs.images || []).find(x => x.url === url);
+              if(!match || !match.id) throw new Error('Could not find this image in the library');
+              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
+              const d = await r.json();
+              if(!d.ok) throw new Error(d.error || 'Could not set current image');
+              lastImageState = d.image_state || {};
+              await refreshThread();
+            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
+          };
 
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
           editBtn.innerText = "Edit this";
-          editBtn.onclick = async ()=>{
-            try{
-              const imgs = await fetch('/api/images').then(r=>r.json());
-              const match = (imgs.images || []).find(x => x.url === url);
-              if(match && match.id){
-                const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
-                const d = await r.json();
-                if(d.ok){ lastImageState = d.image_state || {}; }
-              }
-            }catch(e){}
-            const el = $('followMsg');
-            if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); }
-          };
+          editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
 
           actions.appendChild(openBtn);
-          actions.appendChild(downloadBtn);
+          actions.appendChild(useBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
         }else{
@@ -9421,128 +9404,81 @@ function makeSeat(defn, idx){
       await uploadFiles(files, "dm");
     });
 
-    let screenShareSessions = { group: null, dm: null };
-
-    function updateScreenShareButtons(){
-      const map = [
-        {id:'screenGroupBtn', key:'group'},
-        {id:'screenDmBtn', key:'dm'}
-      ];
-      map.forEach(row=>{
-        const el = $(row.id);
-        if(!el) return;
-        const active = !!(screenShareSessions[row.key] && screenShareSessions[row.key].stream);
-        el.classList.toggle('btnPrimary', active);
-        el.innerText = active ? 'Stop sharing' : 'Share screen';
-      });
-      const hint = $('uploadHint');
-      if(hint){
-        const activeTargets = Object.keys(screenShareSessions).filter(k => screenShareSessions[k] && screenShareSessions[k].stream);
-        hint.innerText = activeTargets.length ? 'Screen sharing is active. Your next message will attach a fresh frame from the live share.' : 'Attach files or use Share screen to attach a live screen frame to your next message.';
-      }
-    }
-
-    function stopScreenShare(target){
-      const sess = screenShareSessions[target];
-      if(!sess) return;
-      try{ if(sess.video){ try{ sess.video.pause(); }catch(e){} try{ sess.video.srcObject = null; }catch(e){} } }catch(e){}
-      try{ if(sess.stream){ sess.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); } }catch(e){}
-      screenShareSessions[target] = null;
-      updateScreenShareButtons();
-      const st = (target === 'group') ? $('opStatus') : $('micStatusDm');
-      if(st && st.innerText && /screen share|sharing/i.test(st.innerText)) st.innerText = target === 'group' ? 'Ready' : 'Mic: idle';
-    }
-
-    async function startPersistentScreenShare(target){
+    async function captureScreenOnce(){
       if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-        showModal('Screen share not supported', 'This browser does not support screen capture. Try Chrome or Edge.');
-        return false;
+        showModal("Screen share not supported", "This browser does not support screen capture. Try Chrome or Edge.");
+        return null;
       }
-      stopScreenShare(target);
+
       let stream = null;
       try{
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: 'always' }, audio: false });
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false });
       }catch(e){
-        showModal('Screen share cancelled', 'You closed the prompt or blocked permissions.');
-        return false;
+        showModal("Screen share cancelled", "You closed the prompt or blocked permissions.");
+        return null;
       }
+
       try{
-        const video = document.createElement('video');
-        video.muted = true;
-        video.playsInline = true;
+        const track = stream.getVideoTracks()[0];
+        const video = document.createElement("video");
         video.srcObject = stream;
-        await new Promise((resolve) => { video.onloadedmetadata = () => resolve(true); });
-        await video.play();
-        const endedTrack = stream.getVideoTracks()[0];
-        if(endedTrack){
-          endedTrack.addEventListener('ended', () => stopScreenShare(target), { once: true });
+
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => resolve(true);
+        });
+
+        video.play();
+        await new Promise(r => setTimeout(r, 120));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 1280;
+        canvas.height = video.videoHeight || 720;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.92));
+
+        try{ track.stop(); }catch(err){}
+        try{ stream.getTracks().forEach(t => t.stop()); }catch(err){}
+
+        if(!blob){
+          showModal("Capture failed", "Could not capture screenshot.");
+          return null;
         }
-        screenShareSessions[target] = { stream, video, startedAt: Date.now() };
-        updateScreenShareButtons();
-        const st = (target === 'group') ? $('opStatus') : $('micStatusDm');
-        if(st) st.innerText = 'Screen share active';
-        showToast('Screen sharing is active. Your next message will attach a fresh frame from the live share.');
-        return true;
+
+        const file = new File([blob], `screen_capture_${Date.now()}.png`, { type: "image/png" });
+        const url = URL.createObjectURL(blob);
+
+        return { file, previewUrl: url };
       }catch(e){
         try{ if(stream) stream.getTracks().forEach(t => t.stop()); }catch(err){}
-        showModal('Screen share failed', String(e && e.message ? e.message : e));
-        return false;
-      }
-    }
-
-    async function captureFrameFromActiveShare(target){
-      const sess = screenShareSessions[target];
-      if(!sess || !sess.stream || !sess.video) return null;
-      try{
-        const video = sess.video;
-        if(video.readyState < 2){ await new Promise(r => setTimeout(r, 120)); }
-        const w = Math.max(640, video.videoWidth || 1280);
-        const h = Math.max(360, video.videoHeight || 720);
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, w, h);
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
-        if(!blob) return null;
-        const file = new File([blob], `screen_share_${target}_${Date.now()}.png`, { type: 'image/png' });
-        const previewUrl = URL.createObjectURL(blob);
-        return { file, previewUrl };
-      }catch(e){
-        showModal('Capture failed', String(e && e.message ? e.message : e));
+        showModal("Capture failed", String(e && e.message ? e.message : e));
         return null;
       }
     }
 
-    async function ensureTargetHasCurrentShareAttachment(target){
-      const sess = screenShareSessions[target];
-      if(!sess || !sess.stream) return;
-      const cap = await captureFrameFromActiveShare(target);
+    async function captureAndAttach(target){
+      const cap = await captureScreenOnce();
       if(!cap) return;
+
+      showModal("Screen captured", "Screenshot captured and attached.", cap.previewUrl);
+
       try{
         const rec = await uploadOne(cap.file);
-        if(target === 'group'){
+        if(target === "group"){
           groupFileIds.push(rec.id);
-          renderAttachList('groupAttachList', groupFileIds);
+          renderAttachList("groupAttachList", groupFileIds);
         }else{
           dmFileIds.push(rec.id);
-          renderAttachList('dmAttachList', dmFileIds);
+          renderAttachList("dmAttachList", dmFileIds);
         }
       }catch(e){
-        showModal('Upload error', String(e && e.message ? e.message : e));
-      } finally {
-        try{ URL.revokeObjectURL(cap.previewUrl); }catch(e){}
+        showModal("Upload error", String(e && e.message ? e.message : e));
       }
     }
 
-    async function toggleScreenShare(target){
-      const sess = screenShareSessions[target];
-      if(sess && sess.stream){ stopScreenShare(target); return; }
-      await startPersistentScreenShare(target);
-    }
-
-    $("screenGroupBtn").onclick = () => toggleScreenShare("group");
-    $("screenDmBtn").onclick = () => toggleScreenShare("dm");
+    $("screenGroupBtn").onclick = () => captureAndAttach("group");
+    $("screenDmBtn").onclick = () => captureAndAttach("dm");
 
 
     // --- Voice / Mic reliability patch (ADD v6) ---
@@ -9744,23 +9680,6 @@ function makeSeat(defn, idx){
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
-
-    function stripLeadingTeammateWakeWord(text){
-      let out = (text || '').trim();
-      if(!out) return out;
-      const names = getInstalledNamesInOrder();
-      for(const name of names){
-        if(!name) continue;
-        const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const rx = new RegExp("^(?:hey\\s+)?" + esc + "(?:[,:.!?\\s]+|$)", "i");
-        if(rx.test(out)){
-          out = out.replace(rx, '').replace(/^[-,.:;!?\s]+/, '').trim();
-          break;
-        }
-      }
-      return out;
-    }
-
     function currentAlwaysTarget(){
       return (alwaysMode === "group") ? $("opPrompt") : $("followMsg");
     }
@@ -9878,39 +9797,41 @@ function makeSeat(defn, idx){
           if(now - lastNameSwitchAt > 650){
             lastNameSwitchAt = now;
 
-            // Switch teammate and apply the same glow as clicking.
-            // Important: do not type the teammate name into either prompt box.
+            const cleanedFinal = removeNameOnce(allFinal, hit.name);
+            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
+
+            const targetBefore = currentAlwaysTarget();
+            if(targetBefore){
+              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
+                .replace(/\s+/g, " ")
+                .trim();
+            }
+
+            // Switch teammate and apply the same glow as clicking
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so the spoken name is not replayed into the new box.
+            // Baseline the recognizer history so we do not replay old finals after switching
             alwaysFinalBaseline = allFinalRaw;
 
-            // Start fresh in the new target from its existing text only.
+            // Start writing into the new target input from its existing content
             const t2 = currentAlwaysTarget();
-            if(t2){
-              alwaysBaseText = (t2.value ? t2.value : "").trim();
-              try{ t2.focus(); }catch(_){ }
-            }else{
-              alwaysBaseText = "";
-            }
+            alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
             alwaysFinalText = "";
             alwaysInterimText = "";
             return;
           }
         }
 
-        // UPDATE: strip teammate wake words from the text that gets typed into the prompt box.
-        // Saying a teammate name should switch seats only, not leave that name behind in the text area.
-        alwaysFinalText = stripLeadingTeammateWakeWord(allFinal);
-        alwaysInterimText = stripLeadingTeammateWakeWord(interimRaw);
+        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
+        alwaysFinalText = allFinal;
+        alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
         if(target){
-          const combined = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
+          target.value = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
             .replace(/\s+/g, " ")
             .trim();
-          target.value = stripLeadingTeammateWakeWord(combined);
         }
       };
 
@@ -9966,7 +9887,6 @@ function makeSeat(defn, idx){
         return;
       }
 
-      await ensureTargetHasCurrentShareAttachment('group');
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
@@ -10033,7 +9953,7 @@ function makeSeat(defn, idx){
           const res = await fetch("/api/followup", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn}),
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
             signal: controller.signal
           });
           clearTimeout(t);
@@ -10075,7 +9995,7 @@ function makeSeat(defn, idx){
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
 
-      setOpStatus(Object.keys(outputs).length ? "Complete" : "AI unavailable");
+      setOpStatus("Complete");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       groupFileIds = [];
@@ -10135,7 +10055,6 @@ async function sendFollow(){
         showModal("No seat selected", "Click a teammate card first.");
         return;
       }
-      await ensureTargetHasCurrentShareAttachment('dm');
       const msg = $("followMsg").value.trim();
       if(!msg){
         showModal("Missing message", "Type a message for the selected teammate.");
@@ -10145,29 +10064,17 @@ async function sendFollow(){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      let data = null;
-      try{
-        const controller = new AbortController();
-        const t = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch("/api/followup", {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn}),
-          signal: controller.signal
-        });
-        clearTimeout(t);
-        data = await res.json();
-      }catch(e){
-        setSeatLive(selectedSeat, "waiting");
-        setOpStatus("Error");
-        showModal("Error", String((e && e.message) ? e.message : "Send failed"));
-        return;
-      }
+      const res = await fetch("/api/followup", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
+      });
+      const data = await res.json();
 
-      if(!data || !data.ok){
+      if(!data.ok){
         setSeatLive(selectedSeat, "waiting");
         setOpStatus("Error");
-        showModal("Error", (data && data.error) ? data.error : "Send failed");
+        showModal("Error", data.error || "Send failed");
         return;
       }
 
@@ -10840,10 +10747,9 @@ Challenge weak assumptions. Surface risks.`;
       if(!ed) return;
       ed.style.display = 'block';
       crmEditingClientId = id || null;
-      const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',company:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
+      const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
       $("crmEditTitle").innerText = id ? 'Edit client' : 'Add client';
       $("crmName").value = c.name || '';
-      if($("crmCompany")) $("crmCompany").value = c.company || '';
       $("crmEmail").value = c.email || '';
       $("crmPhone").value = c.phone || '';
       $("crmStatusSel").value = c.status || 'lead';
@@ -10874,7 +10780,6 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Saving...';
       const payload = {
         name: ($("crmName").value||'').trim(),
-        company: ($("crmCompany") ? ($("crmCompany").value||'').trim() : ''),
         email: ($("crmEmail").value||'').trim(),
         phone: ($("crmPhone").value||'').trim(),
         status: ($("crmStatusSel").value||'lead').trim(),
@@ -10900,7 +10805,7 @@ Challenge weak assumptions. Surface risks.`;
         crmRenderPipelineBoard();
         showToast('Saved');
       }catch(e){
-        if(st) st.innerText = (e && e.message) ? e.message : 'Save failed';
+        if(st) st.innerText = 'Save failed';
       }
     }
 
@@ -11433,64 +11338,6 @@ async function crmFetchTasks(){
       }).join('');
     }
 
-    function applyCommandRouteToUI(route, query){
-      const module = ((route && route.module) || '').trim();
-      const nextAction = ((route && route.next_action) || '').trim().toUpperCase();
-      const q = (query || '').trim();
-      try{
-        if(module === 'lead_lab' || nextAction === 'OPEN_MODULE_LEAD_LAB'){
-          try{ showLeadLabModal(); }catch(e){ if($('leadLabBtn')) $('leadLabBtn').click(); }
-          if($('leadLabInput') && !$('leadLabInput').value) $('leadLabInput').value = q;
-          if($('leadLabNiche') && !$('leadLabNiche').value) $('leadLabNiche').value = q;
-          return true;
-        }
-        if(module === 'crm_clients' || module === 'crm_pipeline' || module === 'crm_broadcast' || nextAction === 'OPEN_MODULE_CRM'){
-          const view = module === 'crm_pipeline' ? 'crmViewPipeline' : (module === 'crm_broadcast' ? 'crmViewBroadcast' : 'crmViewClients');
-          const title = module === 'crm_pipeline' ? 'CRM Pipeline' : (module === 'crm_broadcast' ? 'CRM Broadcast' : 'CRM Clients');
-          try{ showCRMModal(view, title); }
-          catch(e){
-            try{
-              if(typeof showCRMModal === 'function') showCRMModal(view, title);
-              else if($('crmBtn') && typeof $('crmBtn').onclick === 'function') $('crmBtn').onclick();
-              else if($('crmBtn')) $('crmBtn').click();
-            }catch(err){}
-          }
-          return true;
-        }
-        if(module === 'calendar' || nextAction === 'OPEN_MODULE_CALENDAR'){
-          if($('calendarBtn')) $('calendarBtn').click();
-          return true;
-        }
-        if(module === 'social_studio' || nextAction === 'OPEN_MODULE_SOCIAL_STUDIO'){
-          try{ showSocialStudioModal(); }catch(e){ if($('socialStudioBtn')) $('socialStudioBtn').click(); }
-          if($('socialStudioOffer') && !$('socialStudioOffer').value) $('socialStudioOffer').value = q;
-          return true;
-        }
-        if(module === 'offer_builder' || nextAction === 'OPEN_MODULE_OFFER_BUILDER'){
-          try{ showOfferBuilderModal(); }catch(e){ if($('offerBuilderBtn')) $('offerBuilderBtn').click(); }
-          if($('offerBuilderMethod') && !$('offerBuilderMethod').value) $('offerBuilderMethod').value = q;
-          return true;
-        }
-        if(module === 'growth_playbook' || nextAction === 'OPEN_MODULE_GROWTH_PLAYBOOK'){
-          try{ showGrowthPlaybookModal(); }catch(e){ if($('growthPlaybookBtn')) $('growthPlaybookBtn').click(); }
-          if($('playbookContext') && !$('playbookContext').value) $('playbookContext').value = q;
-          return true;
-        }
-        if(module === 'email_console' || nextAction === 'OPEN_MODULE_EMAIL_CONSOLE'){
-          try{ showEmailConsoleModal(); }catch(e){ if($('emailConsoleBtn')) $('emailConsoleBtn').click(); }
-          if($('emailBody') && !$('emailBody').value) $('emailBody').value = q;
-          return true;
-        }
-        if(module === 'round_table' || nextAction === 'OPEN_MODULE_ROUND_TABLE'){
-          if($('opPrompt')) $('opPrompt').value = q;
-          try{ hideModal(); }catch(e){}
-          try{ showToast('Command routed to the round table'); }catch(e){}
-          return true;
-        }
-      }catch(e){}
-      return false;
-    }
-
     function crmGuessEmails(name, domain){
       const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
       const nm = (name||'').trim().toLowerCase();
@@ -11531,8 +11378,8 @@ async function crmFetchTasks(){
               <div style="font-weight:800;">${escapeHtml(item.name || item.company || '(no name)')}</div>
               <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
               <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
-              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Verified phone: ' + escapeHtml(topPhone) : 'Verified phone: —'}</div>
-              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Verified email: ' + escapeHtml(topEmail) : 'Verified email: —'}</div>
+              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
+              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
               ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
             <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
@@ -11603,99 +11450,42 @@ async function crmFetchTasks(){
             showToast('Lead added to CRM');
             try{ await crmFetchClients(); }catch(e){}
           }catch(e){
-            showToast((e && e.message) ? e.message : 'Could not add lead');
+            showToast('Could not add lead');
           }
         };
       });
     }
 
-    let crmLeadLabAbortController = null;
-
-    function crmClearLeadLab(){
-      try{
-        if(crmLeadLabAbortController){ crmLeadLabAbortController.abort(); }
-      }catch(e){}
-      crmLeadLabAbortController = null;
-      const box = $("leadLabResults");
-      if(box) box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
-      const st = $("leadLabStatus");
-      if(st) st.innerText = 'Lead list cleared.';
-    }
-
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      const box = $("leadLabResults");
-      const renderLoading = (msg, pct)=>{
-        const safeMsg = escapeHtml(msg || 'Building lead list...');
-        const width = Math.max(8, Math.min(100, Number(pct || 12)));
-        if(box){
-          box.innerHTML = `
-            <div class="diagCard" style="padding:12px;">
-              <div style="font-weight:800; margin-bottom:8px;">${safeMsg}</div>
-              <div style="height:12px; border-radius:999px; background: rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.08);">
-                <div style="height:100%; width:${width}%; background: linear-gradient(90deg, rgba(124,58,237,.92), rgba(59,130,246,.92)); transition: width .25s ease;"></div>
-              </div>
-              <div class="tiny" style="margin-top:8px; opacity:.85;">Lead Lab is validating live public contact data.</div>
-            </div>`;
-        }
-        if(st) st.innerText = '';
-      };
-      renderLoading('Building lead list...', 18);
+      if(st) st.innerText = 'Building lead list...';
       try{
-        try{ if(crmLeadLabAbortController){ crmLeadLabAbortController.abort(); } }catch(e){}
-        const payload = {
-          niche: ($("leadLabNiche")?.value || '').trim(),
-          location: ($("leadLabLocation")?.value || '').trim(),
-          source_text: ($("leadLabInput")?.value || '').trim(),
-          specific_areas: ($("leadLabAreas")?.value || '').trim(),
-          search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
-          lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
-          require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
-          min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40,
-          _ts: Date.now()
-        };
-        let lastErr = '';
-        for(let attempt = 1; attempt <= 2; attempt++){
-          crmLeadLabAbortController = new AbortController();
-          try{
-            renderLoading(attempt === 1 ? 'Building lead list...' : 'Retrying lead list build...', attempt === 1 ? 42 : 65);
-            const res = await fetch('/api/crm/lead_lab?ts=' + encodeURIComponent(String(Date.now())) + '&attempt=' + attempt, {
-              method:'POST',
-              headers:{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache'},
-              cache:'no-store',
-              signal: crmLeadLabAbortController.signal,
-              body: JSON.stringify(payload)
-            });
-            const ct = (res.headers.get('content-type') || '').toLowerCase();
-            const raw = await res.text();
-            let data = null;
-            try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-            if(!ct.includes('application/json') || !data){
-              throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
-            }
-            if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
-            crmRenderLeadResults(data.items || []);
-            if(st) st.innerText = `Ready • ${((data.items||[]).length)} verified leads${data.warning ? ' • ' + data.warning : ''}`;
-            crmLeadLabAbortController = null;
-            return;
-          }catch(e){
-            if(e && e.name === 'AbortError'){
-              if(st) st.innerText = 'Previous lead build canceled.';
-              crmLeadLabAbortController = null;
-              return;
-            }
-            lastErr = e && e.message ? e.message : 'Lead build failed';
-            if(attempt < 2){
-              renderLoading('Retrying lead list build...', 72);
-              await new Promise(r => setTimeout(r, 500));
-              continue;
-            }
-          }
+        const res = await fetch('/api/crm/lead_lab', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            niche: ($("leadLabNiche")?.value || '').trim(),
+            location: ($("leadLabLocation")?.value || '').trim(),
+            source_text: ($("leadLabInput")?.value || '').trim(),
+            specific_areas: ($("leadLabAreas")?.value || '').trim(),
+            search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
+            lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
+            require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
+            min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40
+          })
+        });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        const raw = await res.text();
+        let data = null;
+        try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
+        if(!ct.includes('application/json') || !data){
+          throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
         }
-        if(box){ box.innerHTML = '<div class="tiny" style="opacity:.8;">No verified public-contact leads found for this search.</div>'; }
-        if(st) st.innerText = lastErr || 'Lead build failed';
-      }finally{
-        crmLeadLabAbortController = null;
+        if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
+        crmRenderLeadResults(data.items || []);
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
+      }catch(e){
+        if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
 
@@ -11712,143 +11502,18 @@ async function crmFetchTasks(){
       if($("leadLabAreas")) $("leadLabAreas").value = 'Jersey City, Hoboken, Newark';
     }
 
-    function crmLocalGeneratorFallback(endpoint, payload){
-      const p = payload || {};
-      if((endpoint || '').includes('/social_studio')){
-        const platform = (p.platform || 'Facebook');
-        const audience = (p.audience || 'your audience');
-        const offer = (p.offer || 'your offer');
-        return [
-          `Social Studio fallback for ${platform}`,
-          '',
-          'Hooks',
-          `- The fastest way to lose good leads is to sound like everyone else in ${audience}.`,
-          `- Strong content should move people closer to ${offer}, not just collect likes.`,
-          `- If people are watching but not replying, the message is too broad.`,
-          '',
-          'Short post',
-          `Clarity beats volume. If your content is not moving people toward ${offer}, it is not doing its job. Tighten the angle, make the next step obvious, and speak directly to ${audience}.`,
-          '',
-          'Comments',
-          '- Curious what part of this feels hardest right now?',
-          '- This is the part that usually needs a cleaner system, not more effort.',
-          '- Strong point. I would tighten the promise and make the next step clearer.',
-          '',
-          'CTA',
-          '- Want the exact workflow? Comment "system".',
-          '- Message me and I will show you the simple version.'
-        ].join('\n');
-      }
-      if((endpoint || '').includes('/playbooks')){
-        const goal = String(p.goal || 'get_clients').replace(/_/g, ' ');
-        const timeline = p.timeline || '30 days';
-        const context = p.context || 'your current business';
-        return [
-          `Growth Playbook for ${goal}`,
-          `Timeline: ${timeline}`,
-          '',
-          'Step 1',
-          `- Clarify the exact offer and audience inside ${context}.`,
-          'Step 2',
-          '- Publish three authority posts that surface the real problem your audience feels.',
-          'Step 3',
-          '- Start daily conversations with people already engaging around that problem.',
-          'Step 4',
-          '- Move interested people into your pipeline and tag them by readiness.',
-          'Step 5',
-          '- Follow up with one useful message and one clear call to action.',
-          'Step 6',
-          `- Review what converted, tighten the message, and repeat for ${timeline}.`
-        ].join('\n');
-      }
-      if((endpoint || '').includes('/offer_builder')){
-        const audience = p.audience || 'your audience';
-        const result = p.result || 'a clear result';
-        const method = p.method || 'a simple system';
-        return [
-          'Offer statement',
-          `We help ${audience} get ${result} through ${method}.`,
-          '',
-          'Why it stands out',
-          '- Clear process',
-          '- Less guesswork',
-          '- Faster execution',
-          '',
-          'CTA',
-          '- Message me if you want the clean version.'
-        ].join('\n');
-      }
-      return '';
-    }
-
-    async function crmSafeJsonResponse(res){
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      const raw = await res.text();
-      let data = null;
-      try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-      return {ct, raw, data};
-    }
-
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
       const st = $(statusId), box = $(resultsId);
-      const title = (endpoint || '').includes('/playbooks') ? 'Building playbook...' :
-                    (endpoint || '').includes('/social_studio') ? 'Generating social assets...' :
-                    (endpoint || '').includes('/offer_builder') ? 'Building offer...' : 'Generating...';
-      const renderLoading = (msg, pct)=>{
-        const safeMsg = escapeHtml(msg || title);
-        const width = Math.max(8, Math.min(100, Number(pct || 18)));
-        if(box){
-          box.innerHTML = `
-            <div class="diagCard" style="padding:12px;">
-              <div style="font-weight:800; margin-bottom:8px;">${safeMsg}</div>
-              <div style="height:12px; border-radius:999px; background: rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.08);">
-                <div style="height:100%; width:${width}%; background: linear-gradient(90deg, rgba(124,58,237,.92), rgba(59,130,246,.92)); transition: width .25s ease;"></div>
-              </div>
-              <div class="tiny" style="margin-top:8px; opacity:.85;">The workspace is building your result.</div>
-            </div>`;
-        }
-        if(st) st.innerText = '';
-      };
-      renderLoading(title, 22);
+      if(st) st.innerText = 'Generating...';
+      if(box) box.innerHTML = '';
       try{
-        const res = await fetch(endpoint, {
-          method:'POST',
-          headers:{'Content-Type':'application/json','Cache-Control':'no-store','Pragma':'no-cache'},
-          cache:'no-store',
-          body: JSON.stringify(payload || {})
-        });
-        const parsed = await crmSafeJsonResponse(res);
-        const ct = parsed.ct || '';
-        const raw = parsed.raw || '';
-        const data = parsed.data;
-        if(!ct.includes('application/json') || !data){
-          const localFallback = crmLocalGeneratorFallback(endpoint, payload);
-          if(localFallback){
-            if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
-            if(st) st.innerText = 'Ready • local fallback used';
-            return;
-          }
-          throw new Error('Server response was invalid: ' + raw.slice(0, 220));
-        }
-        if(!res.ok || !data.ok){
-          const localFallback = crmLocalGeneratorFallback(endpoint, payload);
-          if(localFallback){
-            if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
-            if(st) st.innerText = 'Ready • local fallback used';
-            return;
-          }
-          throw new Error(data.error || 'Generation failed');
-        }
+        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Generation failed');
         if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
         if(st) st.innerText = 'Ready';
       }catch(e){
-        const localFallback = crmLocalGeneratorFallback(endpoint, payload);
-        if(localFallback){
-          if(box) box.innerHTML = crmRenderRichBlocks(localFallback);
-          if(st) st.innerText = 'Ready • local fallback used';
-          return;
-        }
-        if(st) st.innerText = e && e.message ? e.message : 'Generation failed';
+        if(st) st.innerText = e.message || 'Generation failed';
       }
     }
 
@@ -11866,16 +11531,8 @@ async function crmFetchTasks(){
           </div>
           <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px; display:flex; flex-direction:column; gap:8px;">
             ${cards.map(c=>`<div class="pill" draggable="true" data-client-drag="${escapeHtml(c.id||'')}" style="display:block; cursor:grab;">
-                <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
-                  <div style="min-width:0;">
-                    <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
-                    <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
-                  </div>
-                  <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
-                    <button class="btn btnTiny" data-pipe-email="${escapeHtml(c.id||'')}" title="Email lead">✉️</button>
-                    <button class="btn btnTiny" data-pipe-sms="${escapeHtml(c.id||'')}" title="Text lead">💬</button>
-                  </div>
-                </div>
+                <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
+                <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
               </div>`).join('')}
           </div>
         </div>`;
@@ -11908,31 +11565,6 @@ async function crmFetchTasks(){
           }catch(e){
             showToast('Move failed');
           }
-        });
-      });
-      box.querySelectorAll('[data-pipe-email]').forEach(btn=>{
-        btn.addEventListener('click', ev=>{
-          ev.preventDefault(); ev.stopPropagation();
-          const id = btn.getAttribute('data-pipe-email') || '';
-          const c = (crmCache.clients||[]).find(x => x.id === id);
-          if(!c || !c.email) return showToast('No email found');
-          if($('emailTo')) $('emailTo').value = c.email || '';
-          if($('emailSubject')) $('emailSubject').value = '';
-          if($('emailBody')) $('emailBody').value = '';
-          setEmailFrom(selectedSeat || '');
-          showEmailConsoleModal('Email Console');
-        });
-      });
-      box.querySelectorAll('[data-pipe-sms]').forEach(btn=>{
-        btn.addEventListener('click', ev=>{
-          ev.preventDefault(); ev.stopPropagation();
-          const id = btn.getAttribute('data-pipe-sms') || '';
-          const c = (crmCache.clients||[]).find(x => x.id === id);
-          if(!c || !c.phone) return showToast('No phone found');
-          if($('smsTo')) $('smsTo').value = c.phone || '';
-          if($('smsBody')) $('smsBody').value = '';
-          setSmsFrom(selectedSeat || '');
-          showSMSConsoleModal('SMS Console');
         });
       });
     }
@@ -13832,19 +13464,8 @@ maybeAutoShowOnboarding();
       }
 
       if(key === "first_prompt"){
-        try{ if(typeof hideModal === "function") hideModal(); }catch(e){}
-        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
-        try{ if(typeof forceSeatSelectUI === "function") forceSeatSelectUI(selectedSeat || ''); }catch(e){}
-        setTimeout(()=>{
-          try{
-            const target = document.getElementById('opPrompt') || document.getElementById('followMsg');
-            if(target){
-              target.scrollIntoView({behavior:'smooth', block:'center'});
-              try{ target.focus(); }catch(_){ }
-            }
-            if(typeof showToast === 'function') showToast('You are back at the command center. Type your first prompt here.');
-          }catch(e){}
-        }, 140);
+        focusEl("followMsg");
+        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
         return;
       }
     }finally{
@@ -14231,7 +13852,7 @@ def api_clients_create():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
     if not name:
-        name = _crm_payload_fallback_name(payload)
+        return jsonify({"ok": False, "error": "Name is required"}), 400
     data = _load_clients(username)
     cid = _new_client_id()
     now = datetime.utcnow().isoformat() + "Z"
@@ -14753,25 +14374,6 @@ def api_crm_clients_list():
     clients.sort(key=_ts, reverse=True)
     return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}})
 
-def _crm_payload_fallback_name(payload: Dict[str, Any]) -> str:
-    try:
-        company = (payload.get("company") or "").strip()
-        if company:
-            return company
-        email = (payload.get("email") or "").strip()
-        if email:
-            local = email.split("@", 1)[0].strip()
-            if local:
-                return local.replace(".", " ").replace("_", " ").replace("-", " ").title()
-        phone = (payload.get("phone") or "").strip()
-        if phone:
-            digits = re.sub(r"\D+", "", phone)
-            if digits:
-                return f"Lead {digits[-4:]}"
-    except Exception:
-        pass
-    return "New lead"
-
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
     u = current_user()
@@ -14833,8 +14435,6 @@ def api_crm_clients_update(client_id: str):
     for k in ["name","company","email","phone","status","last_contact","next_followup","notes","last_summary"]:
         if k in payload:
             c[k] = (payload.get(k) or "").strip()
-    if not (c.get("name") or "").strip():
-        c["name"] = _crm_payload_fallback_name(c)
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
         if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
@@ -15449,6 +15049,33 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
 # CRM WOW FEATURES (Lead Lab / Social Studio / Offer Builder / Playbooks)
 # =========================
 
+def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
+    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
+    # No hard dependency. Only works if configured.
+    try:
+        crm = _crm_load(username)
+        sms = ((crm.get("settings") or {}).get("sms") or {})
+        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
+        if provider != "twilio":
+            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
+        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
+        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
+        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
+        if not sid or not token or not from_num:
+            return False, "Twilio missing SID/TOKEN/FROM."
+        import requests
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
+        if r.status_code >= 400:
+            return False, f"Twilio error: {r.text}"
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+
+
+
 def _crm_extract_domain(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"^https?://", "", s)
@@ -15667,16 +15294,7 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
-    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
-    # Directories, portals, and aggregators — never contain direct business contacts
-    "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com", "houzz.com",
-    "homeadvisor.com", "bbb.org", "superpages.com", "manta.com", "alignable.com",
-    "indeed.com", "glassdoor.com", "ziprecruiter.com", "craigslist.org",
-    "apartments.com", "apartmentlist.com", "rent.com", "hotpads.com",
-    "tripadvisor.com", "booking.com", "foursquare.com",
-    "houzeo.com", "opendoor.com", "offerpad.com", "compass.com",
-    "wikipedia.org", "wikihow.com", "reddit.com", "quora.com",
-    "amazonaws.com", "googleusercontent.com", "gstatic.com",
+    "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com"
 }
 _CRM_STATE_CITY_MAP = {
     "new jersey": ["Newark, NJ", "Jersey City, NJ", "Paterson, NJ", "Elizabeth, NJ", "Edison, NJ", "Woodbridge, NJ", "Toms River, NJ", "Trenton, NJ", "Clifton, NJ", "Hoboken, NJ", "Princeton, NJ", "Cherry Hill, NJ", "Morristown, NJ", "Westfield, NJ", "Summit, NJ", "Montclair, NJ", "Middletown, NJ", "Bridgewater, NJ", "Paramus, NJ", "Hackensack, NJ", "Bergen County, NJ", "Monmouth County, NJ", "Ocean County, NJ", "Essex County, NJ"],
@@ -15782,7 +15400,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 12) -> Tuple[str, str]:
     try:
         import requests
         headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
@@ -15954,19 +15572,13 @@ def _crm_build_queries(niche: str, location: str, lead_count: int, search_mode: 
             locations.extend(extra[:12])
         else:
             locations.extend(extra[:8])
-    _is_realty = bool(re.search(r"real.?estate|realtor|broker|realty|property|properties", niche, flags=re.I))
     templates = [
         '{niche} in {loc} contact',
         '{loc} {niche} office',
+        '{loc} {niche} realtor broker',
         '{loc} {niche} team',
-        '{loc} {niche} website',
-        '{loc} {niche} phone number',
+        '{loc} {niche} real estate agent',
     ]
-    if _is_realty:
-        templates += [
-            '{loc} {niche} realtor broker',
-            '{loc} {niche} real estate agent',
-        ]
     queries = []
     seen = set()
     for loc in locations:
@@ -15999,42 +15611,43 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             candidate['name'] = hint_name
         if hint_company:
             candidate['company'] = hint_company
+        if hint_phone and not candidate.get('phone'):
+            candidate['phone'] = hint_phone
+        if hint_email and not candidate.get('email'):
+            candidate['email'] = hint_email
         candidate['website'] = website or candidate.get('website') or ''
-        candidate['email_candidates'] = []
-        candidate['email'] = ''
-        candidate['phone'] = ''
+        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
         candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
     signals = _crm_parse_page_signals(html, final_url, niche, location)
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
-    # Early exit: skip sub-page crawl if we already have both email and phone
-    if not (emails and phones):
-        for link in _crm_find_contact_links(html, final_url):
-            sub_html, _ = _crm_fetch_text_url(link)
-            if not sub_html:
-                continue
-            sub = _crm_parse_page_signals(sub_html, link, niche, location)
-            for e in sub.get("emails") or []:
-                if e not in emails:
-                    emails.append(e)
-            for p in sub.get("phones") or []:
-                if p not in phones:
-                    phones.append(p)
-            if not signals.get("name") and sub.get("name"):
-                signals["name"] = sub.get("name")
-            if not signals.get("company") and sub.get("company"):
-                signals["company"] = sub.get("company")
-            signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
-            signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
-            # Stop once we have enough contact info
-            if emails and phones:
-                break
+    if hint_email and hint_email not in emails:
+        emails.insert(0, hint_email)
+    if hint_phone and hint_phone not in phones:
+        phones.insert(0, hint_phone)
+    for link in _crm_find_contact_links(html, final_url):
+        sub_html, _ = _crm_fetch_text_url(link)
+        if not sub_html:
+            continue
+        sub = _crm_parse_page_signals(sub_html, link, niche, location)
+        for e in sub.get("emails") or []:
+            if e not in emails:
+                emails.append(e)
+        for p in sub.get("phones") or []:
+            if p not in phones:
+                phones.append(p)
+        if not signals.get("name") and sub.get("name"):
+            signals["name"] = sub.get("name")
+        if not signals.get("company") and sub.get("company"):
+            signals["company"] = sub.get("company")
+        signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
+        signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
     name = signals.get("name") or hint_name or ""
     company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
-    email_candidates = [{'email': e, 'confidence': 0.97, 'status': 'public'} for e in emails[:5]]
+    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
     candidate = {
         "name": name or company,
         "company": company,
@@ -16064,7 +15677,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
         title = (row.get("title") or "").strip() or ("Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact")
         if not name and company:
             name = company
-        email_candidates: List[Dict[str, Any]] = []
+        email_candidates = _crm_email_candidates(name, domain)
         item = {
             "name": name,
             "company": company,
@@ -16072,7 +15685,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
             "domain": domain,
             "website": f"https://{domain}" if domain else "",
             "phone": "",
-            "email": "",
+            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
             "email_candidates": email_candidates,
             "niche_hit": True,
             "location_hit": bool(location),
@@ -16119,20 +15732,13 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     return out
 
 
-def _crm_public_search(query: str, max_results: int = 12, niche: str = "", location: str = "") -> List[Dict[str, str]]:
-    """Fast public web search used by Lead Lab.
-
-    Important:
-    - Uses only public search engines here, not model-driven web search.
-    - This keeps Lead Lab bounded and avoids long-running requests that can trigger
-      platform HTML 500 pages before our JSON error handler responds.
-    """
+def _crm_public_search(query: str, max_results: int = 18, niche: str = "", location: str = "") -> List[Dict[str, str]]:
     merged, seen = [], set()
-    search_fns = [_crm_bing_search, _crm_ddg_search]
-    hard_cap = max(1, min(int(max_results or 12), 12))
+    search_fns = [lambda q, max_results=max_results: _crm_openai_web_search(q, niche=niche, location=location, max_results=max_results)]
+    search_fns.extend([_crm_bing_search, _crm_ddg_search])
     for fn in search_fns:
         try:
-            rows = fn(query, max_results=hard_cap)
+            rows = fn(query, max_results=max_results)
         except TypeError:
             try:
                 rows = fn(query)
@@ -16141,14 +15747,12 @@ def _crm_public_search(query: str, max_results: int = 12, niche: str = "", locat
         except Exception:
             rows = []
         for row in rows:
-            if not isinstance(row, dict):
-                continue
-            dom = (row.get("domain") or "").strip().lower()
+            dom = row.get("domain") or ""
             if not dom or dom in seen or _crm_is_blocked_domain(dom):
                 continue
             seen.add(dom)
             merged.append(row)
-            if len(merged) >= hard_cap:
+            if len(merged) >= max_results:
                 return merged
     return merged
 
@@ -16234,7 +15838,7 @@ def _crm_fallback_candidate_from_result(result: Dict[str, str], niche: str, loca
         "website": result.get("url") or (f"https://{domain}"),
         "phone": "",
         "email": "",
-        "email_candidates": [],
+        "email_candidates": _crm_email_candidates(name or company or domain, domain),
         "niche_hit": True,
         "location_hit": bool(location),
         "notes": notes,
@@ -16261,9 +15865,9 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
     name = (row.get('name_hint') or '').strip()
     if not name:
         name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
-    phone = _crm_clean_phone(row.get('phone') or '')
-    public_email = ((row.get('email') or '')).strip().lower()
-    email_candidates = ([{'email': public_email, 'confidence': 0.97, 'status': 'public'}] if public_email else [])
+    phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
+    public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
+    email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name or company, domain)
     title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
     notes = (row.get('snippet') or '').strip()
     score = 55
@@ -16297,135 +15901,77 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
 
 
 def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40) -> List[Dict[str, Any]]:
-    """Verified-only public lead discovery.
-
-    This function is intentionally bounded to keep the request under platform time limits:
-    - small query set
-    - small search result set
-    - enrichment only on official/public pages
-    - no model/web-search top-off
-    """
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
-    mode = (search_mode or "balanced").strip().lower()
-    query_cap = 4 if mode == "precision" else 6 if mode == "balanced" else 8
-    per_query = 4 if mode == "precision" else 6 if mode == "balanced" else 8
-    queries = queries[:query_cap]
-
     seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
-    verified: List[Dict[str, Any]] = []
+    out: List[Dict[str, Any]] = []
+    raw_results: List[Dict[str, Any]] = []
+    per_query = 8 if (search_mode or 'balanced').lower() == 'precision' else 12 if (search_mode or 'balanced').lower() == 'balanced' else 16
 
-    def include_verified(item: Optional[Dict[str, Any]]) -> bool:
+    def include_item(item: Optional[Dict[str, Any]]) -> bool:
         if not item:
             return False
-        dom = (item.get("domain") or "").strip().lower()
+        dom = (item.get('domain') or '').strip().lower()
         if not dom or dom in seen_domains:
             return False
-
-        phone = (item.get("phone") or "").strip()
-        public_email = (item.get("email") or "").strip().lower()
-        has_verified_contact = bool(phone or public_email)
-        if not has_verified_contact:
+        has_phone = bool((item.get('phone') or '').strip())
+        public_email = bool((item.get('email') or '').strip())
+        any_email = public_email or bool(item.get('email_candidates') or [])
+        if require_contact == 'phone' and not has_phone:
             return False
-
-        if require_contact == "phone" and not phone:
+        if require_contact == 'email' and not any_email:
             return False
-        if require_contact == "email" and not public_email:
+        if require_contact == 'phone_or_email' and not (has_phone or any_email):
             return False
-        if require_contact == "phone_or_email" and not has_verified_contact:
+        if (item.get('score') or 0) < int(min_score or 40):
             return False
-        if int(item.get("score") or 0) < int(min_score or 40):
-            return False
-
         seen_domains.add(dom)
-        verified.append(item)
+        out.append(item)
         return True
 
-    raw_results: List[Dict[str, Any]] = []
+    # Pass 1: fast lead creation from search results, prioritizing OpenAI web search hints and official sites.
     for q in queries:
         rows = _crm_public_search(q, max_results=per_query, niche=niche, location=location)
         for row in rows:
-            if not isinstance(row, dict):
-                continue
-            dom = _crm_extract_domain(row.get("domain") or urlparse(row.get("url") or "").netloc or row.get("url") or "")
+            dom = _crm_extract_domain(row.get('domain') or urlparse(row.get('url') or '').netloc or row.get('url') or '')
             if not dom or dom in seen_domains or _crm_is_blocked_domain(dom):
                 continue
-            row["query"] = q
+            row['query'] = q
             raw_results.append(row)
-        if len(raw_results) >= max(lead_count * 2, 10):
+            item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, int(min_score or 40) - 5))
+            include_item(item)
+            if len(out) >= lead_count:
+                break
+        if len(out) >= lead_count:
             break
 
-    enrich_pool = raw_results[:max(lead_count * 2, 10)]
-    if enrich_pool:
+    # Pass 2: enrich a small subset only, to keep the route fast and avoid server/proxy timeouts.
+    if len(out) < lead_count and raw_results:
+        enrich_pool = raw_results[:max(lead_count * 2, 12)]
+        max_workers = 4
         try:
-            max_workers = 3
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                futures = {ex.submit(_crm_enrich_result, row, niche, location, row.get("query") or ""): row for row in enrich_pool}
-                for fut in as_completed(futures, timeout=55):
+                future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
+                for fut in as_completed(future_map, timeout=30):
+                    row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
-                    except Exception as enrich_err:
-                        try:
-                            append_log("lead_lab_enrich_error", {"error": str(enrich_err), "at": now_iso()})
-                        except Exception:
-                            pass
-                        item = None
-                    include_verified(item)
-                    if len(verified) >= lead_count:
+                    except Exception:
+                        item = _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+                    include_item(item)
+                    if len(out) >= lead_count:
                         break
-        except Exception as pool_err:
-            try:
-                append_log("lead_lab_pool_error", {"error": str(pool_err), "at": now_iso()})
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-    def _sort_key(item: Dict[str, Any]):
-        return ((1 if (item.get("phone") or "").strip() else 0) + (1 if (item.get("email") or "").strip() else 0), int(item.get("score") or 0))
-
-    verified.sort(key=_sort_key, reverse=True)
-    return verified[:lead_count]
-
-
-def _crm_make_stub_lead(niche: str, location: str, area: str, idx: int = 1) -> Dict[str, Any]:
-    area = (area or location or 'Target Area').strip() or 'Target Area'
-    niche_label = (niche or 'Business').strip() or 'Business'
-    company = f"{area} {niche_label.title()} {idx}"
-    slug = re.sub(r"[^a-z0-9]+", "-", company.lower()).strip("-") or f"lead-{idx}"
-    domain = f"{slug}.com"
-    website = f"https://{domain}"
-    return {
-        'name': company,
-        'company': company,
-        'title': 'Contact',
-        'domain': domain,
-        'website': website,
-        'phone': '',
-        'email': '',
-        'email_candidates': _crm_merge_email_candidates([], company, domain),
-        'score': 35,
-        'confidence': 35,
-        'niche_hit': True,
-        'location_hit': bool(location or area),
-        'notes': f'Fallback lead shell for {niche_label} in {area}. Replace with validated contact data before outreach.',
-        'source_query': f'{niche_label} in {area}',
-    }
-
-
-def _crm_fallback_shells(niche: str, location: str, lead_count: int, specific_areas: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    areas = [x for x in (specific_areas or []) if x]
-    if location:
-        areas.append(location)
-    if not areas:
-        areas = ['Target Area']
-    out: List[Dict[str, Any]] = []
-    i = 1
-    total = max(1, int(lead_count or 1))
-    while len(out) < total:
-        for area in areas:
-            out.append(_crm_make_stub_lead(niche, location, area, i))
-            i += 1
-            if len(out) >= total:
+    # Pass 3: deterministic fallback rows from raw results so the user always gets a usable list.
+    if len(out) < lead_count:
+        for row in raw_results:
+            item = _crm_fallback_candidate_from_result(row, niche, location, row.get('query') or '') or _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
+            if include_item(item) and len(out) >= lead_count:
                 break
-    return out[:total]
+
+    out.sort(key=lambda x: ((1 if x.get('phone') else 0) + (1 if (x.get('email') or x.get('email_candidates')) else 0), x.get('score') or 0), reverse=True)
+    return out[:lead_count]
 
 
 @app.post("/api/crm/lead_lab")
@@ -16449,89 +15995,77 @@ def api_crm_lead_lab():
             min_score = int(payload.get("min_score") or 40)
         except Exception:
             min_score = 40
-
         lead_count = max(1, min(100, lead_count))
         min_score = max(20, min(90, min_score))
-
         if not niche and not location and not source_text and not specific_areas:
             return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
         items: List[Dict[str, Any]] = []
         existing_domains = set()
-
-        # Seed rows are allowed, but they do not count as verified contact leads.
         if source_text:
             try:
                 seed_items = _crm_items_from_rows(_crm_parse_lead_source_rows(source_text), niche, location)
             except Exception:
                 seed_items = []
             for item in seed_items:
-                dom = (item.get("domain") or "").strip().lower()
+                dom = item.get("domain") or ""
                 if dom:
                     existing_domains.add(dom)
             items.extend(seed_items)
 
         remaining = max(0, lead_count - len(items))
-        verified: List[Dict[str, Any]] = []
         if remaining > 0:
-            try:
-                verified = _crm_discover_public_leads(
-                    niche=niche,
-                    location=location,
-                    lead_count=remaining,
-                    search_mode=search_mode,
-                    existing_domains=existing_domains,
-                    specific_areas=specific_areas,
-                    require_contact=require_contact,
-                    min_score=min_score,
-                )
-            except Exception as discover_err:
-                try:
-                    append_log("crm_lead_lab_discover_error", {"error": str(discover_err), "at": now_iso(), "niche": niche, "location": location})
-                except Exception:
-                    pass
-                verified = []
+            discovered = _crm_discover_public_leads(
+                niche, location, remaining, search_mode, existing_domains=existing_domains,
+                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
+            )
+            items.extend(discovered)
 
-        # Fallback: retry with relaxed thresholds if zero leads found
-        if not verified and remaining > 0 and (niche or location):
-            try:
-                verified = _crm_discover_public_leads(
-                    niche=niche,
-                    location=location,
-                    lead_count=remaining,
-                    search_mode=search_mode,
-                    existing_domains=existing_domains,
-                    specific_areas=specific_areas,
-                    require_contact="any",
-                    min_score=25,
-                )
-                relaxed_fallback = bool(verified)
-            except Exception as fallback_err:
-                try:
-                    append_log("crm_lead_lab_fallback_error", {"error": str(fallback_err), "at": now_iso()})
-                except Exception:
-                    pass
-                relaxed_fallback = False
-        else:
-            relaxed_fallback = False
+        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
+        final: List[Dict[str, Any]] = []
+        seen = set()
+        for item in items:
+            dom = (item.get("domain") or "").strip().lower()
+            key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            final.append(item)
+            if len(final) >= lead_count:
+                break
 
-        final = items + verified
+        if len(final) < lead_count:
+            need = max(0, lead_count - len(final))
+            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
+            for q in ai_queries:
+                if len(final) >= lead_count:
+                    break
+                try:
+                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
+                except Exception as ai_err:
+                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
+                    rows = []
+                for row in rows:
+                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
+                    if not item:
+                        continue
+                    dom = (item.get('domain') or '').strip().lower()
+                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    final.append(item)
+                    if len(final) >= lead_count:
+                        break
+
         warning = ""
-        if not verified:
-            warning = "No verified leads were found for this search. Try broadening your niche or location."
-        elif relaxed_fallback:
-            warning = f"Found {len(verified)} leads using relaxed matching. Review carefully before outreach."
-        elif len(verified) < remaining:
-            warning = f"Built {len(verified)} verified public-contact leads for this search."
+        if not final:
+            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
+        elif len(final) < lead_count:
+            warning = f"Built {len(final)} leads from public web signals for this search."
 
-        resp = jsonify({
-            "ok": True,
-            "items": final[:lead_count],
-            "count": min(len(final), lead_count),
-            "verified_count": len(verified),
-            "warning": warning,
-        })
-        resp.headers["Cache-Control"] = "no-store"
+        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
+        resp.headers['Cache-Control'] = 'no-store'
         return resp
     except Exception as e:
         try:
@@ -16539,7 +16073,7 @@ def api_crm_lead_lab():
         except Exception:
             pass
         resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
-        resp.headers["Cache-Control"] = "no-store"
+        resp.headers['Cache-Control'] = 'no-store'
         return resp, 500
 
 @app.post("/api/crm/social_studio")
@@ -16547,130 +16081,128 @@ def api_crm_social_studio():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        payload = request.get_json(silent=True) or {}
-        platform = (payload.get("platform") or "Facebook").strip()
-        asset_type = (payload.get("asset_type") or "content_pack").strip()
-        audience = (payload.get("audience") or "entrepreneurs").strip()
-        offer = (payload.get("offer") or "").strip()
-        if not offer:
-            return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
+    payload = request.get_json(silent=True) or {}
+    platform = (payload.get("platform") or "Facebook").strip()
+    asset_type = (payload.get("asset_type") or "content_pack").strip()
+    audience = (payload.get("audience") or "entrepreneurs").strip()
+    offer = (payload.get("offer") or "").strip()
+    if not offer:
+        return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-        system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings, short sections, bullets, and ready-to-use copy."
-        prompt = (
-            f"Platform: {platform}\n"
-            f"Asset type: {asset_type}\n"
-            f"Audience: {audience}\n"
-            f"Offer/angle: {offer}\n\n"
-            "Generate a useful asset pack with clear headings and polished copy."
-        )
-        fallback = (
-            f"Content pack for {platform}\n"
-            f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
-            f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
-            f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
-            f"Comments\n"
-            f"- Curious what part of this feels hardest right now?\n"
-            f"- This is the part most people skip, and it costs them momentum.\n"
-            f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
-            f"DM openers\n"
-            f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
-            f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
-            f"CTA ideas\n"
-            f"- Want the exact workflow? Comment \"system\".\n"
-            f"- If this is relevant to your business, message me and I will show you the simple version."
-        )
-        output = _crm_llm_or_fallback(system, prompt, fallback)
-        resp = jsonify({"ok": True, "output": output})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
-    except Exception as e:
-        try:
-            append_log("crm_social_studio_error", {"error": str(e), "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Social Studio error: {str(e)}"})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp, 500
+    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
+    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+    fallback = (
+        f"Content pack for {platform}\n"
+        f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
+        f"- Hook: Most entrepreneurs do not need more content. They need content that moves conversations forward.\n"
+        f"- Hook: If your audience is watching but not replying, your message is too broad.\n\n"
+        f"Comments\n"
+        f"- Curious what part of this feels hardest right now?\n"
+        f"- This is the part most people skip, and it costs them momentum.\n"
+        f"- Strong angle here. I would tighten the promise and make the next step clearer.\n\n"
+        f"DM openers\n"
+        f"- Hey, I saw you work with {audience}. Quick question: what are you doing right now to turn attention into actual conversations?\n"
+        f"- You probably do not need another tactic. You likely need a cleaner system around {offer}.\n\n"
+        f"CTA ideas\n"
+        f"- Want the exact workflow? Comment \"system\".\n"
+        f"- If this is relevant to your business, message me and I will show you the simple version."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
 
 @app.post("/api/crm/offer_builder")
 def api_crm_offer_builder():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    try:
-        payload = request.get_json(silent=True) or {}
-        audience = (payload.get("audience") or "").strip()
-        result = (payload.get("result") or "").strip()
-        method = (payload.get("method") or "").strip()
-        if not audience or not result or not method:
-            return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
+    payload = request.get_json(silent=True) or {}
+    audience = (payload.get("audience") or "").strip()
+    result = (payload.get("result") or "").strip()
+    method = (payload.get("method") or "").strip()
+    if not audience or not result or not method:
+        return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
 
-        system = "You are an offer strategist. Build clear, practical offers with concise sections."
-        prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
-        fallback = (
-            f"Offer statement\n"
-            f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
-            f"Core promise\n"
-            f"- Faster clarity\n"
-            f"- Less guesswork\n"
-            f"- More consistent execution\n\n"
-            f"Why it stands out\n"
-            f"- Done with you structure instead of generic advice\n"
-            f"- Clear next steps instead of random tactics\n"
-            f"- Built for speed and consistency\n\n"
-            f"CTA\n"
-            f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
-            f"DM pitch\n"
-            f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
-        )
-        output = _crm_llm_or_fallback(system, prompt, fallback)
-        resp = jsonify({"ok": True, "output": output})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
-    except Exception as e:
-        try:
-            append_log("crm_offer_builder_error", {"error": str(e), "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Offer Builder error: {str(e)}"})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp, 500
+    system = "You are an offer strategist. Build clear, practical offers with concise sections."
+    prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
+    fallback = (
+        f"Offer statement\n"
+        f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
+        f"Core promise\n"
+        f"- Faster clarity\n"
+        f"- Less guesswork\n"
+        f"- More consistent execution\n\n"
+        f"Why it stands out\n"
+        f"- Done with you structure instead of generic advice\n"
+        f"- Clear next steps instead of random tactics\n"
+        f"- Built for speed and consistency\n\n"
+        f"CTA\n"
+        f"- If you want to see whether this fits your business, message me \"offer\".\n\n"
+        f"DM pitch\n"
+        f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    goal = (payload.get("goal") or "get_clients").strip()
+    timeline = (payload.get("timeline") or "30 days").strip()
+    context = (payload.get("context") or "").strip()
+    system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
+    prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
+    fallback = (
+        f"Playbook for {goal.replace('_',' ')}\n"
+        f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
+        f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
+        f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
+        f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
+        f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
+        f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
+    )
+    output = _crm_llm_or_fallback(system, prompt, fallback)
+    return jsonify({"ok": True, "output": output})
+
+
+# ── Global error handlers: always return JSON for /api/ routes ───────────────
+@app.errorhandler(Exception)
+def _handle_exception(e):
     try:
-        payload = request.get_json(silent=True) or {}
-        goal = (payload.get("goal") or "get_clients").strip()
-        timeline = (payload.get("timeline") or "30 days").strip()
-        context = (payload.get("context") or "").strip()
-        system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
-        prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
-        fallback = (
-            f"Playbook for {goal.replace('_',' ')}\n"
-            f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
-            f"Step 2\n- Publish three authority posts that surface the real problem your audience feels.\n"
-            f"Step 3\n- Start daily conversations with people already engaging around that problem.\n"
-            f"Step 4\n- Capture interested leads into your pipeline and tag them by readiness.\n"
-            f"Step 5\n- Follow up with one useful message and one clear call to action.\n"
-            f"Step 6\n- Review what converted, refine the message, and repeat for {timeline}."
-        )
-        output = _crm_llm_or_fallback(system, prompt, fallback)
-        resp = jsonify({"ok": True, "output": output})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp
-    except Exception as e:
+        code = getattr(e, "code", 500) or 500
+        path = ""
         try:
-            append_log("crm_playbooks_error", {"error": str(e), "at": now_iso()})
+            path = request.path or ""
         except Exception:
             pass
-        resp = jsonify({"ok": False, "error": f"Growth Playbook error: {str(e)}"})
-        resp.headers["Cache-Control"] = "no-store"
-        return resp, 500
+        if path.startswith("/api/"):
+            resp = jsonify({"ok": False, "error": str(e) or "Internal server error"})
+            resp.headers["Content-Type"] = "application/json"
+            resp.headers["Cache-Control"] = "no-store"
+            return resp, code
+    except Exception:
+        pass
+    raise e
 
+@app.errorhandler(404)
+def _handle_404(e):
+    try:
+        if (request.path or "").startswith("/api/"):
+            return jsonify({"ok": False, "error": "Endpoint not found"}), 404
+    except Exception:
+        pass
+    return "<h1>404 Not Found</h1>", 404
+
+@app.errorhandler(500)
+def _handle_500(e):
+    try:
+        if (request.path or "").startswith("/api/"):
+            return jsonify({"ok": False, "error": "Internal server error"}), 500
+    except Exception:
+        pass
+    return "<h1>500 Internal Server Error</h1>", 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
