@@ -4586,7 +4586,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
+      grid-template-columns: minmax(0, 1fr) 500px;
       align-items:start;
     }
 
@@ -4873,10 +4873,10 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 12px;
+      top: 0;
       align-self:start;
-      height: calc(100vh - 24px);
-      overflow:auto;
+      height: 100vh;
+      overflow:hidden;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
@@ -4901,6 +4901,32 @@ HTML = r"""
     .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
     .sideTitle .h1{ font-weight:800; }
     .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+
+    /* ===== REDESIGNED NAV BAR ===== */
+    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(10,14,30,.95);border-bottom:1px solid rgba(42,58,106,.7);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
+    .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+    .saNavCenter{flex:1;display:flex;flex-direction:column;gap:5px;min-width:240px;}
+    .saNavRight{flex-shrink:0;}
+    .saModelTag{font-size:11px;color:rgba(148,163,184,.6);white-space:nowrap;}
+    .saDropWrap{position:relative;}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);border-radius:10px;color:rgba(196,181,253,.9);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+    .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
+    .saChevron{font-size:9px;opacity:.7;}
+    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
+    .saDrop.open{display:block;}
+    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
+    .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
+    .saCommandWrap{display:flex;align-items:center;background:rgba(14,22,48,.8);border:1px solid rgba(80,100,180,.5);border-radius:12px;padding:0 12px;gap:8px;}
+    .saCommandWrap:focus-within{border-color:rgba(124,58,237,.7);}
+    .saCmdIcon{font-size:14px;color:rgba(124,58,237,.7);flex-shrink:0;}
+    .saCmdInput{flex:1;background:transparent;border:none;outline:none;color:rgba(226,232,240,.9);font-size:13px;padding:10px 0;min-width:0;}
+    .saCmdInput::placeholder{color:rgba(100,116,139,.6);}
+    .saCmdBtn{background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;}
+    .saCmdBtn:hover{background:rgba(124,58,237,.5);}
+    .saObjectivePill{font-size:11px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .commandHeader,.commandRow{display:none !important;}
+    /* ===== END NAV BAR CSS ===== */
 
     .thread{
       height: 40vh;
@@ -5943,37 +5969,73 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div id="modelTag">Model: {{model}}</div>
       </div>
     </div>
-    <div class="commandHeader">
-      <div class="commandRow primary">
-        <button class="btn" id="frameworkBtn">Core framework</button>
-        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
-        <button class="btn" id="createTeamBtn">Create teammate</button>
-        <button class="btn" id="installFullBtn">Install full team</button>
-        <button class="btn" id="settingsBtn">Settings</button>
-        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
-        <button class="btn" id="calendarBtn">Calendar</button>
-        <button class="btn" id="crmBtn">CRM</button>
-        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
-        <button class="btn" id="leadLabBtn">Lead Lab</button>
-        <button class="btn" id="socialStudioBtn">Social Studio</button>
-        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
+    <!-- ===== REDESIGNED NAV BAR ===== -->
+    <div class="saNavBar" id="saNavBar">
+
+      <!-- Left: 3 dropdown groups -->
+      <div class="saNavLeft">
+
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saTeamDropBtn" onclick="saToggleDrop('saTeamDrop')">
+            <span>Team</span><span class="saChevron">&#9660;</span>
+          </button>
+          <div class="saDrop" id="saTeamDrop">
+            <button class="saDropItem" id="frameworkBtn">Core framework</button>
+            <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
+            <button class="saDropItem" id="createTeamBtn">Create teammate</button>
+            <button class="saDropItem" id="installFullBtn">Install full team</button>
+            <button class="saDropItem" id="onboardingBtn">Onboarding checklist</button>
+            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
+          </div>
+        </div>
+
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saToolsDropBtn" onclick="saToggleDrop('saToolsDrop')">
+            <span>Tools</span><span class="saChevron">&#9660;</span>
+          </button>
+          <div class="saDrop" id="saToolsDrop">
+            <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
+            <button class="saDropItem" id="crmBtn">CRM</button>
+            <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
+            <button class="saDropItem" id="socialStudioBtn">Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn">Offer Builder</button>
+            <button class="saDropItem" id="imageLibBtn">Image Library</button>
+            <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
+            <button class="saDropItem" id="calendarBtn">Calendar</button>
+          </div>
+        </div>
+
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
+            <span>Settings</span><span class="saChevron">&#9660;</span>
+          </button>
+          <div class="saDrop" id="saSettingsDrop">
+            <button class="saDropItem" id="settingsBtn">User settings</button>
+            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
+            <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
+            <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
+          </div>
+        </div>
+
       </div>
-      <div class="commandRow secondary">
-        <button class="btn" id="imageLibBtn">Image Library</button>
-        <button class="btn" id="emailConsoleBtn">Email Console</button>
-        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
-        <button class="btn" id="sessionObjectiveBtn" title="Set the current session objective">Session objective</button>
-        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
-        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
+
+      <!-- Center: Command bar -->
+      <div class="saNavCenter">
+        <div class="saCommandWrap">
+          <span class="saCmdIcon">&#8984;</span>
+          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" autocomplete="off" data-lpignore="true" />
+          <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
+        </div>
+        <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
+
+      <!-- Right: model tag -->
+      <div class="saNavRight">
+        <div class="saModelTag" id="modelTag">Model: {{model}}</div>
+      </div>
+
     </div>
-    <div class="commandHeader" id="osCommandBarWrap" style="margin-top:10px;">
-      <div class="commandRow secondary" style="grid-template-columns:minmax(220px,1fr) auto auto; max-width:none;">
-        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" />
-        <button class="btn" id="globalCommandRunBtn">Run command</button>
-        <div class="pill" id="sessionObjectivePill" title="Current session objective">No session objective</div>
-      </div>
-    </div>
+    <!-- ===== END REDESIGNED NAV BAR ===== -->
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
@@ -7100,48 +7162,57 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
 
     <div class="side">
-      <div class="sideCard">
-        <div class="sideHead">
+      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;">
+        <!-- Header -->
+        <div class="sideHead" style="flex-shrink:0;">
           <div class="sideTitle">
             <div class="h1" id="seatTitle">Select a seat</div>
-            <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
-            <div class="modalResizeGrip" id="modalResizeGrip" aria-label="Resize window" title="Resize window"></div>
+            <div class="h2" id="seatSub">Click any teammate for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
-
-        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
-          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
-          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
-          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
+        <!-- Pass row -->
+        <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Failure Simulator">💥 Failure</button>
+          <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraints">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimize">⚡ Optimize</button>
         </div>
-
-        <div class="thread" id="thread"></div>
-
-        <div style="height:10px"></div>
-        <textarea class="followBox" id="followMsg" placeholder="Send an individual message to the selected teammate..."></textarea>
-
-        <div class="pillRow">
-          <input type="file" id="dmFiles" multiple style="display:none" />
-          <button class="btn btnMini" id="pickDmFiles">Upload files</button>
-          <button class="btn btnMini" id="screenDmBtn">Share screen</button>
-          <button class="btn btnMini" id="talkDmBtn">Talk</button>
-          <!-- CHANGE: Always Listening toggle (DM) -->
-          <button class="btn btnMini" id="alwaysListenDmBtn">Always listen</button>
-          <button class="btn btnPrimary" id="sendFollow">Send to selected</button>
+        <!-- Thread scrolls -->
+        <div class="thread" id="thread" style="flex:1;height:auto;min-height:80px;overflow-y:auto;"></div>
+        <!-- Sticky input area -->
+        <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
+          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" data-lpignore="true"></textarea>
+          <div class="pillRow" style="margin-top:6px;">
+            <input type="file" id="dmFiles" multiple style="display:none" />
+            <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
+            <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
+            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
+            <button class="btn btnMini" id="alwaysListenDmBtn">👂 Listen</button>
+            <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
+          </div>
+          <div id="dmAttachList" class="pillRow"></div>
+          <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
         </div>
-        <div id="dmAttachList" class="pillRow"></div>
-
-        <div class="tiny" style="margin-top:8px;">
-          Tip: Share screen captures a screenshot and attaches it to your next message.
-        </div>
-        <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
     </div>
 
+
+  <!-- Message Expand Modal -->
+  <div id="saMsgModal" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseMsgModal()">
+    <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(860px,92vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid rgba(42,58,106,.6);">
+        <span id="saMsgModalTitle" style="font-weight:700;font-size:14px;color:#c4b5fd;">Response</span>
+        <div style="display:flex;gap:8px;">
+          <button onclick="saCopyMsgModal()" style="background:rgba(42,58,106,.6);border:1px solid rgba(124,58,237,.4);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">Copy</button>
+          <button onclick="saCloseMsgModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+        </div>
+      </div>
+      <div id="saMsgModalBody" style="flex:1;overflow-y:auto;padding:20px 24px;font-size:15px;line-height:1.7;white-space:pre-wrap;color:#e2e8f0;"></div>
+    </div>
+  </div>
 
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
@@ -9571,7 +9642,8 @@ function makeSeat(defn, idx){
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
-      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      // Global flag removes ALL occurrences to prevent buildup
+      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
@@ -9583,9 +9655,10 @@ function makeSeat(defn, idx){
     }
 
     function resetAlwaysBuffers(){
-      alwaysInterimText = "";
-      alwaysFinalText = "";
+      alwaysInterimText   = "";
+      alwaysFinalText     = "";
       alwaysFinalBaseline = "";
+      _resetCanonicalSpeech();
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
@@ -9613,22 +9686,35 @@ function makeSeat(defn, idx){
 
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
-    function getCanonicalSpeech(event){
-      let allFinal = "";
-      let interim = "";
+    // Accumulates only NEW final results — never replays old ones
+    let _alwaysAccumFinals = "";
 
-      for(let i = 0; i < event.results.length; i++){
+    function getCanonicalSpeech(event){
+      let newFinals = "";
+      let interim   = "";
+
+      // Only process results we haven't seen yet (start from resultIndex)
+      for(let i = event.resultIndex; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          allFinal += txt + " ";
-        }else{
+          newFinals += txt + " ";
+        } else {
           interim += txt;
         }
       }
 
-      allFinal = allFinal.replace(/\s+/g, " ").trim();
-      interim = interim.replace(/\s+/g, " ").trim();
-      return { allFinal, interim };
+      newFinals = newFinals.replace(/\s+/g, " ").trim();
+      interim   = interim.replace(/\s+/g, " ").trim();
+
+      if(newFinals){
+        _alwaysAccumFinals = (_alwaysAccumFinals + " " + newFinals).replace(/\s+/g, " ").trim();
+      }
+
+      return { allFinal: _alwaysAccumFinals, interim };
+    }
+
+    function _resetCanonicalSpeech(){
+      _alwaysAccumFinals = "";
     }
 
     function subtractBaseline(allFinal){
@@ -9679,47 +9765,42 @@ function makeSeat(defn, idx){
       alwaysRec = rec;
 
       rec.onresult = async (event) => {
-        const canon = getCanonicalSpeech(event);
-        const allFinalRaw = canon.allFinal;
+        const canon      = getCanonicalSpeech(event);
+        const allFinal   = canon.allFinal;   // accumulated new finals only
         const interimRaw = canon.interim;
 
-        const allFinal = subtractBaseline(allFinalRaw);
-        const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
-        const hit = findFirstNameMention(candidateText);
+        // Detect name ONLY in interim — never in finalized text
+        // This prevents the name from ever appearing in the text box
+        const hit = findFirstNameMention(interimRaw);
 
         if(hit){
           const now = Date.now();
-          if(now - lastNameSwitchAt > 650){
+          if(now - lastNameSwitchAt > 800){
             lastNameSwitchAt = now;
 
+            // Save clean text (without name) to current target
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
-
             const targetBefore = currentAlwaysTarget();
-            if(targetBefore){
-              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
-                .replace(/\s+/g, " ")
-                .trim();
+            if(targetBefore && cleanedFinal){
+              targetBefore.value = cleanedFinal.trim();
             }
 
-            // Switch teammate and apply the same glow as clicking
+            // Switch to named teammate
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
-            alwaysFinalBaseline = allFinalRaw;
-
-            // Start writing into the new target input from its existing content
+            // Reset accumulators completely for the new target
+            _resetCanonicalSpeech();
+            alwaysFinalText   = "";
+            alwaysInterimText = "";
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
-            alwaysFinalText = "";
-            alwaysInterimText = "";
             return;
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
-        alwaysFinalText = allFinal;
+        // Normal update — accumulated finals + current interim
+        alwaysFinalText   = allFinal;
         alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
@@ -9774,6 +9855,54 @@ function makeSeat(defn, idx){
         startAlwaysListening("dm");
       }
     };
+
+
+    // ===== NAV BAR DROPDOWN JS =====
+    function saToggleDrop(dropId){
+      const allDrops=document.querySelectorAll('.saDrop');
+      const target=document.getElementById(dropId);
+      const isOpen=target&&target.classList.contains('open');
+      allDrops.forEach(d=>d.classList.remove('open'));
+      if(!isOpen&&target) target.classList.add('open');
+    }
+    document.addEventListener('click',function(e){
+      if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
+    });
+    // Wire command bar
+    (function(){
+      const cmdInput=document.getElementById('globalCommandBar');
+      const runBtn=document.getElementById('globalCommandRunBtn');
+      if(cmdInput) cmdInput.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();if(typeof runGlobalCommandBar==='function')runGlobalCommandBar();} });
+      if(runBtn) runBtn.onclick=function(){ if(typeof runGlobalCommandBar==='function')runGlobalCommandBar(); };
+    })();
+    // ===== END NAV BAR JS =====
+
+
+    // ── Suppress password manager on all app inputs ──────────────
+    (function suppressPasswordManager() {
+      const AUTH_IDS = new Set(['username','password','password2','invite_code','new_password','token','email']);
+      function applyNoAutocomplete(root) {
+        (root || document).querySelectorAll('input, textarea').forEach(function(el) {
+          if (AUTH_IDS.has(el.name) || AUTH_IDS.has(el.id)) return;
+          if (['hidden','file','checkbox','radio'].includes(el.type)) return;
+          el.setAttribute('autocomplete', 'off');
+          el.setAttribute('data-lpignore', 'true');
+          el.setAttribute('data-1p-ignore', 'true');
+          el.setAttribute('data-form-type', 'other');
+        });
+      }
+      applyNoAutocomplete(document);
+      if (window.MutationObserver) {
+        new MutationObserver(function(muts) {
+          muts.forEach(function(m) {
+            m.addedNodes.forEach(function(n) {
+              if (n.nodeType === 1) applyNoAutocomplete(n);
+            });
+          });
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+    })();
+    // ── End password manager suppression ─────────────────────────
 
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
@@ -9945,7 +10074,18 @@ async function pollImageJob(jobId, seatName){
   }
 }
 
-async function sendFollow(){
+
+    // ===== EXPAND MESSAGE MODAL =====
+    function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
+    function saCloseMsgModal(){ const m=document.getElementById('saMsgModal'); if(m)m.style.display='none'; document.body.style.overflow=''; }
+    function saCopyMsgModal(){ const b=document.getElementById('saMsgModalBody'); navigator.clipboard.writeText(b?b.innerText:'').then(()=>{}).catch(()=>{}); }
+    function saWireThreadClicks(){ const thread=document.getElementById('thread'); if(!thread)return; thread.querySelectorAll('.msg').forEach(function(msg){ if(msg._saWired)return; msg._saWired=true; msg.style.cursor='pointer'; msg.title='Click to expand'; msg.addEventListener('click',function(e){ if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return; const who=(msg.querySelector('.who')||{}).innerText||(window.selectedSeat||'Response'); saOpenMsgModal(who,msg.innerHTML); }); }); }
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
+    (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
+    setTimeout(saWireThreadClicks,500);
+    // ===== END EXPAND MODAL =====
+
+    async function sendFollow(){
       if(!selectedSeat){
         showModal("No seat selected", "Click a teammate card first.");
         return;
