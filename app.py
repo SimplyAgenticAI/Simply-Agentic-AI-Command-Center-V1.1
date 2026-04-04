@@ -47,7 +47,7 @@ except Exception:
 load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
-MODEL = os.getenv("MODEL", "gpt-5.2")
+MODEL = os.getenv("MODEL", "gpt-4.1")
 OPENAI_FALLBACK_MODELS = [m.strip() for m in (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-4.1-mini,gpt-4o-mini")).split(",") if m.strip()]
 OPENAI_MAX_RETRIES = int(os.getenv("OPENAI_MAX_RETRIES", "4"))
 OPENAI_BASE_RETRY_SECONDS = float(os.getenv("OPENAI_BASE_RETRY_SECONDS", "2.0"))
@@ -15597,7 +15597,7 @@ _CRM_SEARCH_BLOCKED_DOMAINS = {
     "facebook.com", "instagram.com", "x.com", "twitter.com", "linkedin.com", "youtube.com",
     "realtor.com", "zillow.com", "trulia.com", "redfin.com", "homes.com", "movoto.com",
     "yelp.com", "yellowpages.com", "mapquest.com", "maps.apple.com",
-    # Directories, portals, and aggregators — never contain direct business contacts
+    # Directories and aggregators — never contain direct business contacts
     "whitepages.com", "angi.com", "angieslist.com", "thumbtack.com", "houzz.com",
     "homeadvisor.com", "bbb.org", "superpages.com", "manta.com", "alignable.com",
     "indeed.com", "glassdoor.com", "ziprecruiter.com", "craigslist.org",
@@ -15957,7 +15957,6 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
                 signals["company"] = sub.get("company")
             signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
             signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
-            # Stop once we have enough contact info
             if emails and phones:
                 break
     name = signals.get("name") or hint_name or ""
@@ -16447,7 +16446,7 @@ def api_crm_lead_lab():
         final = items + verified
         warning = ""
         if not verified:
-            warning = "No verified leads were found for this search. Try broadening your niche or location."
+            warning = "No verified leads were found. Try broadening your niche or location."
         elif relaxed_fallback:
             warning = f"Found {len(verified)} leads using relaxed matching. Review carefully before outreach."
         elif len(verified) < remaining:
