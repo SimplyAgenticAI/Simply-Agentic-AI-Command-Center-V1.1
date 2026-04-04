@@ -4586,7 +4586,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 500px;
+      grid-template-columns: minmax(0, 1fr) 380px;
       align-items:start;
     }
 
@@ -4873,10 +4873,10 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 0;
+      top: 12px;
       align-self:start;
-      height: 100vh;
-      overflow: hidden;
+      height: calc(100vh - 24px);
+      overflow:auto;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
@@ -4901,185 +4901,6 @@ HTML = r"""
     .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
     .sideTitle .h1{ font-weight:800; }
     .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-
-    /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 10px 16px;
-      background: rgba(10,14,30,.95);
-      border-bottom: 1px solid rgba(42,58,106,.7);
-      flex-wrap: wrap;
-      position: sticky;
-      top: 0;
-      z-index: 900;
-      backdrop-filter: blur(12px);
-    }
-    .saNavLeft { display:flex; gap:6px; align-items:center; flex-shrink:0; }
-    .saNavCenter { flex:1; display:flex; flex-direction:column; gap:5px; min-width:240px; }
-    .saNavRight { flex-shrink:0; }
-    .saModelTag { font-size:11px; color:rgba(148,163,184,.6); white-space:nowrap; }
-
-    /* Dropdown buttons */
-    .saDropWrap { position:relative; }
-    .saNavBtn {
-      display:flex; align-items:center; gap:5px;
-      padding: 7px 14px;
-      background: rgba(14,22,48,.8);
-      border: 1px solid rgba(42,58,106,.8);
-      border-radius: 10px;
-      color: rgba(196,181,253,.9);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-      white-space: nowrap;
-    }
-    .saNavBtn:hover { background: rgba(30,40,80,.9); border-color: rgba(124,58,237,.5); }
-    .saChevron { font-size: 9px; opacity: 0.7; transition: transform 0.2s; }
-    .saNavBtn.open .saChevron { transform: rotate(180deg); }
-
-    /* Dropdown menus */
-    .saDrop {
-      display: none;
-      position: absolute;
-      top: calc(100% + 6px);
-      left: 0;
-      min-width: 200px;
-      background: rgba(10,14,30,.98);
-      border: 1px solid rgba(42,58,106,.9);
-      border-radius: 12px;
-      padding: 6px;
-      z-index: 9999;
-      box-shadow: 0 16px 48px rgba(0,0,0,.6);
-    }
-    .saDrop.open { display: block; }
-    .saDropItem {
-      display: block;
-      width: 100%;
-      text-align: left;
-      padding: 9px 12px;
-      background: transparent;
-      border: none;
-      border-radius: 8px;
-      color: rgba(226,232,240,.85);
-      font-size: 13px;
-      cursor: pointer;
-      transition: background 0.12s;
-    }
-    .saDropItem:hover { background: rgba(124,58,237,.15); color: #c4b5fd; }
-
-    /* Command bar */
-    .saCommandWrap {
-      display: flex;
-      align-items: center;
-      background: rgba(14,22,48,.8);
-      border: 1px solid rgba(80,100,180,.5);
-      border-radius: 12px;
-      padding: 0 12px;
-      gap: 8px;
-      transition: border-color 0.2s;
-    }
-    .saCommandWrap:focus-within { border-color: rgba(124,58,237,.7); }
-    .saCmdIcon { font-size:14px; color:rgba(124,58,237,.7); flex-shrink:0; }
-    .saCmdInput {
-      flex: 1;
-      background: transparent;
-      border: none;
-      outline: none;
-      color: rgba(226,232,240,.9);
-      font-size: 13px;
-      padding: 10px 0;
-      min-width: 0;
-    }
-    .saCmdInput::placeholder { color: rgba(100,116,139,.6); }
-    .saCmdBtn {
-      background: rgba(124,58,237,.3);
-      border: 1px solid rgba(124,58,237,.5);
-      color: #c4b5fd;
-      border-radius: 8px;
-      padding: 5px 14px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: background 0.15s;
-    }
-    .saCmdBtn:hover { background: rgba(124,58,237,.5); }
-    .saObjectivePill {
-      font-size: 11px;
-      color: rgba(148,163,184,.5);
-      padding: 2px 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* Message expand modal */
-    #saMsgModal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 99998;
-      background: rgba(0,0,0,.75);
-      backdrop-filter: blur(4px);
-      align-items: center;
-      justify-content: center;
-    }
-    #saMsgModal.open { display: flex; }
-    #saMsgModalBox {
-      background: rgba(10,14,30,.98);
-      border: 1px solid rgba(42,58,106,.9);
-      border-radius: 18px;
-      width: min(860px, 92vw);
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      box-shadow: 0 24px 80px rgba(0,0,0,.7);
-    }
-    #saMsgModalHeader {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 18px;
-      border-bottom: 1px solid rgba(42,58,106,.6);
-      flex-shrink: 0;
-    }
-    #saMsgModalTitle { font-weight: 700; font-size: 14px; color: #c4b5fd; }
-    #saMsgModalBody {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 24px;
-      font-size: 15px;
-      line-height: 1.7;
-      white-space: pre-wrap;
-      color: #e2e8f0;
-    }
-    #saMsgModalFooter {
-      display: flex;
-      gap: 8px;
-      padding: 12px 18px;
-      border-top: 1px solid rgba(42,58,106,.6);
-      flex-shrink: 0;
-    }
-    .saMsgModalBtn {
-      padding: 6px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      cursor: pointer;
-      border: 1px solid rgba(42,58,106,.8);
-      background: transparent;
-      color: rgba(226,232,240,.7);
-    }
-    .saMsgModalBtn:hover { background: rgba(30,40,80,.6); }
-    .saMsgModalBtn.primary { background: rgba(124,58,237,.3); border-color: rgba(124,58,237,.5); color: #c4b5fd; }
-
-    /* Hide old commandRow/commandHeader — they're replaced */
-    .commandHeader, .commandRow { display: none !important; }
-    /* ===== END NAV BAR CSS ===== */
 
     .thread{
       height: 40vh;
@@ -6122,76 +5943,37 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div id="modelTag">Model: {{model}}</div>
       </div>
     </div>
-    <!-- ===== REDESIGNED NAV BAR ===== -->
-    <div class="saNavBar" id="saNavBar">
-
-      <!-- Left: 3 dropdown groups -->
-      <div class="saNavLeft">
-
-        <!-- Team dropdown -->
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saTeamDropBtn" onclick="saToggleDrop('saTeamDrop')">
-            <span>Team</span><span class="saChevron">▾</span>
-          </button>
-          <div class="saDrop" id="saTeamDrop">
-            <button class="saDropItem" id="frameworkBtn">Core framework</button>
-            <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
-            <button class="saDropItem" id="createTeamBtn">Create teammate</button>
-            <button class="saDropItem" id="installFullBtn">Install full team</button>
-            <button class="saDropItem" id="onboardingBtn">Onboarding checklist</button>
-            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
-          </div>
-        </div>
-
-        <!-- Tools dropdown -->
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saToolsDropBtn" onclick="saToggleDrop('saToolsDrop')">
-            <span>Tools</span><span class="saChevron">▾</span>
-          </button>
-          <div class="saDrop" id="saToolsDrop">
-            <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
-            <button class="saDropItem" id="crmBtn">CRM</button>
-            <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
-            <button class="saDropItem" id="socialStudioBtn">Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn">Offer Builder</button>
-            <button class="saDropItem" id="imageLibBtn">Image Library</button>
-            <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
-            <button class="saDropItem" id="calendarBtn">Calendar</button>
-          </div>
-        </div>
-
-        <!-- Settings dropdown -->
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
-            <span>Settings</span><span class="saChevron">▾</span>
-          </button>
-          <div class="saDrop" id="saSettingsDrop">
-            <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
-            <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
-            <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
-          </div>
-        </div>
-
+    <div class="commandHeader">
+      <div class="commandRow primary">
+        <button class="btn" id="frameworkBtn">Core framework</button>
+        <button class="btn" id="manageTeamBtn">Add or dismiss teammates</button>
+        <button class="btn" id="createTeamBtn">Create teammate</button>
+        <button class="btn" id="installFullBtn">Install full team</button>
+        <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="operatorProfileBtn">Operator Profile</button>
+        <button class="btn" id="calendarBtn">Calendar</button>
+        <button class="btn" id="crmBtn">CRM</button>
+        <button class="btn" id="growthPlaybookBtn">Growth Playbook</button>
+        <button class="btn" id="leadLabBtn">Lead Lab</button>
+        <button class="btn" id="socialStudioBtn">Social Studio</button>
+        <button class="btn" id="offerBuilderBtn">Offer Builder</button>
       </div>
-
-      <!-- Center: Command bar -->
-      <div class="saNavCenter">
-        <div class="saCommandWrap">
-          <span class="saCmdIcon">⌘</span>
-          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" />
-          <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
-        </div>
-        <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
+      <div class="commandRow secondary">
+        <button class="btn" id="imageLibBtn">Image Library</button>
+        <button class="btn" id="emailConsoleBtn">Email Console</button>
+        <button class="btn" id="onboardingBtn" title="Guided onboarding checklist">Next step</button>
+        <button class="btn" id="sessionObjectiveBtn" title="Set the current session objective">Session objective</button>
+        <button class="btn" id="openApiKeyHelpBtn" title="How to get and set your OpenAI API key">Get your OpenAI key</button>
+        <a class="btn" href="/logout" style="text-decoration:none;">Logout</a>
       </div>
-
-      <!-- Right: model tag -->
-      <div class="saNavRight">
-        <div class="saModelTag" id="modelTag">Model: {{model}}</div>
-      </div>
-
     </div>
-    <!-- ===== END REDESIGNED NAV BAR ===== -->
+    <div class="commandHeader" id="osCommandBarWrap" style="margin-top:10px;">
+      <div class="commandRow secondary" style="grid-template-columns:minmax(220px,1fr) auto auto; max-width:none;">
+        <input id="globalCommandBar" class="field" placeholder="Command bar. Try: get me 20 NJ realtors and write the first outreach" style="min-height:46px;" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
+        <button class="btn" id="globalCommandRunBtn">Run command</button>
+        <div class="pill" id="sessionObjectivePill" title="Current session objective">No session objective</div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
@@ -6262,7 +6044,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid" style="margin-top:10px;">
     <div>
       <label>Stack name</label>
-      <input id="stackName" placeholder="e.g. Welcome Sequence" />
+      <input id="stackName" placeholder="e.g. Welcome Sequence" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     </div>
     <div>
       <label>Saved stacks</label>
@@ -6318,11 +6100,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="grid">
                   <div>
                     <label>Job Title</label>
-                    <input id="editJobTitle" placeholder="Job title"/>
+                    <input id="editJobTitle" placeholder="Job title" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
                   </div>
                   <div>
                     <label>Version</label>
-                    <input id="editVersion" placeholder="v1.0"/>
+                    <input id="editVersion" placeholder="v1.0" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
                   </div>
                 </div>
 
@@ -6398,18 +6180,18 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="grid">
                   <div>
                     <label>Name</label>
-                    <input id="newName" placeholder="Teammate name"/>
+                    <input id="newName" placeholder="Teammate name" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
                   </div>
                   <div>
                     <label>Version</label>
-                    <input id="newVersion" placeholder="v1.0" value="v1.0"/>
+                    <input id="newVersion" placeholder="v1.0" value="v1.0" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
                   </div>
                 </div>
 
                 <div style="height:10px"></div>
 
                 <label>Job Title</label>
-                <input id="newJobTitle" placeholder="Job title"/>
+                <input id="newJobTitle" placeholder="Job title" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
 
                 <div style="height:10px"></div>
 
@@ -6493,19 +6275,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                 <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
 
                 <label>SMTP Host</label>
-                <input id="smtpHost" placeholder="smtp.gmail.com" />
+                <input id="smtpHost" placeholder="smtp.gmail.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
 
                 <label>SMTP Port</label>
                 <input id="smtpPort" type="number" placeholder="587" />
 
                 <label>SMTP Username (from address)</label>
-                <input id="smtpUser" placeholder="you@example.com" />
+                <input id="smtpUser" placeholder="you@example.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
 
                 <label>SMTP Password (app password recommended)</label>
                 <input id="smtpPass" type="password" placeholder="••••••••" />
 
                 <label>From Name</label>
-                <input id="smtpFromName" placeholder="Your Name" />
+                <input id="smtpFromName" placeholder="Your Name" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
 
 
                 <details style="margin-top:12px;">
@@ -6515,13 +6297,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
                   </div>
 
                   <label>Twilio Account SID</label>
-                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
 
                   <label>Twilio Auth Token</label>
                   <input id="twilioToken" type="password" placeholder="••••••••" />
 
                   <label>Twilio From Number</label>
-                  <input id="twilioFrom" placeholder="+15551234567" />
+                  <input id="twilioFrom" placeholder="+15551234567" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
 
                   <div class="actions" style="justify-content:flex-start; gap:8px;">
                     <button class="btn btnMini" id="twilioLoadBtn">Load</button>
@@ -6545,10 +6327,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div style="height:10px"></div>
   <div class="row2">
     <input class="field" id="emailFrom" placeholder="From" readonly/>
-    <input class="field" id="emailTo" placeholder="To: name@email.com"/>
+    <input class="field" id="emailTo" placeholder="To: name@email.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
   </div>
   <div style="height:10px"></div>
-  <input class="field" id="emailSubject" placeholder="Subject"/>
+  <input class="field" id="emailSubject" placeholder="Subject" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
   <div style="height:10px"></div>
   <textarea class="field" id="emailBody" style="height:280px" placeholder="Email body"></textarea>
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
@@ -6562,7 +6344,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts a text message, fields auto fill here. You approve before sending.</div>
   <div class="row2">
     <input class="field" id="smsFrom" placeholder="From" readonly/>
-    <input class="field" id="smsTo" placeholder="To: +1..."/>
+    <input class="field" id="smsTo" placeholder="To: +1..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other"/>
   </div>
   <div style="height:10px"></div>
   <textarea class="field" id="smsBody" style="height:220px" placeholder="Text message body"></textarea>
@@ -6616,7 +6398,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 <div class="modalForm" id="sessionObjectiveForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">Set the current session objective so the whole system can align around one goal.</div>
   <label>Objective</label>
-  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
+  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
   <label style="margin-top:10px;">Context</label>
   <textarea id="sessionObjectiveContext" rows="5" placeholder="What matters most right now, constraints, and what success looks like."></textarea>
   <div class="actions">
@@ -6631,11 +6413,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div class="grid">
     <div>
       <label>Display name</label>
-      <input id="opm_display_name" placeholder="Operator" />
+      <input id="opm_display_name" placeholder="Operator" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     </div>
     <div>
       <label>Audience</label>
-      <input id="opm_audience" placeholder="Who you serve" />
+      <input id="opm_audience" placeholder="Who you serve" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     </div>
   </div>
   <label style="margin-top:10px;">Business</label>
@@ -6674,7 +6456,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid">
       <div>
         <label>Search</label>
-        <input id="crmSearch" placeholder="Name, email, tag..." />
+        <input id="crmSearch" placeholder="Name, email, tag..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
       <div>
         <label>Filter</label>
@@ -6711,17 +6493,17 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid">
         <div>
           <label>Name</label>
-          <input id="crmName" />
+          <input id="crmName" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
         <div>
           <label>Email</label>
-          <input id="crmEmail" />
+          <input id="crmEmail" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
       </div>
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Phone</label>
-          <input id="crmPhone" placeholder="+15551234567" />
+          <input id="crmPhone" placeholder="+15551234567" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
         <div>
           <label>Status</label>
@@ -6737,11 +6519,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Pipeline stage</label>
-          <input id="crmStage" placeholder="Lead" />
+          <input id="crmStage" placeholder="Lead" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
         <div>
           <label>Tags (comma separated)</label>
-          <input id="crmTags" placeholder="realtor, vip" />
+          <input id="crmTags" placeholder="realtor, vip" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
       </div>
       <div style="margin-top:10px;">
@@ -6785,13 +6567,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div>
         <label>Value</label>
-        <input id="crmAudienceValue" placeholder="e.g. realtor" />
+        <input id="crmAudienceValue" placeholder="e.g. realtor" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
     </div>
 
     <div style="margin-top:10px;">
       <label>Subject</label>
-      <input id="crmEmailSubject" placeholder="Quick update" />
+      <input id="crmEmailSubject" placeholder="Quick update" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       <label style="margin-top:10px;">Message</label>
       <textarea id="crmEmailBody" style="height:180px" placeholder="Hey {first_name},\n\n..."></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Tip: You can use {name} in the body for personalization.</div>
@@ -6825,7 +6607,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
     <div>
       <label>Value (tag/stage/status or comma IDs)</label>
-      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" />
+      <input id="crmSmsAudienceValue" placeholder="vip, Lead, status, or client_123, client_456" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     </div>
   </div>
 
@@ -6851,7 +6633,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="crmTaskEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" id="crmTaskTitle" style="margin-bottom:8px;">Task</div>
       <label>Title</label>
-      <input id="crmTaskText" placeholder="Follow up with..." />
+      <input id="crmTaskText" placeholder="Follow up with..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       <div class="grid" style="margin-top:10px;">
         <div>
           <label>Due date</label>
@@ -6868,7 +6650,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
       <div style="margin-top:10px;">
         <label>Client ID (optional)</label>
-        <input id="crmTaskClientId" placeholder="client_..." />
+        <input id="crmTaskClientId" placeholder="client_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelTask">Cancel</button>
@@ -6892,7 +6674,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div id="crmSeqEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
       <div class="tiny" style="margin-bottom:8px;">Create sequence</div>
       <label>Name</label>
-      <input id="crmSeqName" placeholder="Monthly Value Drop" />
+      <input id="crmSeqName" placeholder="Monthly Value Drop" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       <label style="margin-top:10px;">Steps (JSON array)</label>
       <textarea id="crmSeqSteps" style="height:180px" placeholder='[{"after_days":0,"channel":"email","subject":"Welcome","body":"Hi {name}..."}]'></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Each step: after_days, channel=email, subject, body. (This UI is minimal but fully operational.)</div>
@@ -6908,11 +6690,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       <div class="grid">
         <div>
           <label>Client ID</label>
-          <input id="crmEnrollClient" placeholder="client_..." />
+          <input id="crmEnrollClient" placeholder="client_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
         <div>
           <label>Sequence ID</label>
-          <input id="crmEnrollSeq" placeholder="seq_..." />
+          <input id="crmEnrollSeq" placeholder="seq_..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
         </div>
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -6926,7 +6708,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div id="crmViewCalendar" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Create a calendar event (uses your Google Calendar connection if enabled).</div>
     <label>Title</label>
-    <input id="crmCalTitle" placeholder="Client check-in" />
+    <input id="crmCalTitle" placeholder="Client check-in" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     <div class="grid" style="margin-top:10px;">
       <div>
         <label>Start</label>
@@ -6951,11 +6733,11 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid">
       <div>
         <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" />
+        <input id="leadLabNiche" placeholder="real estate agents" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
       <div>
         <label>Location</label>
-        <input id="leadLabLocation" placeholder="New Jersey" />
+        <input id="leadLabLocation" placeholder="New Jersey" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
       <div>
         <label>Lead count</label>
@@ -6978,7 +6760,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     <div class="grid" style="margin-top:10px;">
       <div>
         <label>Specific areas</label>
-        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
+        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
       </div>
       <div>
         <label>Contact filter</label>
@@ -7037,7 +6819,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
       </div>
     </div>
     <label style="margin-top:10px;">Audience</label>
-    <input id="socialStudioAudience" placeholder="solo real estate agents" />
+    <input id="socialStudioAudience" placeholder="solo real estate agents" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     <label style="margin-top:10px;">Offer / angle</label>
     <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -7051,9 +6833,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   <div id="crmViewOfferBuilder" style="display:none;">
     <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
     <label>Who do you help?</label>
-    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
+    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     <label style="margin-top:10px;">What result do you help them get?</label>
-    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
+    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
     <label style="margin-top:10px;">How do you deliver it?</label>
     <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -7130,7 +6912,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
           <div class="tiny" style="margin-bottom:8px;">Add task</div>
           <label>Title</label>
-          <input id="calTaskTitle" placeholder="Follow up with..." />
+          <input id="calTaskTitle" placeholder="Follow up with..." autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
           <div class="grid" style="margin-top:10px;">
             <div>
               <label>Time</label>
@@ -7148,7 +6930,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
         <div style="border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
           <div class="tiny" style="margin-bottom:8px;">Schedule call</div>
           <label>Title</label>
-          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" />
+          <input id="calCallTitle" placeholder="Strategy call" value="Strategy call" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" />
           <div class="grid" style="margin-top:10px;">
             <div>
               <label>Start</label>
@@ -7249,65 +7031,48 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     </div>
 
     <div class="side">
-      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;">
-
-        <!-- Header — always visible -->
-        <div class="sideHead" style="flex-shrink:0;">
+      <div class="sideCard">
+        <div class="sideHead">
           <div class="sideTitle">
             <div class="h1" id="seatTitle">Select a seat</div>
             <div class="h2" id="seatSub">Click any teammate around the table for individual chat.</div>
+            <div class="modalResizeGrip" id="modalResizeGrip" aria-label="Resize window" title="Resize window"></div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
 
-        <!-- Pass row — always visible -->
-        <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">🔍 Risk</button>
-          <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability Ranking">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Failure Simulator">💥 Failure</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraint Scan">🧩 Constraints</button>
-          <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimization Pass">⚡ Optimize</button>
+        <div class="passRow" id="seatPassRow" style="margin: 10px 0 0 0;">
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Run Risk Assessment on the most recent assistant output in this seat">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatScale" title="Run Scalability Ranking on the most recent assistant output in this seat">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Run Failure Simulator on the most recent assistant output in this seat">💥 Failure</button>          <button class="btn btnMini passBtn" id="passSeatConstr" title="Run Constraint Scan on the most recent assistant output in this seat">🧩 Constraints</button>
+          <button class="btn btnMini passBtn" id="passSeatOpt" title="Run Optimization Pass on the most recent assistant output in this seat">⚡ Optimize</button>
+          <div class="tiny" style="opacity:.9;">Runs on the latest assistant reply in this seat.</div>
         </div>
 
-        <!-- Thread — fills all available space, scrollable -->
-        <div class="thread" id="thread" style="flex:1;height:auto;min-height:100px;overflow-y:auto;cursor:pointer;" title="Click any message to expand it" ondblclick="saExpandLastMessage()"></div>
+        <div class="thread" id="thread"></div>
 
-        <!-- STICKY BOTTOM INPUT — never requires scrolling -->
-        <div class="saInputArea" style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
-          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;"></textarea>
-          <div class="pillRow" style="margin-top:6px;">
-            <input type="file" id="dmFiles" multiple style="display:none" />
-            <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
-            <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
-            <button class="btn btnMini" id="alwaysListenDmBtn">👂 Listen</button>
-            <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
-          </div>
-          <div id="dmAttachList" class="pillRow"></div>
-          <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
+        <div style="height:10px"></div>
+        <textarea class="followBox" id="followMsg" placeholder="Send an individual message to the selected teammate..."></textarea>
+
+        <div class="pillRow">
+          <input type="file" id="dmFiles" multiple style="display:none" />
+          <button class="btn btnMini" id="pickDmFiles">Upload files</button>
+          <button class="btn btnMini" id="screenDmBtn">Share screen</button>
+          <button class="btn btnMini" id="talkDmBtn">Talk</button>
+          <!-- CHANGE: Always Listening toggle (DM) -->
+          <button class="btn btnMini" id="alwaysListenDmBtn">Always listen</button>
+          <button class="btn btnPrimary" id="sendFollow">Send to selected</button>
         </div>
+        <div id="dmAttachList" class="pillRow"></div>
 
+        <div class="tiny" style="margin-top:8px;">
+          Tip: Share screen captures a screenshot and attaches it to your next message.
+        </div>
+        <div class="tiny" id="micStatusDm" style="margin-top:8px;">Mic: idle</div>
       </div>
 
     </div>
 
-
-  <!-- Message Expand Modal -->
-  <div id="saMsgModal" onclick="if(event.target===this)saCloseMsgModal()">
-    <div id="saMsgModalBox">
-      <div id="saMsgModalHeader">
-        <span id="saMsgModalTitle">Response</span>
-        <div style="display:flex;gap:8px;">
-          <button class="saMsgModalBtn primary" id="saMsgModalCopyBtn" onclick="saCopyMsgModal()">Copy</button>
-          <button class="saMsgModalBtn" onclick="saCloseMsgModal()">✕ Close</button>
-        </div>
-      </div>
-      <div id="saMsgModalBody"></div>
-      <div id="saMsgModalFooter">
-        <span style="font-size:12px;color:rgba(148,163,184,.4);">Press Esc to close · Click outside to close</span>
-      </div>
-    </div>
-  </div>
 
   <!-- Fullscreen image viewer (additive) -->
   <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
@@ -9737,7 +9502,8 @@ function makeSeat(defn, idx){
     function removeNameOnce(text, name){
       if(!text || !name) return text;
       const nl = name.toLowerCase();
-      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      // Remove ALL occurrences (global flag) to prevent name buildup
+      const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
       return text.replace(rx, "").replace(/\s+/g, " ").trim();
     }
 
@@ -9749,9 +9515,10 @@ function makeSeat(defn, idx){
     }
 
     function resetAlwaysBuffers(){
-      alwaysInterimText = "";
-      alwaysFinalText = "";
+      alwaysInterimText   = "";
+      alwaysFinalText     = "";
       alwaysFinalBaseline = "";
+      _resetCanonicalSpeech();
       const t = currentAlwaysTarget();
       alwaysBaseText = (t && t.value ? t.value : "").trim();
     }
@@ -9779,22 +9546,36 @@ function makeSeat(defn, idx){
 
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
-    function getCanonicalSpeech(event){
-      let allFinal = "";
-      let interim = "";
+    // Accumulates only NEW final results since last reset
+    let _alwaysAccumFinals = "";
 
-      for(let i = 0; i < event.results.length; i++){
+    function getCanonicalSpeech(event){
+      let newFinals = "";
+      let interim   = "";
+
+      // Only process results we haven't seen yet
+      for(let i = event.resultIndex; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          allFinal += txt + " ";
-        }else{
+          newFinals += txt + " ";
+        } else {
           interim += txt;
         }
       }
 
-      allFinal = allFinal.replace(/\s+/g, " ").trim();
-      interim = interim.replace(/\s+/g, " ").trim();
-      return { allFinal, interim };
+      newFinals = newFinals.replace(/\s+/g, " ").trim();
+      interim   = interim.replace(/\s+/g, " ").trim();
+
+      // Accumulate finals (never replay old ones)
+      if(newFinals){
+        _alwaysAccumFinals = (_alwaysAccumFinals + " " + newFinals).replace(/\s+/g, " ").trim();
+      }
+
+      return { allFinal: _alwaysAccumFinals, interim };
+    }
+
+    function _resetCanonicalSpeech(){
+      _alwaysAccumFinals = "";
     }
 
     function subtractBaseline(allFinal){
@@ -9845,47 +9626,42 @@ function makeSeat(defn, idx){
       alwaysRec = rec;
 
       rec.onresult = async (event) => {
-        const canon = getCanonicalSpeech(event);
-        const allFinalRaw = canon.allFinal;
+        const canon      = getCanonicalSpeech(event);
+        const allFinal   = canon.allFinal;   // accumulated new finals only
         const interimRaw = canon.interim;
 
-        const allFinal = subtractBaseline(allFinalRaw);
-        const candidateText = (allFinal + " " + interimRaw).replace(/\s+/g, " ").trim();
-        const hit = findFirstNameMention(candidateText);
+        // ── Name detection: ONLY look at interim speech, not finalized text ──
+        // This prevents the name from ever landing in the text box.
+        const hit = findFirstNameMention(interimRaw);
 
         if(hit){
           const now = Date.now();
-          if(now - lastNameSwitchAt > 650){
+          if(now - lastNameSwitchAt > 800){
             lastNameSwitchAt = now;
 
+            // Save whatever clean text we already have (without the name)
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const cleanedInterim = removeNameOnce(interimRaw, hit.name);
-
             const targetBefore = currentAlwaysTarget();
-            if(targetBefore){
-              targetBefore.value = (alwaysBaseText + " " + cleanedFinal + " " + cleanedInterim)
-                .replace(/\s+/g, " ")
-                .trim();
+            if(targetBefore && cleanedFinal){
+              targetBefore.value = cleanedFinal.trim();
             }
 
-            // Switch teammate and apply the same glow as clicking
+            // Switch to named teammate
             await selectSeat(hit.name);
             forceSeatSelectUI(hit.name);
 
-            // Baseline the recognizer history so we do not replay old finals after switching
-            alwaysFinalBaseline = allFinalRaw;
-
-            // Start writing into the new target input from its existing content
+            // Reset accumulators for the new target
+            _resetCanonicalSpeech();
+            alwaysFinalText   = "";
+            alwaysInterimText = "";
             const t2 = currentAlwaysTarget();
             alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
-            alwaysFinalText = "";
-            alwaysInterimText = "";
             return;
           }
         }
 
-        // UPDATE: no appending. AlwaysFinalText mirrors the canonical final transcript.
-        alwaysFinalText = allFinal;
+        // Normal update: show accumulated finals + current interim
+        alwaysFinalText   = allFinal;
         alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
@@ -9942,133 +9718,35 @@ function makeSeat(defn, idx){
     };
 
 
-    // ===== SIMPLY AGENTIC NAV BAR + UI IMPROVEMENTS =====
-
-    // ── Dropdown toggle ──────────────────────────────────────
-    function saToggleDrop(dropId) {
-      const allDrops = document.querySelectorAll('.saDrop');
-      const allBtns  = document.querySelectorAll('.saNavBtn');
-      const target   = document.getElementById(dropId);
-      const isOpen   = target && target.classList.contains('open');
-
-      // Close all first
-      allDrops.forEach(d => d.classList.remove('open'));
-      allBtns.forEach(b  => b.classList.remove('open'));
-
-      if (!isOpen && target) {
-        target.classList.add('open');
-        // Mark the parent button open
-        const btn = target.previousElementSibling;
-        if (btn) btn.classList.add('open');
-      }
-    }
-
-    // Close dropdowns when clicking outside
-    document.addEventListener('click', function(e) {
-      if (!e.target.closest('.saDropWrap')) {
-        document.querySelectorAll('.saDrop').forEach(d => d.classList.remove('open'));
-        document.querySelectorAll('.saNavBtn').forEach(b => b.classList.remove('open'));
-      }
-    });
-
-    // ── Message expand modal ─────────────────────────────────
-    function saOpenMsgModal(title, html) {
-      const modal = document.getElementById('saMsgModal');
-      const body  = document.getElementById('saMsgModalBody');
-      const t     = document.getElementById('saMsgModalTitle');
-      if (!modal || !body) return;
-      if (t) t.innerText = title || 'Response';
-      body.innerHTML = html || '';
-      modal.classList.add('open');
-      document.body.style.overflow = 'hidden';
-    }
-
-    function saCloseMsgModal() {
-      const modal = document.getElementById('saMsgModal');
-      if (modal) modal.classList.remove('open');
-      document.body.style.overflow = '';
-    }
-
-    function saCopyMsgModal() {
-      const body = document.getElementById('saMsgModalBody');
-      const text = body ? (body.innerText || '') : '';
-      const btn  = document.getElementById('saMsgModalCopyBtn');
-      navigator.clipboard.writeText(text).then(() => {
-        if (btn) { btn.innerText = 'Copied!'; setTimeout(() => { btn.innerText = 'Copy'; }, 1500); }
-      }).catch(() => {
-        if (btn) { btn.innerText = 'Failed'; setTimeout(() => { btn.innerText = 'Copy'; }, 1500); }
-      });
-    }
-
-    function saExpandLastMessage() {
-      const thread = document.getElementById('thread');
-      if (!thread) return;
-      // Find last assistant message
-      const msgs = thread.querySelectorAll('.msg.assistant, .msg');
-      const last  = msgs[msgs.length - 1];
-      if (last) {
-        const who = (last.querySelector('.who') || {}).innerText || (window.selectedSeat || 'Response');
-        saOpenMsgModal(who, last.innerHTML);
-      }
-    }
-
-    // Make every message bubble in the thread clickable to expand
-    function saWireThreadClicks() {
-      const thread = document.getElementById('thread');
-      if (!thread) return;
-      thread.querySelectorAll('.msg.assistant, .msg').forEach(function(msg) {
-        if (msg._saWired) return;
-        msg._saWired = true;
-        msg.style.cursor = 'pointer';
-        msg.title = 'Click to expand';
-        msg.addEventListener('click', function(e) {
-          if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' || e.target.tagName === 'IMG') return;
-          const who = (msg.querySelector('.who') || {}).innerText || (window.selectedSeat || 'Response');
-          saOpenMsgModal(who, msg.innerHTML);
-        });
-      });
-    }
-
-    // Escape key closes modal
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') saCloseMsgModal();
-    });
-
-    // Re-wire clicks whenever thread renders (hook into renderThread)
-    (function() {
-      const orig = window.renderThread;
-      if (typeof orig === 'function') {
-        window.renderThread = function() {
-          orig.apply(this, arguments);
-          setTimeout(saWireThreadClicks, 50);
-        };
-      }
-      // Also observe DOM changes in thread
-      const thread = document.getElementById('thread');
-      if (thread && window.MutationObserver) {
-        new MutationObserver(saWireThreadClicks).observe(thread, { childList: true, subtree: true });
-      }
-    })();
-
-    // ── Wire new command bar to existing function ────────────
-    (function() {
-      const cmdInput = document.getElementById('globalCommandBar');
-      const runBtn   = document.getElementById('globalCommandRunBtn');
-      if (cmdInput) {
-        cmdInput.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') { e.preventDefault(); if (typeof runGlobalCommandBar === 'function') runGlobalCommandBar(); }
+    // ── Suppress password manager on all app inputs (not login/register forms) ──
+    (function suppressPasswordManager() {
+      const AUTH_IDS = new Set(['username','password','password2','invite_code','new_password','token','email']);
+      function applyNoAutocomplete(root) {
+        (root || document).querySelectorAll('input, textarea').forEach(function(el) {
+          if (AUTH_IDS.has(el.name) || AUTH_IDS.has(el.id)) return;
+          if (el.type === 'hidden' || el.type === 'file' || el.type === 'checkbox' || el.type === 'radio') return;
+          if (el.getAttribute('autocomplete') === 'off') return;
+          // Only suppress if not already a legit autocomplete field
+          el.setAttribute('autocomplete', 'off');
+          el.setAttribute('data-lpignore', 'true');
+          el.setAttribute('data-1p-ignore', 'true');
+          el.setAttribute('data-form-type', 'other');
         });
       }
-      if (runBtn) {
-        runBtn.onclick = function() { if (typeof runGlobalCommandBar === 'function') runGlobalCommandBar(); };
+      // Run on load
+      applyNoAutocomplete(document);
+      // Run when modals open (DOM changes)
+      if (window.MutationObserver) {
+        new MutationObserver(function(muts) {
+          muts.forEach(function(m) {
+            m.addedNodes.forEach(function(n) {
+              if (n.nodeType === 1) applyNoAutocomplete(n);
+            });
+          });
+        }).observe(document.body, { childList: true, subtree: true });
       }
     })();
-
-    // Initial wire on load
-    setTimeout(saWireThreadClicks, 500);
-
-    // ===== END NAV BAR + UI IMPROVEMENTS =====
-
+    // ── End password manager suppression ──
 
     async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
