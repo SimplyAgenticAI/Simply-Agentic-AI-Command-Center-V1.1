@@ -373,6 +373,9 @@ def _load_or_create_secret() -> str:
 app.secret_key = os.getenv("APP_SECRET", "") or _load_or_create_secret()
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Set Secure cookie flag when running behind HTTPS (detected via PUBLIC_BASE_URL)
+app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE_URL.startswith("https://")
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
@@ -876,10 +879,12 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     defn = (reg.get("installed") or {}).get(teammate)
     if not defn:
         return ""
-    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
+    # lighting_mode is not available in this context — use False (safe default)
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=False)
     msg2, _, vision_images = build_prompt_with_attachments(prompt, file_ids)
     user_content = _build_user_content(msg2, vision_images)
-    return call_llm(sys, [{"role": "user", "content": user_content}], temperature=0.65)
+    preferred_model = (defn.get("preferred_model") or "").strip() or None
+    return call_llm(sys_prompt, [{"role": "user", "content": user_content}], temperature=0.65, model=preferred_model)
 
 def _init_run(u: str, teammate: str, stack_name: str, steps: List[Dict[str, Any]], user_input: str) -> Dict[str, Any]:
     run_id = uuid.uuid4().hex
@@ -1379,7 +1384,7 @@ def _normalize_lines_to_list(val: Any) -> List[str]:
 
 
 def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
-    allowed_str_fields = ["job_title", "version", "mission", "thinking_style", "goal"]
+    allowed_str_fields = ["job_title", "version", "mission", "thinking_style", "goal", "preferred_model", "tts_voice"]
     allowed_list_fields = ["responsibilities", "will_not_do"]
 
     updated: Dict[str, Any] = {}
@@ -2086,7 +2091,8 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
 # PROMPTS + LLM
 # =========================
 
-def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) -> str:
+def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
+                           rag_context: str = "") -> str:
     role_block = {
         "name": defn.get("name", ""),
         "job_title": defn.get("job_title", ""),
@@ -2148,6 +2154,26 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
     except Exception:
         client_block = ""
 
+    # Shared team memory — facts extracted from recent group convenes
+    shared_memory_block = ""
+    try:
+        osd = _os_load(_op_user or "anon")
+        smem = osd.get("shared_team_memory") or {}
+        facts = smem.get("facts") or []
+        decisions = smem.get("decisions") or []
+        open_loops = smem.get("open_loops") or []
+        if facts or decisions or open_loops:
+            lines = ["\n\nSHARED TEAM MEMORY (extracted from recent group sessions — treat as established context)"]
+            if facts:
+                lines.append("Key facts: " + " | ".join(str(f) for f in facts[:8]))
+            if decisions:
+                lines.append("Decisions made: " + " | ".join(str(d) for d in decisions[:6]))
+            if open_loops:
+                lines.append("Open loops: " + " | ".join(str(o) for o in open_loops[:6]))
+            shared_memory_block = "\n".join(lines) + "\n"
+    except Exception:
+        shared_memory_block = ""
+
     framework = load_core_framework()
 
     lighting_block = ""
@@ -2169,7 +2195,9 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False) ->
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
-        f"{client_block}\n\n"
+        f"{client_block}"
+        f"{shared_memory_block}\n"
+        f"{rag_context}"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
 
@@ -2204,8 +2232,9 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         return 429, "Rate limit hit. Try again in a moment."
     return 500, "AI request failed. Check server logs for details."
 
-def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6) -> str:
-    """Robust OpenAI call with 45s timeout and image-content fallback."""
+def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
+    """Robust OpenAI call with 45s timeout and image-content fallback.
+    Pass model= to override the global MODEL for per-teammate routing."""
     def _text_only(msgs):
         out = []
         for m in msgs:
@@ -2215,12 +2244,13 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 c = " ".join(parts).strip()
             out.append({"role": m.get("role", "user"), "content": str(c)})
         return out
+    use_model = (model or "").strip() or MODEL
     client = get_openai_client()
     timeout = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
     sys_msg = [{"role": "system", "content": system}]
     try:
         resp = client.chat.completions.create(
-            model=MODEL,
+            model=use_model,
             messages=sys_msg + messages,
             temperature=temperature,
             timeout=timeout,
@@ -2231,7 +2261,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
         if any(x in err for x in ["image", "vision", "invalid_image", "content"]):
             try:
                 resp2 = client.chat.completions.create(
-                    model=MODEL,
+                    model=use_model,
                     messages=sys_msg + _text_only(messages),
                     temperature=temperature,
                     timeout=timeout,
@@ -2916,6 +2946,8 @@ def api_get_teammate(name: str):
             "thinking_style": t.get("thinking_style", ""),
             "will_not_do": t.get("will_not_do", []),
             "goal": t.get("goal", ""),
+            "preferred_model": t.get("preferred_model", ""),
+            "tts_voice": t.get("tts_voice", "alloy"),
         }
     })
 
@@ -3191,6 +3223,13 @@ def _api_convene_impl(data):
         "email_drafts": email_drafts,
     })
 
+    # Extract shared team memory from this round's outputs (non-blocking background thread)
+    try:
+        uname_for_mem = _get_session_username()
+        _extract_shared_memory_async(uname_for_mem, prompt, outputs)
+    except Exception:
+        pass
+
     return jsonify({
         "ok": True,
         "mode": "execute",
@@ -3236,7 +3275,6 @@ def _api_followup_impl(data):
     user_content = _build_user_content(msg2, vision_images)
 
     defn = installed[name]
-    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
     thread = load_thread(name)
     thread = thread[-14:] if len(thread) > 14 else thread
@@ -3247,6 +3285,16 @@ def _api_followup_impl(data):
         uname = _get_session_username()
     except Exception:
         uname = "anon"
+
+    # RAG: retrieve relevant chunks from indexed knowledge base (non-blocking, safe)
+    rag_context = ""
+    try:
+        rag_context = _rag_retrieve(uname, msg, top_k=4)
+    except Exception:
+        rag_context = ""
+
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
+
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
@@ -3277,7 +3325,22 @@ def _api_followup_impl(data):
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    text = call_llm(sys, msgs, temperature=0.65)
+    preferred_model = (defn.get("preferred_model") or "").strip() or None
+    _pm = preferred_model or MODEL
+    _tool_log: List[Dict[str, Any]] = []
+
+    # Tool calling: skip for o1/o3 series (they don't support the tools param)
+    _supports_tools = not any(_pm.startswith(p) for p in ("o1", "o3", "o4"))
+    if _supports_tools:
+        try:
+            text, _tool_log = call_llm_with_tools(
+                sys, msgs, temperature=0.65, model=preferred_model,
+                username=uname, u=current_user() or {}
+            )
+        except Exception:
+            text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
+    else:
+        text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread)
@@ -3292,9 +3355,9 @@ def _api_followup_impl(data):
         "vision_images_count": len(vision_images),
         "framework_length": len(load_core_framework()),
         "response": text,
-        "email_draft": draft
+        "email_draft": draft,
+        "tool_calls": _tool_log,
     })
-
 
     # Task log (append-only)
     append_task_log(
@@ -3306,6 +3369,7 @@ def _api_followup_impl(data):
             "attachment_meta": attach_meta,
             "vision_images_count": len(vision_images),
             "email_draft": draft,
+            "tool_calls_count": len(_tool_log),
             "response_preview": (text[:800] + ("..." if len(text) > 800 else "")),
         },
         teammate=name,
@@ -3318,9 +3382,8 @@ def _api_followup_impl(data):
     except Exception:
         pass
 
-
-
-    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft, "attachment_meta": attach_meta})
+    return jsonify({"ok": True, "name": name, "response": text, "email_draft": draft,
+                    "attachment_meta": attach_meta, "tool_calls": _tool_log})
 
 
 @app.get("/api/thread/<name>")
@@ -6006,6 +6069,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
+            <button class="saDropItem" id="webhooksBtn">🔗 Webhooks</button>
           </div>
         </div>
 
@@ -6020,6 +6084,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
+
+        <button class="saNavBtn" id="dashboardNavBtn" onclick="saOpenDashboard()" style="padding:7px 14px;">
+          📊 Dashboard
+        </button>
 
       </div>
 
@@ -6198,6 +6266,34 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
                 <label>Will Not Do (one per line)</label>
                 <textarea id="editWillNotDo" placeholder="One rule per line"></textarea>
+
+                <div style="height:10px"></div>
+
+                <div class="grid">
+                  <div>
+                    <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
+                    <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                      <option value="">Default (global model)</option>
+                      <option value="gpt-4o">gpt-4o — balanced</option>
+                      <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; cheap</option>
+                      <option value="gpt-4-turbo">gpt-4-turbo — high quality</option>
+                      <option value="o1-mini">o1-mini — deep reasoning</option>
+                      <option value="o3-mini">o3-mini — advanced reasoning</option>
+                      <option value="gpt-4.5-preview">gpt-4.5-preview</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>TTS Voice <span class="tiny" style="opacity:.6;">(speak responses aloud)</span></label>
+                    <select id="editTtsVoice" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                      <option value="alloy">Alloy — neutral</option>
+                      <option value="echo">Echo — male, clear</option>
+                      <option value="fable">Fable — storytelling</option>
+                      <option value="onyx">Onyx — deep male</option>
+                      <option value="nova">Nova — female, bright</option>
+                      <option value="shimmer">Shimmer — soft female</option>
+                    </select>
+                  </div>
+                </div>
 
                 <div class="actions">
                   <button class="btn" id="cancelEdit">Cancel</button>
@@ -7166,6 +7262,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <div class="tiny">No group replies yet. Use the center Group Console.</div>
           </div>
         </div>
+
+        <!-- Shared Team Memory panel -->
+        <div class="groupCard" id="sharedMemoryCard" style="margin-top:12px;display:none;">
+          <div class="sideHead">
+            <div class="sideTitle">
+              <div class="h1">🧠 Shared Team Memory</div>
+              <div class="h2">Facts, decisions, and open loops extracted from group sessions.</div>
+            </div>
+            <button class="btn btnMini" id="clearSharedMemoryBtn">Clear</button>
+          </div>
+          <div id="sharedMemoryBody" style="padding:8px 4px;font-size:12px;line-height:1.6;color:rgba(182,196,255,.85);">
+          </div>
+        </div>
       </div>
     </div>
 
@@ -7187,6 +7296,16 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
           <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraints">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimize">⚡ Optimize</button>
         </div>
+        <!-- Thread actions toolbar -->
+        <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
+          <button class="btn btnMini" id="branchSnapshotBtn" title="Save a named snapshot of this conversation">🌿 Snapshot</button>
+          <select id="branchSelector" title="Restore a saved snapshot" style="background:rgba(11,16,36,.9);color:var(--text);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:4px 7px;font-size:11px;max-width:130px;">
+            <option value="">Snapshots…</option>
+          </select>
+          <button class="btn btnMini" id="exportThreadBtn" title="Export conversation as HTML">📄 Export</button>
+          <button class="btn btnMini" id="shareThreadBtn" title="Create read-only share link">🔗 Share</button>
+          <span id="ragIndexStatus" class="sa-rag-pill" style="display:none;" title="Knowledge base active for this conversation">🔬 RAG</span>
+        </div>
         <!-- Thread scrolls -->
         <div class="thread" id="thread" style="flex:1;height:auto;min-height:80px;overflow-y:auto;"></div>
         <!-- Sticky input area -->
@@ -7199,6 +7318,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
             <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
             <button class="btn btnMini" id="alwaysListenDmBtn">👂 Listen</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
+            <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
           </div>
           <div id="dmAttachList" class="pillRow"></div>
           <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
@@ -8174,6 +8294,8 @@ window.showModal = function showModal(title, body, imgUrl){
       $("editThinking").value = t.thinking_style || "";
       $("editResponsibilities").value = (t.responsibilities || []).join("\n");
       $("editWillNotDo").value = (t.will_not_do || []).join("\n");
+      if($("editPreferredModel")) $("editPreferredModel").value = t.preferred_model || "";
+      if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
 
       $("editStatus").innerText = "Ready";
       showEditModal("Edit " + name);
@@ -8197,6 +8319,8 @@ window.showModal = function showModal(title, body, imgUrl){
         thinking_style: $("editThinking").value || "",
         responsibilities: $("editResponsibilities").value || "",
         will_not_do: $("editWillNotDo").value || "",
+        preferred_model: ($("editPreferredModel") ? $("editPreferredModel").value : "") || "",
+        tts_voice: ($("editTtsVoice") ? $("editTtsVoice").value : "") || "alloy",
       };
 
       const res = await fetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
@@ -14128,6 +14252,921 @@ if(typeof maybeAutoShowOnboarding === "function"){
 }
 </style>
 
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SESSION 3 HTML — DASHBOARD · SHARE · RAG
+     ═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- Dashboard Modal -->
+<div id="dashboardModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseDashboard()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(860px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
+      <button onclick="saCloseDashboard()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
+  </div>
+</div>
+
+<!-- Share Link Modal -->
+<div id="shareModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseShare()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(540px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);">
+      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔗 Share Conversation</span>
+      <button onclick="saCloseShare()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="padding:20px;">
+      <div class="tiny" style="margin-bottom:12px;opacity:.7;line-height:1.6;">Creates a read-only public link to this conversation. Anyone with the link can view it.</div>
+      <div id="shareUrlArea" style="display:none;margin-bottom:14px;">
+        <code id="shareUrlText" style="display:block;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:10px 12px;font-size:12px;word-break:break-all;color:#a5b4fc;margin-bottom:8px;"></code>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('shareUrlText').innerText).then(()=>showToast('Copied'))" class="btn btnMini" style="width:100%;">📋 Copy Link</button>
+      </div>
+      <button id="createShareBtn" onclick="saCreateShare()" class="btn btnPrimary" style="width:100%;">Generate Share Link</button>
+      <div id="shareStatus" class="tiny" style="margin-top:8px;opacity:.7;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- RAG Index Modal -->
+<div id="ragModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseRag()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(540px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);">
+      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
+      <button onclick="saCloseRag()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="padding:20px;">
+      <div class="tiny" style="margin-bottom:14px;opacity:.7;line-height:1.6;">Upload a document and index it. Teammates will automatically search it when answering questions. Great for SOPs, contracts, product docs, and research.</div>
+      <input type="file" id="ragFileInput" accept=".txt,.md,.csv,.json,.pdf" style="display:none" />
+      <button onclick="document.getElementById('ragFileInput').click()" class="btn" style="width:100%;margin-bottom:10px;">📂 Choose Document</button>
+      <div id="ragSelectedFile" class="tiny" style="opacity:.6;margin-bottom:10px;"></div>
+      <button id="ragIndexBtn" onclick="saIndexRagFile()" class="btn btnPrimary" style="width:100%;margin-bottom:10px;">⚡ Index Document</button>
+      <div id="ragStatus" class="tiny" style="opacity:.7;"></div>
+      <div style="margin-top:14px;border-top:1px solid rgba(42,58,106,.4);padding-top:14px;">
+        <div style="font-size:11px;opacity:.5;letter-spacing:.05em;margin-bottom:8px;">INDEXED DOCUMENTS</div>
+        <div id="ragDocList" class="tiny" style="opacity:.7;">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SESSION 2 HTML — WEBHOOKS MANAGER MODAL
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="webhooksModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseWebhooks()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(740px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔗 Inbound Webhooks</span>
+      <button onclick="saCloseWebhooks()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:20px;">
+      <div class="tiny" style="margin-bottom:14px;opacity:.75;line-height:1.6;">Create a unique URL for each action stack. External tools (Zapier, Make, Stripe, custom apps) POST to that URL to trigger the stack automatically.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div>
+          <label style="font-size:11px;opacity:.65;">Teammate</label>
+          <select id="wh_teammate" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;">
+            <option value="">Select teammate…</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;opacity:.65;">Stack name</label>
+          <select id="wh_stack" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;">
+            <option value="">Select stack…</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:11px;opacity:.65;">Label (optional)</label>
+        <input id="wh_label" placeholder="e.g. Stripe payment received" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;" />
+      </div>
+      <button onclick="saCreateWebhook()" class="btn btnPrimary" style="width:100%;margin-bottom:18px;">+ Create Webhook URL</button>
+      <div style="font-size:12px;font-weight:600;opacity:.5;margin-bottom:8px;letter-spacing:.05em;">YOUR WEBHOOKS</div>
+      <div id="wh_list" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="tiny" style="opacity:.5;">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+/* Tool call badge */
+.sa-tool-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:10px; padding:2px 7px; border-radius:5px;
+  background:rgba(16,185,129,.12); color:#6ee7b7;
+  border:1px solid rgba(16,185,129,.3); margin-top:5px; margin-right:4px;
+  font-family:monospace;
+}
+/* Shared memory pill items */
+.sa-mem-item {
+  padding:4px 8px; margin:3px 0; font-size:12px;
+  background:rgba(99,102,241,.1); border-left:2px solid rgba(99,102,241,.5);
+  border-radius:0 6px 6px 0; color:rgba(196,181,253,.9); line-height:1.5;
+}
+/* Webhook card */
+.sa-wh-card {
+  background:rgba(11,16,36,.88); border:1px solid rgba(42,58,106,.7);
+  border-radius:10px; padding:10px 14px; font-size:12px;
+}
+.sa-wh-url {
+  font-family:monospace; font-size:11px; background:rgba(0,0,0,.3);
+  border:1px solid rgba(42,58,106,.6); border-radius:6px;
+  padding:5px 8px; word-break:break-all; color:#a5b4fc;
+  display:block; margin:6px 0;
+}
+</style>
+
+}
+</style>
+
+<style>
+/* RAG pill */
+.sa-rag-pill {
+  font-size:10px; padding:2px 7px; border-radius:5px;
+  background:rgba(16,185,129,.12); color:#6ee7b7;
+  border:1px solid rgba(16,185,129,.3); cursor:pointer; display:inline-flex; align-items:center;
+}
+/* Dashboard stat cards */
+.sa-stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:18px; }
+.sa-stat-card { background:rgba(30,42,74,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:12px 14px; text-align:center; }
+.sa-stat-num  { font-size:26px; font-weight:700; color:#c4b5fd; }
+.sa-stat-lbl  { font-size:11px; color:rgba(182,196,255,.6); margin-top:3px; }
+.sa-dash-section { margin-bottom:18px; }
+.sa-dash-section h3 { font-size:12px; opacity:.5; letter-spacing:.06em; margin-bottom:8px; }
+.sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:rgba(11,16,36,.7); border:1px solid rgba(42,58,106,.4); margin-bottom:5px; font-size:12px; }
+</style>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   SESSION 3 — DASHBOARD · BRANCHING · EXPORT/SHARE · RAG
+   ───────────────────────────────────────────────────────────────────────────── */
+(function(){
+  function _e(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
+  function now_short(){ return new Date().toISOString().slice(0,16).replace("T"," "); }
+
+  /* ── 1. DASHBOARD ─────────────────────────────────────────────────────────── */
+  window.saOpenDashboard = async function saOpenDashboard(){
+    const modal = document.getElementById("dashboardModal");
+    if(!modal) return;
+    modal.style.display = "flex";
+    document.body.style.overflow = "hidden";
+    const body = document.getElementById("dashboardBody");
+    if(body) body.innerHTML = '<div class="tiny" style="opacity:.5;padding:20px;">Loading dashboard…</div>';
+    try{
+      const r = await fetch("/api/dashboard"); const d = await r.json();
+      if(!d.ok || !body) return;
+      const s   = d.stats   || {};
+      const act = s.activity || {}; const crm  = s.crm  || {};
+      const runs= s.runs    || {}; const rag   = s.rag  || {};
+      const smem= s.shared_memory || {}; const wh= s.webhooks || {};
+      const sched= s.schedules || {};
+      body.innerHTML = `
+        <div class="sa-stat-grid">
+          <div class="sa-stat-card"><div class="sa-stat-num">${act.total_actions||0}</div><div class="sa-stat-lbl">AI Actions</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${crm.total_clients||0}</div><div class="sa-stat-lbl">CRM Contacts</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${runs.total||0}</div><div class="sa-stat-lbl">Stack Runs</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_docs||0}</div><div class="sa-stat-lbl">RAG Docs</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${wh.total||0}</div><div class="sa-stat-lbl">Webhooks</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${sched.total||0}</div><div class="sa-stat-lbl">Schedules</div></div>
+        </div>
+        <div class="sa-dash-section">
+          <h3>TOP TEAMMATES BY ACTIVITY</h3>
+          ${(act.top_teammates||[]).map(t=>`<div class="sa-dash-row"><span>${_e(t.name)}</span><span style="color:#c4b5fd;font-weight:600;">${t.count} actions</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No activity yet.</div>'}
+        </div>
+        <div class="sa-dash-section">
+          <h3>CRM PIPELINE</h3>
+          ${Object.entries(crm.stages||{}).map(([st,cnt])=>`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No CRM data.</div>'}
+        </div>
+        <div class="sa-dash-section">
+          <h3>STACK RUNS BY STATUS</h3>
+          ${Object.entries(runs.by_status||{}).map(([st,cnt])=>`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No runs yet.</div>'}
+        </div>
+        <div class="sa-dash-section">
+          <h3>SHARED TEAM MEMORY</h3>
+          <div class="sa-dash-row"><span>Facts</span><span style="color:#a5b4fc;">${smem.facts||0}</span></div>
+          <div class="sa-dash-row"><span>Decisions</span><span style="color:#a5b4fc;">${smem.decisions||0}</span></div>
+          <div class="sa-dash-row"><span>Open loops</span><span style="color:#a5b4fc;">${smem.open_loops||0}</span></div>
+        </div>
+        <div class="sa-dash-section">
+          <h3>KNOWLEDGE BASE (RAG)</h3>
+          <div class="sa-dash-row"><span>Documents indexed</span><span style="color:#a5b4fc;">${rag.total_docs||0}</span></div>
+          <div class="sa-dash-row"><span>Text chunks stored</span><span style="color:#a5b4fc;">${rag.total_chunks||0}</span></div>
+          <div style="margin-top:8px;"><button onclick="saOpenRag()" class="btn btnMini" style="width:100%;">🔬 Manage Knowledge Base</button></div>
+        </div>
+        <div class="sa-dash-section">
+          <h3>RECENT ERRORS</h3>
+          ${(act.recent||[]).filter(e=>e.status==="error").slice(0,4).map(e=>`<div class="sa-dash-row" style="border-color:rgba(239,68,68,.3);"><span style="color:#fca5a5;">${_e(e.action)}</span><span class="tiny">${(e.ts||"").slice(0,16)}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No errors — all clear.</div>'}
+        </div>
+        <div class="tiny" style="opacity:.3;text-align:right;margin-top:10px;">Generated ${(d.generated_at||"").slice(0,16).replace("T"," ")} UTC</div>`;
+    }catch(err){
+      const b2=document.getElementById("dashboardBody");
+      if(b2) b2.innerHTML=`<div class="tiny" style="color:#fca5a5;padding:20px;">Load failed: ${_e((err||{}).message||err)}</div>`;
+    }
+  };
+  window.saCloseDashboard = function(){ const m=document.getElementById("dashboardModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
+
+  /* ── 2. THREAD ACTIONS TOOLBAR ────────────────────────────────────────────── */
+  (function patchMarkActiveSeat(){
+    const orig = window.markActiveSeat;
+    if(typeof orig!=="function"){ setTimeout(patchMarkActiveSeat,300); return; }
+    window.markActiveSeat = function(name){
+      orig.apply(this, arguments);
+      try{
+        const tb = document.getElementById("threadActionsRow");
+        if(tb) tb.style.display = name ? "flex" : "none";
+        if(name) saLoadBranches(name);
+      }catch(_){}
+    };
+  })();
+
+  /* ── 3. BRANCHING ─────────────────────────────────────────────────────────── */
+  window.saLoadBranches = async function saLoadBranches(name){
+    const sel = document.getElementById("branchSelector");
+    if(!sel || !name) return;
+    try{
+      const r = await fetch("/api/thread/"+encodeURIComponent(name)+"/branches");
+      const d = await r.json();
+      sel.innerHTML = '<option value="">Snapshots…</option>' +
+        (d.branches||[]).map(b=>`<option value="${_e(b.id)}">${_e(b.label)} (${b.msg_count})</option>`).join("");
+    }catch(_){}
+  };
+
+  document.addEventListener("DOMContentLoaded", function(){
+
+    /* Snapshot button */
+    const snapBtn = document.getElementById("branchSnapshotBtn");
+    if(snapBtn) snapBtn.addEventListener("click", async function(){
+      const seat = window.selectedSeat;
+      if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
+      const label = prompt("Name this snapshot (optional):", now_short()) || "";
+      try{
+        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/snapshot",{
+          method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({label})
+        });
+        const d = await r.json();
+        if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Snapshot failed","error"); return; }
+        if(typeof showToast==="function") showToast("Snapshot saved: "+d.label);
+        saLoadBranches(seat);
+      }catch(e){ if(typeof showToast==="function") showToast("Error: "+((e||{}).message||e),"error"); }
+    });
+
+    /* Branch restore selector */
+    const branchSel = document.getElementById("branchSelector");
+    if(branchSel) branchSel.addEventListener("change", async function(){
+      const bid = this.value; if(!bid) return;
+      const seat = window.selectedSeat; if(!seat) return;
+      if(!confirm("Restore this snapshot? Current conversation will be replaced.")){ this.value=""; return; }
+      try{
+        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/restore/"+encodeURIComponent(bid),{method:"POST"});
+        const d = await r.json();
+        if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Restore failed","error"); return; }
+        if(typeof showToast==="function") showToast("Restored: "+d.label+" ("+d.msg_count+" msgs)");
+        if(typeof refreshThread==="function") await refreshThread();
+        this.value="";
+      }catch(e){ if(typeof showToast==="function") showToast("Error: "+((e||{}).message||e),"error"); this.value=""; }
+    });
+
+    /* Export button */
+    const exportBtn = document.getElementById("exportThreadBtn");
+    if(exportBtn) exportBtn.addEventListener("click", function(){
+      const seat = window.selectedSeat;
+      if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
+      window.open("/api/export/thread/"+encodeURIComponent(seat),"_blank");
+    });
+
+    /* Share button */
+    const shareBtn = document.getElementById("shareThreadBtn");
+    if(shareBtn) shareBtn.addEventListener("click", function(){
+      const seat = window.selectedSeat;
+      if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
+      saOpenShareModal();
+    });
+
+    /* RAG pill click */
+    const ragPill = document.getElementById("ragIndexStatus");
+    if(ragPill) ragPill.addEventListener("click", saOpenRag);
+
+    /* RAG file picker */
+    const ragInput = document.getElementById("ragFileInput");
+    if(ragInput) ragInput.addEventListener("change", function(){
+      const lbl = document.getElementById("ragSelectedFile");
+      if(lbl) lbl.innerText = this.files[0] ? this.files[0].name : "";
+    });
+
+    /* Check if user has RAG docs → show pill */
+    fetch("/api/rag/docs").then(r=>r.json()).then(d=>{
+      const pill = document.getElementById("ragIndexStatus");
+      if(pill) pill.style.display = (d.docs && d.docs.length) ? "inline-flex" : "none";
+    }).catch(()=>{});
+  });
+
+  /* ── 4. EXPORT/SHARE ──────────────────────────────────────────────────────── */
+  window.saOpenShareModal = function(){
+    const m=document.getElementById("shareModal"); if(!m) return;
+    m.style.display="flex"; document.body.style.overflow="hidden";
+    const ua=document.getElementById("shareUrlArea"), st=document.getElementById("shareStatus");
+    if(ua) ua.style.display="none"; if(st) st.innerText="";
+  };
+  window.saCloseShare = function(){ const m=document.getElementById("shareModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
+
+  window.saCreateShare = async function saCreateShare(){
+    const seat=window.selectedSeat;
+    if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
+    const st=document.getElementById("shareStatus");
+    if(st) st.innerText="Creating link…";
+    try{
+      const r=await fetch("/api/share",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({teammate:seat,title:"Conversation with "+seat})});
+      const d=await r.json();
+      if(!d.ok){ if(st) st.innerText=d.error||"Failed"; return; }
+      const ut=document.getElementById("shareUrlText"), ua=document.getElementById("shareUrlArea");
+      if(ut) ut.innerText=d.url; if(ua) ua.style.display="block";
+      if(st) st.innerText="Link ready — anyone with it can view this conversation.";
+    }catch(e){ if(st) st.innerText="Error: "+((e||{}).message||e); }
+  };
+
+  /* ── 5. RAG MANAGER ───────────────────────────────────────────────────────── */
+  window.saOpenRag = async function(){ const m=document.getElementById("ragModal"); if(!m) return; m.style.display="flex"; document.body.style.overflow="hidden"; await saLoadRagDocs(); };
+  window.saCloseRag = function(){ const m=document.getElementById("ragModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
+
+  window.saIndexRagFile = async function saIndexRagFile(){
+    const fi=document.getElementById("ragFileInput"), st=document.getElementById("ragStatus");
+    const file=fi&&fi.files[0];
+    if(!file){ if(st) st.innerText="Choose a file first."; return; }
+    if(st) st.innerText="Uploading…";
+    try{
+      const fd=new FormData(); fd.append("file",file);
+      const up=await fetch("/api/upload",{method:"POST",body:fd});
+      const upd=await up.json();
+      if(!upd.ok){ if(st) st.innerText=upd.error||"Upload failed"; return; }
+      if(st) st.innerText="Indexing (10–30 seconds)…";
+      const ix=await fetch("/api/rag/index",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({file_id:upd.file.id,label:file.name})});
+      const ixd=await ix.json();
+      if(!ixd.ok){ if(st) st.innerText=ixd.error||"Indexing failed"; return; }
+      if(st) st.innerText=`Indexed ${ixd.chunks} chunks. Teammates will search this automatically.`;
+      const pill=document.getElementById("ragIndexStatus"); if(pill) pill.style.display="inline-flex";
+      if(fi) fi.value="";
+      const lbl=document.getElementById("ragSelectedFile"); if(lbl) lbl.innerText="";
+      await saLoadRagDocs();
+    }catch(e){ if(st) st.innerText="Error: "+((e||{}).message||e); }
+  };
+
+  window.saLoadRagDocs = async function saLoadRagDocs(){
+    const list=document.getElementById("ragDocList"); if(!list) return;
+    try{
+      const r=await fetch("/api/rag/docs"); const d=await r.json();
+      const docs=d.docs||[];
+      if(!docs.length){ list.innerHTML='<span style="opacity:.4;">No documents indexed yet.</span>'; return; }
+      list.innerHTML=docs.map(doc=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(42,58,106,.3);">
+          <span>${_e(doc.label||doc.filename)} <span style="opacity:.4;">(${doc.chunks||0} chunks)</span></span>
+          <button onclick="saDeleteRagDoc('${_e(doc.doc_id)}')" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:5px;padding:2px 7px;font-size:10px;cursor:pointer;">Remove</button>
+        </div>`).join("");
+    }catch(e){ list.innerHTML='<span style="color:#fca5a5;">Load failed</span>'; }
+  };
+
+  window.saDeleteRagDoc = async function saDeleteRagDoc(doc_id){
+    if(!confirm("Remove this document from the knowledge base?")) return;
+    try{
+      const r=await fetch("/api/rag/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_id})});
+      const d=await r.json();
+      if(typeof showToast==="function") showToast(d.ok?"Removed":d.error||"Error");
+      await saLoadRagDocs();
+      const docsR=await fetch("/api/rag/docs").then(x=>x.json());
+      const pill=document.getElementById("ragIndexStatus");
+      if(pill) pill.style.display=(docsR.docs&&docsR.docs.length)?"inline-flex":"none";
+    }catch(e){ if(typeof showToast==="function") showToast("Error: "+((e||{}).message||e),"error"); }
+  };
+
+})();
+</script>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   SESSION 2 — SHARED MEMORY · TOOL CALLS · WEBHOOKS
+   ───────────────────────────────────────────────────────────────────────────── */
+(function(){
+
+  /* ── 1. SHARED TEAM MEMORY PANEL ──────────────────────────────────────────── */
+  function renderSharedMemory(smem){
+    const card = document.getElementById("sharedMemoryCard");
+    const body = document.getElementById("sharedMemoryBody");
+    if(!card || !body) return;
+    const facts      = smem.facts      || [];
+    const decisions  = smem.decisions  || [];
+    const open_loops = smem.open_loops || [];
+    if(!facts.length && !decisions.length && !open_loops.length){
+      card.style.display = "none";
+      return;
+    }
+    card.style.display = "block";
+    let html = "";
+    if(facts.length){
+      html += `<div style="font-size:10px;opacity:.5;letter-spacing:.05em;margin-bottom:4px;">FACTS</div>`;
+      facts.forEach(f => { html += `<div class="sa-mem-item">📌 ${_saEsc(f)}</div>`; });
+    }
+    if(decisions.length){
+      html += `<div style="font-size:10px;opacity:.5;letter-spacing:.05em;margin:8px 0 4px;">DECISIONS</div>`;
+      decisions.forEach(d => { html += `<div class="sa-mem-item">✅ ${_saEsc(d)}</div>`; });
+    }
+    if(open_loops.length){
+      html += `<div style="font-size:10px;opacity:.5;letter-spacing:.05em;margin:8px 0 4px;">OPEN LOOPS</div>`;
+      open_loops.forEach(o => { html += `<div class="sa-mem-item">🔄 ${_saEsc(o)}</div>`; });
+    }
+    const ts = smem.updated_at ? (" · " + smem.updated_at.slice(0,16).replace("T"," ")) : "";
+    html += `<div style="font-size:10px;opacity:.4;margin-top:8px;">Extracted automatically after group sessions${ts}</div>`;
+    body.innerHTML = html;
+  }
+
+  async function loadSharedMemory(){
+    try{
+      const r = await fetch("/api/os/shared_memory");
+      const d = await r.json();
+      if(d.ok) renderSharedMemory(d.shared_memory || {});
+    }catch(_){}
+  }
+
+  // Clear button
+  document.addEventListener("DOMContentLoaded", function(){
+    const clrBtn = document.getElementById("clearSharedMemoryBtn");
+    if(clrBtn) clrBtn.addEventListener("click", async function(){
+      try{
+        await fetch("/api/os/shared_memory/clear", {method:"POST"});
+        const card = document.getElementById("sharedMemoryCard");
+        if(card) card.style.display = "none";
+        if(typeof showToast==="function") showToast("Shared memory cleared");
+      }catch(e){}
+    });
+    loadSharedMemory();
+  });
+
+  // Poll after convene so the panel updates automatically
+  (function patchConveneAll(){
+    const orig = window.conveneAll;
+    if(typeof orig !== "function"){ setTimeout(patchConveneAll, 400); return; }
+    window.conveneAll = async function(){
+      await orig.apply(this, arguments);
+      setTimeout(loadSharedMemory, 3500);  // wait for async extraction
+    };
+  })();
+
+  /* ── 2. TOOL-CALL BADGES ON MESSAGES ──────────────────────────────────────── */
+  // Patch sendFollow / followup response to show tool badges
+  (function patchSendFollowForTools(){
+    const origSendFollow = window.sendFollow;
+    if(typeof origSendFollow !== "function"){ setTimeout(patchSendFollowForTools, 400); return; }
+    window.sendFollow = async function(){
+      // We intercept the response before calling the original by
+      // wrapping the fetch. We do this by patching _showToolBadges
+      // after any followup completes via a MutationObserver on #thread.
+      await origSendFollow.apply(this, arguments);
+    };
+  })();
+
+  // After every thread render, check the last followup response for tool_calls
+  // We store the last tool log on window and attach badges in renderThread patch
+  window._saLastToolLog = [];
+
+  // Patch fetch globally to capture tool_calls from /api/followup responses
+  (function patchFetchForTools(){
+    const origFetch = window.fetch;
+    window.fetch = async function(url, opts){
+      const res = await origFetch.apply(this, arguments);
+      try{
+        const u = (typeof url === "string") ? url : (url.url || "");
+        if(u === "/api/followup" && opts && opts.method === "POST"){
+          const clone = res.clone();
+          clone.json().then(function(d){
+            if(d && d.ok && Array.isArray(d.tool_calls) && d.tool_calls.length){
+              window._saLastToolLog = d.tool_calls;
+              _attachToolBadgesToLastMsg(d.tool_calls);
+            }
+          }).catch(()=>{});
+        }
+      }catch(_){}
+      return res;
+    };
+  })();
+
+  function _attachToolBadgesToLastMsg(toolLog){
+    try{
+      const thread = document.getElementById("thread");
+      if(!thread) return;
+      const msgs = thread.querySelectorAll(".msg.assistant");
+      const last = msgs[msgs.length-1];
+      if(!last || last._saToolsWired) return;
+      last._saToolsWired = true;
+      const wrap = document.createElement("div");
+      wrap.style.marginTop = "6px";
+      toolLog.forEach(function(tc){
+        const badge = document.createElement("span");
+        badge.className = "sa-tool-badge";
+        badge.title = "Args: " + JSON.stringify(tc.args||{});
+        badge.textContent = "⚙ " + tc.tool;
+        wrap.appendChild(badge);
+      });
+      last.appendChild(wrap);
+    }catch(_){}
+  }
+
+  /* ── 3. WEBHOOKS MANAGER ───────────────────────────────────────────────────── */
+  function _saEsc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
+
+  window.saOpenWebhooks = async function saOpenWebhooks(){
+    const modal = document.getElementById("webhooksModal");
+    if(!modal) return;
+    modal.style.display = "flex";
+    document.body.style.overflow = "hidden";
+    await _saPopulateTeammates();
+    await saLoadWebhooks();
+  };
+
+  window.saCloseWebhooks = function saCloseWebhooks(){
+    const modal = document.getElementById("webhooksModal");
+    if(modal) modal.style.display = "none";
+    document.body.style.overflow = "";
+  };
+
+  async function _saPopulateTeammates(){
+    const sel = document.getElementById("wh_teammate");
+    if(!sel) return;
+    try{
+      const r = await fetch("/api/state"); const d = await r.json();
+      if(!d.ok) return;
+      const names = d.installed_order || Object.keys(d.installed || {});
+      sel.innerHTML = '<option value="">Select teammate…</option>' +
+        names.map(n=>`<option value="${_saEsc(n)}">${_saEsc(n)}</option>`).join("");
+      sel.onchange = _saLoadStacksForTeammate;
+    }catch(_){}
+  }
+
+  async function _saLoadStacksForTeammate(){
+    const tm  = (document.getElementById("wh_teammate")||{}).value || "";
+    const sel = document.getElementById("wh_stack");
+    if(!sel) return;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    if(!tm){ sel.innerHTML='<option value="">Select teammate first…</option>'; return; }
+    try{
+      const r = await fetch("/api/teammates/"+encodeURIComponent(tm)+"/stacks");
+      const d = await r.json();
+      const stacks = d.stacks || [];
+      if(!stacks.length){ sel.innerHTML='<option value="">No stacks found</option>'; return; }
+      sel.innerHTML = '<option value="">Select stack…</option>' +
+        stacks.map(s=>`<option value="${_saEsc(s)}">${_saEsc(s)}</option>`).join("");
+    }catch(_){ sel.innerHTML='<option value="">Error loading stacks</option>'; }
+  }
+
+  window.saCreateWebhook = async function saCreateWebhook(){
+    const tm    = (document.getElementById("wh_teammate")||{}).value||"";
+    const stack = (document.getElementById("wh_stack")||{}).value||"";
+    const label = (document.getElementById("wh_label")||{}).value||"";
+    if(!tm || !stack){ if(typeof showToast==="function") showToast("Select a teammate and stack first","error"); return; }
+    try{
+      const r = await fetch("/api/webhooks",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({teammate:tm, stack_name:stack, label})
+      });
+      const d = await r.json();
+      if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Create failed","error"); return; }
+      if(typeof showToast==="function") showToast("Webhook created");
+      if(document.getElementById("wh_label")) document.getElementById("wh_label").value="";
+      await saLoadWebhooks();
+    }catch(e){ if(typeof showToast==="function") showToast("Error: "+(e.message||e),"error"); }
+  };
+
+  window.saLoadWebhooks = async function saLoadWebhooks(){
+    const list = document.getElementById("wh_list");
+    if(!list) return;
+    list.innerHTML = '<div class="tiny" style="opacity:.5;">Loading…</div>';
+    try{
+      const r = await fetch("/api/webhooks"); const d = await r.json();
+      const whs = d.webhooks || [];
+      if(!whs.length){ list.innerHTML='<div class="tiny" style="opacity:.5;">No webhooks yet. Create one above.</div>'; return; }
+      const base = window.location.origin;
+      list.innerHTML = whs.map(wh => `
+        <div class="sa-wh-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-weight:600;color:#c4b5fd;">${_saEsc(wh.label||wh.stack_name)}</span>
+            <button onclick="saDeleteWebhook('${_saEsc(wh.id)}')" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Delete</button>
+          </div>
+          <div style="opacity:.6;margin-bottom:4px;">${_saEsc(wh.teammate)} → ${_saEsc(wh.stack_name)}</div>
+          <code class="sa-wh-url">${base}/webhook/${_saEsc(wh.token)}</code>
+          <button onclick="navigator.clipboard.writeText('${base}/webhook/${wh.token}').then(()=>showToast('Copied'))" style="background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;margin-bottom:4px;">📋 Copy URL</button>
+          <div style="opacity:.45;font-size:10px;margin-top:4px;">Triggered ${wh.trigger_count||0}× · POST this URL from Zapier, Make, or any HTTP tool</div>
+        </div>
+      `).join("");
+    }catch(e){ list.innerHTML='<div class="tiny" style="color:#fca5a5;">Load failed: '+(e.message||e)+'</div>'; }
+  };
+
+  window.saDeleteWebhook = async function saDeleteWebhook(id){
+    if(!confirm("Delete this webhook? Any external tools pointing to it will stop working.")) return;
+    try{
+      const r = await fetch("/api/webhooks/"+encodeURIComponent(id)+"/delete",{method:"POST"});
+      const d = await r.json();
+      if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Delete failed","error"); return; }
+      if(typeof showToast==="function") showToast("Webhook deleted");
+      await saLoadWebhooks();
+    }catch(e){ if(typeof showToast==="function") showToast("Error: "+(e.message||e),"error"); }
+  };
+
+  // Wire Webhooks button in Tools dropdown
+  document.addEventListener("DOMContentLoaded", function(){
+    const btn = document.getElementById("webhooksBtn");
+    if(btn) btn.addEventListener("click", function(){
+      if(typeof saToggleDrop==="function") saToggleDrop("saToolsDrop");
+      saOpenWebhooks();
+    });
+    loadSharedMemory();
+  });
+
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SESSION 1 UPGRADES — STREAMING · MULTI-MODEL · TTS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<style>
+/* Stream cursor blink */
+@keyframes sa-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.sa-cursor { display:inline-block; animation:sa-blink .7s step-start infinite; color:#a78bfa; margin-left:1px; font-size:.9em; }
+/* Stream mode button active */
+.sa-stream-on { border-color:rgba(99,102,241,.85) !important; background:rgba(99,102,241,.18) !important; color:#c4b5fd !important; }
+/* TTS speaker button */
+.sa-tts-btn {
+  display:inline-flex; align-items:center; justify-content:center;
+  background:rgba(42,58,106,.5); border:1px solid rgba(42,58,106,.7);
+  color:rgba(165,180,252,.75); border-radius:8px; padding:3px 7px;
+  font-size:11px; cursor:pointer; margin-top:6px; gap:4px;
+  transition:background .15s, color .15s;
+}
+.sa-tts-btn:hover { background:rgba(99,102,241,.25); color:#c4b5fd; }
+.sa-tts-btn.sa-playing { border-color:rgba(99,102,241,.8); color:#c4b5fd; animation:sa-blink .9s ease-in-out infinite; }
+/* Model badge on seat cards */
+.sa-model-badge {
+  font-size:9px; padding:1px 5px; border-radius:5px;
+  background:rgba(99,102,241,.22); color:#a5b4fc;
+  border:1px solid rgba(99,102,241,.35); display:inline-block;
+  margin-left:4px; vertical-align:middle;
+}
+</style>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   STREAMING MODE
+   ───────────────────────────────────────────────────────────────────────────── */
+(function(){
+  // ── state ──
+  let streamMode = localStorage.getItem("sa_stream_mode") !== "off";
+  let _currentTtsAudio = null;
+
+  // ── helpers ──
+  function _esc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
+  function _tm(name){ try{ const r=window._saStateCache; return ((r&&r.installed)||{})[name]||{}; }catch(e){ return{}; } }
+
+  // ── wire stream toggle button ──
+  function initStreamToggle(){
+    const btn = document.getElementById("streamToggleBtn");
+    if(!btn) return;
+    function refresh(){
+      if(streamMode){
+        btn.classList.add("sa-stream-on");
+        btn.title = "Streaming ON — click to disable";
+      } else {
+        btn.classList.remove("sa-stream-on");
+        btn.title = "Streaming OFF — click to enable real-time token streaming";
+      }
+    }
+    refresh();
+    btn.addEventListener("click", function(){
+      streamMode = !streamMode;
+      localStorage.setItem("sa_stream_mode", streamMode ? "on" : "off");
+      refresh();
+      if(typeof showToast==="function") showToast(streamMode ? "⚡ Streaming ON" : "Streaming OFF");
+    });
+  }
+
+  // ── cache state for model badge reads ──
+  (function patchLoadState(){
+    const orig = window.loadState;
+    if(typeof orig !== "function") return;
+    window.loadState = async function(){
+      const result = await orig.apply(this, arguments);
+      try{
+        const r = await fetch("/api/state"); const d = await r.json();
+        if(d.ok) window._saStateCache = d;
+      }catch(_){}
+      return result;
+    };
+  })();
+
+  /* ─── TTS ─────────────────────────────────────────────────────────────────── */
+  window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
+    if(!text) return;
+    // Stop any playing audio
+    if(_currentTtsAudio){ _currentTtsAudio.pause(); _currentTtsAudio=null; }
+    if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
+
+    // If called again while playing, just stop
+    let stopped = false;
+    if(btn){ btn._saTtsStop = ()=>{ stopped=true; if(_currentTtsAudio){_currentTtsAudio.pause();_currentTtsAudio=null;} btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }; }
+
+    try{
+      const resp = await fetch("/api/tts",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({text: text.slice(0,2000), voice: voice||"alloy"})
+      });
+      if(!resp.ok){ throw new Error("TTS request failed"); }
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      _currentTtsAudio = audio;
+      audio.onended = ()=>{
+        URL.revokeObjectURL(url); _currentTtsAudio=null;
+        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
+      };
+      audio.onerror = ()=>{
+        URL.revokeObjectURL(url); _currentTtsAudio=null;
+        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+      };
+      if(!stopped) audio.play();
+    }catch(e){
+      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+      if(typeof showToast==="function") showToast("TTS error: "+(e.message||"unknown"),"error");
+    }
+  };
+
+  /* Attach a 🔊 button to a rendered assistant message div */
+  window.addTtsButton = function addTtsButton(msgDiv, text, voice){
+    if(!msgDiv || !text) return;
+    if(msgDiv._saTtsWired) return;
+    msgDiv._saTtsWired = true;
+    const btn = document.createElement("button");
+    btn.className = "sa-tts-btn";
+    btn.textContent = "🔊 Speak";
+    btn.title = "Read this response aloud";
+    btn.addEventListener("click", function(e){
+      e.stopPropagation();
+      if(btn._saTtsStop){ btn._saTtsStop(); return; }
+      saTtsSpeak(text, voice, btn);
+    });
+    msgDiv.appendChild(btn);
+  };
+
+  /* Patch renderThread to add TTS buttons to every assistant message */
+  (function patchRenderThread(){
+    const orig = window.renderThread;
+    if(typeof orig !== "function"){ setTimeout(patchRenderThread, 300); return; }
+    window.renderThread = function(msgs, imageState){
+      orig.apply(this, arguments);
+      try{
+        const seat = window.selectedSeat || "";
+        const tm   = _tm(seat);
+        const voice = tm.tts_voice || "alloy";
+        const thread = document.getElementById("thread");
+        if(!thread) return;
+        thread.querySelectorAll(".msg.assistant").forEach(function(div){
+          if(div._saTtsWired) return;
+          // Get text content — skip image messages
+          const contentEl = div.querySelector("div:not(.who):not(.actions):not(.sa-tts-btn)");
+          const raw = contentEl ? (contentEl.innerText||"").trim() : "";
+          if(raw && raw.length > 10 && !raw.startsWith("[Image")) addTtsButton(div, raw, voice);
+        });
+      }catch(_){}
+    };
+  })();
+
+  /* ─── STREAMING SEND ──────────────────────────────────────────────────────── */
+  async function sendFollowStream(){
+    const seat = window.selectedSeat;
+    if(!seat){ if(typeof showModal==="function") showModal("No seat selected","Click a teammate card first."); return; }
+    const msgEl = document.getElementById("followMsg");
+    const msg = (msgEl ? msgEl.value : "").trim();
+    if(!msg){ if(typeof showModal==="function") showModal("Missing message","Type a message."); return; }
+
+    const dmFileIds = window.dmFileIds || [];
+    const lightingOn = !!window.lightingModeOn;
+
+    if(typeof setSeatLive==="function") setSeatLive(seat,"thinking");
+    if(typeof setOpStatus==="function") setOpStatus("Streaming…");
+
+    const threadEl = document.getElementById("thread");
+
+    // Append user bubble immediately
+    const userDiv = document.createElement("div");
+    userDiv.className = "msg user";
+    const userWho = document.createElement("div"); userWho.className="who"; userWho.innerText="You";
+    const userBody = document.createElement("div"); userBody.innerText=msg;
+    userDiv.appendChild(userWho); userDiv.appendChild(userBody);
+    threadEl.appendChild(userDiv);
+
+    // Append assistant streaming bubble
+    const aDiv = document.createElement("div"); aDiv.className="msg assistant";
+    const aWho = document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
+    const aBody = document.createElement("div");
+    const aCursor = document.createElement("span"); aCursor.className="sa-cursor"; aCursor.textContent="▋";
+    aBody.appendChild(aCursor);
+    aDiv.appendChild(aWho); aDiv.appendChild(aBody);
+    threadEl.appendChild(aDiv);
+    threadEl.scrollTop = threadEl.scrollHeight;
+
+    if(msgEl) msgEl.value="";
+    let fullText = "";
+
+    try{
+      const response = await fetch("/api/followup/stream",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({name:seat, message:msg, file_ids:dmFileIds, lighting_mode:lightingOn})
+      });
+
+      if(!response.ok || !response.body){
+        const errData = await response.json().catch(()=>({error:"Stream unavailable"}));
+        throw new Error(errData.error||"Stream unavailable");
+      }
+
+      const reader  = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        buffer += decoder.decode(value,{stream:true});
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep incomplete line
+
+        for(const line of lines){
+          if(!line.startsWith("data: ")) continue;
+          let parsed;
+          try{ parsed = JSON.parse(line.slice(6)); }catch(_){ continue; }
+
+          if(parsed.token){
+            fullText += parsed.token;
+            aBody.innerText = fullText;
+            aBody.appendChild(aCursor);
+            threadEl.scrollTop = threadEl.scrollHeight;
+          }
+          if(parsed.error){ throw new Error(parsed.error); }
+          if(parsed.done){
+            aCursor.remove();
+            window.lastSeatAssistantText = fullText;
+            if(typeof setSeatLive==="function") setSeatLive(seat,"done");
+            if(typeof setOpStatus==="function") setOpStatus("Complete");
+            if(parsed.email_draft && typeof applyEmailDraft==="function") applyEmailDraft(parsed.email_draft, seat);
+            if(window.dmFileIds){ window.dmFileIds=[]; }
+            if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
+            // Wire TTS + click-to-expand
+            const tm = _tm(seat);
+            addTtsButton(aDiv, fullText, tm.tts_voice||"alloy");
+            if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
+            try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+          }
+        }
+      }
+    }catch(err){
+      aCursor.remove();
+      aBody.innerText = (fullText || "") + (fullText ? "\n\n" : "") + "[Stream error: "+(err.message||"unknown")+"]";
+      if(typeof setSeatLive==="function") setSeatLive(seat,"waiting");
+      if(typeof setOpStatus==="function") setOpStatus("Error");
+    }
+  }
+
+  /* Patch the existing sendFollow to route through stream when mode is ON */
+  function patchSendFollow(){
+    const origBtn = document.getElementById("sendFollow");
+    if(!origBtn){ setTimeout(patchSendFollow,200); return; }
+
+    origBtn.addEventListener("click", async function(e){
+      if(!streamMode) return; // let original handler fire normally
+      e.stopImmediatePropagation();
+      await sendFollowStream();
+    }, true); // capture phase fires before original listener
+
+    // Also intercept Enter key in followMsg
+    const followMsg = document.getElementById("followMsg");
+    if(followMsg){
+      followMsg.addEventListener("keydown", function(e){
+        if(e.key==="Enter" && !e.shiftKey && streamMode){
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          sendFollowStream();
+        }
+      }, true);
+    }
+  }
+
+  /* ─── INIT ────────────────────────────────────────────────────────────────── */
+  document.addEventListener("DOMContentLoaded", function(){
+    initStreamToggle();
+    patchSendFollow();
+    // Also try after a small delay in case the app JS runs late
+    setTimeout(function(){ initStreamToggle(); patchSendFollow(); }, 600);
+  });
+  // Fallback if DOMContentLoaded already fired
+  if(document.readyState !== "loading"){
+    setTimeout(function(){ initStreamToggle(); patchSendFollow(); }, 100);
+  }
+})();
+</script>
+
 </body>
 </html>
 """
@@ -17885,6 +18924,998 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
+
+
+# =============================================================================
+# SESSION 3 UPGRADE — RAG · BRANCHING · EXPORT/SHARE · DASHBOARD
+# =============================================================================
+
+import math as _math
+
+# ── RAG (Retrieval-Augmented Generation) ─────────────────────────────────────
+
+RAG_DIR = DATA / "rag"
+RAG_DIR.mkdir(exist_ok=True)
+
+
+def _rag_index_path(username: str) -> Path:
+    return RAG_DIR / f"{_safe_name(username or 'anon')}_index.jsonl"
+
+
+def _rag_meta_path(username: str) -> Path:
+    return RAG_DIR / f"{_safe_name(username or 'anon')}_meta.json"
+
+
+def _cosine_sim(a: List[float], b: List[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na  = _math.sqrt(sum(x * x for x in a))
+    nb  = _math.sqrt(sum(x * x for x in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _chunk_text(text: str, chunk_size: int = 400, overlap: int = 60) -> List[str]:
+    words  = text.split()
+    chunks = []
+    start  = 0
+    while start < len(words):
+        chunks.append(" ".join(words[start: start + chunk_size]))
+        start += chunk_size - overlap
+    return [c for c in chunks if c.strip()]
+
+
+def _embed_texts(texts: List[str], oai_client) -> List[List[float]]:
+    if not texts:
+        return []
+    resp = oai_client.embeddings.create(model="text-embedding-3-small", input=texts)
+    return [item.embedding for item in sorted(resp.data, key=lambda x: x.index)]
+
+
+def _rag_load_meta(username: str) -> Dict[str, Any]:
+    return load_json(_rag_meta_path(username), {"docs": {}, "updated_at": None})
+
+
+def _rag_save_meta(username: str, meta: Dict[str, Any]) -> None:
+    meta["updated_at"] = now_iso()
+    save_json(_rag_meta_path(username), meta)
+
+
+@app.post("/api/rag/index")
+def api_rag_index():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    file_id = (payload.get("file_id") or "").strip()
+    label   = (payload.get("label")   or "").strip()[:80]
+    if not file_id:
+        return jsonify({"ok": False, "error": "file_id required"}), 400
+    rec   = get_upload_record(file_id)
+    if not rec:
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    fpath = UPLOADS_DIR / rec["relpath"] if rec.get("relpath") else None
+    text  = safe_read_text_file(fpath, max_bytes=200_000) if fpath else None
+    if not text:
+        return jsonify({"ok": False, "error": "Cannot read file (text only, max 200KB)"}), 400
+    chunks = _chunk_text(text)[:400]
+    if not chunks:
+        return jsonify({"ok": False, "error": "No text chunks extracted"}), 400
+    try:
+        oai         = get_openai_client()
+        all_vectors: List[List[float]] = []
+        for i in range(0, len(chunks), 96):
+            all_vectors.extend(_embed_texts(chunks[i:i + 96], oai))
+    except Exception as e:
+        code, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
+    doc_id   = file_id
+    idx_path = _rag_index_path(uname)
+    existing: List[str] = []
+    if idx_path.exists():
+        for line in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                if json.loads(line).get("doc_id") != doc_id:
+                    existing.append(line)
+            except Exception:
+                pass
+    new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
+                 for i, (c, v) in enumerate(zip(chunks, all_vectors))]
+    idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    meta = _rag_load_meta(uname)
+    meta.setdefault("docs", {})[doc_id] = {
+        "doc_id": doc_id, "label": label or rec.get("filename", "Document"),
+        "filename": rec.get("filename", ""), "chunks": len(chunks), "indexed_at": now_iso(),
+    }
+    _rag_save_meta(uname, meta)
+    return jsonify({"ok": True, "doc_id": doc_id, "chunks": len(chunks)})
+
+
+@app.get("/api/rag/docs")
+def api_rag_docs():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    meta  = _rag_load_meta(uname)
+    return jsonify({"ok": True, "docs": list((meta.get("docs") or {}).values())})
+
+
+@app.post("/api/rag/delete")
+def api_rag_delete():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    doc_id  = ((request.get_json(silent=True) or {}).get("doc_id") or "").strip()
+    if not doc_id:
+        return jsonify({"ok": False, "error": "doc_id required"}), 400
+    idx_path = _rag_index_path(uname)
+    if idx_path.exists():
+        kept = []
+        for l in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                if json.loads(l).get("doc_id") != doc_id:
+                    kept.append(l)
+            except Exception:
+                pass  # drop malformed lines rather than crashing
+        idx_path.write_text("\n".join(kept), encoding="utf-8")
+    meta = _rag_load_meta(uname)
+    (meta.get("docs") or {}).pop(doc_id, None)
+    _rag_save_meta(uname, meta)
+    return jsonify({"ok": True})
+
+
+def _rag_retrieve(username: str, query: str, top_k: int = 4) -> str:
+    idx_path = _rag_index_path(username)
+    if not idx_path.exists():
+        return ""
+    rows = []
+    for line in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except Exception:
+            pass
+    if not rows:
+        return ""
+    try:
+        q_vec = _embed_texts([query], get_openai_client())[0]
+    except Exception:
+        return ""
+    scored = sorted([(r, _cosine_sim(q_vec, r["vec"])) for r in rows if r.get("vec")],
+                    key=lambda x: x[1], reverse=True)
+    top = [r for r, s in scored[:top_k] if s > 0.25]
+    if not top:
+        return ""
+    parts = [f"[doc:{r.get('doc_id','')[:8]} chunk:{r.get('chunk_idx',0)}]\n{r['text']}" for r in top]
+    return "\nKNOWLEDGE BASE (retrieved — use if relevant to the question):\n" + "\n\n".join(parts) + "\n"
+
+
+# ── CONVERSATION BRANCHING ────────────────────────────────────────────────────
+
+def _branches_path(teammate_name: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
+    return THREADS_DIR / f"{safe}_branches.json"
+
+
+def _load_branches(teammate_name: str) -> Dict[str, Any]:
+    return load_json(_branches_path(teammate_name), {"branches": {}, "updated_at": None})
+
+
+def _save_branches(teammate_name: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_branches_path(teammate_name), data)
+
+
+@app.post("/api/thread/<n>/snapshot")
+def api_thread_snapshot(n: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload   = request.get_json(silent=True) or {}
+    label     = (payload.get("label") or "").strip()[:60] or now_iso()[:16].replace("T", " ")
+    thread    = load_thread(n)
+    if not thread:
+        return jsonify({"ok": False, "error": "No messages to snapshot"}), 400
+    branch_id = uuid.uuid4().hex[:12]
+    data      = _load_branches(n)
+    data.setdefault("branches", {})[branch_id] = {
+        "id": branch_id, "label": label, "created_at": now_iso(),
+        "msg_count": len(thread), "thread": thread,
+    }
+    brs = data["branches"]
+    if len(brs) > 20:
+        for old in sorted(brs, key=lambda k: brs[k].get("created_at", ""))[:-20]:
+            del brs[old]
+    _save_branches(n, data)
+    return jsonify({"ok": True, "branch_id": branch_id, "label": label})
+
+
+@app.get("/api/thread/<n>/branches")
+def api_thread_branches(n: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data    = _load_branches(n)
+    branches = sorted((data.get("branches") or {}).values(),
+                      key=lambda b: str(b.get("created_at") or ""), reverse=True)
+    slim = [{"id": b["id"], "label": b["label"],
+             "created_at": b.get("created_at", ""), "msg_count": b.get("msg_count", 0)}
+            for b in branches]
+    return jsonify({"ok": True, "branches": slim})
+
+
+@app.post("/api/thread/<n>/restore/<branch_id>")
+def api_thread_restore(n: str, branch_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data   = _load_branches(n)
+    branch = (data.get("branches") or {}).get(branch_id)
+    if not branch:
+        return jsonify({"ok": False, "error": "Branch not found"}), 404
+    save_thread(n, branch["thread"])
+    return jsonify({"ok": True, "msg_count": len(branch["thread"]), "label": branch["label"]})
+
+
+# ── EXPORT & SHARE ────────────────────────────────────────────────────────────
+
+SHARES_PATH = DATA / "shares.json"
+
+
+def _load_shares() -> Dict[str, Any]:
+    return load_json(SHARES_PATH, {"shares": {}, "updated_at": None})
+
+
+def _save_shares(data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(SHARES_PATH, data)
+
+
+def _render_thread_html(teammate: str, thread: List[Dict[str, Any]], title: str = "") -> str:
+    def _esc(s: str) -> str:
+        return (str(s or "")
+                .replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    safe_title    = _esc(title or f"Conversation with {teammate}")
+    safe_teammate = _esc(teammate)
+    rows  = ""
+    for m in thread:
+        role    = m.get("role", "user")
+        content = _esc(str(m.get("content") or ""))
+        who     = "You" if role == "user" else safe_teammate
+        bg      = "#1e2a4a" if role == "user" else "#0f1929"
+        border  = "#7c3aed" if role == "user" else "#3b82f6"
+        rows   += (f'<div style="margin:10px 0;padding:12px 16px;border-radius:10px;'
+                   f'background:{bg};border-left:3px solid {border};">'
+                   f'<div style="font-size:11px;color:#6b7280;margin-bottom:5px;">{who}</div>'
+                   f'<div style="white-space:pre-wrap;line-height:1.6;">{content}</div></div>')
+    return (f'<!doctype html><html><head><meta charset="utf-8"><title>{safe_title}</title>'
+            f'<style>body{{margin:0;font-family:system-ui,sans-serif;background:#07090f;'
+            f'color:#e2e8f0;padding:20px;max-width:780px;margin:auto;}}'
+            f'h1{{font-size:18px;color:#c4b5fd;margin-bottom:4px;}}'
+            f'.meta{{font-size:12px;color:#6b7280;margin-bottom:20px;}}</style></head><body>'
+            f'<h1>{safe_title}</h1>'
+            f'<div class="meta">Exported {now_iso()[:10]} · {len(thread)} messages</div>'
+            f'{rows}</body></html>')
+
+
+@app.get("/api/export/thread/<n>")
+def api_export_thread(n: str):
+    from flask import Response
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    thread = load_thread(n)
+    if not thread:
+        return jsonify({"ok": False, "error": "No messages to export"}), 400
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", n)[:40]
+    return Response(_render_thread_html(n, thread), mimetype="text/html",
+                    headers={"Content-Disposition": f"attachment; filename={safe_name}_conversation.html"})
+
+
+@app.post("/api/share")
+def api_share_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname    = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload  = request.get_json(silent=True) or {}
+    teammate = (payload.get("teammate") or "").strip()
+    if not teammate:
+        return jsonify({"ok": False, "error": "teammate required"}), 400
+    thread = load_thread(teammate)
+    if not thread:
+        return jsonify({"ok": False, "error": "No messages to share"}), 400
+    token = secrets.token_urlsafe(20)
+    title = (payload.get("title") or f"Conversation with {teammate}").strip()[:120]
+    data  = _load_shares()
+    data.setdefault("shares", {})[token] = {
+        "token": token, "teammate": teammate, "title": title, "owner": uname,
+        "created_at": now_iso(), "views": 0, "thread": thread,
+    }
+    _save_shares(data)
+    base = PUBLIC_BASE_URL or request.host_url.rstrip("/")
+    return jsonify({"ok": True, "token": token, "url": f"{base}/share/{token}"})
+
+
+@app.get("/share/<token>")
+def api_share_view(token: str):
+    data  = _load_shares()
+    share = (data.get("shares") or {}).get(token)
+    if not isinstance(share, dict):
+        return "<h1>Share not found</h1>", 404
+    share["views"] = int(share.get("views") or 0) + 1
+    data["shares"][token] = share
+    _save_shares(data)
+    return _render_thread_html(share.get("teammate", ""), share.get("thread", []), share.get("title", ""))
+
+
+# ── OPERATOR DASHBOARD ────────────────────────────────────────────────────────
+
+@app.get("/api/dashboard")
+def api_dashboard():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    stats: Dict[str, Any] = {}
+
+    entries       = read_task_log(limit=200)
+    tm_counts: Dict[str, int] = {}
+    for e in entries:
+        tm = e.get("teammate") or "unknown"
+        tm_counts[tm] = tm_counts.get(tm, 0) + 1
+    stats["activity"] = {
+        "total_actions":  len(entries),
+        "error_count":    sum(1 for e in entries if e.get("status") == "error"),
+        "top_teammates":  [{"name": t, "count": c}
+                           for t, c in sorted(tm_counts.items(), key=lambda x: x[1], reverse=True)[:5]],
+        "recent":         entries[-8:][::-1],
+    }
+
+    try:
+        crm     = _crm_load(uname)
+        clients = list((crm.get("clients") or {}).values())
+        stages: Dict[str, int] = {}
+        for c in clients:
+            if isinstance(c, dict):
+                s = (c.get("pipeline_stage") or "No stage").strip() or "No stage"
+                stages[s] = stages.get(s, 0) + 1
+        stats["crm"] = {"total_clients": len(clients), "stages": stages}
+    except Exception:
+        stats["crm"] = {"total_clients": 0, "stages": {}}
+
+    try:
+        runs_data = _load_runs(uname)
+        all_runs  = list((runs_data.get("runs") or {}).values())
+        by_status: Dict[str, int] = {}
+        for r in all_runs:
+            if isinstance(r, dict):
+                s = r.get("status") or "unknown"
+                by_status[s] = by_status.get(s, 0) + 1
+        stats["runs"] = {"total": len(all_runs), "by_status": by_status}
+    except Exception:
+        stats["runs"] = {"total": 0, "by_status": {}}
+
+    try:
+        scheds = _load_schedules(uname)
+        stats["schedules"] = {
+            "total": len(scheds),
+            "items": [{"teammate": s.get("teammate"), "stack": s.get("stack_name"),
+                       "mode": s.get("mode"), "last_run": s.get("last_run")} for s in scheds[:10]],
+        }
+    except Exception:
+        stats["schedules"] = {"total": 0, "items": []}
+
+    try:
+        rag_meta = _rag_load_meta(uname)
+        docs     = list((rag_meta.get("docs") or {}).values())
+        stats["rag"] = {"total_docs": len(docs),
+                        "total_chunks": sum(int(d.get("chunks") or 0) for d in docs)}
+    except Exception:
+        stats["rag"] = {"total_docs": 0, "total_chunks": 0}
+
+    try:
+        smem = (_os_load(uname).get("shared_team_memory") or {})
+        stats["shared_memory"] = {
+            "facts": len(smem.get("facts") or []),
+            "decisions": len(smem.get("decisions") or []),
+            "open_loops": len(smem.get("open_loops") or []),
+            "updated_at": smem.get("updated_at") or "",
+        }
+    except Exception:
+        stats["shared_memory"] = {"facts": 0, "decisions": 0, "open_loops": 0, "updated_at": ""}
+
+    try:
+        wh_data = _load_webhooks()
+        mine    = [wh for wh in (wh_data.get("webhooks") or {}).values()
+                   if isinstance(wh, dict) and wh.get("owner") == uname]
+        stats["webhooks"] = {"total": len(mine),
+                             "total_triggers": sum(int(w.get("trigger_count") or 0) for w in mine)}
+    except Exception:
+        stats["webhooks"] = {"total": 0, "total_triggers": 0}
+
+    return jsonify({"ok": True, "stats": stats, "generated_at": now_iso()})
+
+
+# =============================================================================
+# SESSION 2 UPGRADE — SHARED MEMORY · TOOL CALLING · WEBHOOKS
+# =============================================================================
+
+# ── SHARED TEAM MEMORY EXTRACTION ────────────────────────────────────────────
+
+def _extract_shared_memory_async(username: str, prompt: str, outputs: Dict[str, str]) -> None:
+    """Fire-and-forget background thread: extract facts from convene outputs."""
+    def _worker():
+        try:
+            with app.app_context():
+                _extract_shared_memory_sync(username, prompt, outputs)
+        except Exception:
+            pass
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _extract_shared_memory_sync(username: str, prompt: str, outputs: Dict[str, str]) -> None:
+    """LLM extraction of facts / decisions / open_loops from teammate outputs."""
+    if not outputs:
+        return
+    combined = "\n\n".join(
+        f"[{name}]: {text[:500]}" for name, text in list(outputs.items())[:6]
+    )
+    system = (
+        "You extract structured memory from AI team discussions. "
+        "Return ONLY valid JSON — no markdown, no code fences. "
+        "Keys: facts (list), decisions (list), open_loops (list). "
+        "facts: concrete facts stated. decisions: things decided or agreed on. "
+        "open_loops: unresolved questions or pending actions. "
+        "Max 6 items per list. Max 120 chars per item. Return {} if nothing noteworthy."
+    )
+    user_msg = f"Original prompt: {prompt[:300]}\n\nTeammate responses:\n{combined}"
+    try:
+        raw = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.1)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        extracted = json.loads(raw)
+        if not isinstance(extracted, dict):
+            return
+        facts      = [str(f)[:120] for f in (extracted.get("facts")      or []) if f][:6]
+        decisions  = [str(d)[:120] for d in (extracted.get("decisions")   or []) if d][:6]
+        open_loops = [str(o)[:120] for o in (extracted.get("open_loops")  or []) if o][:6]
+        if not (facts or decisions or open_loops):
+            return
+        osd = _os_load(username)
+        cur = osd.get("shared_team_memory") or {}
+        if not isinstance(cur, dict):
+            cur = {}
+        cur["facts"]      = (list(cur.get("facts")      or []) + facts)[-12:]
+        cur["decisions"]  = (list(cur.get("decisions")   or []) + decisions)[-12:]
+        cur["open_loops"] = (list(cur.get("open_loops")  or []) + open_loops)[-12:]
+        cur["updated_at"] = now_iso()
+        osd["shared_team_memory"] = cur
+        _os_save(username, osd)
+    except Exception:
+        pass
+
+
+@app.get("/api/os/shared_memory")
+def api_os_shared_memory_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd   = _os_load(uname)
+    smem  = osd.get("shared_team_memory") or {}
+    return jsonify({"ok": True, "shared_memory": smem})
+
+
+@app.post("/api/os/shared_memory/clear")
+def api_os_shared_memory_clear():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd   = _os_load(uname)
+    osd["shared_team_memory"] = {"facts": [], "decisions": [], "open_loops": [], "updated_at": now_iso()}
+    _os_save(uname, osd)
+    return jsonify({"ok": True})
+
+
+# ── TEAMMATE TOOL CALLING ─────────────────────────────────────────────────────
+
+_TEAMMATE_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "crm_lookup",
+            "description": "Look up a CRM contact by name or email. Returns stage, notes, and contact info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Name or email to search"}
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calendar_check",
+            "description": "List upcoming calendar events for the next N days (requires Google Calendar connected).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Days ahead to look (1-14)", "default": 7}
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember_fact",
+            "description": "Save an important fact or decision to shared team memory so every teammate knows it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "The fact or decision to remember"}
+                },
+                "required": ["fact"],
+            },
+        },
+    },
+]
+
+
+def _execute_teammate_tool(
+    tool_name: str, tool_args: Dict[str, Any],
+    username: str, u: Dict[str, Any]
+) -> str:
+    """Execute a teammate tool call and return a string result."""
+
+    if tool_name == "crm_lookup":
+        query = (tool_args.get("query") or "").strip().lower()
+        if not query:
+            return "No query provided."
+        try:
+            crm     = _crm_load(username)
+            clients = crm.get("clients") or {}
+            matches = []
+            for _, c in list(clients.items())[:200]:
+                if isinstance(c, dict):
+                    if query in (c.get("name") or "").lower() or query in (c.get("email") or "").lower():
+                        matches.append(c)
+            if not matches:
+                return f"No CRM contacts found matching '{query}'."
+            lines = []
+            for c in matches[:3]:
+                lines.append(
+                    f"Name: {c.get('name','')} | Email: {c.get('email','')} | "
+                    f"Stage: {c.get('pipeline_stage','')} | Notes: {(c.get('notes','') or '')[:100]}"
+                )
+            return "CRM results:\n" + "\n".join(lines)
+        except Exception as e:
+            return f"CRM lookup error: {e}"
+
+    elif tool_name == "calendar_check":
+        days = max(1, min(14, int(tool_args.get("days") or 7)))
+        try:
+            cal_token, reason = _calendar_creds_for_user(u)
+            if not cal_token:
+                return f"Calendar not connected: {reason}"
+            import requests as _req
+            now_dt   = datetime.utcnow()
+            time_min = now_dt.isoformat() + "Z"
+            time_max = (now_dt + timedelta(days=days)).isoformat() + "Z"
+            resp = _req.get(
+                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+                headers={"Authorization": f"Bearer {cal_token}"},
+                params={"timeMin": time_min, "timeMax": time_max,
+                        "singleEvents": "true", "orderBy": "startTime", "maxResults": "10"},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return f"Calendar API error {resp.status_code}: {resp.text[:200]}"
+            items = resp.json().get("items") or []
+            if not items:
+                return f"No events in the next {days} days."
+            lines = []
+            for ev in items[:8]:
+                start = (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date") or ""
+                lines.append(f"{start[:16].replace('T',' ')}: {ev.get('summary','(no title)')}")
+            return "Upcoming events:\n" + "\n".join(lines)
+        except Exception as e:
+            return f"Calendar check failed: {e}"
+
+    elif tool_name == "remember_fact":
+        fact = (tool_args.get("fact") or "").strip()[:200]
+        if not fact:
+            return "No fact provided."
+        try:
+            osd  = _os_load(username)
+            cur  = osd.get("shared_team_memory") or {}
+            if not isinstance(cur, dict):
+                cur = {}
+            cur["facts"]      = (list(cur.get("facts") or []) + [fact])[-12:]
+            cur["updated_at"] = now_iso()
+            osd["shared_team_memory"] = cur
+            _os_save(username, osd)
+            return f"Remembered: '{fact}'"
+        except Exception as e:
+            return f"Could not save fact: {e}"
+
+    return f"Unknown tool: {tool_name}"
+
+
+def call_llm_with_tools(
+    system: str,
+    messages: List[Dict[str, Any]],
+    temperature: float = 0.65,
+    model: Optional[str] = None,
+    username: str = "anon",
+    u: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """OpenAI call with tool support.  Returns (final_text, tool_log)."""
+    use_model = (model or "").strip() or MODEL
+    oai       = get_openai_client()
+    timeout   = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
+    sys_msg   = [{"role": "system", "content": system}]
+    msgs      = sys_msg + list(messages)
+    tool_log: List[Dict[str, Any]] = []
+
+    for _round in range(4):          # max 4 tool-use rounds
+        resp   = oai.chat.completions.create(
+            model=use_model, messages=msgs,
+            temperature=temperature, timeout=timeout,
+            tools=_TEAMMATE_TOOLS, tool_choice="auto",
+        )
+        choice = resp.choices[0]
+
+        # No tool calls → return the text
+        if choice.finish_reason == "stop" or not getattr(choice.message, "tool_calls", None):
+            return (choice.message.content or "").strip(), tool_log
+
+        # Build the assistant dict to append
+        tc_dicts = []
+        for tc in (choice.message.tool_calls or []):
+            tc_dicts.append({
+                "id": tc.id, "type": "function",
+                "function": {"name": tc.function.name,
+                             "arguments": tc.function.arguments or "{}"},
+            })
+        msgs.append({
+            "role": "assistant",
+            "content": choice.message.content or "",   # avoid None — some SDK versions reject null
+            "tool_calls": tc_dicts,
+        })
+
+        # Execute each tool and append results
+        for tc in (choice.message.tool_calls or []):
+            fn_name = tc.function.name
+            try:
+                fn_args = json.loads(tc.function.arguments or "{}")
+            except Exception:
+                fn_args = {}
+            result = _execute_teammate_tool(fn_name, fn_args, username, u or {})
+            tool_log.append({"tool": fn_name, "args": fn_args, "result": result[:300]})
+            msgs.append({
+                "role": "tool", "tool_call_id": tc.id,
+                "name": fn_name, "content": result,
+            })
+
+    # Safety: one final call after max rounds
+    resp = oai.chat.completions.create(
+        model=use_model, messages=msgs,
+        temperature=temperature, timeout=timeout,
+    )
+    return (resp.choices[0].message.content or "").strip(), tool_log
+
+
+# ── WEBHOOK SYSTEM ────────────────────────────────────────────────────────────
+
+_WEBHOOKS_PATH = DATA / "webhooks.json"
+
+
+def _load_webhooks() -> Dict[str, Any]:
+    data = load_json(_WEBHOOKS_PATH, {"webhooks": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {"webhooks": {}, "updated_at": None}
+    data.setdefault("webhooks", {})
+    return data
+
+
+def _save_webhooks(data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_WEBHOOKS_PATH, data)
+
+
+@app.get("/api/webhooks")
+def api_webhooks_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    data  = _load_webhooks()
+    mine  = [wh for wh in (data.get("webhooks") or {}).values()
+             if isinstance(wh, dict) and wh.get("owner") == uname]
+    mine.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    return jsonify({"ok": True, "webhooks": mine})
+
+
+@app.post("/api/webhooks")
+def api_webhooks_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    teammate   = (payload.get("teammate")   or "").strip()
+    stack_name = (payload.get("stack_name") or "").strip()
+    label      = (payload.get("label")      or "").strip()[:80]
+    if not teammate or not stack_name:
+        return jsonify({"ok": False, "error": "teammate and stack_name required"}), 400
+
+    # Verify the stack exists
+    stacks_data = _load_saved_stacks(uname, teammate)
+    if stack_name not in (stacks_data.get("stacks") or {}):
+        return jsonify({"ok": False, "error": "Stack not found"}), 404
+
+    token = secrets.token_urlsafe(24)
+    wh_id = uuid.uuid4().hex[:16]
+    wh    = {
+        "id":            wh_id,
+        "token":         token,
+        "teammate":      teammate,
+        "stack_name":    stack_name,
+        "label":         label or f"{teammate} / {stack_name}",
+        "owner":         uname,
+        "created_at":    now_iso(),
+        "trigger_count": 0,
+        "last_triggered": None,
+    }
+    data = _load_webhooks()
+    data["webhooks"][token] = wh
+    _save_webhooks(data)
+
+    base = PUBLIC_BASE_URL or request.host_url.rstrip("/")
+    url  = f"{base}/webhook/{token}"
+    return jsonify({"ok": True, "webhook": wh, "url": url})
+
+
+@app.post("/api/webhooks/<wh_id>/delete")
+def api_webhooks_delete(wh_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    data  = _load_webhooks()
+    # Find by id or token
+    found_token = None
+    for tok, wh in list((data.get("webhooks") or {}).items()):
+        if isinstance(wh, dict) and (wh.get("id") == wh_id or tok == wh_id):
+            if wh.get("owner") != uname:
+                return jsonify({"ok": False, "error": "Not your webhook"}), 403
+            found_token = tok
+            break
+    if not found_token:
+        return jsonify({"ok": False, "error": "Webhook not found"}), 404
+    del data["webhooks"][found_token]
+    _save_webhooks(data)
+    return jsonify({"ok": True})
+
+
+@app.post("/webhook/<token>")
+def api_webhook_receive(token: str):
+    """Unauthenticated inbound webhook — triggers the mapped action stack."""
+    data    = _load_webhooks()
+    wh      = (data.get("webhooks") or {}).get(token)
+    if not isinstance(wh, dict):
+        return jsonify({"ok": False, "error": "Webhook not found"}), 404
+
+    owner      = wh.get("owner") or "anon"
+    teammate   = wh.get("teammate") or ""
+    stack_name = wh.get("stack_name") or ""
+
+    stacks_data = _load_saved_stacks(owner, teammate)
+    stack       = (stacks_data.get("stacks") or {}).get(stack_name)
+    if not stack:
+        return jsonify({"ok": False, "error": "Stack not found"}), 404
+
+    # Accept an optional input payload from the caller
+    try:
+        body = request.get_json(silent=True) or {}
+        user_input = str(body.get("input") or body.get("message") or "")[:500]
+    except Exception:
+        user_input = ""
+
+    steps  = _normalize_steps(stack.get("steps"))
+    run    = _init_run(u=owner, teammate=teammate, stack_name=stack_name,
+                       steps=steps, user_input=user_input)
+    _persist_run(run)
+
+    # Run in a background thread so the webhook caller gets an instant 200
+    def _bg():
+        try:
+            with app.app_context():
+                _run_action_stack_engine(run)
+        except Exception:
+            pass
+    threading.Thread(target=_bg, daemon=True).start()
+
+    # Update trigger count
+    wh["trigger_count"] = int(wh.get("trigger_count") or 0) + 1
+    wh["last_triggered"] = now_iso()
+    data["webhooks"][token] = wh
+    _save_webhooks(data)
+
+    _os_log(owner, "webhook_trigger", {
+        "token": token[:8] + "…", "teammate": teammate,
+        "stack_name": stack_name, "run_id": run.get("id"),
+    })
+
+    return jsonify({"ok": True, "run_id": run.get("id"),
+                    "teammate": teammate, "stack_name": stack_name})
+
+
+# ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
+@app.post("/api/followup/stream")
+def api_followup_stream():
+    """SSE streaming followup — tokens arrive in real time instead of one big wait.
+    Drops in alongside the existing /api/followup; same thread/logging semantics."""
+    from flask import Response, stream_with_context
+
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+
+    name          = (data.get("name")    or "").strip()
+    msg           = (data.get("message") or "").strip()
+    file_ids      = data.get("file_ids") or []
+    lighting_mode = bool(data.get("lighting_mode"))
+
+    if not name or not msg:
+        return jsonify({"ok": False, "error": "Missing name or message"}), 400
+
+    reg       = load_registry()
+    installed = reg.get("installed") or {}
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+
+    defn = installed[name]
+    msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
+    user_content = _build_user_content(msg2, vision_images)
+
+    # Set image context for this teammate (mirrors non-streaming followup)
+    bind_uploaded_images_to_teammate(name, file_ids)
+
+    uname = _get_session_username()
+
+    # RAG: retrieve relevant chunks from knowledge base
+    rag_context = ""
+    try:
+        rag_context = _rag_retrieve(uname, msg, top_k=4)
+    except Exception:
+        rag_context = ""
+
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
+
+    thread = load_thread(name)
+    thread = thread[-14:] if len(thread) > 14 else thread
+
+    preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
+    oai_client      = get_openai_client()
+
+    # Snapshot thread before streaming so we save the right context
+    pre_thread = list(thread)
+
+    def generate():
+        parts = []
+        try:
+            stream = oai_client.chat.completions.create(
+                model=preferred_model,
+                messages=[{"role": "system", "content": sys_prompt}]
+                         + list(thread)
+                         + [{"role": "user", "content": user_content}],
+                temperature=0.65,
+                stream=True,
+                timeout=90,
+            )
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                token = getattr(chunk.choices[0].delta, "content", None) or ""
+                if token:
+                    parts.append(token)
+                    yield "data: " + json.dumps({"token": token}) + "\n\n"
+
+            complete_text = "".join(parts)
+
+            # Persist thread
+            new_thread = pre_thread + [
+                {"role": "user",      "content": msg2},
+                {"role": "assistant", "content": complete_text},
+            ]
+            save_thread(name, new_thread)
+
+            draft = extract_email_draft(complete_text)
+
+            try:
+                append_task_log(
+                    "teammate_followup_stream",
+                    {"name": name, "message": msg,
+                     "model": preferred_model,
+                     "response_preview": complete_text[:400]},
+                    teammate=name, status="success"
+                )
+                _mark_onboarding_step(uname, "first_prompt", True)
+            except Exception:
+                pass
+
+            yield "data: " + json.dumps({
+                "done":            True,
+                "email_draft":     draft,
+                "attachment_meta": attach_meta,
+            }) + "\n\n"
+
+        except Exception as exc:
+            err_msg = str(exc) or "Stream error"
+            try:
+                _, err_msg = _classify_openai_error(exc)
+            except Exception:
+                pass
+            yield "data: " + json.dumps({"error": err_msg}) + "\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache, no-store",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )
+
+
+# ── 2. TEXT-TO-SPEECH ─────────────────────────────────────────────────────────
+@app.post("/api/tts")
+def api_tts():
+    """Convert text to speech using OpenAI TTS-1.
+    Returns raw MP3 bytes so the frontend can play them with an Audio element."""
+    from flask import Response
+
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    payload = request.get_json(force=True) or {}
+    text    = (payload.get("text")  or "").strip()[:2000]   # cap at ~30 s
+    voice   = (payload.get("voice") or "alloy").strip()
+    if voice not in ("alloy", "echo", "fable", "onyx", "nova", "shimmer"):
+        voice = "alloy"
+    if not text:
+        return jsonify({"ok": False, "error": "Missing text"}), 400
+
+    try:
+        oai  = get_openai_client()
+        resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
+        return Response(
+            resp.content,
+            mimetype="audio/mpeg",
+            headers={
+                "Cache-Control":        "no-store",
+                "Content-Disposition":  "inline; filename=speech.mp3",
+            },
+        )
+    except Exception as exc:
+        code, msg = _classify_openai_error(exc)
+        return jsonify({"ok": False, "error": msg}), code
 
 
 if __name__ == "__main__":
