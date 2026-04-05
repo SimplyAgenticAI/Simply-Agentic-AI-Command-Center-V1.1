@@ -8065,7 +8065,7 @@ window.showModal = function showModal(title, body, imgUrl){
       }
     }
 
-    async window.runGlobalCommandBar = async function runGlobalCommandBar(){
+    window.runGlobalCommandBar = async function runGlobalCommandBar(){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
       if(!q){ showModal('Missing command', 'Type a command first.'); return; }
@@ -11845,7 +11845,7 @@ function wcalRenderWeek(){
       const title = (ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
       const link = ev.htmlLink||ev.hangoutLink||'';
       html += '<div class="wcal-event" style="top:'+top+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';" ';
-      if(link) html += 'onclick="window.open(''+link+'','_blank')" ';
+      if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
       html += 'title="'+title+'">';
       html += '<div class="wcal-event-title">'+title+'</div>';
       if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
@@ -11937,7 +11937,7 @@ function wcalRenderDay(){
     const title = (ev.summary||'Event').replace(/</g,'&lt;');
     const link = ev.htmlLink||ev.hangoutLink||'';
     html += '<div class="wcal-event" style="top:'+startMins+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';left:8px;right:8px;" ';
-    if(link) html += 'onclick="window.open(''+link+'','_blank')" ';
+    if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
     html += 'title="'+title+'">';
     html += '<div class="wcal-event-title">'+title+'</div>';
     if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
@@ -11973,7 +11973,7 @@ function wcalRenderMiniMonth(){
     if(dt===cal.selected) cls += ' selected';
     const hasEv = cal.events[dt] && cal.events[dt].length;
     if(hasEv) cls += ' has-events';
-    html += '<div class="'+cls+'" onclick="wcalSelectDate(''+dt+'')" >'+d+'</div>';
+    html += '<div class="'+cls+'" onclick="wcalSelectDate(&quot;'+dt+'&quot;)">'+d+'</div>';
   }
   grid.innerHTML = html;
 }
@@ -13370,7 +13370,7 @@ function applyRTTransformV4(){
 
 // Auto-show onboarding if applicable (safe stub — real logic is in the onboarding IIFE)
 if(typeof maybeAutoShowOnboarding === "function"){
-  try{ maybeAutoShowOnboarding(); }catch(_){}
+  try{ if(typeof maybeAutoShowOnboarding==="function"){try{maybeAutoShowOnboarding();}catch(_){}}else{try{setTimeout(function(){if(typeof window.onboardingOpen==="function"){fetch("/api/onboarding/status").then(function(r){return r.json();}).then(function(d){if(d&&d.ok&&!d.dismissed&&!d.all_done)window.onboardingOpen();}).catch(function(){});}},800);}catch(_){}} }catch(_){}
 } else {
   // Stub: try to open onboarding via the exposed window handle
   try{
