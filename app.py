@@ -6945,7 +6945,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;">
+              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);display:flex;flex-direction:column;">
 
 <style>
 /* Message expand modal */
@@ -6953,9 +6953,9 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     #saMsgModal.open { display:flex !important; }
 
 /* ── Motion-style Calendar ── */
-.wcal-wrap { display:flex; height:calc(100vh - 120px); min-height:500px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
+.wcal-wrap { display:flex; height:100%; min-height:620px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
 .wcal-sidebar { width:220px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:12px; overflow-y:auto; }
-.wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
 .wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
 .wcal-nav-btn:hover { background:rgba(30,40,80,.9); }
@@ -6964,12 +6964,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .wcal-view-btns { display:flex; gap:4px; }
 .wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
 .wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
-.wcal-grid-wrap { flex:1; overflow:auto; position:relative; }
+.wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; }
 .wcal-grid { display:flex; position:relative; min-height:1440px; }
 .wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
 .wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
 .wcal-days-area { flex:1; display:grid; position:relative; }
-.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; }
+.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; flex:1; min-width:0; }
 .wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.2); position:relative; }
 .wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.1); top:50%; }
 .wcal-col-header { text-align:center; padding:6px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
@@ -10859,7 +10859,10 @@ Challenge weak assumptions. Surface risks.`;
         crmRenderPipelineBoard();
         showToast('Saved');
       }catch(e){
-        if(st) st.innerText = 'Save failed';
+        const errMsg = (e && e.message) ? e.message : 'Save failed';
+        if(st) st.innerText = errMsg;
+        showToast(errMsg, 'error');
+        console.error('[CRM save]', e);
       }
     }
 
@@ -11801,7 +11804,7 @@ function wcalRenderWeek(){
     const numEl = isToday
       ? '<div class="dd today-num">'+d.getDate()+'</div>'
       : '<div class="dd">'+d.getDate()+'</div>';
-    html += '<div class="wcal-col-header" style="flex:1;">';
+    html += '<div class="wcal-col-header" style="flex:1;min-width:0;">';
     html += '<div class="wd">'+dayNames[i]+'</div>'+numEl;
     html += '</div>';
   });
@@ -11822,7 +11825,7 @@ function wcalRenderWeek(){
   days.forEach((d,di)=>{
     const dt = ymd(d);
     const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
-    html += '<div class="wcal-day-col" style="flex:1;position:relative;" data-date="'+dt+'">';
+    html += '<div class="wcal-day-col" style="flex:1;position:relative;min-width:0;" data-date="'+dt+'">';
 
     // Hour lines
     for(let h=0;h<24;h++){
@@ -12157,7 +12160,7 @@ window.showCalendarModal = function showCalendarModal(){
   if(modalTitle) modalTitle.innerText = 'Calendar';
 
   // Maximise modal for the week view
-  try{ ensureModalMinSize(1200, 820); }catch(_){}
+  try{ ensureModalMinSize(1100, 760); }catch(_){}
 
   cal.weekStart = wcalMonday(new Date());
   cal.selected  = ymd(new Date());
@@ -12306,8 +12309,7 @@ try{
     await calFetchEventsForVisibleRange();
     calRenderMonth();
   };
-  if($("calAddTaskBtn")) $("calAddTaskBtn").onclick = calAddTask;
-  if($("calCreateCallBtn")) $("calCreateCallBtn").onclick = calCreateCall;
+  // calAddTaskBtn and calCreateCallBtn removed (replaced by Motion calendar)
 }catch(e){}
 
 
@@ -14742,10 +14744,19 @@ def api_crm_clients_create():
         "created_at": now,
         "updated_at": now,
     }
-    client = _crm_enrich_client_record(client)
-    client = _crm_apply_pipeline_rules(uname, client)
-    crm["clients"][cid] = client
-    _crm_save(uname, crm)
+    try:
+        client = _crm_enrich_client_record(client)
+    except Exception:
+        pass  # enrichment is best-effort
+    try:
+        client = _crm_apply_pipeline_rules(uname, client)
+    except Exception:
+        pass  # rules are best-effort
+    try:
+        crm["clients"][cid] = client
+        _crm_save(uname, crm)
+    except Exception as _save_err:
+        return jsonify({"ok": False, "error": f"Storage error: {_save_err}"}), 500
     return jsonify({"ok": True, "client": client})
 
 @app.post("/api/crm/clients/<client_id>")
