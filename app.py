@@ -16521,8 +16521,6 @@ def _handle_500(e):
         pass
     return "<h1>500 Internal Server Error</h1>", 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
 
 
 # === Additive Patch: Move Diagnostics Panel Into Settings ===
@@ -17887,3 +17885,7 @@ def _consume_oauth_state(state):
     rec = data.pop(state, None)
     _save_oauth_states(data)
     return rec
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
