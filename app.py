@@ -6023,6 +6023,67 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 }
 #modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
 
+/* ─────────────────────────────────────────────────────────────
+   FONT SIZE OVERRIDES — bumped for readability
+   ───────────────────────────────────────────────────────────── */
+
+/* Base body text */
+body { font-size: 15px; }
+
+/* Thread / message text */
+.thread       { font-size: 15px !important; line-height: 1.6 !important; }
+.msg          { padding: 12px 14px !important; }
+.msg .who     { font-size: 13px !important; margin-bottom: 8px !important; }
+.replyBody    { font-size: 15px !important; line-height: 1.6 !important; }
+.replyName    { font-size: 14px !important; }
+
+/* Buttons */
+.btn          { font-size: 14px !important; }
+.btnMini      { font-size: 13px !important; padding: 8px 11px !important; }
+.btnTiny      { font-size: 12px !important; }
+.passBtn      { font-size: 13px !important; }
+
+/* Input fields */
+.followBox, .field, .opText, textarea, input[type="text"], input:not([type]), select {
+  font-size: 15px !important;
+  line-height: 1.55 !important;
+}
+
+/* Seat cards */
+.seatName     { font-size: 15px !important; }
+.seatRole     { font-size: 13px !important; }
+.seatStatus   { font-size: 12px !important; }
+
+/* Sidebar headers */
+.sideTitle .h1 { font-size: 16px !important; }
+.sideTitle .h2 { font-size: 13px !important; }
+.opTitle .t1   { font-size: 15px !important; }
+.opTitle .t2   { font-size: 13px !important; }
+
+/* Nav bar */
+.saNavBtn     { font-size: 14px !important; }
+.saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
+.saCmdInput   { font-size: 14px !important; }
+.saCmdBtn     { font-size: 13px !important; }
+.saObjectivePill { font-size: 12px !important; }
+.saModelTag   { font-size: 12px !important; }
+
+/* Labels and tiny text */
+.tiny         { font-size: 13px !important; }
+label         { font-size: 14px !important; }
+.pill         { font-size: 13px !important; }
+.pillRow .tiny { font-size: 12px !important; }
+
+/* Modal forms */
+.modalForm label { font-size: 14px !important; }
+.card label      { font-size: 14px !important; }
+
+/* Group reply section */
+.groupReplies    { font-size: 15px !important; }
+
+/* Command row primary buttons */
+.commandRow .btn { font-size: 15px !important; }
+
 </style>
 </head>
 <body>
@@ -7404,6 +7465,7 @@ if (typeof window.showToast !== "function") {
 
     let state = null;
     let selectedSeat = "";
+    window.selectedSeat = "";  // expose for cross-IIFE access (streaming, branching, etc.)
     let seatStatus = {};
     let lastGroupOutputs = {};
     let lastSeatAssistantText = "";
@@ -8189,23 +8251,62 @@ window.showModal = function showModal(title, body, imgUrl){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
       if(!q){ showModal('Missing command', 'Type a command first.'); return; }
-      showModal('Routing command', 'Thinking...');
+
+      // Module dispatch table — maps intent_route module names to open functions
+      const moduleDispatch = {
+        'lead_lab':       () => { if(typeof showLeadLabModal==='function') showLeadLabModal(); },
+        'crm_clients':    () => { if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
+        'crm_pipeline':   () => { if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
+        'crm_broadcast':  () => { if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast'); },
+        'calendar':       () => { if(typeof showCalendarModal==='function') showCalendarModal(); },
+        'social_studio':  () => { if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
+        'offer_builder':  () => { if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
+        'growth_playbook':() => { if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
+        'image_library':  () => { if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
+        'email_console':  () => { if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
+        'action_stacks':  () => {
+          const seat = window.selectedSeat || selectedSeat;
+          if(seat && typeof showStackTab==='function') showStackTab('Action Stacks — ' + seat);
+        },
+        'round_table':    () => {
+          // Pre-fill the group console and focus it
+          const opPrompt = $('opPrompt');
+          if(opPrompt){ opPrompt.value = q; opPrompt.focus(); }
+          showToast('Ready — press Send to All or refine your prompt');
+        },
+      };
+
+      // Show brief thinking indicator without blocking
+      if(inp) inp.disabled = true;
+      if(inp) inp.placeholder = 'Routing…';
+
       try{
         const res = await fetch('/api/os/intent_route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:q})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Route failed');
-        const preview = [
-          'Intent: ' + (data.intent || ''),
-          'Suggested module: ' + (data.module || ''),
-          data.plan ? ('\nPlan\n' + data.plan) : '',
-          data.next_action ? ('\nNext action\n' + data.next_action) : ''
-        ].filter(Boolean).join('\n');
-        showModal('Command router', preview);
+
+        const module = data.module || 'round_table';
+        const dispatch = moduleDispatch[module] || moduleDispatch['round_table'];
+
+        // Pre-fill session objective if the AI suggested one
         if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
           $("sessionObjectiveInput").value = data.prefill_objective;
         }
+
+        // Clear the command bar
+        if(inp){ inp.value = ''; inp.placeholder = 'Type a command... e.g. Alex open lead lab'; }
+
+        // Execute the module
+        dispatch();
+
+        // Show a brief non-blocking toast so user knows what happened
+        const label = module.replace(/_/g,' ');
+        if(typeof showToast==='function') showToast('Routed to: ' + label + (data.confidence ? ' (' + Math.round((data.confidence||0)*100) + '% confident)' : ''));
+
       }catch(e){
         showModal('Command router error', String(e && e.message ? e.message : e));
+      }finally{
+        if(inp){ inp.disabled = false; inp.placeholder = 'Type a command... e.g. Alex open lead lab'; }
       }
     }
 
@@ -8828,7 +8929,7 @@ function makeSeat(defn, idx){
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
         $("seatSub").innerText = "No active teammate selected.";
-        if(selectedSeat !== "Operator") selectedSeat = "";
+        if(selectedSeat !== "Operator"){ selectedSeat = ""; window.selectedSeat = ""; }
         renderThread([]);
         return;
       }
@@ -9052,6 +9153,7 @@ function makeSeat(defn, idx){
     function forceSeatSelectUI(name){
       try{
         selectedSeat = name;
+        window.selectedSeat = name;  // keep window in sync
         markActiveSeat();
         const el = document.querySelector('.seat[data-name="' + _cssEscape(name) + '"]');
         if(!el) return;
@@ -9067,6 +9169,7 @@ function makeSeat(defn, idx){
 
     async function selectSeat(name){
       selectedSeat = name;
+      window.selectedSeat = name;  // keep window in sync
       markActiveSeat();
 
       const defn = state.installed[name];
