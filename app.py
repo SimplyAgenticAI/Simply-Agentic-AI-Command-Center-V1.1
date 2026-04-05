@@ -4892,6 +4892,10 @@ HTML = r"""
       border-radius: 16px;
       padding: 12px;
       box-shadow: 0 0 24px rgba(0,0,0,.24);
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 48px);
+      overflow: hidden;
     }
 
     .sideHead{
@@ -6944,6 +6948,10 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
               <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;">
 
 <style>
+/* Message expand modal */
+    #saMsgModal { display:none; }
+    #saMsgModal.open { display:flex !important; }
+
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:calc(100vh - 120px); min-height:500px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
 .wcal-sidebar { width:220px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:12px; overflow-y:auto; }
@@ -7201,13 +7209,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
 
   <!-- Message Expand Modal -->
-  <div id="saMsgModal" style="display:none;position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseMsgModal()">
+  <div id="saMsgModal" style="position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseMsgModal()">
     <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(860px,92vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid rgba(42,58,106,.6);">
         <span id="saMsgModalTitle" style="font-weight:700;font-size:14px;color:#c4b5fd;">Response</span>
         <div style="display:flex;gap:8px;">
-          <button onclick="saCopyMsgModal()" style="background:rgba(42,58,106,.6);border:1px solid rgba(124,58,237,.4);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">Copy</button>
-          <button onclick="saCloseMsgModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+          <button onclick="if(typeof saCopyMsgModal==='function')saCopyMsgModal()" style="background:rgba(42,58,106,.6);border:1px solid rgba(124,58,237,.4);color:#a5b4fc;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">Copy</button>
+          <button onclick="if(typeof saCloseMsgModal==='function')saCloseMsgModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
         </div>
       </div>
       <div id="saMsgModalBody" style="flex:1;overflow-y:auto;padding:20px 24px;font-size:15px;line-height:1.7;white-space:pre-wrap;color:#e2e8f0;"></div>
@@ -7469,7 +7477,7 @@ function applyModalPos(){
       if(lb) lb.style.display = "none";
     }
 
-function showModal(title, body, imgUrl){
+window.showModal = function showModal(title, body, imgUrl){
       $("modalTitle").innerText = title;
       $("modalBody").innerText = body || "";
       hideAllModalForms();
@@ -8057,7 +8065,7 @@ function showModal(title, body, imgUrl){
       }
     }
 
-    async function runGlobalCommandBar(){
+    async window.runGlobalCommandBar = async function runGlobalCommandBar(){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
       if(!q){ showModal('Missing command', 'Type a command first.'); return; }
@@ -9858,7 +9866,7 @@ function makeSeat(defn, idx){
 
 
     // ===== NAV BAR DROPDOWN JS =====
-    function saToggleDrop(dropId){
+    window.saToggleDrop = function saToggleDrop(dropId){
       const allDrops=document.querySelectorAll('.saDrop');
       const target=document.getElementById(dropId);
       const isOpen=target&&target.classList.contains('open');
@@ -9868,6 +9876,17 @@ function makeSeat(defn, idx){
     document.addEventListener('click',function(e){
       if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
     });
+
+    // Auto-close dropdowns after any item is clicked
+    document.querySelectorAll('.saDropItem').forEach(function(item){
+      item.addEventListener('click', function(){
+        setTimeout(function(){
+          document.querySelectorAll('.saDrop').forEach(function(d){ d.classList.remove('open'); });
+          document.querySelectorAll('.saNavBtn').forEach(function(b){ b.classList.remove('open'); });
+        }, 50);
+      });
+    });
+
     // Wire command bar
     (function(){
       const cmdInput=document.getElementById('globalCommandBar');
@@ -9904,7 +9923,7 @@ function makeSeat(defn, idx){
     })();
     // ── End password manager suppression ─────────────────────────
 
-    async function conveneAll(){
+    window.conveneAll = async function conveneAll(){
       const prompt = $("opPrompt").value.trim();
       if(!prompt){
         showModal("Missing prompt", "Type a prompt first.");
@@ -10076,16 +10095,16 @@ async function pollImageJob(jobId, seatName){
 
 
     // ===== EXPAND MESSAGE MODAL =====
-    function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
-    function saCloseMsgModal(){ const m=document.getElementById('saMsgModal'); if(m)m.style.display='none'; document.body.style.overflow=''; }
-    function saCopyMsgModal(){ const b=document.getElementById('saMsgModalBody'); navigator.clipboard.writeText(b?b.innerText:'').then(()=>{}).catch(()=>{}); }
-    function saWireThreadClicks(){ const thread=document.getElementById('thread'); if(!thread)return; thread.querySelectorAll('.msg').forEach(function(msg){ if(msg._saWired)return; msg._saWired=true; msg.style.cursor='pointer'; msg.title='Click to expand'; msg.addEventListener('click',function(e){ if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return; const who=(msg.querySelector('.who')||{}).innerText||(window.selectedSeat||'Response'); saOpenMsgModal(who,msg.innerHTML); }); }); }
+    window.saOpenMsgModal = function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
+    window.saCloseMsgModal = function saCloseMsgModal(){ const m=document.getElementById('saMsgModal'); if(m)m.style.display='none'; document.body.style.overflow=''; }
+    window.saCopyMsgModal = function saCopyMsgModal(){ const b=document.getElementById('saMsgModalBody'); navigator.clipboard.writeText(b?b.innerText:'').then(()=>{}).catch(()=>{}); }
+    window.saWireThreadClicks = function saWireThreadClicks(){ const thread=document.getElementById('thread'); if(!thread)return; thread.querySelectorAll('.msg').forEach(function(msg){ if(msg._saWired)return; msg._saWired=true; msg.style.cursor='pointer'; msg.title='Click to expand'; msg.addEventListener('click',function(e){ if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return; const who=(msg.querySelector('.who')||{}).innerText||(window.selectedSeat||'Response'); saOpenMsgModal(who,msg.innerHTML); }); }); }
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
     (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
     // ===== END EXPAND MODAL =====
 
-    async function sendFollow(){
+    window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
         showModal("No seat selected", "Click a teammate card first.");
         return;
@@ -11308,7 +11327,7 @@ async function crmFetchTasks(){
       }
     }
 
-    function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
+    window.showCRMModal = function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
       showModal();
       try{ ensureModalMinSize(900, 720); }catch(e){}
@@ -11959,7 +11978,7 @@ function wcalRenderMiniMonth(){
   grid.innerHTML = html;
 }
 
-function wcalSelectDate(dt){
+window.wcalSelectDate = function wcalSelectDate(dt){
   cal.selected = dt;
   const d = new Date(dt+'T12:00:00');
   if(cal.view==='week'){
@@ -12003,7 +12022,7 @@ function wcalRenderUpcoming(){
 }
 
 // ── View switch ───────────────────────────────────────────────
-function wcalSetView(v){
+window.wcalSetView = function wcalSetView(v){
   cal.view = v;
   document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
   const btn = document.getElementById('wcalView'+v.charAt(0).toUpperCase()+v.slice(1));
@@ -12118,7 +12137,7 @@ function wcalWireButtons(){
 
 // ── showCalendarModal ─────────────────────────────────────────
 // (keep the function that existing calendarBtn calls)
-function showCalendarModal(){
+window.showCalendarModal = function showCalendarModal(){
   showModal();
   if(typeof hideAllModalForms === 'function') hideAllModalForms();
   else {
@@ -13349,7 +13368,21 @@ function applyRTTransformV4(){
 })();
 
 
-maybeAutoShowOnboarding();
+// Auto-show onboarding if applicable (safe stub — real logic is in the onboarding IIFE)
+if(typeof maybeAutoShowOnboarding === "function"){
+  try{ maybeAutoShowOnboarding(); }catch(_){}
+} else {
+  // Stub: try to open onboarding via the exposed window handle
+  try{
+    setTimeout(function(){
+      if(typeof window.onboardingOpen === "function"){
+        fetch("/api/onboarding/status").then(r=>r.json()).then(d=>{
+          if(d && d.ok && !d.dismissed && !d.all_done) window.onboardingOpen();
+        }).catch(function(){});
+      }
+    }, 800);
+  }catch(_){}
+}
 
     // ===== Client Center: Pipeline (FlowChat-like columns) =====
     function ccSelectTab(tab){
