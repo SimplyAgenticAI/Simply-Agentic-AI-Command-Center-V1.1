@@ -7142,8 +7142,65 @@ label         { font-size: 14px !important; }
 .wcal-event-time { font-size:10px; opacity:.8; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
-/* Sidebar mini-month */
-.wcal-mini-month { font-size:11px; }
+/* Sidebar tabs */
+.wcal-tabs { display:flex; gap:2px; margin-bottom:8px; background:rgba(7,10,20,.5); border-radius:8px; padding:3px; }
+.wcal-tab { flex:1; text-align:center; padding:5px 4px; font-size:11px; font-weight:600; border-radius:6px; cursor:pointer; color:rgba(148,163,184,.6); border:none; background:transparent; }
+.wcal-tab.active { background:rgba(124,58,237,.35); color:#c4b5fd; }
+
+/* Task items in sidebar */
+.wcal-task-item {
+  display:flex; align-items:flex-start; gap:8px;
+  padding:7px 4px; border-bottom:1px solid rgba(42,58,106,.2);
+  cursor:pointer; border-radius:6px; transition:background .12s;
+}
+.wcal-task-item:hover { background:rgba(124,58,237,.08); }
+.wcal-task-item.done .wcal-task-title { text-decoration:line-through; opacity:.45; }
+.wcal-task-item.done .wcal-task-meta  { opacity:.35; }
+
+/* Checkbox */
+.wcal-check {
+  width:16px; height:16px; border-radius:4px; border:2px solid rgba(100,116,139,.5);
+  flex-shrink:0; margin-top:1px; cursor:pointer; display:flex; align-items:center;
+  justify-content:center; transition:all .15s; background:transparent;
+}
+.wcal-check.checked { background:#7c3aed; border-color:#7c3aed; }
+.wcal-check.checked::after { content:'✓'; font-size:10px; color:#fff; line-height:1; }
+
+/* Task text block */
+.wcal-task-body { flex:1; min-width:0; }
+.wcal-task-title { font-size:12px; color:rgba(226,232,240,.9); line-height:1.35; word-break:break-word; }
+.wcal-task-meta  { font-size:10px; color:rgba(100,116,139,.65); margin-top:2px; display:flex; align-items:center; gap:5px; }
+.wcal-pri-dot    { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.wcal-pri-high   { background:#ef4444; }
+.wcal-pri-normal { background:#f59e0b; }
+.wcal-pri-low    { background:#6b7280; }
+
+/* Inline task detail panel */
+.wcal-task-detail {
+  display:none; background:rgba(7,10,20,.7); border:1px solid rgba(124,58,237,.3);
+  border-radius:8px; padding:10px; margin:4px 0 6px 24px;
+  animation: wcalFadeIn .15s ease;
+}
+.wcal-task-detail.open { display:block; }
+@keyframes wcalFadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+.wcal-detail-field { margin-bottom:7px; }
+.wcal-detail-label { font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:rgba(100,116,139,.6); margin-bottom:3px; }
+.wcal-detail-input {
+  width:100%; background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.6);
+  border-radius:6px; padding:5px 7px; font-size:11px; color:#e2e8f0; outline:none;
+}
+.wcal-detail-input:focus { border-color:rgba(124,58,237,.6); }
+.wcal-detail-select { width:100%; background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.6); border-radius:6px; padding:5px 7px; font-size:11px; color:#e2e8f0; outline:none; }
+.wcal-detail-actions { display:flex; gap:6px; margin-top:8px; justify-content:flex-end; }
+.wcal-detail-save { background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#c4b5fd; border-radius:6px; padding:4px 12px; font-size:11px; cursor:pointer; }
+.wcal-detail-del  { background:rgba(180,30,60,.2); border:1px solid rgba(239,68,68,.3); color:#fca5a5; border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
+
+/* New task quick-add row */
+.wcal-new-task { display:flex; gap:6px; margin-top:6px; }
+.wcal-new-task-input { flex:1; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.5); border-radius:7px; padding:5px 8px; font-size:11px; color:#e2e8f0; outline:none; }
+.wcal-new-task-input:focus { border-color:rgba(124,58,237,.6); }
+.wcal-new-task-btn { background:rgba(124,58,237,.35); border:1px solid rgba(124,58,237,.5); color:#c4b5fd; border-radius:7px; padding:5px 10px; font-size:11px; cursor:pointer; white-space:nowrap; }
+
 .wcal-mini-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
 .wcal-mini-month-label { font-size:12px; font-weight:700; color:#c4b5fd; }
 .wcal-mini-nav { background:transparent; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:12px; padding:2px 4px; }
@@ -7231,11 +7288,46 @@ label         { font-size: 14px !important; }
 
     <div style="border-top:1px solid rgba(42,58,106,.4);"></div>
 
-    <!-- Upcoming events -->
-    <div>
-      <div class="wcal-section-title">Upcoming</div>
-      <div class="wcal-upcoming" id="wcalUpcoming">
-        <div class="wcal-upcoming-time">Loading...</div>
+    <!-- Tabbed Events / Tasks panel -->
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column;">
+      <div class="wcal-tabs">
+        <button class="wcal-tab active" id="wcalTabEvents" onclick="wcalSwitchTab('events')">Events</button>
+        <button class="wcal-tab"        id="wcalTabTasks"  onclick="wcalSwitchTab('tasks')">Tasks</button>
+      </div>
+
+      <!-- Events list -->
+      <div id="wcalPanelEvents" style="flex:1;overflow-y:auto;">
+        <div class="wcal-section-title">Upcoming</div>
+        <div class="wcal-upcoming" id="wcalUpcoming">
+          <div class="wcal-upcoming-time">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Tasks list -->
+      <div id="wcalPanelTasks" style="display:none;flex:1;overflow-y:auto;">
+        <div class="wcal-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Tasks</span>
+          <button onclick="wcalNewTask()" style="background:none;border:none;color:rgba(124,58,237,.8);font-size:16px;cursor:pointer;padding:0;line-height:1;" title="Add task">+</button>
+        </div>
+        <!-- New task input (hidden until + clicked) -->
+        <div id="wcalNewTaskRow" style="display:none;margin-bottom:8px;">
+          <input class="wcal-new-task-input" id="wcalNewTaskInput" placeholder="Task title…" autocomplete="off" />
+          <div style="display:flex;gap:6px;margin-top:5px;">
+            <input type="date" class="wcal-new-task-input" id="wcalNewTaskDue" style="flex:1;" />
+            <select class="wcal-new-task-input" id="wcalNewTaskPri" style="flex:1;">
+              <option value="high">High</option>
+              <option value="normal" selected>Normal</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:5px;margin-top:5px;">
+            <button class="wcal-new-task-btn" onclick="wcalSaveNewTask()" style="flex:1;">Add</button>
+            <button class="wcal-new-task-btn" onclick="wcalCancelNewTask()" style="background:transparent;border-color:rgba(42,58,106,.5);color:rgba(148,163,184,.6);">✕</button>
+          </div>
+        </div>
+        <!-- Task list -->
+        <div id="wcalTaskList" style="margin-top:2px;"></div>
+        <div class="wcal-status" id="wcalTaskStatus"></div>
       </div>
     </div>
 
@@ -11406,34 +11498,125 @@ async function crmFetchTasks(){
         box.innerHTML = '<div class="tiny" style="opacity:.9;">No tasks yet.</div>';
         return;
       }
-      box.innerHTML = list.map(t=>{
-        const id = escapeHtml(t.id||'');
+
+      const priColor = (p) => p==='high'?'#ef4444':p==='low'?'#6b7280':'#f59e0b';
+      const fmtDue   = (due) => {
+        if(!due) return '';
+        const d = new Date(due+'T12:00:00');
+        if(isNaN(d)) return escapeHtml(due);
+        const today = new Date(); today.setHours(0,0,0,0);
+        const diff = Math.round((d-today)/86400000);
+        const label = diff<0 ? d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+                    : diff===0 ? 'Today' : diff===1 ? 'Tomorrow'
+                    : d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        const color = diff<0?'#ef4444':diff<=1?'#f59e0b':'rgba(100,116,139,.8)';
+        return `<span style="color:${color};">${label}</span>`;
+      };
+
+      box.innerHTML = list.map(t => {
+        const id    = escapeHtml(t.id||'');
         const title = escapeHtml(t.title||'');
-        const due = escapeHtml(t.due||'');
-        const pri = escapeHtml(t.priority||'normal');
-        const done = t.done ? '✅' : '⬜';
-        const client = escapeHtml(t.client_id||'');
+        const done  = t.done;
+        const priC  = priColor(t.priority);
         return `
-          <div class="diagCard" style="padding:10px;">
-            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-              <div>
-                <div style="font-weight:700;">${done} ${title}</div>
-                <div class="tiny" style="opacity:.9;">${due ? 'Due: '+due+' • ' : ''}${pri}${client ? ' • Client: '+client : ''}</div>
-                <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
+        <div style="border:1px solid rgba(42,58,106,.4);border-radius:10px;margin-bottom:8px;overflow:hidden;">
+          <!-- Row -->
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;cursor:pointer;background:rgba(11,16,36,.6);"
+               onclick="crmExpandTask('${id}',event)">
+            <!-- Checkbox -->
+            <div onclick="crmToggleTask('${id}');event.stopPropagation();"
+                 style="width:18px;height:18px;border-radius:5px;border:2px solid ${done?'#7c3aed':'rgba(100,116,139,.5)'};
+                        background:${done?'#7c3aed':'transparent'};flex-shrink:0;margin-top:1px;cursor:pointer;
+                        display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;">
+              ${done?'✓':''}
+            </div>
+            <!-- Content -->
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;font-size:13px;${done?'text-decoration:line-through;opacity:.45;':''}">
+                ${title}
               </div>
-              <div style="display:flex; gap:8px; align-items:flex-start;">
-                <button class="btn btnTiny" data-task-edit="${id}">Edit</button>
-                <button class="btn btnTiny" data-task-toggle="${id}">${t.done ? 'Undone' : 'Done'}</button>
-                <button class="btn btnTiny" data-task-del="${id}">Delete</button>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11px;">
+                <span style="width:7px;height:7px;border-radius:50%;background:${priC};display:inline-block;flex-shrink:0;"></span>
+                ${t.due ? fmtDue(t.due) : '<span style="opacity:.4;">No due date</span>'}
+                ${t.client_id ? '<span style="opacity:.5;">· '+escapeHtml(t.client_id)+'</span>' : ''}
               </div>
             </div>
+            <div style="font-size:11px;color:rgba(100,116,139,.5);margin-top:1px;">▾</div>
           </div>
-        `;
+          <!-- Expandable detail -->
+          <div id="crm-td-${id}" style="display:none;padding:12px 14px;border-top:1px solid rgba(42,58,106,.3);background:rgba(7,10,20,.4);">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+              <div>
+                <div class="tiny" style="margin-bottom:3px;">Title</div>
+                <input class="field" id="crm-dt-title-${id}" value="${title}" style="font-size:12px;padding:6px 8px;" />
+              </div>
+              <div>
+                <div class="tiny" style="margin-bottom:3px;">Due date</div>
+                <input type="date" class="field" id="crm-dt-due-${id}" value="${escapeHtml(t.due||'')}" style="font-size:12px;padding:6px 8px;" />
+              </div>
+              <div>
+                <div class="tiny" style="margin-bottom:3px;">Priority</div>
+                <select class="field" id="crm-dt-pri-${id}" style="font-size:12px;padding:6px 8px;">
+                  <option value="high"   ${t.priority==='high'   ?'selected':''}>High</option>
+                  <option value="normal" ${(t.priority||'normal')==='normal'?'selected':''}>Normal</option>
+                  <option value="low"    ${t.priority==='low'    ?'selected':''}>Low</option>
+                </select>
+              </div>
+              <div>
+                <div class="tiny" style="margin-bottom:3px;">Status</div>
+                <select class="field" id="crm-dt-status-${id}" style="font-size:12px;padding:6px 8px;">
+                  <option value="open"   ${(t.status||'open')==='open'  ?'selected':''}>Open</option>
+                  <option value="done"   ${t.status==='done'  ?'selected':''}>Done</option>
+                  <option value="hold"   ${t.status==='hold'  ?'selected':''}>On hold</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-bottom:8px;">
+              <div class="tiny" style="margin-bottom:3px;">Notes</div>
+              <textarea class="field" id="crm-dt-notes-${id}" rows="2" style="font-size:12px;padding:6px 8px;resize:vertical;">${escapeHtml(t.notes||'')}</textarea>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="btn btnTiny" style="background:rgba(180,30,60,.2);border-color:rgba(239,68,68,.3);color:#fca5a5;"
+                      onclick="crmDeleteTask('${id}')">Delete</button>
+              <button class="btn btnTiny btnPrimary" onclick="crmSaveTaskInline('${id}')">Save changes</button>
+            </div>
+          </div>
+        </div>`;
       }).join('');
+    }
 
-      box.querySelectorAll('[data-task-edit]').forEach(b=>b.addEventListener('click', ()=>crmOpenTaskEditor(b.getAttribute('data-task-edit'))));
-      box.querySelectorAll('[data-task-toggle]').forEach(b=>b.addEventListener('click', ()=>crmToggleTask(b.getAttribute('data-task-toggle'))));
-      box.querySelectorAll('[data-task-del]').forEach(b=>b.addEventListener('click', ()=>crmDeleteTask(b.getAttribute('data-task-del'))));
+    let _crmExpandedTask = null;
+    function crmExpandTask(id, e){
+      if(e) e.stopPropagation();
+      const panel = document.getElementById('crm-td-'+id);
+      if(!panel) return;
+      const isOpen = panel.style.display !== 'none';
+      // Close previous
+      if(_crmExpandedTask && _crmExpandedTask !== id){
+        const prev = document.getElementById('crm-td-'+_crmExpandedTask);
+        if(prev) prev.style.display = 'none';
+      }
+      panel.style.display = isOpen ? 'none' : 'block';
+      _crmExpandedTask = !isOpen ? id : null;
+    }
+
+    async function crmSaveTaskInline(id){
+      const title  = (document.getElementById('crm-dt-title-'+id)||{}).value||'';
+      const due    = (document.getElementById('crm-dt-due-'+id)||{}).value||'';
+      const pri    = (document.getElementById('crm-dt-pri-'+id)||{}).value||'normal';
+      const status = (document.getElementById('crm-dt-status-'+id)||{}).value||'open';
+      const notes  = (document.getElementById('crm-dt-notes-'+id)||{}).value||'';
+      try{
+        const r = await fetch('/api/crm/tasks/'+encodeURIComponent(id),{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({title:title.trim(), due, priority:pri, status, notes})
+        });
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'save failed');
+        showToast('Task saved');
+        await crmFetchTasks();
+        crmRenderTasks();
+      }catch(e){ showToast('Save failed','error'); }
     }
 
     function crmOpenTaskEditor(id){
@@ -12306,6 +12489,268 @@ function wcalRenderUpcoming(){
       +'</div>';
   }).join('');
 }
+
+// ── Calendar Task Engine ──────────────────────────────────────
+let wcalTasks = [];
+let wcalActiveTaskDetail = null;
+
+function wcalSwitchTab(tab){
+  const evPanel  = document.getElementById('wcalPanelEvents');
+  const tkPanel  = document.getElementById('wcalPanelTasks');
+  const evTab    = document.getElementById('wcalTabEvents');
+  const tkTab    = document.getElementById('wcalTabTasks');
+  if(!evPanel || !tkPanel) return;
+  if(tab === 'tasks'){
+    evPanel.style.display = 'none'; tkPanel.style.display = 'flex'; tkPanel.style.flexDirection = 'column';
+    evTab.classList.remove('active'); tkTab.classList.add('active');
+    wcalLoadTasks();
+  } else {
+    tkPanel.style.display = 'none'; evPanel.style.display = 'block';
+    tkTab.classList.remove('active'); evTab.classList.add('active');
+  }
+}
+
+async function wcalLoadTasks(){
+  const st = document.getElementById('wcalTaskStatus');
+  try {
+    const r = await fetch('/api/crm/tasks');
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error||'load failed');
+    wcalTasks = d.tasks || [];
+    wcalRenderTaskList();
+    if(st) st.innerText = '';
+  } catch(e) {
+    if(st) st.innerText = 'Could not load tasks';
+  }
+}
+
+function _wcalPriClass(p){ return p==='high'?'wcal-pri-high':p==='low'?'wcal-pri-low':'wcal-pri-normal'; }
+function _wcalFmtDue(due){
+  if(!due) return '';
+  const d = new Date(due+'T12:00:00');
+  if(isNaN(d)) return due;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const diff = Math.round((d - today) / 86400000);
+  if(diff < 0)  return '<span style="color:#ef4444;">'+d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</span>';
+  if(diff === 0) return '<span style="color:#f59e0b;">Today</span>';
+  if(diff === 1) return '<span style="color:#f59e0b;">Tomorrow</span>';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function wcalRenderTaskList(){
+  const box = document.getElementById('wcalTaskList');
+  if(!box) return;
+  if(!wcalTasks.length){
+    box.innerHTML = '<div class="wcal-upcoming-time" style="padding:8px 4px;">No tasks yet. Press + to add one.</div>';
+    return;
+  }
+
+  // Group: open first (sorted by due), then done
+  const open = wcalTasks.filter(t=>!t.done).sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+  const done = wcalTasks.filter(t=> t.done);
+
+  const renderTask = (t) => {
+    const id  = t.id || '';
+    const esc = (s) => String(s||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const priCls = _wcalPriClass(t.priority);
+    const doneClass = t.done ? 'done' : '';
+    return `
+      <div class="wcal-task-item ${doneClass}" id="wcal-ti-${esc(id)}" data-task-id="${esc(id)}">
+        <div class="wcal-check ${t.done?'checked':''}" data-check-id="${esc(id)}" title="${t.done?'Mark undone':'Mark done'}"></div>
+        <div class="wcal-task-body">
+          <div class="wcal-task-title">${esc(t.title)}</div>
+          <div class="wcal-task-meta">
+            <span class="wcal-pri-dot ${priCls}"></span>
+            ${t.due ? _wcalFmtDue(t.due) : '<span>No due date</span>'}
+            ${t.client_id ? '<span>· '+esc(t.client_id)+'</span>' : ''}
+          </div>
+        </div>
+      </div>
+      <div class="wcal-task-detail" id="wcal-td-${esc(id)}">
+        <div class="wcal-detail-field">
+          <div class="wcal-detail-label">Title</div>
+          <input class="wcal-detail-input" id="wcal-dt-title-${esc(id)}" value="${esc(t.title)}" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div class="wcal-detail-field">
+            <div class="wcal-detail-label">Due date</div>
+            <input type="date" class="wcal-detail-input" id="wcal-dt-due-${esc(id)}" value="${esc(t.due)}" />
+          </div>
+          <div class="wcal-detail-field">
+            <div class="wcal-detail-label">Priority</div>
+            <select class="wcal-detail-select" id="wcal-dt-pri-${esc(id)}">
+              <option value="high"   ${t.priority==='high'  ?'selected':''}>High</option>
+              <option value="normal" ${t.priority==='normal'||!t.priority?'selected':''}>Normal</option>
+              <option value="low"    ${t.priority==='low'   ?'selected':''}>Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="wcal-detail-field">
+          <div class="wcal-detail-label">Notes</div>
+          <textarea class="wcal-detail-input" id="wcal-dt-notes-${esc(id)}" rows="2" style="resize:vertical;">${esc(t.notes||'')}</textarea>
+        </div>
+        <div class="wcal-detail-field">
+          <div class="wcal-detail-label">Client ID</div>
+          <input class="wcal-detail-input" id="wcal-dt-client-${esc(id)}" value="${esc(t.client_id||'')}" />
+        </div>
+        <div class="wcal-detail-actions">
+          <button class="wcal-detail-del"  onclick="wcalDeleteTask('${esc(id)}')">Delete</button>
+          <button class="wcal-detail-save" onclick="wcalSaveTask('${esc(id)}')">Save</button>
+        </div>
+      </div>`;
+  };
+
+  let html = open.map(renderTask).join('');
+  if(done.length){
+    html += `<div class="wcal-section-title" style="margin-top:10px;opacity:.5;">Completed (${done.length})</div>`;
+    html += done.map(renderTask).join('');
+  }
+  box.innerHTML = html;
+
+  // Wire checkboxes
+  box.querySelectorAll('[data-check-id]').forEach(el=>{
+    el.addEventListener('click', function(e){
+      e.stopPropagation();
+      wcalToggleTask(this.getAttribute('data-check-id'));
+    });
+  });
+
+  // Wire row click → expand detail
+  box.querySelectorAll('.wcal-task-item').forEach(row=>{
+    row.addEventListener('click', function(e){
+      if(e.target.closest('[data-check-id]')) return;
+      const id = this.getAttribute('data-task-id');
+      wcalToggleTaskDetail(id);
+    });
+  });
+}
+
+function wcalToggleTaskDetail(id){
+  const detail = document.getElementById('wcal-td-'+id);
+  if(!detail) return;
+  const isOpen = detail.classList.contains('open');
+  // Close any other open detail
+  if(wcalActiveTaskDetail && wcalActiveTaskDetail !== id){
+    const prev = document.getElementById('wcal-td-'+wcalActiveTaskDetail);
+    if(prev) prev.classList.remove('open');
+  }
+  detail.classList.toggle('open', !isOpen);
+  wcalActiveTaskDetail = !isOpen ? id : null;
+  if(!isOpen){
+    // Scroll the detail into view
+    setTimeout(()=>{ try{ detail.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(_){} }, 60);
+  }
+}
+
+async function wcalToggleTask(id){
+  const t = wcalTasks.find(x=>x.id===id);
+  if(!t) return;
+  const newDone = !t.done;
+  // Optimistic UI update
+  const check = document.querySelector('[data-check-id="'+id+'"]');
+  const row   = document.getElementById('wcal-ti-'+id);
+  if(check){ check.classList.toggle('checked', newDone); }
+  if(row)  { row.classList.toggle('done', newDone); }
+  try {
+    const r = await fetch('/api/crm/tasks/'+encodeURIComponent(id),{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({done: newDone})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error);
+    // Update local cache
+    t.done = newDone;
+    if(typeof showToast==='function') showToast(newDone ? '✓ Task done' : 'Task reopened');
+    // Re-render after short delay so the checkmark animation is visible
+    setTimeout(()=>{ wcalRenderTaskList(); }, 350);
+  } catch(e) {
+    // Rollback optimistic update
+    if(check){ check.classList.toggle('checked', !newDone); }
+    if(row)  { row.classList.toggle('done', !newDone); }
+    if(typeof showToast==='function') showToast('Update failed','error');
+  }
+}
+
+async function wcalSaveTask(id){
+  const title  = (document.getElementById('wcal-dt-title-'+id)||{}).value||'';
+  const due    = (document.getElementById('wcal-dt-due-'+id)||{}).value||'';
+  const pri    = (document.getElementById('wcal-dt-pri-'+id)||{}).value||'normal';
+  const notes  = (document.getElementById('wcal-dt-notes-'+id)||{}).value||'';
+  const client = (document.getElementById('wcal-dt-client-'+id)||{}).value||'';
+  try {
+    const r = await fetch('/api/crm/tasks/'+encodeURIComponent(id),{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title, due, priority:pri, notes, client_id:client})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error);
+    if(typeof showToast==='function') showToast('Task saved');
+    await wcalLoadTasks();
+  } catch(e) {
+    if(typeof showToast==='function') showToast('Save failed','error');
+  }
+}
+
+async function wcalDeleteTask(id){
+  if(!confirm('Delete this task?')) return;
+  try {
+    const r = await fetch('/api/crm/tasks/'+encodeURIComponent(id),{method:'DELETE'});
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error);
+    if(typeof showToast==='function') showToast('Task deleted');
+    await wcalLoadTasks();
+  } catch(e) {
+    if(typeof showToast==='function') showToast('Delete failed','error');
+  }
+}
+
+function wcalNewTask(){
+  const row = document.getElementById('wcalNewTaskRow');
+  if(!row) return;
+  row.style.display = row.style.display==='none' ? 'block' : 'none';
+  if(row.style.display==='block'){
+    const inp = document.getElementById('wcalNewTaskInput');
+    if(inp) inp.focus();
+    // Pre-fill due date with selected date
+    const dateEl = document.getElementById('wcalNewTaskDue');
+    if(dateEl && cal.selected) dateEl.value = cal.selected;
+  }
+}
+function wcalCancelNewTask(){
+  const row = document.getElementById('wcalNewTaskRow');
+  if(row) row.style.display = 'none';
+  const inp = document.getElementById('wcalNewTaskInput');
+  if(inp) inp.value = '';
+}
+async function wcalSaveNewTask(){
+  const title = (document.getElementById('wcalNewTaskInput')||{}).value||'';
+  const due   = (document.getElementById('wcalNewTaskDue')||{}).value||'';
+  const pri   = (document.getElementById('wcalNewTaskPri')||{}).value||'normal';
+  if(!title.trim()){ if(typeof showToast==='function') showToast('Enter a task title','error'); return; }
+  const st = document.getElementById('wcalTaskStatus');
+  if(st) st.innerText = 'Saving…';
+  try {
+    const r = await fetch('/api/crm/tasks',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({title:title.trim(), due, priority:pri})
+    });
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error);
+    wcalCancelNewTask();
+    if(st) st.innerText = '';
+    if(typeof showToast==='function') showToast('Task created');
+    await wcalLoadTasks();
+  } catch(e) {
+    if(st) st.innerText = 'Failed: '+(e.message||e);
+  }
+}
+
+// Allow Enter in new task input
+document.addEventListener('DOMContentLoaded', function(){
+  const inp = document.getElementById('wcalNewTaskInput');
+  if(inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); wcalSaveNewTask(); } });
+});
 
 // ── View switch ───────────────────────────────────────────────
 window.wcalSetView = function wcalSetView(v){
