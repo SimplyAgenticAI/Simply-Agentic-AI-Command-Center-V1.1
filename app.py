@@ -4647,7 +4647,9 @@ HTML = r"""
     }
 
     .stage{
-      min-height: calc(100vh - 24px);
+      height: calc(100vh - 72px);
+      max-height: calc(100vh - 72px);
+      overflow: hidden;
       display:grid;
       grid-template-columns: minmax(0, 1fr) 500px;
       align-items:start;
@@ -4659,13 +4661,16 @@ HTML = r"""
       align-items:flex-start;
       justify-content:center;
       padding: 18px 0 18px 0;
+      height: 100%;
+      overflow: hidden;
     }
 
     .tableWrap{
       position:relative;
       width:min(860px, 92vw);
-      height:min(860px, 92vw);
-      min-height: 860px;
+      height: calc(100vh - 108px);
+      max-height: calc(100vh - 108px);
+      min-height: 500px;
       margin-bottom: 0;
     }
 
@@ -6156,7 +6161,18 @@ label         { font-size: 14px !important; }
       <div class="saNavCenter">
         <div class="saCommandWrap">
           <span class="saCmdIcon">&#8984;</span>
-          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" autocomplete="off" data-lpignore="true" />
+          <input id="globalCommandBar" class="saCmdInput"
+            type="search"
+            role="searchbox"
+            placeholder="Type a command... e.g. get me 20 NJ realtors"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            aria-label="Command bar" />
           <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
         </div>
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
@@ -9099,13 +9115,9 @@ function makeSeat(defn, idx){
 
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
-      nameEl.innerText = "Operator";
+      nameEl.style.lineHeight = "1.2";
+      nameEl.innerHTML = 'Operator<br><span style="font-size:11px;font-weight:600;opacity:.7;letter-spacing:.03em;">Profile</span>';
       seat.appendChild(nameEl);
-
-      const meta = document.createElement("div");
-      meta.className = "seatMeta";
-      meta.innerText = "Profile";
-      seat.appendChild(meta);
 
       // Default position like other seats (with saved drag positions)
       try{
@@ -9894,8 +9906,8 @@ function makeSeat(defn, idx){
           .trim();
         target.value = combined;
 
-        // AUTO SEND AFTER TALKING STOPS (ADD v1)
-        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
+        // AUTO SEND AFTER TALKING STOPS
+        // Waits 3.5 seconds after speech ends — gives you time to finish your thought.
         try{
           const snapshot = (combined || "").trim();
           if(snapshot){
@@ -9910,7 +9922,7 @@ function makeSeat(defn, idx){
                   sendFollow();
                 }
               }catch(_){}
-            }, 2000);
+            }, 3500);
           }
         }catch(_){}
       };
@@ -12276,11 +12288,27 @@ function wcalRenderWeek(){
     }
 
     // All-day events pinned at top
+    let allDayOffset = 0;
     allDay.forEach((ev,ai)=>{
       const color = eventColor(ev);
       const title = (ev.summary||'Event').replace(/</g,'&lt;');
       html += '<div class="wcal-event" style="top:'+(4+ai*20)+'px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;z-index:4;" title="'+title+'">';
       html += '<div class="wcal-event-title">'+title+'</div></div>';
+      allDayOffset = Math.max(allDayOffset, (ai+1)*20 + 4);
+    });
+
+    // Task chips for this date — show ALL tasks (done and open) with done struck through
+    const dayTasks = wcalTasks.filter(t => t.due && t.due.slice(0,10) === dt);
+    dayTasks.forEach((t, ti) => {
+      const isDone = !!t.done;
+      const taskTitle = (t.title||'Task').replace(/</g,'&lt;');
+      const priColor = t.priority==='high'?'rgba(239,68,68,.75)':t.priority==='low'?'rgba(107,114,128,.65)':'rgba(245,158,11,.75)';
+      const bgColor  = isDone ? 'rgba(30,42,74,.55)' : priColor;
+      const textDeco = isDone ? 'text-decoration:line-through;opacity:.55;' : '';
+      const topPx    = 4 + allDayOffset + ti * 20;
+      html += '<div class="wcal-event" style="top:'+topPx+'px;height:18px;background:'+bgColor+';color:#e2e8f0;font-size:10px;z-index:4;cursor:pointer;" '
+            + 'onclick="wcalSwitchTab(\'tasks\')" title="'+(isDone?'✓ ':'')+taskTitle+'">';
+      html += '<div class="wcal-event-title" style="'+textDeco+'">'+(isDone?'✓ ':'')+taskTitle+'</div></div>';
     });
 
     // Timed events — detect overlaps and tile side-by-side
@@ -12663,7 +12691,7 @@ async function wcalToggleTask(id){
     t.done = newDone;
     if(typeof showToast==='function') showToast(newDone ? '✓ Task done' : 'Task reopened');
     // Re-render after short delay so the checkmark animation is visible
-    setTimeout(()=>{ wcalRenderTaskList(); }, 350);
+    setTimeout(()=>{ wcalRenderTaskList(); if(typeof wcalRefresh==='function') wcalRefresh(); }, 350);
   } catch(e) {
     // Rollback optimistic update
     if(check){ check.classList.toggle('checked', !newDone); }
@@ -12905,9 +12933,12 @@ window.showCalendarModal = function showCalendarModal(){
 
   wcalWireButtons();
   wcalRenderMiniMonth();
-  wcalFetchCurrentRange().then(()=>{
-    wcalRenderMiniMonth();
-    wcalRefresh();
+  // Load tasks first so they appear as chips on the week grid
+  wcalLoadTasks().catch(()=>{}).finally(()=>{
+    wcalFetchCurrentRange().then(()=>{
+      wcalRenderMiniMonth();
+      wcalRefresh();
+    });
   });
 
   // Update now-line every minute
@@ -17055,33 +17086,11 @@ def _crm_name_bits(name: str) -> Tuple[str, str]:
     return first, last
 
 def _crm_email_candidates(name: str, domain: str) -> List[Dict[str, Any]]:
-    domain = _crm_extract_domain(domain)
-    if not domain:
-        return []
-    first, last = _crm_name_bits(name)
-    if not first and not last:
-        first = "hello"
-    fi = first[:1]
-    li = last[:1]
-    vals = []
-    def add(local: str, score: float):
-        if local:
-            vals.append({"email": f"{local}@{domain}", "confidence": round(float(score), 2), "status": "estimated"})
-    add(first, 0.62)
-    add(f"{first}.{last}" if first and last else "", 0.76)
-    add(f"{fi}{last}" if fi and last else "", 0.71)
-    add(f"{first}{li}" if first and li else "", 0.66)
-    add("hello", 0.48)
-    add("info", 0.42)
-    out = []
-    seen = set()
-    for row in sorted(vals, key=lambda x: x["confidence"], reverse=True):
-        email = row["email"]
-        if email in seen:
-            continue
-        seen.add(email)
-        out.append(row)
-    return out
+    """Only return emails that were actually scraped from a public page.
+    Never generate pattern-guesses — those are fake and mislead users."""
+    # This function is called with public_emails already passed into _crm_merge_email_candidates.
+    # Return nothing here — all real emails come from the scraper/search, not guessing.
+    return []
 
 def _crm_parse_lead_source_rows(source_text: str) -> List[Dict[str, Any]]:
     rows = []
@@ -17187,19 +17196,25 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
 
     model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini')
     system = (
-        'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
+        'You are a precise B2B lead researcher. Use web search to find REAL businesses. '
         'Return ONLY a JSON array. Each item must be an object with keys: '
         'name, company, website, phone, email, notes. '
-        'Only include likely real prospects, not search engines, portals, directories, marketplaces, social networks, review sites, or aggregators. '
-        'Prefer official business websites. If email or phone is unknown, use an empty string. '
+        'CRITICAL RULES: '
+        '1. Only include businesses you can verify actually exist and match the niche. '
+        '2. For phone and email: ONLY include contact details you directly found on the business website or a verified directory. '
+        '3. NEVER guess, construct, or infer email addresses (e.g. no info@domain.com, no firstname@domain.com patterns). '
+        '4. NEVER invent phone numbers. If you did not see the actual number on a page, leave phone as empty string. '
+        '5. If email or phone is not found on a public page, use empty string — do not guess. '
+        '6. Do not include search engines, portals, directories, social networks, or aggregators. '
         f'Return at most {max(1, min(25, int(max_results or 12)))} items.'
     )
     user = (
         f'Niche: {niche or "businesses"}\n'
         f'Location: {location or "target area"}\n'
         f'Search query: {query}\n'
-        'Requirements: prioritize official websites and businesses clearly serving the niche and location. '
-        'Do not invent contact details. Return JSON only.'
+        'Requirements: prioritize official business websites. '
+        'Only include phone/email if you actually found them on a real page. '
+        'Return JSON only — no markdown, no explanation.'
     )
 
     try:
@@ -17580,22 +17595,21 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             candidate['name'] = hint_name
         if hint_company:
             candidate['company'] = hint_company
-        if hint_phone and not candidate.get('phone'):
-            candidate['phone'] = hint_phone
-        if hint_email and not candidate.get('email'):
-            candidate['email'] = hint_email
+        # Do NOT copy hint_phone or hint_email — they may be LLM hallucinations.
+        # Contacts must come from actual page scraping only.
         candidate['website'] = website or candidate.get('website') or ''
-        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
+        # No email candidates from guessing either
+        candidate['email_candidates'] = []
+        candidate['email'] = ''
+        candidate['phone'] = ''
         candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
     signals = _crm_parse_page_signals(html, final_url, niche, location)
     emails = list(signals.get("emails") or [])
     phones = list(signals.get("phones") or [])
-    if hint_email and hint_email not in emails:
-        emails.insert(0, hint_email)
-    if hint_phone and hint_phone not in phones:
-        phones.insert(0, hint_phone)
+    # Do NOT insert hint_email / hint_phone from LLM here — they may be hallucinated.
+    # Only data actually scraped from the page is trusted.
     for link in _crm_find_contact_links(html, final_url):
         sub_html, _ = _crm_fetch_text_url(link)
         if not sub_html:
@@ -17646,7 +17660,6 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
         title = (row.get("title") or "").strip() or ("Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact")
         if not name and company:
             name = company
-        email_candidates = _crm_email_candidates(name, domain)
         item = {
             "name": name,
             "company": company,
@@ -17654,8 +17667,8 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
             "domain": domain,
             "website": f"https://{domain}" if domain else "",
             "phone": "",
-            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
-            "email_candidates": email_candidates,
+            "email": "",
+            "email_candidates": [],  # no guessed emails — only scraped contacts are valid
             "niche_hit": True,
             "location_hit": bool(location),
             "notes": (row.get("notes") or "") + (f"\nSeed row for {niche} in {location}." if niche or location else "\nSeed row."),
@@ -17834,8 +17847,19 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
     name = (row.get('name_hint') or '').strip()
     if not name:
         name = _crm_best_person_name([row.get('title') or '', row.get('snippet') or ''], company=company)
-    phone = _crm_clean_phone(row.get('phone_hint') or row.get('phone') or '')
-    public_email = ((row.get('email_hint') or row.get('email') or '')).strip().lower()
+
+    # Contact info: ONLY use data actually scraped from the page.
+    # Discard LLM-generated phone_hint / email_hint — those can be hallucinated.
+    # scraped_phone and scraped_email are populated by the enrichment scraper from real pages.
+    phone = _crm_clean_phone(row.get('scraped_phone') or row.get('phone') or '')
+    public_email = (row.get('scraped_email') or row.get('email') or '').strip().lower()
+    # Only include email if it was actually found on the page (not guessed by LLM)
+    if public_email and row.get('email_hint') and not row.get('scraped_email'):
+        # email came only from LLM hint, not confirmed by scraper — discard it
+        public_email = ''
+    if phone and row.get('phone_hint') and not row.get('scraped_phone'):
+        # phone came only from LLM hint — discard it
+        phone = ''
     email_candidates = _crm_merge_email_candidates(([public_email] if public_email else []), name or company, domain)
     title = 'Realtor' if re.search(r'real estate|realtor|broker', niche or '', flags=re.I) else 'Contact'
     notes = (row.get('snippet') or '').strip()
