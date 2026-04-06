@@ -2737,6 +2737,11 @@ def api_action_stack_schedules_tick():
             _crm_tick_once()
         except Exception:
             pass
+        # Content Planner — publish scheduled posts when due
+        try:
+            _content_planner_tick_once()
+        except Exception:
+            pass
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -6136,6 +6141,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
             <button class="saDropItem" id="webhooksBtn">🔗 Webhooks</button>
+            <button class="saDropItem" id="contentPlannerBtn">📅 Content Planner</button>
           </div>
         </div>
 
@@ -7116,9 +7122,162 @@ label         { font-size: 14px !important; }
     <div class="tiny" id="playbookStatus" style="margin-top:8px;"></div>
     <div id="playbookResults" style="margin-top:12px;"></div>
   </div>
+
+  <!-- ═══════════════════ CONTENT PLANNER VIEW ═══════════════════ -->
+  <div id="crmViewContentPlanner" style="display:none;">
+
+    <!-- Connection banner -->
+    <div id="cpConnectBanner" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.35);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#c4b5fd;">📱 Social Accounts</div>
+        <div id="cpConnectionStatus" class="tiny" style="margin-top:2px;opacity:.75;">Checking...</div>
+      </div>
+      <button class="btn btnMini" id="cpConnectBtn" onclick="cpOpenConnectModal()">Connect Accounts</button>
+    </div>
+
+    <!-- Toolbar -->
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btnPrimary" id="cpNewPostBtn" onclick="cpOpenCompose()">+ New Post</button>
+      <select id="cpFilterStatus" style="background:rgba(11,16,36,.9);color:var(--text);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:6px 10px;font-size:12px;" onchange="cpLoadPosts()">
+        <option value="">All posts</option>
+        <option value="draft">Drafts</option>
+        <option value="scheduled">Scheduled</option>
+        <option value="published">Published</option>
+        <option value="failed">Failed</option>
+      </select>
+      <button class="btn btnMini" onclick="cpLoadPosts()">↺ Refresh</button>
+      <div class="tiny" id="cpListStatus" style="margin-left:auto;"></div>
+    </div>
+
+    <!-- Post queue -->
+    <div id="cpPostList" style="display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto;padding-right:4px;"></div>
+  </div>
+</div><!-- end crmForm -->
+
+<!-- ═══════════════════ CONTENT PLANNER MODALS ═══════════════════ -->
+
+<!-- Compose / Edit modal -->
+<div id="cpComposeModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseCompose()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(720px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <span id="cpComposeTitle" style="font-weight:700;font-size:15px;color:#c4b5fd;">✍️ Compose Post</span>
+      <button onclick="cpCloseCompose()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:18px 20px;">
+
+      <!-- AI Draft row -->
+      <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:12px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">🤖 AI Draft with Teammate</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+          <input id="cpDraftTopic" class="field" placeholder="Topic / angle…" style="font-size:12px;padding:7px 9px;" />
+          <select id="cpDraftTone" class="field" style="font-size:12px;padding:7px 9px;">
+            <option value="professional">Professional</option>
+            <option value="casual">Casual & friendly</option>
+            <option value="bold">Bold & direct</option>
+            <option value="storytelling">Storytelling</option>
+            <option value="educational">Educational</option>
+          </select>
+          <select id="cpDraftTeammate" class="field" style="font-size:12px;padding:7px 9px;">
+            <option value="Willow">Willow (Language)</option>
+            <option value="Alex">Alex (Marketing)</option>
+          </select>
+        </div>
+        <button class="btn btnMini btnPrimary" id="cpDraftBtn" onclick="cpAiDraft()" style="width:100%;">Generate Caption →</button>
+        <div class="tiny" id="cpDraftStatus" style="margin-top:5px;"></div>
+      </div>
+
+      <!-- Caption -->
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Caption <span style="opacity:.5;">(required)</span></label>
+      <textarea id="cpCaption" rows="6" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:10px;color:#e2e8f0;padding:10px;font-size:13px;resize:vertical;outline:none;line-height:1.55;" placeholder="Write your caption here, or use AI Draft above…"></textarea>
+      <div style="text-align:right;font-size:10px;opacity:.4;margin-top:2px;" id="cpCaptionCount">0 chars</div>
+
+      <!-- Hashtags -->
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Hashtags <span style="opacity:.5;">(optional — appended automatically)</span></label>
+      <input id="cpHashtags" class="field" placeholder="#coaching #business #entrepreneur" style="font-size:12px;padding:7px 9px;" />
+
+      <!-- Image -->
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Image <span style="opacity:.5;">(URL or upload)</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="cpImageUrl" class="field" placeholder="https://… or leave blank for text post" style="flex:1;font-size:12px;padding:7px 9px;" />
+        <input type="file" id="cpImageFile" accept="image/*" style="display:none;" />
+        <button class="btn btnMini" onclick="document.getElementById('cpImageFile').click()">📁 Upload</button>
+      </div>
+      <div id="cpImagePreviewWrap" style="margin-top:8px;display:none;">
+        <img id="cpImagePreview" src="" alt="Preview" style="max-height:140px;max-width:100%;border-radius:8px;border:1px solid rgba(42,58,106,.4);" />
+        <button onclick="cpClearImage()" style="display:block;margin-top:4px;background:none;border:none;color:#fca5a5;font-size:11px;cursor:pointer;">✕ Remove image</button>
+      </div>
+
+      <!-- Platform + Schedule row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Post to</label>
+          <select id="cpPlatforms" class="field" style="font-size:12px;padding:7px 9px;">
+            <option value="both">Facebook + Instagram</option>
+            <option value="facebook">Facebook only</option>
+            <option value="instagram">Instagram only</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Schedule (leave blank = draft)</label>
+          <input type="datetime-local" id="cpScheduledAt" class="field" style="font-size:12px;padding:7px 9px;" />
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Internal notes <span style="opacity:.5;">(not posted)</span></label>
+      <input id="cpNotes" class="field" placeholder="e.g. Part of April launch campaign" style="font-size:12px;padding:7px 9px;" />
+
+    </div>
+    <!-- Footer actions -->
+    <div style="padding:12px 20px;border-top:1px solid rgba(42,58,106,.5);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
+      <div class="tiny" id="cpSaveStatus" style="flex:1;"></div>
+      <button class="btn btnMini" onclick="cpSavePost('draft')">💾 Save Draft</button>
+      <button class="btn btnMini" onclick="cpSavePost('scheduled')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;">🕐 Schedule</button>
+      <button class="btn btnPrimary" onclick="cpPublishNow()">🚀 Post Now</button>
+    </div>
+  </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);display:flex;flex-direction:column;">
+<!-- Meta Connect modal -->
+<div id="cpConnectModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseConnectModal()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(580px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔗 Connect Facebook & Instagram</span>
+      <button onclick="cpCloseConnectModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:18px 20px;">
+      <div class="tiny" style="line-height:1.7;margin-bottom:14px;opacity:.8;">
+        Connect your <b>Facebook Business Page</b> and optionally an <b>Instagram Business Account</b>.<br>
+        You'll need a <b>Page Access Token</b> with <code>pages_manage_posts</code> + <code>instagram_basic</code> + <code>instagram_content_publish</code> permissions.<br><br>
+        Get it from: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener" style="color:#a5b4fc;">Meta Graph API Explorer →</a>
+      </div>
+      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Page Access Token <span style="color:#ef4444;">*</span></label>
+      <textarea id="cpMetaToken" rows="3" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:8px;color:#e2e8f0;padding:9px;font-size:12px;resize:none;outline:none;font-family:monospace;" placeholder="EAAxxxxxxxx…"></textarea>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Facebook Page ID <span style="color:#ef4444;">*</span></label>
+          <input id="cpMetaPageId" class="field" placeholder="123456789012345" style="font-size:12px;padding:7px 9px;" />
+          <div class="tiny" style="margin-top:3px;opacity:.5;">Settings → Page Info → Page ID</div>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Instagram Account ID <span style="opacity:.5;">(optional)</span></label>
+          <input id="cpMetaIgId" class="field" placeholder="987654321" style="font-size:12px;padding:7px 9px;" />
+          <div class="tiny" style="margin-top:3px;opacity:.5;">Graph Explorer: me/instagram_accounts</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Page name <span style="opacity:.5;">(for display only)</span></label>
+        <input id="cpMetaPageName" class="field" placeholder="My Business Page" style="font-size:12px;padding:7px 9px;" />
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btnPrimary" onclick="cpSaveMetaConnect()" style="flex:1;">Save & Connect</button>
+        <button class="btn btnMini" id="cpDisconnectBtn" onclick="cpDisconnect()" style="border-color:rgba(239,68,68,.4);color:#fca5a5;">Disconnect</button>
+      </div>
+      <div class="tiny" id="cpConnectModalStatus" style="margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
 
 <style>
 /* Message expand modal */
@@ -8390,22 +8549,22 @@ window.showModal = function showModal(title, body, imgUrl){
 
       // Module dispatch table — maps intent_route module names to open functions
       const moduleDispatch = {
-        'lead_lab':       () => { if(typeof showLeadLabModal==='function') showLeadLabModal(); },
-        'crm_clients':    () => { if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
-        'crm_pipeline':   () => { if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
-        'crm_broadcast':  () => { if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast'); },
-        'calendar':       () => { if(typeof showCalendarModal==='function') showCalendarModal(); },
-        'social_studio':  () => { if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
-        'offer_builder':  () => { if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
-        'growth_playbook':() => { if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
-        'image_library':  () => { if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
-        'email_console':  () => { if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
-        'action_stacks':  () => {
+        'lead_lab':        () => { if(typeof showLeadLabModal==='function') showLeadLabModal(); },
+        'crm_clients':     () => { if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
+        'crm_pipeline':    () => { if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
+        'crm_broadcast':   () => { if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast'); },
+        'calendar':        () => { if(typeof showCalendarModal==='function') showCalendarModal(); },
+        'social_studio':   () => { if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
+        'offer_builder':   () => { if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
+        'growth_playbook': () => { if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
+        'image_library':   () => { if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
+        'email_console':   () => { if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
+        'content_planner': () => { if(typeof showContentPlannerModal==='function') showContentPlannerModal(); },
+        'action_stacks':   () => {
           const seat = window.selectedSeat || selectedSeat;
           if(seat && typeof showStackTab==='function') showStackTab('Action Stacks — ' + seat);
         },
-        'round_table':    () => {
-          // Pre-fill the group console and focus it
+        'round_table':     () => {
           const opPrompt = $('opPrompt');
           if(opPrompt){ opPrompt.value = q; opPrompt.focus(); }
           showToast('Ready — press Send to All or refine your prompt');
@@ -11039,7 +11198,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks","crmViewContentPlanner"];
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -11825,6 +11984,7 @@ async function crmFetchTasks(){
     if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
     if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = ()=> openOperatorProfileModal();
+    if($("contentPlannerBtn")) $("contentPlannerBtn").onclick = ()=> showContentPlannerModal();
 
     // CRM tab binds (safe if missing)
 
@@ -15036,6 +15196,473 @@ if(typeof maybeAutoShowOnboarding === "function"){
 .sa-dash-section h3 { font-size:12px; opacity:.5; letter-spacing:.06em; margin-bottom:8px; }
 .sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:rgba(11,16,36,.7); border:1px solid rgba(42,58,106,.4); margin-bottom:5px; font-size:12px; }
 </style>
+
+<style>
+/* ── Content Planner ── */
+.cp-post-card {
+  background:rgba(11,16,36,.85); border:1px solid rgba(42,58,106,.55);
+  border-radius:12px; padding:12px 14px; transition:border-color .15s;
+}
+.cp-post-card:hover { border-color:rgba(124,58,237,.45); }
+.cp-post-card.cp-status-published { border-left:3px solid #10b981; }
+.cp-post-card.cp-status-scheduled { border-left:3px solid #3b82f6; }
+.cp-post-card.cp-status-draft     { border-left:3px solid #6b7280; }
+.cp-post-card.cp-status-failed    { border-left:3px solid #ef4444; }
+.cp-badge {
+  display:inline-block; font-size:10px; font-weight:700; border-radius:5px;
+  padding:2px 7px; letter-spacing:.04em; text-transform:uppercase;
+}
+.cp-badge-published { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
+.cp-badge-scheduled { background:rgba(59,130,246,.15); color:#93c5fd; border:1px solid rgba(59,130,246,.3); }
+.cp-badge-draft     { background:rgba(107,114,128,.15); color:#9ca3af; border:1px solid rgba(107,114,128,.3); }
+.cp-badge-failed    { background:rgba(239,68,68,.15);  color:#fca5a5; border:1px solid rgba(239,68,68,.3); }
+.cp-platform-pill {
+  display:inline-flex; align-items:center; gap:3px; font-size:10px;
+  background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.5);
+  border-radius:5px; padding:2px 7px; color:rgba(148,163,184,.8);
+}
+</style>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   CONTENT PLANNER — Facebook & Instagram Automation
+   ───────────────────────────────────────────────────────────────────────────── */
+(function(){
+  // ── State ──────────────────────────────────────────────────────────────────
+  let _cpPosts      = [];
+  let _cpEditId     = null;  // null = new post
+  let _cpUploadedFid = "";
+  let _cpUploadedUrl = "";
+
+  function _esc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
+  function _fmt(iso){
+    if(!iso) return "";
+    try{
+      const d = new Date(iso);
+      return d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",hour12:true});
+    }catch(_){ return iso.slice(0,16).replace("T"," "); }
+  }
+  function _reltime(iso){
+    if(!iso) return "";
+    const diff = new Date(iso) - Date.now();
+    const abs  = Math.abs(diff);
+    const past = diff < 0;
+    if(abs < 60000)   return past ? "just now" : "in seconds";
+    if(abs < 3600000) return (past?"":"in ")+ Math.round(abs/60000)+" min"+(past?" ago":"");
+    if(abs < 86400000)return (past?"":"in ")+ Math.round(abs/3600000)+" hr"+(past?" ago":"");
+    return (past?"":"in ")+ Math.round(abs/86400000)+" day"+(past?" ago":"");
+  }
+
+  // ── Open / close main modal ────────────────────────────────────────────────
+  window.showContentPlannerModal = function showContentPlannerModal(){
+    if(typeof showModal==='function') showModal();
+    if(typeof ensureModalMinSize==='function') ensureModalMinSize(960, 720);
+    if(typeof hideAllModalForms==='function') hideAllModalForms();
+    else { ['frameworkForm','modalForm','manageForm','createForm','settingsForm',
+             'stackForm','apiKeyHelpForm','emailConsoleForm','calendarForm']
+             .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; }); }
+    const cf = document.getElementById('crmForm');
+    if(cf) cf.style.display = 'block';
+    if(typeof crmHideViews==='function') crmHideViews();
+    const v = document.getElementById('crmViewContentPlanner');
+    if(v) v.style.display = 'block';
+    const mb = document.getElementById('modalBody');
+    if(mb) mb.style.display = 'none';
+    const mt = document.getElementById('modalTitle');
+    if(mt) mt.innerText = '📅 Content Planner';
+    const nav = document.getElementById('crmNavTabs');
+    if(nav) nav.style.display = 'none';
+    cpLoadPosts();
+    cpLoadMetaStatus();
+  };
+
+  // ── Load & render post queue ───────────────────────────────────────────────
+  window.cpLoadPosts = async function cpLoadPosts(){
+    const statusEl = document.getElementById('cpListStatus');
+    const listEl   = document.getElementById('cpPostList');
+    if(statusEl) statusEl.innerText = 'Loading…';
+    try{
+      const filter = (document.getElementById('cpFilterStatus')||{}).value || '';
+      const url    = '/api/content/posts' + (filter ? '?status='+encodeURIComponent(filter) : '');
+      const r      = await fetch(url);
+      const d      = await r.json();
+      if(!d.ok) throw new Error(d.error||'Load failed');
+      _cpPosts = d.posts || [];
+      if(statusEl) statusEl.innerText = _cpPosts.length + ' post' + (_cpPosts.length===1?'':'s');
+      _cpRenderPosts(_cpPosts, listEl);
+    }catch(e){
+      if(statusEl) statusEl.innerText = 'Error: '+((e||{}).message||e);
+    }
+  };
+
+  function _cpRenderPosts(posts, listEl){
+    if(!listEl) return;
+    if(!posts.length){
+      listEl.innerHTML = '<div class="tiny" style="opacity:.5;padding:16px 4px;">No posts yet. Press <b>+ New Post</b> to create one.</div>';
+      return;
+    }
+    const platIcon = p => p==='facebook'?'👤 Facebook':p==='instagram'?'📸 Instagram':'👤 FB + 📸 IG';
+    listEl.innerHTML = posts.map(post=>{
+      const st    = post.status||'draft';
+      const cap   = (post.caption||'').slice(0,140) + ((post.caption||'').length>140?'…':'');
+      const hasImg= !!(post.image_url||post.image_file_id);
+      const schedLabel = post.scheduled_at
+        ? _fmt(post.scheduled_at) + ' <span style="opacity:.5;">(' + _reltime(post.scheduled_at) + ')</span>'
+        : '<span style="opacity:.4;">No schedule — draft</span>';
+      const errHtml = post.error
+        ? `<div style="font-size:11px;color:#fca5a5;margin-top:5px;">⚠ ${_esc(post.error)}</div>` : '';
+      const pubHtml = post.published_at
+        ? `<div class="tiny" style="color:#6ee7b7;margin-top:4px;">✓ Published ${_fmt(post.published_at)}</div>` : '';
+      const fbId = post.fb_post_id
+        ? `<a href="https://www.facebook.com/${_esc(post.fb_post_id)}" target="_blank" rel="noopener" style="font-size:10px;color:#a5b4fc;margin-right:8px;">FB →</a>` : '';
+      const igId = post.ig_post_id
+        ? `<span style="font-size:10px;color:#f0abfc;">IG ✓</span>` : '';
+      return `
+      <div class="cp-post-card cp-status-${_esc(st)}" data-post-id="${_esc(post.id)}">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          ${hasImg ? `<div style="width:56px;height:56px;border-radius:8px;background:rgba(42,58,106,.4);border:1px solid rgba(42,58,106,.6);flex-shrink:0;overflow:hidden;">
+            <img src="${_esc(post.image_url||'')}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;" /></div>` : ''}
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;">
+              <span class="cp-badge cp-badge-${_esc(st)}">${_esc(st)}</span>
+              <span class="cp-platform-pill">${platIcon(post.platforms)}</span>
+              ${post.teammate ? `<span class="tiny" style="opacity:.5;">by ${_esc(post.teammate)}</span>` : ''}
+              <div style="margin-left:auto;display:flex;gap:6px;">
+                ${fbId}${igId}
+              </div>
+            </div>
+            <div style="font-size:13px;color:#e2e8f0;line-height:1.5;margin-bottom:5px;">${_esc(cap)}</div>
+            <div style="font-size:11px;color:rgba(148,163,184,.6);">${schedLabel}</div>
+            ${errHtml}${pubHtml}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn btnMini" onclick="cpOpenCompose('${_esc(post.id)}')">✏ Edit</button>
+          ${st!=='published' ? `<button class="btn btnMini" style="border-color:rgba(16,185,129,.5);color:#6ee7b7;" onclick="cpPublishNowId('${_esc(post.id)}')">🚀 Post Now</button>` : ''}
+          <button class="btn btnMini" style="border-color:rgba(239,68,68,.4);color:#fca5a5;" onclick="cpDeletePost('${_esc(post.id)}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Compose modal ──────────────────────────────────────────────────────────
+  window.cpOpenCompose = function cpOpenCompose(postId){
+    _cpEditId      = postId || null;
+    _cpUploadedFid = "";
+    _cpUploadedUrl = "";
+
+    const modal = document.getElementById('cpComposeModal');
+    if(!modal) return;
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    const title = document.getElementById('cpComposeTitle');
+    if(title) title.innerText = postId ? '✏️ Edit Post' : '✍️ Compose Post';
+
+    // Clear form
+    ['cpCaption','cpHashtags','cpImageUrl','cpNotes'].forEach(id=>{
+      const el=document.getElementById(id); if(el) el.value='';
+    });
+    const platformEl = document.getElementById('cpPlatforms');
+    if(platformEl) platformEl.value = 'both';
+    const schedEl = document.getElementById('cpScheduledAt');
+    if(schedEl) schedEl.value = '';
+    _cpClearImagePreview();
+
+    const st = document.getElementById('cpSaveStatus');
+    if(st) st.innerText = '';
+    const ds = document.getElementById('cpDraftStatus');
+    if(ds) ds.innerText = '';
+
+    // Populate if editing
+    if(postId){
+      const post = _cpPosts.find(p=>p.id===postId);
+      if(post){
+        const c=document.getElementById('cpCaption');       if(c) c.value = post.caption||'';
+        const h=document.getElementById('cpHashtags');      if(h) h.value = post.hashtags||'';
+        const u=document.getElementById('cpImageUrl');      if(u) u.value = post.image_url||'';
+        const n=document.getElementById('cpNotes');         if(n) n.value = post.notes||'';
+        const pl=document.getElementById('cpPlatforms');    if(pl) pl.value = post.platforms||'both';
+        const sc=document.getElementById('cpScheduledAt');
+        if(sc && post.scheduled_at){
+          // Convert ISO to datetime-local value
+          try{ sc.value = new Date(post.scheduled_at).toISOString().slice(0,16); }catch(_){}
+        }
+        if(post.image_url) _cpShowImagePreview(post.image_url);
+        _cpUploadedFid = post.image_file_id||'';
+        _cpUpdateCaptionCount();
+      }
+    }
+  };
+
+  window.cpCloseCompose = function(){
+    const m=document.getElementById('cpComposeModal');
+    if(m) m.style.display='none';
+    document.body.style.overflow='';
+    _cpEditId=null;
+  };
+
+  // Caption character counter
+  function _cpUpdateCaptionCount(){
+    const cap = document.getElementById('cpCaption');
+    const cnt = document.getElementById('cpCaptionCount');
+    if(cap && cnt) cnt.innerText = (cap.value||'').length + ' chars';
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    const cap = document.getElementById('cpCaption');
+    if(cap) cap.addEventListener('input', _cpUpdateCaptionCount);
+
+    // Image file upload
+    const fi = document.getElementById('cpImageFile');
+    if(fi) fi.addEventListener('change', async function(){
+      const file = this.files[0];
+      if(!file) return;
+      const st = document.getElementById('cpSaveStatus');
+      if(st) st.innerText = 'Uploading image…';
+      try{
+        const fd = new FormData(); fd.append('file', file);
+        const r  = await fetch('/api/upload',{method:'POST',body:fd});
+        const d  = await r.json();
+        if(!d.ok) throw new Error(d.error||'Upload failed');
+        _cpUploadedFid = d.file.id;
+        _cpUploadedUrl = '';
+        const urlEl = document.getElementById('cpImageUrl');
+        if(urlEl) urlEl.value = '';
+        _cpShowImagePreview(URL.createObjectURL(file));
+        if(st) st.innerText = 'Image uploaded ✓';
+      }catch(e){
+        if(st) st.innerText = 'Upload failed: '+((e||{}).message||e);
+      }
+    });
+  });
+
+  function _cpShowImagePreview(src){
+    const wrap = document.getElementById('cpImagePreviewWrap');
+    const img  = document.getElementById('cpImagePreview');
+    if(wrap) wrap.style.display = 'block';
+    if(img)  img.src = src;
+  }
+  function _cpClearImagePreview(){
+    const wrap = document.getElementById('cpImagePreviewWrap');
+    if(wrap) wrap.style.display = 'none';
+    const img = document.getElementById('cpImagePreview');
+    if(img)  img.src = '';
+  }
+  window.cpClearImage = function(){
+    _cpClearImagePreview();
+    _cpUploadedFid = '';
+    _cpUploadedUrl = '';
+    const u = document.getElementById('cpImageUrl'); if(u) u.value='';
+  };
+
+  // ── AI Draft ───────────────────────────────────────────────────────────────
+  window.cpAiDraft = async function cpAiDraft(){
+    const topic    = (document.getElementById('cpDraftTopic')||{}).value||'';
+    const tone     = (document.getElementById('cpDraftTone')||{}).value||'professional';
+    const teammate = (document.getElementById('cpDraftTeammate')||{}).value||'Willow';
+    const platform = (document.getElementById('cpPlatforms')||{}).value||'both';
+    const st       = document.getElementById('cpDraftStatus');
+    const btn      = document.getElementById('cpDraftBtn');
+    if(!topic.trim()){ if(st) st.innerText='Enter a topic first.'; return; }
+    if(btn){ btn.disabled=true; btn.innerText='Drafting…'; }
+    if(st)  st.innerText = 'Writing your caption…';
+    try{
+      const r = await fetch('/api/content/ai_draft',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({topic:topic.trim(), tone, teammate, platform})
+      });
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Draft failed');
+      const cap = document.getElementById('cpCaption');
+      if(cap){ cap.value = d.caption; _cpUpdateCaptionCount(); }
+      if(st) st.innerText = '✓ Caption ready — review and edit before posting.';
+    }catch(e){
+      if(st) st.innerText = 'Error: '+((e||{}).message||e);
+    }finally{
+      if(btn){ btn.disabled=false; btn.innerText='Generate Caption →'; }
+    }
+  };
+
+  // ── Save post (draft or scheduled) ────────────────────────────────────────
+  window.cpSavePost = async function cpSavePost(forceStatus){
+    const caption    = (document.getElementById('cpCaption')||{}).value||'';
+    const hashtags   = (document.getElementById('cpHashtags')||{}).value||'';
+    const imageUrl   = (document.getElementById('cpImageUrl')||{}).value||'';
+    const platforms  = (document.getElementById('cpPlatforms')||{}).value||'both';
+    const schedRaw   = (document.getElementById('cpScheduledAt')||{}).value||'';
+    const notes      = (document.getElementById('cpNotes')||{}).value||'';
+    const st         = document.getElementById('cpSaveStatus');
+
+    if(!caption.trim()){ if(st) st.innerText='Caption is required.'; return; }
+
+    // Convert datetime-local → ISO UTC
+    let scheduledAt = '';
+    if(schedRaw){
+      try{ scheduledAt = new Date(schedRaw).toISOString(); }catch(_){ scheduledAt = schedRaw; }
+    }
+
+    let status = forceStatus || (scheduledAt ? 'scheduled' : 'draft');
+    if(forceStatus === 'scheduled' && !scheduledAt){
+      if(st) st.innerText = 'Pick a date/time to schedule.'; return;
+    }
+
+    const payload = {
+      caption, hashtags, platforms, notes,
+      scheduled_at:  scheduledAt,
+      image_url:     imageUrl,
+      image_file_id: _cpUploadedFid,
+      status,
+    };
+
+    if(st) st.innerText = 'Saving…';
+    try{
+      const url    = _cpEditId ? '/api/content/posts/'+encodeURIComponent(_cpEditId) : '/api/content/posts';
+      const r      = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d      = await r.json();
+      if(!d.ok) throw new Error(d.error||'Save failed');
+      if(st) st.innerText = status==='scheduled' ? '✓ Scheduled!' : '✓ Draft saved!';
+      if(typeof showToast==='function') showToast(status==='scheduled' ? 'Post scheduled ✓' : 'Draft saved ✓');
+      await cpLoadPosts();
+      setTimeout(cpCloseCompose, 900);
+    }catch(e){
+      if(st) st.innerText = 'Error: '+((e||{}).message||e);
+    }
+  };
+
+  // ── Publish now (from compose modal) ─────────────────────────────────────
+  window.cpPublishNow = async function cpPublishNow(){
+    const caption    = (document.getElementById('cpCaption')||{}).value||'';
+    const hashtags   = (document.getElementById('cpHashtags')||{}).value||'';
+    const imageUrl   = (document.getElementById('cpImageUrl')||{}).value||'';
+    const platforms  = (document.getElementById('cpPlatforms')||{}).value||'both';
+    const notes      = (document.getElementById('cpNotes')||{}).value||'';
+    const st         = document.getElementById('cpSaveStatus');
+    if(!caption.trim()){ if(st) st.innerText='Caption is required.'; return; }
+    if(st) st.innerText = 'Saving…';
+    let postId = _cpEditId;
+    try{
+      // Save first
+      const url = postId ? '/api/content/posts/'+encodeURIComponent(postId) : '/api/content/posts';
+      const r1  = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({caption,hashtags,platforms,notes,image_url:imageUrl,image_file_id:_cpUploadedFid,status:'draft'})});
+      const d1  = await r1.json();
+      if(!d1.ok) throw new Error(d1.error||'Save failed');
+      postId = d1.post.id;
+      if(st) st.innerText = 'Posting…';
+      // Publish
+      const r2 = await fetch('/api/content/posts/'+encodeURIComponent(postId)+'/publish_now',{method:'POST'});
+      const d2 = await r2.json();
+      if(!d2.ok) throw new Error(d2.error||d2.post?.error||'Publish failed');
+      if(typeof showToast==='function') showToast('🚀 Posted successfully!');
+      if(st) st.innerText = '✓ Published!';
+      await cpLoadPosts();
+      setTimeout(cpCloseCompose, 1000);
+    }catch(e){
+      if(st) st.innerText = 'Error: '+((e||{}).message||e);
+      if(typeof showToast==='function') showToast('Post failed: '+((e||{}).message||e),'error');
+    }
+  };
+
+  // ── Publish now from queue card ───────────────────────────────────────────
+  window.cpPublishNowId = async function cpPublishNowId(postId){
+    const st = document.getElementById('cpListStatus');
+    if(st) st.innerText = 'Posting…';
+    try{
+      const r = await fetch('/api/content/posts/'+encodeURIComponent(postId)+'/publish_now',{method:'POST'});
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||d.post?.error||'Publish failed');
+      if(typeof showToast==='function') showToast('🚀 Posted!');
+      await cpLoadPosts();
+    }catch(e){
+      if(typeof showToast==='function') showToast('Failed: '+((e||{}).message||e),'error');
+      if(st) st.innerText = 'Error: '+((e||{}).message||e);
+    }
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  window.cpDeletePost = async function cpDeletePost(postId){
+    if(!confirm('Delete this post?')) return;
+    try{
+      const r = await fetch('/api/content/posts/'+encodeURIComponent(postId),{method:'DELETE'});
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Delete failed');
+      if(typeof showToast==='function') showToast('Post deleted');
+      await cpLoadPosts();
+    }catch(e){
+      if(typeof showToast==='function') showToast('Delete failed','error');
+    }
+  };
+
+  // ── Meta Connect modal ────────────────────────────────────────────────────
+  window.cpOpenConnectModal = function(){
+    const m = document.getElementById('cpConnectModal');
+    if(!m) return;
+    m.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    cpLoadMetaStatus();
+    const st = document.getElementById('cpConnectModalStatus');
+    if(st) st.innerText='';
+  };
+  window.cpCloseConnectModal = function(){
+    const m = document.getElementById('cpConnectModal');
+    if(m) m.style.display = 'none';
+    document.body.style.overflow = '';
+  };
+
+  window.cpLoadMetaStatus = async function cpLoadMetaStatus(){
+    try{
+      const r = await fetch('/api/content/meta_status');
+      const d = await r.json();
+      if(!d.ok) return;
+      const statusEl = document.getElementById('cpConnectionStatus');
+      const parts = [];
+      if(d.fb_connected) parts.push('✓ Facebook' + (d.fb_page_name?' ('+d.fb_page_name+')':''));
+      else parts.push('✗ Facebook not connected');
+      if(d.ig_connected) parts.push('✓ Instagram');
+      else parts.push('✗ Instagram not connected');
+      if(statusEl) statusEl.innerText = parts.join('  ·  ');
+      // Pre-fill connect form with existing values
+      const pid = document.getElementById('cpMetaPageId');   if(pid) pid.value = d.fb_page_id||'';
+      const iid = document.getElementById('cpMetaIgId');     if(iid) iid.value = d.ig_account_id||'';
+      const pn  = document.getElementById('cpMetaPageName'); if(pn)  pn.value  = d.fb_page_name||'';
+    }catch(_){}
+  };
+
+  window.cpSaveMetaConnect = async function cpSaveMetaConnect(){
+    const token   = (document.getElementById('cpMetaToken')||{}).value||'';
+    const pageId  = (document.getElementById('cpMetaPageId')||{}).value||'';
+    const igId    = (document.getElementById('cpMetaIgId')||{}).value||'';
+    const pgName  = (document.getElementById('cpMetaPageName')||{}).value||'';
+    const st      = document.getElementById('cpConnectModalStatus');
+    if(!token.trim()){ if(st) st.innerText='Page Access Token is required.'; return; }
+    if(!pageId.trim()){ if(st) st.innerText='Facebook Page ID is required.'; return; }
+    if(st) st.innerText = 'Saving…';
+    try{
+      const r = await fetch('/api/content/meta_connect',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({fb_page_token:token.trim(),fb_page_id:pageId.trim(),ig_account_id:igId.trim(),fb_page_name:pgName.trim()})});
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Save failed');
+      if(st) st.innerText = '✓ Connected!';
+      if(typeof showToast==='function') showToast('Social accounts connected ✓');
+      await cpLoadMetaStatus();
+      setTimeout(cpCloseConnectModal, 800);
+    }catch(e){
+      if(st) st.innerText = 'Error: '+((e||{}).message||e);
+    }
+  };
+
+  window.cpDisconnect = async function cpDisconnect(){
+    if(!confirm('Disconnect all social accounts?')) return;
+    try{
+      await fetch('/api/content/meta_disconnect',{method:'POST'});
+      if(typeof showToast==='function') showToast('Disconnected');
+      await cpLoadMetaStatus();
+      cpCloseConnectModal();
+    }catch(_){}
+  };
+
+})(); // end Content Planner IIFE
+</script>
 
 <script>
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -20556,3 +21183,396 @@ def api_tts():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
+
+# =============================================================================
+# CONTENT PLANNER — Facebook & Instagram Automated Posting
+# =============================================================================
+
+CONTENT_PLANNER_DIR = DATA / "content_planner"
+CONTENT_PLANNER_DIR.mkdir(exist_ok=True)
+
+_CP_STATUSES  = {"draft", "scheduled", "published", "failed"}
+_CP_PLATFORMS = {"facebook", "instagram", "both"}
+
+
+def _cp_path(username: str) -> Path:
+    return CONTENT_PLANNER_DIR / f"{_safe_name(username or 'anon')}.jsonl"
+
+def _cp_load(username: str) -> List[Dict[str, Any]]:
+    p = _cp_path(username)
+    if not p.exists():
+        return []
+    out = []
+    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                out.append(obj)
+        except Exception:
+            pass
+    return out
+
+def _cp_save_all(username: str, posts: List[Dict[str, Any]]) -> None:
+    _cp_path(username).write_text(
+        "\n".join(json.dumps(post, ensure_ascii=False) for post in posts),
+        encoding="utf-8",
+    )
+
+def _cp_get_post(username: str, post_id: str) -> Optional[Dict[str, Any]]:
+    for p in _cp_load(username):
+        if p.get("id") == post_id:
+            return p
+    return None
+
+def _cp_upsert(username: str, post: Dict[str, Any]) -> None:
+    posts = _cp_load(username)
+    for i, p in enumerate(posts):
+        if p.get("id") == post.get("id"):
+            posts[i] = post
+            _cp_save_all(username, posts)
+            return
+    posts.append(post)
+    _cp_save_all(username, posts)
+
+def _cp_delete(username: str, post_id: str) -> bool:
+    posts = _cp_load(username)
+    new = [p for p in posts if p.get("id") != post_id]
+    if len(new) == len(posts):
+        return False
+    _cp_save_all(username, new)
+    return True
+
+def _cp_new_post(username: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    sched = (payload.get("scheduled_at") or "").strip()
+    return {
+        "id":            "cp_" + uuid.uuid4().hex[:14],
+        "owner":         username,
+        "caption":       (payload.get("caption")       or "").strip(),
+        "image_url":     (payload.get("image_url")     or "").strip(),
+        "image_file_id": (payload.get("image_file_id") or "").strip(),
+        "platforms":     (payload.get("platforms")     or "both").strip().lower(),
+        "scheduled_at":  sched,
+        "status":        "scheduled" if sched else "draft",
+        "fb_post_id":    "",
+        "ig_post_id":    "",
+        "error":         "",
+        "published_at":  "",
+        "created_at":    now_iso(),
+        "updated_at":    now_iso(),
+        "teammate":      (payload.get("teammate")  or "").strip(),
+        "hashtags":      (payload.get("hashtags")  or "").strip(),
+        "notes":         (payload.get("notes")     or "").strip(),
+    }
+
+# ── Meta helpers ──────────────────────────────────────────────────────────────
+
+def _meta_settings(u: Dict[str, Any]) -> Dict[str, Any]:
+    return (((u or {}).get("settings") or {}).get("meta_oauth") or {})
+
+def _meta_fb_token(u: Dict[str, Any]) -> str:
+    return (_meta_settings(u).get("fb_page_token") or "").strip()
+
+def _meta_fb_page_id(u: Dict[str, Any]) -> str:
+    return (_meta_settings(u).get("fb_page_id") or "").strip()
+
+def _meta_ig_account_id(u: Dict[str, Any]) -> str:
+    return (_meta_settings(u).get("ig_account_id") or "").strip()
+
+def _save_meta_settings(u: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    users = load_users()
+    uname = (u.get("username") if isinstance(u, dict) else None)
+    rec   = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    rec["settings"]["meta_oauth"] = meta
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+
+def _meta_resolve_image_url(post: Dict[str, Any]) -> str:
+    url = (post.get("image_url") or "").strip()
+    if url.startswith("http"):
+        return url
+    fid = (post.get("image_file_id") or "").strip()
+    if fid:
+        rec = get_upload_record(fid)
+        if rec and rec.get("relpath"):
+            base = PUBLIC_BASE_URL or ""
+            if base:
+                return f"{base}/uploads/{rec['relpath']}"
+    return ""
+
+def _meta_post_to_facebook(page_token: str, page_id: str,
+                            caption: str, image_url: str = "") -> Tuple[str, str]:
+    try:
+        import requests as _req
+        if image_url:
+            r = _req.post(
+                f"https://graph.facebook.com/v19.0/{page_id}/photos",
+                params={"access_token": page_token},
+                data={"caption": caption, "url": image_url},
+                timeout=30,
+            )
+        else:
+            r = _req.post(
+                f"https://graph.facebook.com/v19.0/{page_id}/feed",
+                params={"access_token": page_token},
+                data={"message": caption},
+                timeout=30,
+            )
+        data = r.json()
+        if r.status_code >= 400 or "error" in data:
+            err = (data.get("error") or {}).get("message") or str(data)
+            return "", err
+        return str(data.get("id") or data.get("post_id") or "ok"), ""
+    except Exception as e:
+        return "", str(e)
+
+def _meta_post_to_instagram(page_token: str, ig_account_id: str,
+                              caption: str, image_url: str = "") -> Tuple[str, str]:
+    if not image_url:
+        return "", "Instagram requires an image. Add an image to post to Instagram."
+    try:
+        import requests as _req
+        r1 = _req.post(
+            f"https://graph.facebook.com/v19.0/{ig_account_id}/media",
+            params={"access_token": page_token},
+            data={"image_url": image_url, "caption": caption},
+            timeout=30,
+        )
+        d1 = r1.json()
+        if r1.status_code >= 400 or "error" in d1:
+            return "", ((d1.get("error") or {}).get("message") or str(d1))
+        container_id = d1.get("id") or ""
+        if not container_id:
+            return "", "No container_id returned by Instagram API"
+        r2 = _req.post(
+            f"https://graph.facebook.com/v19.0/{ig_account_id}/media_publish",
+            params={"access_token": page_token},
+            data={"creation_id": container_id},
+            timeout=30,
+        )
+        d2 = r2.json()
+        if r2.status_code >= 400 or "error" in d2:
+            return "", ((d2.get("error") or {}).get("message") or str(d2))
+        return str(d2.get("id") or "ok"), ""
+    except Exception as e:
+        return "", str(e)
+
+def _cp_publish_post(username: str, post: Dict[str, Any], u: Dict[str, Any]) -> Dict[str, Any]:
+    fb_token  = _meta_fb_token(u)
+    fb_page   = _meta_fb_page_id(u)
+    ig_acct   = _meta_ig_account_id(u)
+    platforms = (post.get("platforms") or "both").lower()
+    caption   = ((post.get("caption") or "") + "\n\n" + (post.get("hashtags") or "")).strip()
+    image_url = _meta_resolve_image_url(post)
+    errors: List[str] = []
+
+    if platforms in ("facebook", "both"):
+        if not fb_token or not fb_page:
+            errors.append("Facebook: add Page Token & Page ID in Settings → Social Accounts")
+        else:
+            fb_id, fb_err = _meta_post_to_facebook(fb_token, fb_page, caption, image_url)
+            if fb_err:
+                errors.append(f"FB: {fb_err}")
+            else:
+                post["fb_post_id"] = fb_id
+
+    if platforms in ("instagram", "both"):
+        if not fb_token or not ig_acct:
+            errors.append("Instagram: add Page Token & IG Account ID in Settings → Social Accounts")
+        else:
+            ig_id, ig_err = _meta_post_to_instagram(fb_token, ig_acct, caption, image_url)
+            if ig_err:
+                errors.append(f"IG: {ig_err}")
+            else:
+                post["ig_post_id"] = ig_id
+
+    if errors:
+        post["status"] = "failed"
+        post["error"]  = " | ".join(errors)
+    else:
+        post["status"]       = "published"
+        post["error"]        = ""
+        post["published_at"] = now_iso()
+
+    post["updated_at"] = now_iso()
+    _cp_upsert(username, post)
+    return post
+
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+
+def _content_planner_tick_once() -> None:
+    now_utc = datetime.utcnow()
+    all_users = load_users().get("users") or {}
+    for username in list(all_users.keys()):
+        try:
+            u     = all_users[username]
+            posts = _cp_load(username)
+            for post in posts:
+                if post.get("status") != "scheduled":
+                    continue
+                sched = (post.get("scheduled_at") or "").strip()
+                if not sched:
+                    continue
+                try:
+                    sched_dt = datetime.fromisoformat(sched.replace("Z", ""))
+                except Exception:
+                    continue
+                if now_utc >= sched_dt:
+                    _cp_publish_post(username, post, u)
+        except Exception:
+            pass
+
+# ── API routes ────────────────────────────────────────────────────────────────
+
+@app.get("/api/content/posts")
+def api_content_posts_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname  = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    status = (request.args.get("status") or "").strip()
+    posts  = _cp_load(uname)
+    if status:
+        posts = [p for p in posts if p.get("status") == status]
+    posts.sort(key=lambda p: p.get("scheduled_at") or p.get("created_at") or "")
+    return jsonify({"ok": True, "posts": posts})
+
+@app.post("/api/content/posts")
+def api_content_posts_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    if not (payload.get("caption") or "").strip():
+        return jsonify({"ok": False, "error": "Caption is required"}), 400
+    post = _cp_new_post(uname, payload)
+    _cp_upsert(uname, post)
+    return jsonify({"ok": True, "post": post})
+
+@app.post("/api/content/posts/<post_id>")
+def api_content_posts_update(post_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    post    = _cp_get_post(uname, post_id)
+    if not post:
+        return jsonify({"ok": False, "error": "Post not found"}), 404
+    for field in ["caption","image_url","image_file_id","platforms","scheduled_at","hashtags","notes","teammate"]:
+        if field in payload:
+            post[field] = (payload[field] or "").strip()
+    if "scheduled_at" in payload:
+        if post.get("scheduled_at") and post.get("status") == "draft":
+            post["status"] = "scheduled"
+        elif not post.get("scheduled_at") and post.get("status") == "scheduled":
+            post["status"] = "draft"
+    if "status" in payload and payload["status"] in _CP_STATUSES:
+        post["status"] = payload["status"]
+    post["updated_at"] = now_iso()
+    _cp_upsert(uname, post)
+    return jsonify({"ok": True, "post": post})
+
+@app.delete("/api/content/posts/<post_id>")
+def api_content_posts_delete(post_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    ok    = _cp_delete(uname, post_id)
+    return jsonify({"ok": ok, "error": "" if ok else "Post not found"})
+
+@app.post("/api/content/posts/<post_id>/publish_now")
+def api_content_publish_now(post_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    post  = _cp_get_post(uname, post_id)
+    if not post:
+        return jsonify({"ok": False, "error": "Post not found"}), 404
+    post = _cp_publish_post(uname, post, u)
+    return jsonify({"ok": post.get("status") == "published", "post": post,
+                    "error": post.get("error","")})
+
+@app.post("/api/content/ai_draft")
+def api_content_ai_draft():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    topic    = (payload.get("topic")    or "").strip()
+    platform = (payload.get("platform") or "both").strip()
+    tone     = (payload.get("tone")     or "professional").strip()
+    teammate = (payload.get("teammate") or "Willow").strip()
+    if not topic:
+        return jsonify({"ok": False, "error": "Topic is required"}), 400
+    plat_note = {
+        "facebook":  "Facebook post (conversational, engagement-first)",
+        "instagram": "Instagram caption (visual hook first, hashtags at end)",
+        "both":      "cross-platform post for Facebook & Instagram",
+    }.get(platform, "social media post")
+    system = (
+        "You are an expert social media copywriter. "
+        "Write compelling, human posts that drive real engagement. "
+        "No generic filler. Speak directly to the reader. "
+        f"Tone: {tone}. Output ONLY the ready-to-post caption — no commentary."
+    )
+    prompt = (
+        f"Write a {plat_note}.\nTopic: {topic}\n"
+        "Include: strong hook, value/story, clear CTA, then 5-10 relevant hashtags.\n"
+        "Output the caption only."
+    )
+    try:
+        reg  = load_registry()
+        defn = (reg.get("installed") or {}).get(teammate)
+        sys_full = (teammate_system_prompt(defn) + "\n\n" + system) if defn else system
+        text = call_llm(sys_full, [{"role": "user", "content": prompt}], temperature=0.72)
+        return jsonify({"ok": True, "caption": (text or "").strip()})
+    except Exception as e:
+        code, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
+
+@app.get("/api/content/meta_status")
+def api_content_meta_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    meta = _meta_settings(u)
+    return jsonify({
+        "ok": True,
+        "fb_connected":  bool(meta.get("fb_page_token") and meta.get("fb_page_id")),
+        "ig_connected":  bool(meta.get("fb_page_token") and meta.get("ig_account_id")),
+        "fb_page_id":    meta.get("fb_page_id")    or "",
+        "ig_account_id": meta.get("ig_account_id") or "",
+        "fb_page_name":  meta.get("fb_page_name")  or "",
+    })
+
+@app.post("/api/content/meta_connect")
+def api_content_meta_connect():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    meta = {
+        "fb_page_token":  (payload.get("fb_page_token")  or "").strip(),
+        "fb_page_id":     (payload.get("fb_page_id")     or "").strip(),
+        "ig_account_id":  (payload.get("ig_account_id")  or "").strip(),
+        "fb_page_name":   (payload.get("fb_page_name")   or "").strip(),
+        "connected_at":   now_iso(),
+    }
+    if not meta["fb_page_token"]:
+        return jsonify({"ok": False, "error": "Page Access Token is required"}), 400
+    _save_meta_settings(u, meta)
+    return jsonify({"ok": True})
+
+@app.post("/api/content/meta_disconnect")
+def api_content_meta_disconnect():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _save_meta_settings(u, {})
+    return jsonify({"ok": True})
