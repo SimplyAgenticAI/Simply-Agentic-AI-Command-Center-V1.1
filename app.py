@@ -7111,32 +7111,35 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:620px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
-.wcal-sidebar { width:220px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:12px; overflow-y:auto; }
+.wcal-sidebar { width:200px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-.wcal-topbar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
-.wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
+.wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
+.wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:5px 12px; font-size:13px; cursor:pointer; }
 .wcal-nav-btn:hover { background:rgba(30,40,80,.9); }
 .wcal-nav-btn.today { background:rgba(124,58,237,.25); border-color:rgba(124,58,237,.5); }
-.wcal-range-label { font-size:13px; font-weight:700; color:#c4b5fd; flex:1; }
+.wcal-range-label { font-size:14px; font-weight:700; color:#c4b5fd; flex:1; }
 .wcal-view-btns { display:flex; gap:4px; }
-.wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
+.wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer; }
 .wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
+/* Grid area — CRITICAL: must fill remaining space and scroll internally */
 .wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; }
-.wcal-grid { display:flex; position:relative; min-height:1440px; }
-.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
-.wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
+.wcal-grid { display:flex; flex-direction:column; position:relative; min-height:1440px; min-width:600px; }
+.wcal-time-col { width:52px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
+.wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:11px; color:rgba(100,116,139,.6); }
+/* Day columns: enforce a real minimum so they never collapse */
 .wcal-days-area { flex:1; display:grid; position:relative; }
-.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; flex:1; min-width:0; }
+.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; min-width:80px; }
 .wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.2); position:relative; }
 .wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.1); top:50%; }
-.wcal-col-header { text-align:center; padding:6px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
+/* Column headers: sticky at the top of the scroll area */
+.wcal-col-header { text-align:center; padding:6px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; }
 .wcal-col-header .wd { font-size:10px; color:rgba(148,163,184,.6); text-transform:uppercase; letter-spacing:.06em; }
-.wcal-col-header .dd { font-size:20px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
-.wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s; }
+.wcal-col-header .dd { font-size:22px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
+.wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:34px; height:34px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
+.wcal-event { position:absolute; left:2px; right:2px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s; }
 .wcal-event:hover { filter:brightness(1.2); }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.wcal-event-time { font-size:9px; opacity:.75; }
+.wcal-event-time { font-size:10px; opacity:.8; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
 /* Sidebar mini-month */
@@ -7164,6 +7167,31 @@ label         { font-size: 14px !important; }
 .wcal-upcoming-item { padding:5px 0; border-bottom:1px solid rgba(42,58,106,.25); }
 .wcal-upcoming-time { font-size:10px; color:rgba(100,116,139,.6); }
 .wcal-upcoming-title { color:rgba(226,232,240,.85); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* When calendar is open: make the modal full-screen edge-to-edge */
+.modal.cal-fullscreen {
+  left: 8px !important;
+  top: 8px !important;
+  right: 8px !important;
+  bottom: 8px !important;
+  width: calc(100vw - 16px) !important;
+  height: calc(100vh - 16px) !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: none !important;
+  border-radius: 14px !important;
+}
+.modal.cal-fullscreen .modalBodyWrap {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+.modal.cal-fullscreen #calendarForm {
+  height: 100% !important;
+  overflow: hidden !important;
+}
 </style>
 
 <div class="wcal-wrap">
@@ -12019,32 +12047,35 @@ function wcalRenderWeek(){
     days.push(d);
   }
 
-  // Build HTML
+  // Shared column template: time col (52px) + 7 equal day cols
+  const colTemplate = '52px repeat(7, minmax(80px, 1fr))';
+
   let html = '';
 
-  // Time column + day columns header row
-  html += '<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;">';
-  html += '<div style="width:54px;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);"></div>';
+  // ── Sticky header row ──────────────────────────────────────
+  html += '<div style="display:grid;grid-template-columns:'+colTemplate+';position:sticky;top:0;z-index:10;background:#0d1120;border-bottom:1px solid rgba(42,58,106,.5);">';
+  // Empty time-col spacer
+  html += '<div style="background:#0d1120;border-bottom:1px solid rgba(42,58,106,.3);"></div>';
   const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   days.forEach((d,i)=>{
     const isToday = ymd(d) === today;
     const numEl = isToday
       ? '<div class="dd today-num">'+d.getDate()+'</div>'
       : '<div class="dd">'+d.getDate()+'</div>';
-    html += '<div class="wcal-col-header" style="flex:1;min-width:0;">';
+    html += '<div class="wcal-col-header">';
     html += '<div class="wd">'+dayNames[i]+'</div>'+numEl;
     html += '</div>';
   });
   html += '</div>';
 
-  // Time + event area
-  html += '<div style="display:flex;position:relative;">';
+  // ── Scrollable time + events body ─────────────────────────
+  html += '<div style="display:grid;grid-template-columns:'+colTemplate+';position:relative;flex:1;">';
 
   // Time labels column
-  html += '<div class="wcal-time-col">';
+  html += '<div class="wcal-time-col" style="width:auto;">';
   for(let h=0;h<24;h++){
-    const label = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
-    html += '<div class="wcal-time-label">'+label+'</div>';
+    const lbl = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
+    html += '<div class="wcal-time-label">'+lbl+'</div>';
   }
   html += '</div>';
 
@@ -12052,62 +12083,75 @@ function wcalRenderWeek(){
   days.forEach((d,di)=>{
     const dt = ymd(d);
     const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
-    html += '<div class="wcal-day-col" style="flex:1;position:relative;min-width:0;" data-date="'+dt+'">';
+    const allDay = (cal.events[dt]||[]).filter(ev=>ev.start && !ev.start.includes('T'));
+
+    html += '<div class="wcal-day-col" style="position:relative;" data-date="'+dt+'">';
 
     // Hour lines
     for(let h=0;h<24;h++){
       html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
     }
 
-    // Events
-    evs.forEach((ev,ei)=>{
-      const startStr = ev.start||'';
-      const endStr   = ev.end||ev.start||'';
-      const startDate = new Date(startStr);
-      const endDate   = new Date(endStr);
+    // All-day events pinned at top
+    allDay.forEach((ev,ai)=>{
+      const color = eventColor(ev);
+      const title = (ev.summary||'Event').replace(/</g,'&lt;');
+      html += '<div class="wcal-event" style="top:'+(4+ai*20)+'px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;z-index:4;" title="'+title+'">';
+      html += '<div class="wcal-event-title">'+title+'</div></div>';
+    });
+
+    // Timed events — detect overlaps and tile side-by-side
+    // Simple collision: sort by start, assign columns
+    const sorted = evs.slice().sort((a,b)=>a.start.localeCompare(b.start));
+    const cols = []; // each entry: end minute of last event in that col
+    sorted.forEach(ev=>{
+      const startDate = new Date(ev.start);
+      const endDate   = new Date(ev.end||ev.start);
       if(isNaN(startDate)) return;
       const startMins = startDate.getHours()*60 + startDate.getMinutes();
       const durationMins = Math.max(30, (endDate - startDate)/60000);
-      const top = startMins; // 1px per minute
-      const height = Math.max(22, durationMins);
-      const color = eventColor(ev);
-      const timeStr = startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-      const title = (ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      const link = ev.htmlLink||ev.hangoutLink||'';
-      html += '<div class="wcal-event" style="top:'+top+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';" ';
+      const endMins = startMins + durationMins;
+
+      // Find first column where this event doesn't overlap
+      let colIdx = cols.findIndex(colEnd => startMins >= colEnd);
+      if(colIdx === -1){ colIdx = cols.length; cols.push(0); }
+      cols[colIdx] = endMins;
+
+      const totalCols = cols.length;
+      const leftPct   = (colIdx / totalCols * 100).toFixed(1);
+      const widthPct  = (1 / totalCols * 100 - 1).toFixed(1);
+
+      const top    = startMins;
+      const height = Math.max(24, durationMins);
+      const color  = eventColor(ev);
+      const timeStr= startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      const title  = (ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      const link   = ev.htmlLink||ev.hangoutLink||'';
+
+      html += '<div class="wcal-event" style="top:'+top+'px;height:'+height+'px;left:calc('+leftPct+'% + 2px);width:calc('+widthPct+'% - 2px);right:auto;background:'+color.bg+';color:'+color.text+';" ';
       if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
       html += 'title="'+title+'">';
       html += '<div class="wcal-event-title">'+title+'</div>';
-      if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
+      if(height>30) html += '<div class="wcal-event-time">'+timeStr+'</div>';
       html += '</div>';
     });
-
-    // All-day events (no T in start)
-    const allDay = (cal.events[dt]||[]).filter(ev=>ev.start && !ev.start.includes('T'));
-    if(allDay.length){
-      allDay.forEach(ev=>{
-        const color = eventColor(ev);
-        const title = (ev.summary||'Event').replace(/</g,'&lt;');
-        html += '<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" title="'+title+'">';
-        html += '<div class="wcal-event-title">'+title+'</div></div>';
-      });
-    }
 
     html += '</div>';
   });
 
-  // Now line (only if today is in view)
-  const todayInView = days.some(d=>ymd(d)===today);
-  if(todayInView){
-    const todayIdx = days.findIndex(d=>ymd(d)===today);
-    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:'+(54+todayIdx*(100/7))+'%;width:'+(100/7)+'%;"><div class="wcal-now-dot"></div></div>';
+  // Now line spanning the today column only
+  const todayIdx = days.findIndex(d=>ymd(d)===today);
+  if(todayIdx >= 0){
+    // Position within the grid: time col is col 1, days are col 2-8
+    // Use a full-width overlay line clipped to the today column via left/width
+    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;grid-column:'+(todayIdx+2)+';left:0;right:0;"><div class="wcal-now-dot"></div></div>';
   }
 
-  html += '</div>'; // end time+event area
+  html += '</div>'; // end grid body
 
   grid.innerHTML = html;
 
-  // Scroll to 8 AM on load
+  // Scroll to 8 AM on first render
   const wrap = document.getElementById('wcalGridWrap');
   if(wrap && wrap._firstRender !== false){
     wrap._firstRender = false;
@@ -12117,7 +12161,7 @@ function wcalRenderWeek(){
   // Wire click on day columns to set date + prefill quick-add
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
     col.addEventListener('click', function(e){
-      if(e.target.classList.contains('wcal-event')) return;
+      if(e.target.closest('.wcal-event')) return;
       const dt = col.dataset.date;
       if(dt){
         const dateEl = document.getElementById('wcalAddDate');
@@ -12145,15 +12189,27 @@ function wcalRenderDay(){
   if(label) label.innerText = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 
   const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
+  const colTemplate = '52px 1fr';
 
-  let html = '<div style="display:flex;">';
-  html += '<div class="wcal-time-col">';
+  let html = '';
+
+  // Header
+  html += '<div style="display:grid;grid-template-columns:'+colTemplate+';position:sticky;top:0;z-index:10;background:#0d1120;border-bottom:1px solid rgba(42,58,106,.5);">';
+  html += '<div></div>';
+  const isToday = dt === today;
+  const numEl = isToday ? '<div class="dd today-num">'+d.getDate()+'</div>' : '<div class="dd">'+d.getDate()+'</div>';
+  html += '<div class="wcal-col-header"><div class="wd">'+d.toLocaleDateString('en-US',{weekday:'short'}).toUpperCase()+'</div>'+numEl+'</div>';
+  html += '</div>';
+
+  // Body
+  html += '<div style="display:grid;grid-template-columns:'+colTemplate+';position:relative;flex:1;">';
+  html += '<div class="wcal-time-col" style="width:auto;">';
   for(let h=0;h<24;h++){
     const lbl = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
     html += '<div class="wcal-time-label">'+lbl+'</div>';
   }
   html += '</div>';
-  html += '<div style="flex:1;position:relative;">';
+  html += '<div style="position:relative;">';
   for(let h=0;h<24;h++) html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
 
   evs.forEach(ev=>{
@@ -12170,7 +12226,7 @@ function wcalRenderDay(){
     if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
     html += 'title="'+title+'">';
     html += '<div class="wcal-event-title">'+title+'</div>';
-    if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
+    if(height>30) html += '<div class="wcal-event-time">'+timeStr+'</div>';
     html += '</div>';
   });
 
@@ -12386,8 +12442,16 @@ window.showCalendarModal = function showCalendarModal(){
   const modalTitle = document.getElementById('modalTitle');
   if(modalTitle) modalTitle.innerText = 'Calendar';
 
-  // Maximise modal for the week view
-  try{ ensureModalMinSize(1100, 760); }catch(_){}
+  // Expand modal to fill the viewport for the calendar
+  const win = document.getElementById('modalWin');
+  if(win) win.classList.add('cal-fullscreen');
+
+  // When this modal closes, remove the fullscreen class
+  const closeBtn = document.getElementById('closeModal');
+  const minBtn   = document.getElementById('minModal');
+  function _removeCal(){ if(win) win.classList.remove('cal-fullscreen'); }
+  if(closeBtn){ closeBtn._calCleanup = _removeCal; closeBtn.addEventListener('click', _removeCal, {once:true}); }
+  if(minBtn)  { minBtn.addEventListener('click', _removeCal, {once:true}); }
 
   cal.weekStart = wcalMonday(new Date());
   cal.selected  = ymd(new Date());
