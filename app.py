@@ -606,7 +606,8 @@ def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", sta
         pass
 
 def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> List[Dict[str, Any]]:
-    username = session.get("user") or "anon"
+    _u = session.get("user")
+    username = (_u.get("username") if isinstance(_u, dict) else None) or (_u if isinstance(_u, str) else None) or "anon"
     path = _task_log_path_for_user(username)
     if not path.exists():
         return []
@@ -2934,7 +2935,8 @@ def api_create_teammate():
 
 
 @app.get("/api/teammate/<name>")
-def api_get_teammate(name: str):
+def api_get_teammate(n: str):
+    name = n
     reg = load_registry()
     installed = reg.get("installed", {})
     if name not in installed:
@@ -2958,7 +2960,8 @@ def api_get_teammate(name: str):
 
 
 @app.post("/api/teammate/<name>")
-def api_update_teammate(name: str):
+def api_update_teammate(n: str):
+    name = n
     reg = load_registry()
     installed = reg.get("installed", {})
     if name not in installed:
@@ -3392,7 +3395,8 @@ def _api_followup_impl(data):
 
 
 @app.get("/api/thread/<name>")
-def api_thread(name: str):
+def api_thread(n: str):
+    name = n
     reg = load_registry()
     installed = reg["installed"]
     if name not in installed:
@@ -3400,7 +3404,8 @@ def api_thread(name: str):
     return jsonify({"ok": True, "thread": load_thread(name), "image_state": load_image_state(name)})
 
 @app.get("/api/teammates/<name>/image_state")
-def api_teammate_image_state(name: str):
+def api_teammate_image_state(n: str):
+    name = n
     reg = load_registry()
     installed = reg["installed"]
     if name not in installed:
@@ -3408,7 +3413,8 @@ def api_teammate_image_state(name: str):
     return jsonify({"ok": True, "image_state": load_image_state(name)})
 
 @app.post("/api/teammates/<name>/current_image")
-def api_teammate_set_current_image(name: str):
+def api_teammate_set_current_image(n: str):
+    name = n
     reg = load_registry()
     installed = reg["installed"]
     if name not in installed:
@@ -3427,7 +3433,8 @@ def api_teammate_set_current_image(name: str):
     return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
 
 @app.post("/api/teammates/<name>/approve_current_image")
-def api_teammate_approve_current_image(name: str):
+def api_teammate_approve_current_image(n: str):
+    name = n
     reg = load_registry()
     installed = reg["installed"]
     if name not in installed:
@@ -4652,7 +4659,7 @@ HTML = r"""
     }
 
     .stage{
-      min-height: calc(100vh - 24px);
+      min-height: calc(100vh - 66px);
       display:grid;
       grid-template-columns: minmax(0, 1fr) 500px;
       align-items:start;
@@ -4670,7 +4677,7 @@ HTML = r"""
       position:relative;
       width:min(860px, 92vw);
       height:min(860px, 92vw);
-      min-height: 860px;
+      min-height: 640px;
       margin-bottom: 0;
     }
 
@@ -7119,36 +7126,227 @@ label         { font-size: 14px !important; }
   </div>
 
   <!-- ═══════════════════ CONTENT PLANNER VIEW ═══════════════════ -->
-  <div id="crmViewContentPlanner" style="display:none;">
+  <div id="crmViewContentPlanner" style="display:none;flex-direction:column;height:100%;min-height:0;">
 
     <!-- Connection banner -->
-    <div id="cpConnectBanner" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.35);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+    <div class="cp-connect-banner">
       <div>
-        <div style="font-size:13px;font-weight:700;color:#c4b5fd;">📱 Social Accounts</div>
-        <div id="cpConnectionStatus" class="tiny" style="margin-top:2px;opacity:.75;">Checking...</div>
+        <div class="cp-connect-banner-title">📱 Social Accounts</div>
+        <div id="cpConnectionStatus" class="cp-connect-status">
+          <span><span class="cp-connect-dot off"></span>Checking…</span>
+        </div>
       </div>
-      <button class="btn btnMini" id="cpConnectBtn" onclick="cpOpenConnectModal()">Connect Accounts</button>
+      <button class="btn btnMini" onclick="cpOpenConnectModal()" style="white-space:nowrap;">
+        ⚙ Manage Connection
+      </button>
     </div>
 
     <!-- Toolbar -->
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-      <button class="btn btnPrimary" id="cpNewPostBtn" onclick="cpOpenCompose()">+ New Post</button>
-      <select id="cpFilterStatus" style="background:rgba(11,16,36,.9);color:var(--text);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:6px 10px;font-size:12px;" onchange="cpLoadPosts()">
+    <div class="cp-toolbar">
+      <button class="btn btnPrimary" onclick="cpOpenCompose()" style="gap:6px;">
+        ✦ New Post
+      </button>
+      <select id="cpFilterStatus" class="cp-filter-select" onchange="cpLoadPosts()">
         <option value="">All posts</option>
         <option value="draft">Drafts</option>
         <option value="scheduled">Scheduled</option>
         <option value="published">Published</option>
         <option value="failed">Failed</option>
       </select>
-      <button class="btn btnMini" onclick="cpLoadPosts()">↺ Refresh</button>
-      <div class="tiny" id="cpListStatus" style="margin-left:auto;"></div>
+      <button class="btn btnMini" onclick="cpLoadPosts()" title="Refresh">↺</button>
+      <div class="tiny" id="cpListStatus" style="margin-left:auto;opacity:.6;"></div>
     </div>
 
-    <!-- Post queue -->
-    <div id="cpPostList" style="display:flex;flex-direction:column;gap:8px;max-height:480px;overflow-y:auto;padding-right:4px;"></div>
+    <!-- Post list -->
+    <div id="cpPostList" class="cp-list"></div>
   </div>
 </div><!-- end crmForm -->
 
+<!-- ═══════════════════ CONTENT PLANNER MODALS ═══════════════════ -->
+
+<!-- Compose / Edit modal -->
+<div id="cpComposeModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseCompose()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.7);border-radius:20px;width:min(740px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.8);">
+
+    <!-- Modal header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;background:rgba(7,10,20,.4);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">✍️</span>
+        <div>
+          <div id="cpComposeTitle" style="font-weight:700;font-size:16px;color:#c4b5fd;">Compose Post</div>
+          <div class="tiny" style="opacity:.5;margin-top:1px;">Draft · Schedule · Or post immediately</div>
+        </div>
+      </div>
+      <button onclick="cpCloseCompose()" style="background:rgba(180,30,60,.25);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:5px 14px;font-size:13px;cursor:pointer;transition:background .15s;" onmouseover="this.style.background='rgba(239,68,68,.3)'" onmouseout="this.style.background='rgba(180,30,60,.25)'">✕ Close</button>
+    </div>
+
+    <!-- Scrollable body -->
+    <div style="flex:1;overflow-y:auto;padding:20px 22px;">
+
+      <!-- AI Draft panel -->
+      <div class="cp-ai-panel">
+        <div class="cp-ai-panel-title">🤖 AI Draft — Let a Teammate Write It</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+          <div>
+            <label class="cp-field-label">Topic / angle</label>
+            <input id="cpDraftTopic" class="cp-input" placeholder="e.g. 5 tips for getting leads" />
+          </div>
+          <div>
+            <label class="cp-field-label">Tone</label>
+            <select id="cpDraftTone" class="cp-select">
+              <option value="professional">Professional</option>
+              <option value="casual">Casual &amp; friendly</option>
+              <option value="bold">Bold &amp; direct</option>
+              <option value="storytelling">Storytelling</option>
+              <option value="educational">Educational</option>
+            </select>
+          </div>
+          <div>
+            <label class="cp-field-label">Teammate voice</label>
+            <select id="cpDraftTeammate" class="cp-select">
+              <option value="Willow">Willow</option>
+              <option value="Alex">Alex</option>
+              <option value="Jordan">Jordan</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btnPrimary" id="cpDraftBtn" onclick="cpAiDraft()" style="width:100%;justify-content:center;">
+          ✦ Generate Caption with AI
+        </button>
+        <div class="tiny" id="cpDraftStatus" style="margin-top:6px;min-height:16px;"></div>
+      </div>
+
+      <!-- Caption -->
+      <div style="margin-bottom:14px;">
+        <label class="cp-field-label">Caption <span style="color:rgba(239,68,68,.7);">*</span></label>
+        <textarea id="cpCaption" class="cp-textarea" rows="6" placeholder="Write your caption here, or generate one above…"></textarea>
+        <div class="cp-char-count" id="cpCaptionCount">0 characters</div>
+      </div>
+
+      <!-- Hashtags -->
+      <div style="margin-bottom:14px;">
+        <label class="cp-field-label">Hashtags <span style="opacity:.4;">(appended automatically when posting)</span></label>
+        <input id="cpHashtags" class="cp-input" placeholder="#coaching #business #entrepreneur #mindset" />
+      </div>
+
+      <!-- Image row -->
+      <div style="margin-bottom:14px;">
+        <label class="cp-field-label">Image <span style="opacity:.4;">(required for Instagram)</span></label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input id="cpImageUrl" class="cp-input" placeholder="https://… paste a public image URL" style="flex:1;" />
+          <input type="file" id="cpImageFile" accept="image/*" style="display:none;" />
+          <button class="btn btnMini" onclick="document.getElementById('cpImageFile').click()" style="white-space:nowrap;">📁 Upload</button>
+        </div>
+        <div id="cpImagePreviewWrap" style="display:none;margin-top:10px;">
+          <img id="cpImagePreview" src="" alt="Preview" class="cp-img-preview" />
+          <button onclick="cpClearImage()" style="background:none;border:none;color:#fca5a5;font-size:12px;cursor:pointer;margin-top:4px;padding:0;">✕ Remove image</button>
+        </div>
+      </div>
+
+      <!-- Platform + Schedule grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div>
+          <label class="cp-field-label">Post to</label>
+          <select id="cpPlatforms" class="cp-select">
+            <option value="both">👤📸 Facebook + Instagram</option>
+            <option value="facebook">👤 Facebook only</option>
+            <option value="instagram">📸 Instagram only</option>
+          </select>
+        </div>
+        <div>
+          <label class="cp-field-label">Schedule date &amp; time <span style="opacity:.4;">(blank = draft)</span></label>
+          <input type="datetime-local" id="cpScheduledAt" class="cp-input" />
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <label class="cp-field-label">Internal notes <span style="opacity:.4;">(never posted)</span></label>
+        <input id="cpNotes" class="cp-input" placeholder="e.g. Part of April campaign · Week 2" />
+      </div>
+
+    </div>
+
+    <!-- Footer actions -->
+    <div class="cp-compose-footer">
+      <div class="tiny" id="cpSaveStatus" style="flex:1;min-height:16px;"></div>
+      <button class="btn btnMini" onclick="cpSavePost('draft')" style="gap:5px;">
+        💾 Save Draft
+      </button>
+      <button class="btn btnMini" onclick="cpSavePost('scheduled')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;gap:5px;">
+        🕐 Schedule
+      </button>
+      <button class="btn btnPrimary" onclick="cpPublishNow()" style="gap:5px;">
+        🚀 Post Now
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Meta Connect modal -->
+<div id="cpConnectModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseConnectModal()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.7);border-radius:20px;width:min(600px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.8);">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;background:rgba(7,10,20,.4);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">🔗</span>
+        <div>
+          <div style="font-weight:700;font-size:16px;color:#c4b5fd;">Connect Social Accounts</div>
+          <div class="tiny" style="opacity:.5;margin-top:1px;">Facebook Page · Instagram Business</div>
+        </div>
+      </div>
+      <button onclick="cpCloseConnectModal()" style="background:rgba(180,30,60,.25);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:5px 14px;font-size:13px;cursor:pointer;">✕ Close</button>
+    </div>
+
+    <!-- Body -->
+    <div style="flex:1;overflow-y:auto;padding:20px 22px;">
+
+      <div class="cp-instruction-box">
+        <strong style="color:#c4b5fd;">How to get your Page Access Token:</strong><br>
+        1. Go to <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Meta Graph API Explorer →</a><br>
+        2. Select your app, click <strong>Generate Access Token</strong>, grant permissions:<br>
+        &nbsp;&nbsp;<code>pages_manage_posts</code> &nbsp;<code>instagram_basic</code> &nbsp;<code>instagram_content_publish</code><br>
+        3. Click <strong>Get Page Access Token</strong> for your specific page, paste it below.<br>
+        4. For a permanent token, exchange for a long-lived token via the API.
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label class="cp-field-label">Page Access Token <span style="color:rgba(239,68,68,.7);">*</span></label>
+        <textarea id="cpMetaToken" class="cp-textarea" rows="2" style="font-family:monospace;font-size:12px;" placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"></textarea>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div>
+          <label class="cp-field-label">Facebook Page ID <span style="color:rgba(239,68,68,.7);">*</span></label>
+          <input id="cpMetaPageId" class="cp-input" placeholder="123456789012345" />
+          <div class="tiny" style="margin-top:4px;opacity:.5;">Page Settings → Page Info → Page ID</div>
+        </div>
+        <div>
+          <label class="cp-field-label">Instagram Account ID <span style="opacity:.4;">(optional)</span></label>
+          <input id="cpMetaIgId" class="cp-input" placeholder="987654321098765" />
+          <div class="tiny" style="margin-top:4px;opacity:.5;">Graph Explorer: <code style="font-size:10px;">me/instagram_accounts</code></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <label class="cp-field-label">Page display name <span style="opacity:.4;">(for your reference)</span></label>
+        <input id="cpMetaPageName" class="cp-input" placeholder="My Business Page" />
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="btn btnPrimary" onclick="cpSaveMetaConnect()" style="flex:1;justify-content:center;">
+          ✓ Save &amp; Connect
+        </button>
+        <button class="btn btnMini" onclick="cpDisconnect()" style="border-color:rgba(239,68,68,.35);color:#fca5a5;">
+          Disconnect
+        </button>
+      </div>
+      <div class="tiny" id="cpConnectModalStatus" style="margin-top:10px;min-height:16px;"></div>
+
+    </div>
+  </div>
+</div>
 
 <style>
 /* Message expand modal */
@@ -9146,7 +9344,7 @@ function makeSeat(defn, idx){
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
       nameEl.style.lineHeight = "1.2";
-      nameEl.innerText = 'Operator';
+      nameEl.innerHTML = 'Operator<br><span style="font-size:11px;font-weight:600;opacity:.7;letter-spacing:.03em;">Profile</span>';
       seat.appendChild(nameEl);
 
       // Default position like other seats (with saved drag positions)
@@ -9184,9 +9382,7 @@ function makeSeat(defn, idx){
       }
 
       // Click / keyboard select
-      // Clicking the card selects it; Profile button is the only way to open the modal.
-      // After a drag, `moved` is true so we skip the action entirely.
-      seat.addEventListener("click", (e) => { if(moved) return; e.preventDefault(); selectSeat("Operator"); });
+      seat.addEventListener("click", (e) => { e.preventDefault(); openOperatorProfileModal(); });
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
           e.preventDefault(); openOperatorProfileModal();
@@ -15071,28 +15267,372 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </style>
 
 <style>
-/* ── Content Planner ── */
+/* ════════════════════════════════════════════════════════
+   CONTENT PLANNER — Design System
+   ════════════════════════════════════════════════════════ */
+
+/* ── Layout ── */
+#crmViewContentPlanner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── Connection banner ── */
+.cp-connect-banner {
+  background: linear-gradient(135deg, rgba(124,58,237,.1) 0%, rgba(59,130,246,.07) 100%);
+  border: 1px solid rgba(124,58,237,.28);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.cp-connect-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c4b5fd;
+  margin-bottom: 2px;
+}
+.cp-connect-status {
+  font-size: 12px;
+  color: rgba(148,163,184,.75);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cp-connect-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.cp-connect-dot.on  { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,.6); }
+.cp-connect-dot.off { background: rgba(107,114,128,.5); }
+
+/* ── Toolbar ── */
+.cp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+.cp-filter-select {
+  background: rgba(11,16,36,.9);
+  color: rgba(226,232,240,.9);
+  border: 1px solid rgba(42,58,106,.7);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+.cp-filter-select:focus { border-color: rgba(124,58,237,.6); }
+
+/* ── Post list ── */
+.cp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124,58,237,.25) transparent;
+}
+.cp-list::-webkit-scrollbar { width: 5px; }
+.cp-list::-webkit-scrollbar-thumb { background: rgba(124,58,237,.3); border-radius: 3px; }
+
+/* ── Post card ── */
 .cp-post-card {
-  background:rgba(11,16,36,.85); border:1px solid rgba(42,58,106,.55);
-  border-radius:12px; padding:12px 14px; transition:border-color .15s;
+  background: rgba(11,16,36,.88);
+  border: 1px solid rgba(42,58,106,.5);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .1s ease;
+  cursor: default;
 }
-.cp-post-card:hover { border-color:rgba(124,58,237,.45); }
-.cp-post-card.cp-status-published { border-left:3px solid #10b981; }
-.cp-post-card.cp-status-scheduled { border-left:3px solid #3b82f6; }
-.cp-post-card.cp-status-draft     { border-left:3px solid #6b7280; }
-.cp-post-card.cp-status-failed    { border-left:3px solid #ef4444; }
+.cp-post-card:hover {
+  border-color: rgba(124,58,237,.4);
+  box-shadow: 0 6px 28px rgba(0,0,0,.35);
+  transform: translateY(-1px);
+}
+/* Status accent stripe */
+.cp-post-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+.cp-post-card.cp-status-published { border-color: rgba(16,185,129,.22); }
+.cp-post-card.cp-status-published::before { background: #10b981; }
+.cp-post-card.cp-status-scheduled { border-color: rgba(59,130,246,.22); }
+.cp-post-card.cp-status-scheduled::before { background: #3b82f6; }
+.cp-post-card.cp-status-draft     { border-color: rgba(107,114,128,.25); }
+.cp-post-card.cp-status-draft::before { background: rgba(107,114,128,.6); }
+.cp-post-card.cp-status-failed    { border-color: rgba(239,68,68,.22); }
+.cp-post-card.cp-status-failed::before { background: #ef4444; }
+
+/* ── Card header row ── */
+.cp-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.cp-card-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Caption text ── */
+.cp-card-caption {
+  font-size: 14px;
+  color: rgba(226,232,240,.92);
+  line-height: 1.55;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Schedule label ── */
+.cp-card-schedule {
+  font-size: 12px;
+  color: rgba(100,116,139,.8);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.cp-card-schedule-time { color: rgba(148,163,184,.9); font-weight: 600; }
+
+/* ── Card actions ── */
+.cp-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid rgba(42,58,106,.35);
+}
+
+/* ── Badges ── */
 .cp-badge {
-  display:inline-block; font-size:10px; font-weight:700; border-radius:5px;
-  padding:2px 7px; letter-spacing:.04em; text-transform:uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 3px 9px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.cp-badge-published { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
-.cp-badge-scheduled { background:rgba(59,130,246,.15); color:#93c5fd; border:1px solid rgba(59,130,246,.3); }
-.cp-badge-draft     { background:rgba(107,114,128,.15); color:#9ca3af; border:1px solid rgba(107,114,128,.3); }
-.cp-badge-failed    { background:rgba(239,68,68,.15);  color:#fca5a5; border:1px solid rgba(239,68,68,.3); }
+.cp-badge-published { background: rgba(16,185,129,.14); color: #6ee7b7; border: 1px solid rgba(16,185,129,.28); }
+.cp-badge-scheduled { background: rgba(59,130,246,.14);  color: #93c5fd; border: 1px solid rgba(59,130,246,.28); }
+.cp-badge-draft     { background: rgba(107,114,128,.12); color: #9ca3af; border: 1px solid rgba(107,114,128,.28); }
+.cp-badge-failed    { background: rgba(239,68,68,.12);   color: #fca5a5; border: 1px solid rgba(239,68,68,.22); }
+
+/* ── Platform pill ── */
 .cp-platform-pill {
-  display:inline-flex; align-items:center; gap:3px; font-size:10px;
-  background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.5);
-  border-radius:5px; padding:2px 7px; color:rgba(148,163,184,.8);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(14,22,48,.75);
+  border: 1px solid rgba(42,58,106,.5);
+  border-radius: 6px;
+  padding: 3px 9px;
+  color: rgba(148,163,184,.9);
+}
+
+/* ── Thumbnail ── */
+.cp-thumb {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  border: 1px solid rgba(42,58,106,.5);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: rgba(14,22,48,.7);
+}
+
+/* ── Image placeholder ── */
+.cp-thumb-placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 10px;
+  border: 1px dashed rgba(42,58,106,.5);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: rgba(100,116,139,.4);
+  background: rgba(14,22,48,.4);
+}
+
+/* ── Error row ── */
+.cp-error-row {
+  font-size: 12px;
+  color: #fca5a5;
+  background: rgba(239,68,68,.08);
+  border: 1px solid rgba(239,68,68,.2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-top: 6px;
+}
+
+/* ── Published confirmation ── */
+.cp-pub-row {
+  font-size: 12px;
+  color: #6ee7b7;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+/* ── Empty state ── */
+.cp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  text-align: center;
+  color: rgba(148,163,184,.5);
+}
+.cp-empty-icon  { font-size: 48px; margin-bottom: 14px; }
+.cp-empty-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; color: rgba(196,181,253,.6); }
+.cp-empty-sub   { font-size: 13px; opacity: .7; }
+
+/* ── Compose modal fields ── */
+.cp-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(148,163,184,.7);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.cp-input, .cp-select {
+  width: 100%;
+  background: rgba(7,10,20,.65);
+  border: 1px solid rgba(42,58,106,.65);
+  border-radius: 9px;
+  color: rgba(226,232,240,.95);
+  padding: 9px 11px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s;
+}
+.cp-input:focus, .cp-select:focus { border-color: rgba(124,58,237,.6); }
+.cp-textarea {
+  width: 100%;
+  background: rgba(7,10,20,.65);
+  border: 1px solid rgba(42,58,106,.65);
+  border-radius: 9px;
+  color: rgba(226,232,240,.95);
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color .15s;
+}
+.cp-textarea:focus { border-color: rgba(124,58,237,.6); }
+
+/* ── AI draft panel ── */
+.cp-ai-panel {
+  background: linear-gradient(135deg, rgba(124,58,237,.08) 0%, rgba(59,130,246,.05) 100%);
+  border: 1px solid rgba(124,58,237,.22);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.cp-ai-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #c4b5fd;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Image preview ── */
+.cp-img-preview {
+  max-height: 160px;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(42,58,106,.4);
+  margin-top: 8px;
+  display: block;
+}
+
+/* ── Compose footer ── */
+.cp-compose-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(42,58,106,.45);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  background: rgba(7,10,20,.3);
+}
+
+/* ── Char counter ── */
+.cp-char-count {
+  font-size: 10px;
+  color: rgba(100,116,139,.6);
+  text-align: right;
+  margin-top: 3px;
+}
+
+/* ── Connect modal instruction box ── */
+.cp-instruction-box {
+  background: rgba(14,22,48,.7);
+  border: 1px solid rgba(42,58,106,.5);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: rgba(148,163,184,.85);
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+.cp-instruction-box code {
+  background: rgba(124,58,237,.15);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: #c4b5fd;
+}
+.cp-instruction-box a {
+  color: #a5b4fc;
+  text-decoration: underline;
+  text-decoration-color: rgba(165,180,252,.4);
 }
 </style>
 
@@ -15128,25 +15668,74 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
   // ── Open / close main modal ────────────────────────────────────────────────
   window.showContentPlannerModal = function showContentPlannerModal(){
+    // Open the modal overlay
     if(typeof showModal==='function') showModal();
-    if(typeof ensureModalMinSize==='function') ensureModalMinSize(960, 720);
-    if(typeof hideAllModalForms==='function') hideAllModalForms();
-    else { ['frameworkForm','modalForm','manageForm','createForm','settingsForm',
-             'stackForm','apiKeyHelpForm','emailConsoleForm','calendarForm']
-             .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; }); }
+
+    // Expand to near-fullscreen (like the Calendar)
+    const win = document.getElementById('modalWin');
+    if(win){
+      win.style.width  = 'calc(100vw - 20px)';
+      win.style.height = 'calc(100vh - 20px)';
+      win.style.left   = '10px';
+      win.style.top    = '10px';
+      win.style.transform = 'none';
+      win.style.maxWidth  = 'none';
+      win.style.maxHeight = 'none';
+      win.style.borderRadius = '16px';
+    }
+
+    // Hide EVERY possible form — belt and suspenders
+    const allForms = [
+      'frameworkForm','modalForm','manageForm','createForm','settingsForm',
+      'stackForm','apiKeyHelpForm','crmForm','emailConsoleForm','smsConsoleForm',
+      'leadHandoffForm','calendarForm','operatorProfileModalForm'
+    ];
+    allForms.forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+
+    // Hide modal body/img
+    const mb = document.getElementById('modalBody'); if(mb) mb.style.display='none';
+    const mi = document.getElementById('modalImg');  if(mi) mi.style.display='none';
+
+    // Show the CRM form container (it houses crmViewContentPlanner)
     const cf = document.getElementById('crmForm');
-    if(cf) cf.style.display = 'block';
+    if(cf){ cf.style.display='block'; }
+
+    // Hide all CRM sub-views, then show only Content Planner
     if(typeof crmHideViews==='function') crmHideViews();
     const v = document.getElementById('crmViewContentPlanner');
     if(v) v.style.display = 'block';
-    const mb = document.getElementById('modalBody');
-    if(mb) mb.style.display = 'none';
-    const mt = document.getElementById('modalTitle');
-    if(mt) mt.innerText = '📅 Content Planner';
+
+    // Hide the CRM nav tabs (we're standalone)
     const nav = document.getElementById('crmNavTabs');
     if(nav) nav.style.display = 'none';
+
+    // Set modal title
+    const mt = document.getElementById('modalTitle');
+    if(mt) mt.innerText = '📅 Content Planner';
+
+    // Undo the cal-fullscreen class if it was set by Calendar
+    if(win) win.classList.remove('cal-fullscreen');
+
+    // Load data
     cpLoadPosts();
     cpLoadMetaStatus();
+
+    // Restore modal size on close
+    const closeBtn = document.getElementById('closeModal');
+    const minBtn   = document.getElementById('minModal');
+    function _restoreModal(){
+      if(!win) return;
+      win.style.width  = '';
+      win.style.height = '';
+      win.style.left   = '';
+      win.style.top    = '';
+      win.style.transform = '';
+      win.style.maxWidth  = '';
+      win.style.maxHeight = '';
+      win.style.borderRadius = '';
+    }
+    if(closeBtn) closeBtn.addEventListener('click', _restoreModal, {once:true});
+    if(minBtn)   minBtn.addEventListener('click', _restoreModal, {once:true});
   };
 
   // ── Load & render post queue ───────────────────────────────────────────────
@@ -15171,48 +15760,76 @@ if(typeof maybeAutoShowOnboarding === "function"){
   function _cpRenderPosts(posts, listEl){
     if(!listEl) return;
     if(!posts.length){
-      listEl.innerHTML = '<div class="tiny" style="opacity:.5;padding:16px 4px;">No posts yet. Press <b>+ New Post</b> to create one.</div>';
+      listEl.innerHTML = `
+        <div class="cp-empty">
+          <div class="cp-empty-icon">📅</div>
+          <div class="cp-empty-title">No posts yet</div>
+          <div class="cp-empty-sub">Press <strong>✦ New Post</strong> to create your first scheduled post.<br>Your teammates can draft captions using AI.</div>
+        </div>`;
       return;
     }
-    const platIcon = p => p==='facebook'?'👤 Facebook':p==='instagram'?'📸 Instagram':'👤 FB + 📸 IG';
+
+    const platLabel = p => p==='facebook' ? '👤 Facebook' : p==='instagram' ? '📸 Instagram' : '👤 FB &nbsp;+&nbsp; 📸 IG';
+
     listEl.innerHTML = posts.map(post=>{
-      const st    = post.status||'draft';
-      const cap   = (post.caption||'').slice(0,140) + ((post.caption||'').length>140?'…':'');
-      const hasImg= !!(post.image_url||post.image_file_id);
-      const schedLabel = post.scheduled_at
-        ? _fmt(post.scheduled_at) + ' <span style="opacity:.5;">(' + _reltime(post.scheduled_at) + ')</span>'
-        : '<span style="opacity:.4;">No schedule — draft</span>';
-      const errHtml = post.error
-        ? `<div style="font-size:11px;color:#fca5a5;margin-top:5px;">⚠ ${_esc(post.error)}</div>` : '';
-      const pubHtml = post.published_at
-        ? `<div class="tiny" style="color:#6ee7b7;margin-top:4px;">✓ Published ${_fmt(post.published_at)}</div>` : '';
-      const fbId = post.fb_post_id
-        ? `<a href="https://www.facebook.com/${_esc(post.fb_post_id)}" target="_blank" rel="noopener" style="font-size:10px;color:#a5b4fc;margin-right:8px;">FB →</a>` : '';
-      const igId = post.ig_post_id
-        ? `<span style="font-size:10px;color:#f0abfc;">IG ✓</span>` : '';
+      const st     = post.status || 'draft';
+      const cap    = (post.caption || '').trim();
+      const capPrev= cap.length > 160 ? cap.slice(0,160) + '…' : cap;
+      const hasImg = !!(post.image_url || post.image_file_id);
+      const imgSrc = post.image_url || '';
+
+      // Schedule label
+      let schedHtml = '';
+      if(post.scheduled_at){
+        const rel = _reltime(post.scheduled_at);
+        const past = new Date(post.scheduled_at) < Date.now();
+        schedHtml = `<span class="cp-card-schedule-time">${_fmt(post.scheduled_at)}</span>
+          <span style="opacity:.5;">${past ? '(overdue)' : '('+rel+')'}</span>`;
+      } else {
+        schedHtml = '<span style="opacity:.35;">No schedule</span>';
+      }
+
+      // Post links
+      const fbLink = post.fb_post_id
+        ? `<a href="https://www.facebook.com/${_esc(post.fb_post_id)}" target="_blank" rel="noopener" style="font-size:11px;color:#a5b4fc;">FB post ↗</a>` : '';
+      const igLink = post.ig_post_id
+        ? `<span style="font-size:11px;color:#f0abfc;">IG ✓</span>` : '';
+
       return `
-      <div class="cp-post-card cp-status-${_esc(st)}" data-post-id="${_esc(post.id)}">
-        <div style="display:flex;align-items:flex-start;gap:10px;">
-          ${hasImg ? `<div style="width:56px;height:56px;border-radius:8px;background:rgba(42,58,106,.4);border:1px solid rgba(42,58,106,.6);flex-shrink:0;overflow:hidden;">
-            <img src="${_esc(post.image_url||'')}" onerror="this.style.display='none'" style="width:100%;height:100%;object-fit:cover;" /></div>` : ''}
+      <div class="cp-post-card cp-status-${_esc(st)}">
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          ${hasImg
+            ? `<img src="${_esc(imgSrc)}" class="cp-thumb" onerror="this.style.display='none'" />`
+            : `<div class="cp-thumb-placeholder">🖼</div>`
+          }
           <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;">
+            <!-- Header row -->
+            <div class="cp-card-header">
               <span class="cp-badge cp-badge-${_esc(st)}">${_esc(st)}</span>
-              <span class="cp-platform-pill">${platIcon(post.platforms)}</span>
-              ${post.teammate ? `<span class="tiny" style="opacity:.5;">by ${_esc(post.teammate)}</span>` : ''}
-              <div style="margin-left:auto;display:flex;gap:6px;">
-                ${fbId}${igId}
+              <span class="cp-platform-pill">${platLabel(post.platforms)}</span>
+              ${post.teammate ? `<span style="font-size:11px;opacity:.45;">by ${_esc(post.teammate)}</span>` : ''}
+              <div class="cp-card-meta">
+                ${fbLink} ${igLink}
               </div>
             </div>
-            <div style="font-size:13px;color:#e2e8f0;line-height:1.5;margin-bottom:5px;">${_esc(cap)}</div>
-            <div style="font-size:11px;color:rgba(148,163,184,.6);">${schedLabel}</div>
-            ${errHtml}${pubHtml}
+            <!-- Caption -->
+            <div class="cp-card-caption">${_esc(capPrev)}</div>
+            ${post.hashtags ? `<div style="font-size:12px;color:#a78bfa;margin-bottom:6px;opacity:.7;">${_esc(post.hashtags.slice(0,80))}</div>` : ''}
+            <!-- Schedule -->
+            <div class="cp-card-schedule">🕐 ${schedHtml}</div>
+            <!-- Error -->
+            ${post.error ? `<div class="cp-error-row">⚠ ${_esc(post.error)}</div>` : ''}
+            <!-- Published at -->
+            ${post.published_at ? `<div class="cp-pub-row">✓ Published ${_fmt(post.published_at)}</div>` : ''}
           </div>
         </div>
-        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+        <!-- Actions -->
+        <div class="cp-card-actions">
           <button class="btn btnMini" onclick="cpOpenCompose('${_esc(post.id)}')">✏ Edit</button>
-          ${st!=='published' ? `<button class="btn btnMini" style="border-color:rgba(16,185,129,.5);color:#6ee7b7;" onclick="cpPublishNowId('${_esc(post.id)}')">🚀 Post Now</button>` : ''}
-          <button class="btn btnMini" style="border-color:rgba(239,68,68,.4);color:#fca5a5;" onclick="cpDeletePost('${_esc(post.id)}')">🗑 Delete</button>
+          ${st !== 'published'
+            ? `<button class="btn btnMini" onclick="cpPublishNowId('${_esc(post.id)}')" style="border-color:rgba(16,185,129,.4);color:#6ee7b7;">🚀 Post Now</button>`
+            : ''}
+          <button class="btn btnMini" onclick="cpDeletePost('${_esc(post.id)}')" style="border-color:rgba(239,68,68,.3);color:#fca5a5;margin-left:auto;">🗑 Delete</button>
         </div>
       </div>`;
     }).join('');
@@ -15488,16 +16105,21 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const d = await r.json();
       if(!d.ok) return;
       const statusEl = document.getElementById('cpConnectionStatus');
-      const parts = [];
-      if(d.fb_connected) parts.push('✓ Facebook' + (d.fb_page_name?' ('+d.fb_page_name+')':''));
-      else parts.push('✗ Facebook not connected');
-      if(d.ig_connected) parts.push('✓ Instagram');
-      else parts.push('✗ Instagram not connected');
-      if(statusEl) statusEl.innerText = parts.join('  ·  ');
-      // Pre-fill connect form with existing values
-      const pid = document.getElementById('cpMetaPageId');   if(pid) pid.value = d.fb_page_id||'';
-      const iid = document.getElementById('cpMetaIgId');     if(iid) iid.value = d.ig_account_id||'';
-      const pn  = document.getElementById('cpMetaPageName'); if(pn)  pn.value  = d.fb_page_name||'';
+      if(statusEl){
+        const fbDot = `<span class="cp-connect-dot ${d.fb_connected?'on':'off'}"></span>`;
+        const igDot = `<span class="cp-connect-dot ${d.ig_connected?'on':'off'}"></span>`;
+        const fbLabel = d.fb_connected
+          ? `${fbDot} Facebook${d.fb_page_name?' · '+_esc(d.fb_page_name):''}`
+          : `${fbDot} <span style="opacity:.55;">Facebook not connected</span>`;
+        const igLabel = d.ig_connected
+          ? `${igDot} Instagram`
+          : `${igDot} <span style="opacity:.55;">Instagram not connected</span>`;
+        statusEl.innerHTML = `<span>${fbLabel}</span><span style="opacity:.3;">│</span><span>${igLabel}</span>`;
+      }
+      // Pre-fill connect form
+      const pid = document.getElementById('cpMetaPageId');   if(pid && d.fb_page_id)     pid.value = d.fb_page_id;
+      const iid = document.getElementById('cpMetaIgId');     if(iid && d.ig_account_id)  iid.value = d.ig_account_id;
+      const pn  = document.getElementById('cpMetaPageName'); if(pn  && d.fb_page_name)   pn.value  = d.fb_page_name;
     }catch(_){}
   };
 
@@ -16309,132 +16931,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
   }
 })();
 </script>
-
-
-<!-- ═══════════════════ CONTENT PLANNER MODALS ═══════════════════ -->
-
-<!-- Compose / Edit modal -->
-<div id="cpComposeModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseCompose()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(720px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
-      <span id="cpComposeTitle" style="font-weight:700;font-size:15px;color:#c4b5fd;">✍️ Compose Post</span>
-      <button onclick="cpCloseCompose()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="flex:1;overflow-y:auto;padding:18px 20px;">
-
-      <!-- AI Draft row -->
-      <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:10px;padding:12px;margin-bottom:14px;">
-        <div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">🤖 AI Draft with Teammate</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
-          <input id="cpDraftTopic" class="field" placeholder="Topic / angle…" style="font-size:12px;padding:7px 9px;" />
-          <select id="cpDraftTone" class="field" style="font-size:12px;padding:7px 9px;">
-            <option value="professional">Professional</option>
-            <option value="casual">Casual & friendly</option>
-            <option value="bold">Bold & direct</option>
-            <option value="storytelling">Storytelling</option>
-            <option value="educational">Educational</option>
-          </select>
-          <select id="cpDraftTeammate" class="field" style="font-size:12px;padding:7px 9px;">
-            <option value="Willow">Willow (Language)</option>
-            <option value="Alex">Alex (Marketing)</option>
-          </select>
-        </div>
-        <button class="btn btnMini btnPrimary" id="cpDraftBtn" onclick="cpAiDraft()" style="width:100%;">Generate Caption →</button>
-        <div class="tiny" id="cpDraftStatus" style="margin-top:5px;"></div>
-      </div>
-
-      <!-- Caption -->
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Caption <span style="opacity:.5;">(required)</span></label>
-      <textarea id="cpCaption" rows="6" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:10px;color:#e2e8f0;padding:10px;font-size:13px;resize:vertical;outline:none;line-height:1.55;" placeholder="Write your caption here, or use AI Draft above…"></textarea>
-      <div style="text-align:right;font-size:10px;opacity:.4;margin-top:2px;" id="cpCaptionCount">0 chars</div>
-
-      <!-- Hashtags -->
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Hashtags <span style="opacity:.5;">(optional — appended automatically)</span></label>
-      <input id="cpHashtags" class="field" placeholder="#coaching #business #entrepreneur" style="font-size:12px;padding:7px 9px;" />
-
-      <!-- Image -->
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Image <span style="opacity:.5;">(URL or upload)</span></label>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <input id="cpImageUrl" class="field" placeholder="https://… or leave blank for text post" style="flex:1;font-size:12px;padding:7px 9px;" />
-        <input type="file" id="cpImageFile" accept="image/*" style="display:none;" />
-        <button class="btn btnMini" onclick="document.getElementById('cpImageFile').click()">📁 Upload</button>
-      </div>
-      <div id="cpImagePreviewWrap" style="margin-top:8px;display:none;">
-        <img id="cpImagePreview" src="" alt="Preview" style="max-height:140px;max-width:100%;border-radius:8px;border:1px solid rgba(42,58,106,.4);" />
-        <button onclick="cpClearImage()" style="display:block;margin-top:4px;background:none;border:none;color:#fca5a5;font-size:11px;cursor:pointer;">✕ Remove image</button>
-      </div>
-
-      <!-- Platform + Schedule row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Post to</label>
-          <select id="cpPlatforms" class="field" style="font-size:12px;padding:7px 9px;">
-            <option value="both">Facebook + Instagram</option>
-            <option value="facebook">Facebook only</option>
-            <option value="instagram">Instagram only</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Schedule (leave blank = draft)</label>
-          <input type="datetime-local" id="cpScheduledAt" class="field" style="font-size:12px;padding:7px 9px;" />
-        </div>
-      </div>
-
-      <!-- Notes -->
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin:10px 0 4px;">Internal notes <span style="opacity:.5;">(not posted)</span></label>
-      <input id="cpNotes" class="field" placeholder="e.g. Part of April launch campaign" style="font-size:12px;padding:7px 9px;" />
-
-    </div>
-    <!-- Footer actions -->
-    <div style="padding:12px 20px;border-top:1px solid rgba(42,58,106,.5);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
-      <div class="tiny" id="cpSaveStatus" style="flex:1;"></div>
-      <button class="btn btnMini" onclick="cpSavePost('draft')">💾 Save Draft</button>
-      <button class="btn btnMini" onclick="cpSavePost('scheduled')" style="border-color:rgba(59,130,246,.5);color:#93c5fd;">🕐 Schedule</button>
-      <button class="btn btnPrimary" onclick="cpPublishNow()">🚀 Post Now</button>
-    </div>
-  </div>
-</div>
-
-<!-- Meta Connect modal -->
-<div id="cpConnectModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)cpCloseConnectModal()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(580px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
-      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔗 Connect Facebook & Instagram</span>
-      <button onclick="cpCloseConnectModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="flex:1;overflow-y:auto;padding:18px 20px;">
-      <div class="tiny" style="line-height:1.7;margin-bottom:14px;opacity:.8;">
-        Connect your <b>Facebook Business Page</b> and optionally an <b>Instagram Business Account</b>.<br>
-        You'll need a <b>Page Access Token</b> with <code>pages_manage_posts</code> + <code>instagram_basic</code> + <code>instagram_content_publish</code> permissions.<br><br>
-        Get it from: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener" style="color:#a5b4fc;">Meta Graph API Explorer →</a>
-      </div>
-      <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Page Access Token <span style="color:#ef4444;">*</span></label>
-      <textarea id="cpMetaToken" rows="3" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:8px;color:#e2e8f0;padding:9px;font-size:12px;resize:none;outline:none;font-family:monospace;" placeholder="EAAxxxxxxxx…"></textarea>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Facebook Page ID <span style="color:#ef4444;">*</span></label>
-          <input id="cpMetaPageId" class="field" placeholder="123456789012345" style="font-size:12px;padding:7px 9px;" />
-          <div class="tiny" style="margin-top:3px;opacity:.5;">Settings → Page Info → Page ID</div>
-        </div>
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Instagram Account ID <span style="opacity:.5;">(optional)</span></label>
-          <input id="cpMetaIgId" class="field" placeholder="987654321" style="font-size:12px;padding:7px 9px;" />
-          <div class="tiny" style="margin-top:3px;opacity:.5;">Graph Explorer: me/instagram_accounts</div>
-        </div>
-      </div>
-      <div style="margin-top:12px;">
-        <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Page name <span style="opacity:.5;">(for display only)</span></label>
-        <input id="cpMetaPageName" class="field" placeholder="My Business Page" style="font-size:12px;padding:7px 9px;" />
-      </div>
-      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
-        <button class="btn btnPrimary" onclick="cpSaveMetaConnect()" style="flex:1;">Save & Connect</button>
-        <button class="btn btnMini" id="cpDisconnectBtn" onclick="cpDisconnect()" style="border-color:rgba(239,68,68,.4);color:#fca5a5;">Disconnect</button>
-      </div>
-      <div class="tiny" id="cpConnectModalStatus" style="margin-top:8px;"></div>
-    </div>
-  </div>
-</div>
 
 </body>
 </html>
