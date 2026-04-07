@@ -9146,7 +9146,7 @@ function makeSeat(defn, idx){
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
       nameEl.style.lineHeight = "1.2";
-      nameEl.innerHTML = 'Operator<br><span style="font-size:11px;font-weight:600;opacity:.7;letter-spacing:.03em;">Profile</span>';
+      nameEl.innerText = 'Operator';
       seat.appendChild(nameEl);
 
       // Default position like other seats (with saved drag positions)
@@ -9183,11 +9183,16 @@ function makeSeat(defn, idx){
         seat.style.top = "12%";
       }
 
-      // Click / keyboard select
-      seat.addEventListener("click", (e) => { e.preventDefault(); openOperatorProfileModal(); });
+      // Click / keyboard select — only fires on a true tap/click, NOT after a drag
+      seat.addEventListener("click", (e) => {
+        if(moved) return; // was a drag, ignore
+        e.preventDefault();
+        selectSeat("Operator");
+      });
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
-          e.preventDefault(); openOperatorProfileModal();
+          e.preventDefault();
+          selectSeat("Operator");
         }
       });
 
@@ -9248,11 +9253,7 @@ function makeSeat(defn, idx){
 
         try{ seat.releasePointerCapture(e.pointerId); }catch(_){}
 
-        // If user dragged, don't also "click" select (prevents accidental open)
-        if(moved){
-          e.preventDefault();
-          e.stopPropagation();
-        }
+        // If user dragged, the click handler checks `moved` to prevent accidental modal open
       });
 
       seat.addEventListener("pointercancel", () => {
@@ -10498,6 +10499,10 @@ async function pollImageJob(jobId, seatName){
         showModal("No seat selected", "Click a teammate card first.");
         return;
       }
+      if(selectedSeat === "Operator"){
+        showModal("Operator selected", "The Operator card holds your shared business context. Select a teammate seat to send a message.");
+        return;
+      }
       const msg = $("followMsg").value.trim();
       if(!msg){
         showModal("Missing message", "Type a message for the selected teammate.");
@@ -10626,6 +10631,10 @@ async function pollImageJob(jobId, seatName){
 $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
         showModal("No seat selected", "Select a teammate first.");
+        return;
+      }
+      if(selectedSeat === "Operator"){
+        showModal("Operator selected", "Select a teammate to draft an email with.");
         return;
       }
 
@@ -16179,6 +16188,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   async function sendFollowStream(){
     const seat = window.selectedSeat;
     if(!seat){ if(typeof showModal==="function") showModal("No seat selected","Click a teammate card first."); return; }
+    if(seat === "Operator"){ if(typeof showModal==="function") showModal("Operator selected","The Operator card holds your shared business context. Select a teammate seat to send a message."); return; }
     const msgEl = document.getElementById("followMsg");
     const msg = (msgEl ? msgEl.value : "").trim();
     if(!msg){ if(typeof showModal==="function") showModal("Missing message","Type a message."); return; }
