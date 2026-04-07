@@ -6359,6 +6359,7 @@ label         { font-size: 14px !important; }
                 <div class="actions">
                   <button class="btn" id="cancelEdit">Cancel</button>
                   <button class="btn btnPrimary" id="saveEdit">Save changes</button>
+                  <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
                 </div>
 
                 <div class="tiny" id="editStatus" style="margin-top:10px;"></div>
@@ -6391,6 +6392,7 @@ label         { font-size: 14px !important; }
                   <button class="btn" id="cancelManage">Cancel</button>
                   <button class="btn" id="assembleInManageBtn">Assemble All</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
+                  <button class="btn btnPrimary" id="saveManageExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
               </div>
@@ -6444,6 +6446,7 @@ label         { font-size: 14px !important; }
                 <div class="actions">
                   <button class="btn" id="cancelCreate">Cancel</button>
                   <button class="btn btnPrimary" id="saveCreate">Create</button>
+                  <button class="btn btnPrimary" id="saveCreateExit">Create &amp; Exit</button>
                 </div>
                 <div class="tiny" id="createStatus" style="margin-top:10px;"></div>
               </div>
@@ -6460,6 +6463,7 @@ label         { font-size: 14px !important; }
                   <button class="btn" id="cancelFramework">Cancel</button>
                   <button class="btn" id="resetFramework">Reset to default</button>
                   <button class="btn btnPrimary" id="saveFramework">Save framework</button>
+                  <button class="btn btnPrimary" id="saveFrameworkExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="frameworkStatus" style="margin-top:10px;"></div>
               </div>
@@ -6538,6 +6542,7 @@ label         { font-size: 14px !important; }
                 <div class="actions">
                   <button class="btn" id="cancelSettings">Cancel</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
+                  <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
               </div>
@@ -6627,6 +6632,7 @@ label         { font-size: 14px !important; }
   <div class="actions">
     <button class="btn" id="sessionObjectiveCloseBtn">Close</button>
     <button class="btn btnPrimary" id="sessionObjectiveSaveBtn">Save objective</button>
+    <button class="btn btnPrimary" id="sessionObjectiveSaveExitBtn">Save &amp; Exit</button>
   </div>
   <div class="tiny" id="sessionObjectiveStatus" style="margin-top:10px;"></div>
 </div>
@@ -6658,6 +6664,7 @@ label         { font-size: 14px !important; }
   <div class="actions">
     <button class="btn" id="operatorProfileCloseBtn">Close</button>
     <button class="btn btnPrimary" id="operatorProfileSaveBtn">Save</button>
+    <button class="btn btnPrimary" id="operatorProfileSaveExitBtn">Save &amp; Exit</button>
   </div>
   <div class="tiny" id="operatorProfileStatus" style="margin-top:10px;"></div>
 </div>
@@ -6756,6 +6763,7 @@ label         { font-size: 14px !important; }
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelEdit">Cancel</button>
         <button class="btn btnPrimary" id="crmSaveClient">Save</button>
+        <button class="btn btnPrimary" id="crmSaveClientExit">Save &amp; Exit</button>
       </div>
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
     </div>
@@ -6769,6 +6777,7 @@ label         { font-size: 14px !important; }
     <div class="actions" style="justify-content:flex-end; margin-top:10px;">
       <button class="btn" id="crmReloadPipeline">Reload</button>
       <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
+      <button class="btn btnPrimary" id="crmSavePipelineExit">Save &amp; Exit</button>
     </div>
     <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
     <div class="tiny" style="margin:12px 0 8px;">Live pipeline board</div>
@@ -6878,6 +6887,7 @@ label         { font-size: 14px !important; }
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelTask">Cancel</button>
         <button class="btn btnPrimary" id="crmSaveTask">Save</button>
+        <button class="btn btnPrimary" id="crmSaveTaskExit">Save &amp; Exit</button>
       </div>
       <div class="tiny" id="crmTaskStatus" style="margin-top:8px;"></div>
     </div>
@@ -6904,6 +6914,7 @@ label         { font-size: 14px !important; }
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelSeq">Cancel</button>
         <button class="btn btnPrimary" id="crmSaveSeq">Save</button>
+        <button class="btn btnPrimary" id="crmSaveSeqExit">Save &amp; Exit</button>
       </div>
       <div class="tiny" id="crmSeqStatus" style="margin-top:8px;"></div>
     </div>
@@ -7121,8 +7132,8 @@ label         { font-size: 14px !important; }
 .wcal-view-btns { display:flex; gap:4px; }
 .wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
 .wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
-.wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; }
-.wcal-grid { display:flex; position:relative; min-height:1440px; }
+.wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; width:100%; }
+.wcal-grid { display:flex; flex-direction:column; position:relative; min-height:1440px; width:100%; min-width:0; }
 .wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
 .wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
 .wcal-days-area { flex:1; display:grid; position:relative; }
@@ -9344,7 +9355,7 @@ function makeSeat(defn, idx){
       card.className = "msg assistant";
       const safe = (v)=> (v==null? "" : String(v));
       card.innerHTML = `
-        <div class="who">Operator Profile</div>
+        <div class="who">Operator</div>
         <div class="tiny" style="margin-bottom:10px; opacity:.9">Teammates can reference this card for your business context, goals, and rules.</div>
         <div class="pillRow" style="gap:10px; flex-wrap:wrap">
           <div style="flex:1; min-width:240px">
@@ -9391,6 +9402,7 @@ function makeSeat(defn, idx){
         <div class="pillRow" style="justify-content:flex-end">
           <button class="btn btnMini" id="opReload">Reload</button>
           <button class="btn btnPrimary" id="opSave">Save</button>
+          <button class="btn btnPrimary" id="opSaveExit">Save &amp; Exit</button>
         </div>
       `;
       box.appendChild(card);
@@ -9413,6 +9425,28 @@ function makeSeat(defn, idx){
         if(data.ok){
           showToast("Saved Operator Profile");
           try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+        }else{
+          showToast("Save failed: " + (data.error||"unknown"));
+        }
+      });
+      bind("opSaveExit", async()=>{
+        const payload = {
+          display_name: $("op_display_name").value,
+          audience: $("op_audience").value,
+          business: $("op_business").value,
+          offers: $("op_offers").value,
+          goals: $("op_goals").value,
+          constraints: $("op_constraints").value,
+          tone_rules: $("op_tone_rules").value,
+          notes: $("op_notes").value
+        };
+        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if(data.ok){
+          showToast("Saved Operator Profile");
+          try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+          selectedSeat = ""; window.selectedSeat = "";
+          renderThread([]);
         }else{
           showToast("Save failed: " + (data.error||"unknown"));
         }
@@ -11908,11 +11942,15 @@ async function crmFetchTasks(){
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
       b('crmCancelTask', ()=>{ const ed=$("crmTaskEditor"); if(ed) ed.style.display='none'; crmEditingTaskId=null; });
       b('crmSaveTask', crmSaveTask);
+      b('crmSaveTaskExit', async()=>{ await crmSaveTask(); hideModal(); });
 
       b('crmRefreshSeq', async()=>{ try{ await crmFetchSequences(); crmRenderSequences(); }catch(e){} });
       b('crmNewSeqBtn', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='block'; if($("crmSeqStatus")) $("crmSeqStatus").innerText=''; });
       b('crmCancelSeq', ()=>{ const ed=$("crmSeqEditor"); if(ed) ed.style.display='none'; });
       b('crmSaveSeq', crmSaveSequence);
+      b('crmSaveSeqExit', async()=>{ await crmSaveSequence(); hideModal(); });
+      b('crmSaveClientExit', async()=>{ await crmSaveClient(); hideModal(); });
+      b('crmSavePipelineExit', async()=>{ await crmSavePipeline(); hideModal(); });
       b('crmEnrollBtn', crmEnroll);
 
       b('crmCreateEventBtn', crmCreateCalendarEvent);
@@ -12023,7 +12061,7 @@ function wcalRenderWeek(){
   let html = '';
 
   // Time column + day columns header row
-  html += '<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;">';
+  html += '<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;width:100%;">';
   html += '<div style="width:54px;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);"></div>';
   const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   days.forEach((d,i)=>{
@@ -12038,7 +12076,7 @@ function wcalRenderWeek(){
   html += '</div>';
 
   // Time + event area
-  html += '<div style="display:flex;position:relative;">';
+  html += '<div style="display:flex;position:relative;width:100%;flex:1;">';
 
   // Time labels column
   html += '<div class="wcal-time-col">';
@@ -12577,6 +12615,38 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // Google connect buttons (open OAuth flow)
     if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
     if($('calendarConnectBtn')) $('calendarConnectBtn').onclick = () => { window.location = '/calendar/connect'; };
+
+    // ── Save & Exit handlers ────────────────────────────────────────
+    // saveEdit already calls hideModal(); wire Save & Exit to do the same
+    if($("saveEditExit")) $("saveEditExit").onclick = async () => { await $("saveEdit").onclick(); };
+
+    // saveManage already calls hideModal(); Save & Exit = same
+    if($("saveManageExit")) $("saveManageExit").onclick = async () => { await $("saveManage").onclick(); };
+
+    // saveCreate already calls hideModal(); Save & Exit = same
+    if($("saveCreateExit")) $("saveCreateExit").onclick = async () => { await $("saveCreate").onclick(); };
+
+    // saveFramework already calls hideModal(); Save & Exit = same
+    if($("saveFrameworkExit")) $("saveFrameworkExit").onclick = async () => { await $("saveFramework").onclick(); };
+
+    // saveSettings does NOT hideModal on its own — Save & Exit adds that
+    if($("saveSettingsExit")) $("saveSettingsExit").onclick = async () => {
+      await $("saveSettings").onclick();
+      hideModal();
+    };
+
+    // sessionObjectiveSaveExitBtn — save then close
+    if($("sessionObjectiveSaveExitBtn")) $("sessionObjectiveSaveExitBtn").onclick = async () => {
+      await saveSessionObjectiveModal();
+      hideModal();
+    };
+
+    // operatorProfileSaveExitBtn — save then close
+    if($("operatorProfileSaveExitBtn")) $("operatorProfileSaveExitBtn").onclick = async () => {
+      await saveOperatorProfileModal();
+      hideModal();
+    };
+    // ── end Save & Exit handlers ────────────────────────────────────
 
     if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
       try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
