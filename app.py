@@ -9146,7 +9146,7 @@ function makeSeat(defn, idx){
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
       nameEl.style.lineHeight = "1.2";
-      nameEl.innerHTML = 'Operator<br><span style="font-size:11px;font-weight:600;opacity:.7;letter-spacing:.03em;">Profile</span>';
+      nameEl.innerText = 'Operator';
       seat.appendChild(nameEl);
 
       // Default position like other seats (with saved drag positions)
@@ -9184,7 +9184,9 @@ function makeSeat(defn, idx){
       }
 
       // Click / keyboard select
-      seat.addEventListener("click", (e) => { e.preventDefault(); openOperatorProfileModal(); });
+      // Clicking the card selects it; Profile button is the only way to open the modal.
+      // After a drag, `moved` is true so we skip the action entirely.
+      seat.addEventListener("click", (e) => { if(moved) return; e.preventDefault(); selectSeat("Operator"); });
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
           e.preventDefault(); openOperatorProfileModal();
