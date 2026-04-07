@@ -9146,7 +9146,7 @@ function makeSeat(defn, idx){
       const nameEl = document.createElement("div");
       nameEl.className = "seatName";
       nameEl.style.lineHeight = "1.2";
-      nameEl.innerText = 'Operator';
+      nameEl.innerHTML = 'Operator<br><span style="font-size:11px;font-weight:600;opacity:.7;letter-spacing:.03em;">Profile</span>';
       seat.appendChild(nameEl);
 
       // Default position like other seats (with saved drag positions)
@@ -9183,17 +9183,11 @@ function makeSeat(defn, idx){
         seat.style.top = "12%";
       }
 
-      // Click selects the seat — does NOT open the profile modal (that's the Profile button's job).
-      // The moved flag is set during drag so a real drag never triggers a click action.
-      seat.addEventListener("click", (e) => {
-        if(moved) return;
-        e.preventDefault();
-        selectSeat("Operator");
-      });
+      // Click / keyboard select
+      seat.addEventListener("click", (e) => { e.preventDefault(); openOperatorProfileModal(); });
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
-          e.preventDefault();
-          selectSeat("Operator");
+          e.preventDefault(); openOperatorProfileModal();
         }
       });
 
@@ -9254,7 +9248,11 @@ function makeSeat(defn, idx){
 
         try{ seat.releasePointerCapture(e.pointerId); }catch(_){}
 
-        // moved flag is checked in the click listener above to suppress post-drag clicks
+        // If user dragged, don't also "click" select (prevents accidental open)
+        if(moved){
+          e.preventDefault();
+          e.stopPropagation();
+        }
       });
 
       seat.addEventListener("pointercancel", () => {
