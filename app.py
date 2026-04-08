@@ -3798,6 +3798,8 @@ def api_cal_tasks_create():
         "priority": (payload.get("priority") or "medium").strip(),
         "description": (payload.get("description") or "").strip(),
         "recurring": (payload.get("recurring") or "none").strip(),
+        "on_complete_teammate": (payload.get("on_complete_teammate") or "").strip(),
+        "on_complete_client_email": (payload.get("on_complete_client_email") or "").strip(),
         "done": False,
         "completed_at": None,
         "created_at": now_iso(),
@@ -3816,7 +3818,7 @@ def api_cal_tasks_update(task_id: str):
     tasks = _load_cal_tasks(u.get("username", ""))
     for t in tasks:
         if t.get("id") == task_id:
-            for field in ("title", "date", "start", "priority", "description", "recurring"):
+            for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email"):
                 if field in payload:
                     t[field] = (payload[field] or "").strip()
             if "duration" in payload:
@@ -3831,6 +3833,105 @@ def api_cal_tasks_update(task_id: str):
             _save_cal_tasks(u.get("username", ""), tasks)
             return jsonify({"ok": True, "task": t})
     return jsonify({"ok": False, "error": "Task not found"}), 404
+
+
+@app.post("/api/cal/tasks/<task_id>/complete_action")
+def api_cal_task_complete_action(task_id: str):
+    """When a task is marked done, use the assigned teammate to draft and send a completion email to the client."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    tasks = _load_cal_tasks(u.get("username", ""))
+    task = next((t for t in tasks if t.get("id") == task_id), None)
+    if not task:
+        return jsonify({"ok": False, "error": "Task not found"}), 404
+
+    teammate_name = (task.get("on_complete_teammate") or "").strip()
+    client_email  = (task.get("on_complete_client_email") or "").strip()
+    if not teammate_name or not client_email:
+        return jsonify({"ok": False, "error": "No teammate or client email configured on this task"}), 400
+
+    reg = load_registry()
+    defn = (reg.get("installed") or {}).get(teammate_name)
+    if not defn:
+        return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found"}), 404
+
+    # Build prompt for the teammate to draft a completion email
+    task_title = task.get("title","Untitled task")
+    task_desc  = task.get("description","")
+    task_date  = task.get("date","")
+    prompt = (
+        f"The task '{task_title}' has just been marked complete"
+        + (f" (scheduled {task_date})" if task_date else "")
+        + ". "
+        + (f"Task notes: {task_desc}. " if task_desc else "")
+        + f"Please draft a professional, warm, concise email to the client at {client_email} "
+        + "letting them know this task is complete. Include a subject line on the first line in the format 'Subject: ...' "
+        + "followed by the email body. Keep it brief and friendly."
+    )
+
+    try:
+        oai = _get_openai_client_for_username(u.get("username",""))
+        sys_prompt = teammate_system_prompt(defn)
+        resp = oai.chat.completions.create(
+            model=(defn.get("preferred_model") or MODEL),
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.65,
+            max_tokens=600,
+            timeout=45,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Teammate AI error: {e}"}), 500
+
+    # Parse subject + body
+    lines = raw.splitlines()
+    subject = f"Task Complete: {task_title}"
+    body_lines = []
+    found_subject = False
+    for ln in lines:
+        if not found_subject and ln.lower().startswith("subject:"):
+            subject = ln[8:].strip()
+            found_subject = True
+        else:
+            body_lines.append(ln)
+    body = "\n".join(body_lines).strip()
+    if not body:
+        body = raw
+
+    # Send the email
+    cap = _email_capability_for_user(u)
+    try:
+        if cap.get("gmail_connected"):
+            access_token, reason = _gmail_creds_for_user(u)
+            if not access_token:
+                return jsonify({"ok": False, "error": f"Gmail not ready: {reason}", "draft_subject": subject, "draft_body": body}), 400
+            smtp_s = _user_smtp_settings(u)
+            _gmail_send_message(access_token, to_addr=client_email, subject=subject, body=body, from_name=smtp_s.get("from_name",""))
+            provider = "gmail_oauth"
+        else:
+            ready, reason = smtp_ready_for_user(u)
+            if not ready:
+                return jsonify({"ok": False, "error": reason, "draft_subject": subject, "draft_body": body}), 400
+            s = _user_smtp_settings(u)
+            send_email_smtp_with_creds(to_addr=client_email, subject=subject, body=body,
+                host=s["host"], port=s["port"],
+                user=s["user"] or SMTP_USER, password=s["pass"] or SMTP_PASS,
+                from_name=s["from_name"])
+            provider = "smtp"
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Email send failed: {e}", "draft_subject": subject, "draft_body": body}), 500
+
+    append_log("task_complete_email_sent", {
+        "task_id": task_id, "task_title": task_title,
+        "teammate": teammate_name, "to": client_email,
+        "provider": provider, "at": now_iso()
+    })
+    return jsonify({"ok": True, "subject": subject, "body": body, "provider": provider})
 
 @app.delete("/api/cal/tasks/<task_id>")
 def api_cal_tasks_delete(task_id: str):
@@ -7239,26 +7340,29 @@ label         { font-size: 14px !important; }
 .wcal-col-header .wd { font-size:10px; color:rgba(148,163,184,.6); text-transform:uppercase; letter-spacing:.06em; }
 .wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
 .wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s,box-shadow 0.15s; }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s,box-shadow 0.15s; min-height:22px; box-sizing:border-box; }
 .wcal-event:hover { filter:brightness(1.15); box-shadow:0 2px 12px rgba(0,0,0,.4); }
 .wcal-event.is-done { opacity:.72; }
 .wcal-event.is-done .wcal-event-title { text-decoration:line-through; text-decoration-color:currentColor; text-decoration-thickness:2px; }
+/* Check circle — always visible, pinned top-left */
 .wcal-event-check {
-  display:inline-flex; align-items:center; justify-content:center;
-  width:14px; height:14px; border-radius:50%;
-  border:2px solid currentColor; margin-right:5px;
-  flex-shrink:0; cursor:pointer;
-  transition:background .18s, border-color .18s;
-  font-size:9px; font-weight:900; line-height:1;
-  opacity:.85;
+  position:absolute; top:4px; left:5px;
+  display:flex; align-items:center; justify-content:center;
+  width:13px; height:13px; border-radius:50%;
+  border:1.5px solid currentColor;
+  cursor:pointer; z-index:4;
+  transition:background .15s;
+  font-size:8px; font-weight:900; line-height:1;
+  opacity:.9; flex-shrink:0;
 }
-.wcal-event-check:hover { opacity:1; }
+.wcal-event-check:hover { opacity:1; transform:scale(1.15); }
 .wcal-event-check.checked { background:currentColor; }
 .wcal-event-check.checked::after { content:'✓'; color:#080c1a; }
-.wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; }
+/* Recurring badge — pinned top-right */
+.wcal-recur-badge { position:absolute; top:3px; right:4px; font-size:11px; opacity:.85; z-index:4; pointer-events:none; line-height:1; }
+.wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
-.wcal-event-time { font-size:9px; opacity:.75; }
-.wcal-recur-badge { font-size:9px; opacity:.75; margin-left:4px; flex-shrink:0; letter-spacing:-.5px; }
+.wcal-event-time { font-size:9px; opacity:.75; padding-left:0; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
 /* Sidebar mini-month */
@@ -7320,6 +7424,10 @@ label         { font-size: 14px !important; }
 .wcal-det-btn.danger:hover { background:rgba(239,68,68,.3); }
 .wcal-meet-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(59,130,246,.15); border:1px solid rgba(59,130,246,.35); border-radius:6px; padding:3px 8px; font-size:11px; color:#93c5fd; font-weight:600; cursor:pointer; text-decoration:none; }
 .wcal-meet-badge:hover { background:rgba(59,130,246,.3); }
+.wcal-autocomplete-section { background:rgba(16,185,129,.08); border:1px solid rgba(16,185,129,.25); border-radius:10px; padding:10px 12px; margin-top:4px; }
+.wcal-autocomplete-title { font-size:10px; font-weight:700; color:rgba(110,231,183,.9); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.wcal-autocomplete-title::before { content:'⚡'; font-size:12px; }
+.wcal-automail-status { font-size:11px; color:rgba(110,231,183,.8); margin-top:6px; min-height:16px; font-style:italic; }
 .wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
 .wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
@@ -12297,24 +12405,47 @@ function wcalUpdateNowLine(){
 }
 
 // ── Render helpers ─────────────────────────────────────────────
+// ── Local done-state for Google Calendar events (persisted in localStorage) ──
+const _evDone = (()=>{
+  try{ return new Set(JSON.parse(localStorage.getItem('wcal_ev_done')||'[]')); }catch(e){ return new Set(); }
+})();
+function _setEvDone(eid,done){
+  done ? _evDone.add(eid) : _evDone.delete(eid);
+  try{ localStorage.setItem('wcal_ev_done', JSON.stringify([..._evDone])); }catch(e){}
+}
+window.wcalToggleEvent = function(e, eid){
+  e.stopPropagation();
+  const isDone = _evDone.has(eid);
+  _setEvDone(eid, !isDone);
+  const circle = e.currentTarget;
+  circle.classList.toggle('checked', !isDone);
+  const block = circle.closest('.wcal-event');
+  if(block) block.classList.toggle('is-done', !isDone);
+  showToast(!isDone ? '✓ Event marked done' : 'Event unmarked');
+};
+
 function wcalEventHtml(ev, extraStyle=''){
   const startDate=new Date(ev.start);
   const endDate=new Date(ev.end||ev.start);
   if(isNaN(startDate)) return '';
   const startMins=startDate.getHours()*60+startDate.getMinutes();
   const durMins=Math.max(30,(endDate-startDate)/60000);
-  const top=startMins; const height=Math.max(22,durMins);
+  const top=startMins; const height=Math.max(28,durMins);
   const color=eventColor(ev);
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const title=(ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">&#128248;</a>`:'';
-  // Google recurring events have recurringEventId
   const isRecur=!!(ev.recurringEventId||ev._recurring);
-  const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">↻</span>':'';
-  let h=`<div class="wcal-event" style="top:${top}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-eid="${encodeURIComponent(ev.id||ev.summary||'')}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${recurBadge}${meetBadge}</div>`;
-  if(height>28) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+  const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring event">↻</span>':'';
+  const evKey=ev.id||ev.summary||'';
+  const isDone=_evDone.has(evKey);
+  const doneCls=isDone?' is-done':'';
+  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
+  h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
+  if(isRecur) h+=recurBadge;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
+  if(height>32) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
 }
@@ -12322,7 +12453,7 @@ function wcalEventHtml(ev, extraStyle=''){
 function wcalTaskHtml(task, extraStyle=''){
   const [th,tm]=(task.start||'09:00').split(':').map(Number);
   const startMins=th*60+tm;
-  const height=Math.max(22,task.duration||30);
+  const height=Math.max(28,task.duration||30);
   const color=task.done?TASK_DONE_COLOR:TASK_COLOR;
   const doneCls=task.done?' is-done':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
@@ -12330,12 +12461,15 @@ function wcalTaskHtml(task, extraStyle=''){
   const prio=prioMap[task.priority||'medium']||'';
   const isRecur=(task.recurring&&task.recurring!=='none');
   const recurBadge=isRecur?`<span class="wcal-recur-badge" title="Repeats ${task.recurring}">↻</span>`:'';
+  const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
+  const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:4px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
   let h=`<div class="wcal-event${doneCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
-  h+=`<div class="wcal-event-row">`;
-  // Circle check — stops propagation so it doesn't open the detail panel
+  // Circle — absolute top-left, always visible
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
-  h+=`<span class="wcal-event-title">${prio} ${title}</span>${recurBadge}</div>`;
-  if(height>28) h+=`<div class="wcal-event-time">${task.start||''} · ${task.duration||30}m</div>`;
+  if(isRecur) h+=recurBadge;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${prio} ${title}</span></div>`;
+  if(height>32) h+=`<div class="wcal-event-time">${task.start||''} · ${task.duration||30}m</div>`;
+  h+=autoEmailBadge;
   h+='</div>';
   return h;
 }
@@ -12352,8 +12486,40 @@ window.wcalToggleTask = async function(e, taskId){
     wcalRefresh();
     wcalRenderUpcoming();
     showToast(newDone?'✓ Task complete':'Task marked todo');
+    // Fire auto-email if task just became done and teammate + email are configured
+    if(newDone && task.on_complete_teammate && task.on_complete_client_email){
+      wcalFireCompleteAction(taskId, task);
+    }
   }catch(err){ showToast('Update failed'); }
 };
+
+// Called when a task with an assigned teammate is marked done
+async function wcalFireCompleteAction(taskId, task){
+  showToast('⚡ '+task.on_complete_teammate+' is drafting completion email…');
+  try{
+    const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{method:'POST'});
+    const d = await res.json();
+    if(d.ok){
+      showToast('📧 Completion email sent to '+task.on_complete_client_email+' by '+task.on_complete_teammate);
+    } else if(d.draft_subject){
+      // Email failed to send but we have a draft — show it
+      showToast('⚠️ Could not send email: '+(d.error||'unknown error')+'. Draft ready in Email Console.');
+      // Pre-fill email console if accessible
+      try{
+        const subEl=document.getElementById('emailSubject');
+        const bodyEl=document.getElementById('emailBody');
+        const toEl=document.getElementById('emailTo');
+        if(subEl) subEl.value=d.draft_subject;
+        if(bodyEl) bodyEl.value=d.draft_body;
+        if(toEl) toEl.value=task.on_complete_client_email;
+      }catch(_){}
+    } else {
+      showToast('⚠️ Auto-email error: '+(d.error||'unknown'));
+    }
+  }catch(err){
+    showToast('⚠️ Auto-email failed: '+String(err));
+  }
+}
 
 // ── Open detail panel ──────────────────────────────────────────
 window.wcalOpenDetail = function(el){
@@ -12427,6 +12593,16 @@ function wcalShowTaskDetail(task){
       <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${task.description||''}</textarea>
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
+    <div class="wcal-autocomplete-section" id="detAutoSection">
+      <div class="wcal-autocomplete-title">Auto-Email on Complete</div>
+      <div class="wcal-detail-label">Assign teammate to email client</div>
+      <select class="wcal-detail-field" id="detAutoTeammate">
+        <option value="">— No auto-email —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
+      <div class="wcal-automail-status" id="detAutoStatus"></div>
+    </div>
     <div class="wcal-detail-actions">
       <button class="wcal-det-btn primary" onclick="wcalDetSaveTask('${task.id}')">Save</button>
       <button class="wcal-det-btn danger" onclick="wcalDetDeleteTask('${task.id}')">Delete</button>
@@ -12436,6 +12612,8 @@ function wcalShowTaskDetail(task){
   if(typeLbl) typeLbl.innerText='TASK';
   panel.classList.add('open');
   panel._currentTask=task;
+  // Populate teammate dropdown asynchronously
+  wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
 }
 
 function wcalShowEventDetail(ev){
@@ -12531,6 +12709,8 @@ window.wcalDetSaveTask = async function(taskId){
     priority:document.getElementById('detPriority')?.value||'medium',
     recurring:document.getElementById('detRecurring')?.value||'none',
     description:(document.getElementById('detDesc')?.value||'').trim(),
+    on_complete_teammate:document.getElementById('detAutoTeammate')?.value||'',
+    on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
     const res=await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -12843,6 +13023,27 @@ async function wcalAddTask(){
     wcalRefresh(); wcalRenderMiniMonth();
     setTimeout(()=>{ if(st) st.innerText=''; },2000);
   }catch(e){ if(st) st.innerText=e.message||'Failed'; }
+}
+
+// ── Populate teammate dropdown in detail panel ─────────────────
+async function wcalPopulateTeammateDropdown(selectId, selectedValue){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  try{
+    const res = await fetch('/api/state');
+    const d = await res.json();
+    const names = d.installed_order || Object.keys(d.installed||{});
+    // Keep the first "no auto-email" option, add teammates
+    while(sel.options.length > 1) sel.remove(1);
+    names.forEach(name=>{
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      if(name === selectedValue) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    console.warn('wcalPopulateTeammateDropdown failed', e);
+  }
 }
 
 // ── Wire buttons ───────────────────────────────────────────────
