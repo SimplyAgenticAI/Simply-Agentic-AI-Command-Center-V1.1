@@ -7428,6 +7428,40 @@ label         { font-size: 14px !important; }
 .wcal-autocomplete-title { font-size:10px; font-weight:700; color:rgba(110,231,183,.9); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
 .wcal-autocomplete-title::before { content:'⚡'; font-size:12px; }
 .wcal-automail-status { font-size:11px; color:rgba(110,231,183,.8); margin-top:6px; min-height:16px; font-style:italic; }
+/* ── Week stats bar ── */
+.wcal-stats-bar { display:flex; align-items:center; gap:16px; padding:5px 14px; background:rgba(7,10,20,.5); border-bottom:1px solid rgba(42,58,106,.35); font-size:11px; flex-shrink:0; flex-wrap:wrap; }
+.wcal-stat { color:rgba(148,163,184,.7); display:flex; align-items:center; gap:5px; }
+.wcal-stat b { color:rgba(226,232,240,.9); }
+.wcal-stat.done b { color:#6ee7b7; }
+.wcal-stat.pending b { color:#fcd34d; }
+.wcal-stat.events b { color:#93c5fd; }
+/* ── Priority-tinted task colors ── */
+.wcal-event.task-high   { border-left:3px solid rgba(239,68,68,.8)  !important; }
+.wcal-event.task-medium { border-left:3px solid rgba(99,102,241,.8) !important; }
+.wcal-event.task-low    { border-left:3px solid rgba(16,185,129,.8) !important; }
+/* ── Click-to-create popover ── */
+.wcal-popover {
+  position:fixed; z-index:9999;
+  background:#0d1120; border:1px solid rgba(124,58,237,.5);
+  border-radius:12px; padding:14px 16px; min-width:240px;
+  box-shadow:0 8px 40px rgba(0,0,0,.7);
+  display:none; flex-direction:column; gap:9px;
+  animation:wcalPopIn .15s ease;
+}
+.wcal-popover.open { display:flex; }
+@keyframes wcalPopIn { from{opacity:0;transform:scale(.93)} to{opacity:1;transform:scale(1)} }
+.wcal-pop-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
+.wcal-pop-title { font-size:12px; font-weight:700; color:#c4b5fd; }
+.wcal-pop-close { background:none; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:16px; line-height:1; padding:0 2px; }
+.wcal-pop-tabs { display:flex; gap:4px; }
+.wcal-pop-tab { flex:1; padding:5px; border-radius:7px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); color:rgba(148,163,184,.7); font-size:11px; font-weight:600; cursor:pointer; text-align:center; }
+.wcal-pop-tab.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
+.wcal-pop-field { width:100%; background:rgba(7,10,20,.7); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 9px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
+.wcal-pop-field:focus { border-color:rgba(124,58,237,.6); }
+.wcal-pop-row { display:flex; gap:6px; }
+.wcal-pop-btn { flex:1; padding:7px; border-radius:8px; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#f3e8ff; font-size:12px; font-weight:700; cursor:pointer; }
+.wcal-pop-btn:hover { background:rgba(124,58,237,.65); }
+.wcal-pop-hint { font-size:10px; color:rgba(100,116,139,.5); text-align:center; }
 .wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
 .wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
@@ -7536,6 +7570,14 @@ label         { font-size: 14px !important; }
       </div>
     </div>
 
+    <!-- Week stats bar -->
+    <div class="wcal-stats-bar" id="wcalStatsBar">
+      <div class="wcal-stat events"><b id="wcalStatEvents">—</b> events</div>
+      <div class="wcal-stat done"><b id="wcalStatDone">—</b> tasks done</div>
+      <div class="wcal-stat pending"><b id="wcalStatPending">—</b> pending</div>
+      <div class="wcal-stat" style="margin-left:auto;opacity:.5;font-size:10px;">N=event · T=task · Esc=close</div>
+    </div>
+
     <!-- Week/Day grid -->
     <div class="wcal-grid-wrap" id="wcalGridWrap">
       <div class="wcal-grid" id="wcalGrid"><!-- Rendered by JS --></div>
@@ -7554,6 +7596,37 @@ label         { font-size: 14px !important; }
     </div>
   </div>
 
+</div>
+
+<!-- Click-to-create popover -->
+<div class="wcal-popover" id="wcalPopover">
+  <div class="wcal-pop-header">
+    <span class="wcal-pop-title" id="wcalPopTitle">New event</span>
+    <button class="wcal-pop-close" id="wcalPopClose">&#x2715;</button>
+  </div>
+  <div class="wcal-pop-tabs">
+    <div class="wcal-pop-tab active" id="wcalPopTabEvent" onclick="wcalPopSwitch('event')">Event</div>
+    <div class="wcal-pop-tab" id="wcalPopTabTask" onclick="wcalPopSwitch('task')">Task</div>
+  </div>
+  <input class="wcal-pop-field" id="wcalPopTitle2" placeholder="Title" autocomplete="off" />
+  <div class="wcal-pop-row">
+    <input class="wcal-pop-field" id="wcalPopTime" type="time" style="flex:1;" />
+    <select class="wcal-pop-field" id="wcalPopDur" style="flex:1;">
+      <option value="30">30m</option>
+      <option value="60" selected>1h</option>
+      <option value="90">1.5h</option>
+      <option value="120">2h</option>
+    </select>
+  </div>
+  <div id="wcalPopTaskExtra" style="display:none;">
+    <select class="wcal-pop-field" id="wcalPopPriority" style="margin-bottom:0;">
+      <option value="medium" selected>Medium priority</option>
+      <option value="high">High priority</option>
+      <option value="low">Low priority</option>
+    </select>
+  </div>
+  <button class="wcal-pop-btn" id="wcalPopCreate">Create</button>
+  <div class="wcal-pop-hint">Enter to create · Esc to cancel</div>
 </div>
 
 <!-- Hidden backward-compat inputs -->
@@ -12299,8 +12372,16 @@ const EVENT_COLORS = [
   {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
   {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
 ];
-const TASK_COLOR = {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'};
-const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
+const TASK_COLOR      = {bg:'rgba(99,102,241,.72)',  text:'#e0e7ff'};
+const TASK_DONE_COLOR  = {bg:'rgba(30,40,60,.65)',   text:'rgba(148,163,184,.6)'};
+const TASK_HIGH_COLOR  = {bg:'rgba(180,40,40,.70)',  text:'#fee2e2'};
+const TASK_LOW_COLOR   = {bg:'rgba(16,130,80,.65)',  text:'#d1fae5'};
+function taskColor(task){
+  if(task.done) return TASK_DONE_COLOR;
+  if(task.priority==='high')   return TASK_HIGH_COLOR;
+  if(task.priority==='low')    return TASK_LOW_COLOR;
+  return TASK_COLOR;
+}
 function eventColor(ev){
   const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
   return EVENT_COLORS[h % EVENT_COLORS.length];
@@ -12454,7 +12535,7 @@ function wcalTaskHtml(task, extraStyle=''){
   const [th,tm]=(task.start||'09:00').split(':').map(Number);
   const startMins=th*60+tm;
   const height=Math.max(28,task.duration||30);
-  const color=task.done?TASK_DONE_COLOR:TASK_COLOR;
+  const color=taskColor(task);
   const doneCls=task.done?' is-done':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const prioMap={high:'🔴',medium:'🟡',low:'🟢'};
@@ -12463,7 +12544,8 @@ function wcalTaskHtml(task, extraStyle=''){
   const recurBadge=isRecur?`<span class="wcal-recur-badge" title="Repeats ${task.recurring}">↻</span>`:'';
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:4px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
-  let h=`<div class="wcal-event${doneCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
+  const prioCls=task.done?'':' task-'+(task.priority||'medium');
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
   // Circle — absolute top-left, always visible
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
@@ -12813,15 +12895,21 @@ function wcalRenderWeek(){
   }
   html+='</div>';
   grid.innerHTML=html;
-  // Wire day column clicks for quick-add prefill
+  // Wire day column clicks → open smart popover at click position
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
     col.addEventListener('click',function(e){
       if(e.target.closest('.wcal-event')) return;
       const dt2=col.dataset.date; if(!dt2) return;
-      ['wcalAddDate','wcalTaskDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=dt2; });
       cal.selected=dt2; wcalRenderMiniMonth();
-      const tf=document.getElementById(cal.addTab==='task'?'wcalTaskTitle':'wcalAddTitle');
-      if(tf) tf.focus();
+      // Calculate clicked time from Y offset within column
+      const rect=col.getBoundingClientRect();
+      const wrap=document.getElementById('wcalGridWrap');
+      const scrollTop=wrap?wrap.scrollTop:0;
+      const relY=e.clientY-rect.top+scrollTop-44; // 44px for sticky header
+      const mins=Math.max(0,Math.round(relY/15)*15); // snap to 15-min slots
+      const hh=Math.floor(mins/60); const mm=mins%60;
+      const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm);
+      wcalOpenPopover(e.clientX, e.clientY, dt2, timeStr);
     });
   });
   const wrap=document.getElementById('wcalGridWrap');
@@ -12854,6 +12942,22 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  // Wire clicks in day view too
+  const dayArea=grid.querySelector('[data-date]');
+  if(dayArea){
+    dayArea.addEventListener('click',function(e){
+      if(e.target.closest('.wcal-event')) return;
+      const dt2=dayArea.dataset.date; if(!dt2) return;
+      const rect=dayArea.getBoundingClientRect();
+      const wrap2=document.getElementById('wcalGridWrap');
+      const scrollTop=wrap2?wrap2.scrollTop:0;
+      const relY=e.clientY-rect.top+scrollTop;
+      const mins=Math.max(0,Math.round(relY/15)*15);
+      const hh=Math.floor(mins/60); const mm=mins%60;
+      const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm);
+      wcalOpenPopover(e.clientX,e.clientY,dt2,timeStr);
+    });
+  }
   wcalRenderUpcoming();
 }
 
@@ -12963,7 +13067,7 @@ async function wcalFetchCurrentRange(){
   await wcalFetchTasks();
 }
 
-function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); }
+function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); wcalUpdateStats(); }
 
 // ── Add tab switch ─────────────────────────────────────────────
 window.wcalSwitchAddTab=function(tab){
@@ -13025,24 +13129,167 @@ async function wcalAddTask(){
   }catch(e){ if(st) st.innerText=e.message||'Failed'; }
 }
 
+// ── Week stats bar ────────────────────────────────────────────
+function wcalUpdateStats(){
+  const statsBar=document.getElementById('wcalStatsBar'); if(!statsBar) return;
+  // Determine visible date range
+  let dates=[];
+  if(cal.view==='week'){
+    const mon=cal.weekStart||wcalMonday(new Date());
+    for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); dates.push(ymd(d)); }
+  } else {
+    dates=[cal.selected||ymd(new Date())];
+  }
+  let evCount=0, taskDone=0, taskPending=0;
+  dates.forEach(dt=>{
+    evCount+=(cal.events[dt]||[]).length;
+  });
+  cal.tasks.forEach(t=>{
+    if(dates.includes(t.date)){
+      t.done?taskDone++:taskPending++;
+    }
+  });
+  const se=document.getElementById('wcalStatEvents');
+  const sd=document.getElementById('wcalStatDone');
+  const sp=document.getElementById('wcalStatPending');
+  if(se) se.textContent=evCount;
+  if(sd) sd.textContent=taskDone;
+  if(sp) sp.textContent=taskPending;
+}
+
+// ── Click-to-create popover ────────────────────────────────────
+let _popType='event', _popDate='', _popClosed=false;
+
+function wcalOpenPopover(clientX, clientY, dt, timeStr){
+  const pop=document.getElementById('wcalPopover'); if(!pop) return;
+  _popDate=dt; _popClosed=false;
+  // Position near click, keep inside viewport
+  const W=window.innerWidth, H=window.innerHeight;
+  const pw=260, ph=280;
+  let left=clientX+10, top=clientY-20;
+  if(left+pw>W-10) left=clientX-pw-10;
+  if(top+ph>H-10) top=H-ph-10;
+  pop.style.left=left+'px'; pop.style.top=top+'px';
+  // Pre-fill time
+  const timeEl=document.getElementById('wcalPopTime'); if(timeEl) timeEl.value=timeStr;
+  // Clear title
+  const titleEl=document.getElementById('wcalPopTitle2'); if(titleEl){ titleEl.value=''; }
+  pop.classList.add('open');
+  setTimeout(()=>{ if(titleEl) titleEl.focus(); },60);
+}
+
+function wcalClosePopover(){
+  const pop=document.getElementById('wcalPopover'); if(pop) pop.classList.remove('open');
+  _popClosed=true;
+}
+
+window.wcalPopSwitch=function(type){
+  _popType=type;
+  const te=document.getElementById('wcalPopTabEvent'); if(te) te.classList.toggle('active',type==='event');
+  const tt=document.getElementById('wcalPopTabTask');  if(tt) tt.classList.toggle('active',type==='task');
+  const ex=document.getElementById('wcalPopTaskExtra'); if(ex) ex.style.display=type==='task'?'block':'none';
+  const lbl=document.getElementById('wcalPopTitle'); if(lbl) lbl.textContent=type==='event'?'New event':'New task';
+};
+
+async function wcalPopCreate(){
+  const title=(document.getElementById('wcalPopTitle2')?.value||'').trim();
+  const time=document.getElementById('wcalPopTime')?.value||'09:00';
+  const dur=parseInt(document.getElementById('wcalPopDur')?.value||'60',10);
+  if(!title){ document.getElementById('wcalPopTitle2')?.focus(); return; }
+  if(!_popDate){ wcalClosePopover(); return; }
+  wcalClosePopover();
+  if(_popType==='event'){
+    const startDt=new Date(_popDate+'T'+time+':00');
+    const endDt=new Date(startDt.getTime()+dur*60000);
+    const st=document.getElementById('wcalAddStatus'); if(st) st.innerText='Creating…';
+    try{
+      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz})});
+      const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
+      cal.events[_popDate]=cal.events[_popDate]||[];
+      cal.events[_popDate].push({summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:d.event?.id||''});
+      showToast('Event created: '+title); wcalRefresh(); wcalUpdateStats();
+      if(st) st.innerText='';
+    }catch(e){ showToast('Could not create event: '+(e.message||e)+' (connect Calendar in Settings)'); }
+  } else {
+    const priority=document.getElementById('wcalPopPriority')?.value||'medium';
+    try{
+      const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date:_popDate,start:time,duration:dur,priority})});
+      const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
+      cal.tasks.push(d.task);
+      showToast('Task added: '+title); wcalRefresh(); wcalUpdateStats();
+    }catch(e){ showToast('Could not create task: '+(e.message||e)); }
+  }
+}
+
+function wcalWirePopover(){
+  const pop=document.getElementById('wcalPopover'); if(!pop) return;
+  document.getElementById('wcalPopClose')?.addEventListener('click', wcalClosePopover);
+  document.getElementById('wcalPopCreate')?.addEventListener('click', wcalPopCreate);
+  document.getElementById('wcalPopTitle2')?.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){ e.preventDefault(); wcalPopCreate(); }
+    if(e.key==='Escape'){ wcalClosePopover(); }
+  });
+  // Close on outside click
+  document.addEventListener('mousedown',function(e){
+    if(!pop.classList.contains('open')) return;
+    if(!pop.contains(e.target)) wcalClosePopover();
+  });
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────
+function wcalWireKeyboard(){
+  document.addEventListener('keydown',function(e){
+    // Only when calendar modal is open
+    const calForm=document.getElementById('calendarForm');
+    if(!calForm||calForm.style.display==='none') return;
+    // Don't fire when typing in inputs
+    const tag=(e.target.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
+    if(e.key==='Escape'){
+      wcalClosePopover();
+      document.getElementById('wcalDetail')?.classList.remove('open');
+    }
+    if(e.key==='n'||e.key==='N'){
+      e.preventDefault();
+      wcalPopSwitch('event');
+      const dt=cal.selected||ymd(new Date());
+      const now=new Date(); const ts=pad2(now.getHours())+':'+pad2(now.getMinutes());
+      // Open popover centered
+      wcalOpenPopover(window.innerWidth/2-130, window.innerHeight/2-140, dt, ts);
+    }
+    if(e.key==='t'||e.key==='T'){
+      e.preventDefault();
+      wcalPopSwitch('task');
+      const dt=cal.selected||ymd(new Date());
+      const now=new Date(); const ts=pad2(now.getHours())+':'+pad2(now.getMinutes());
+      wcalOpenPopover(window.innerWidth/2-130, window.innerHeight/2-140, dt, ts);
+    }
+  });
+}
+
 // ── Populate teammate dropdown in detail panel ─────────────────
 async function wcalPopulateTeammateDropdown(selectId, selectedValue){
-  const sel = document.getElementById(selectId);
-  if(!sel) return;
-  try{
-    const res = await fetch('/api/state');
-    const d = await res.json();
-    const names = d.installed_order || Object.keys(d.installed||{});
-    // Keep the first "no auto-email" option, add teammates
-    while(sel.options.length > 1) sel.remove(1);
-    names.forEach(name=>{
-      const opt = document.createElement('option');
-      opt.value = name; opt.textContent = name;
-      if(name === selectedValue) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  }catch(e){
-    console.warn('wcalPopulateTeammateDropdown failed', e);
+  // Retry up to 5 times in case the element was just injected via innerHTML
+  for(let attempt=0;attempt<5;attempt++){
+    const sel = document.getElementById(selectId);
+    if(sel){
+      try{
+        const res = await fetch('/api/state');
+        const d = await res.json();
+        const names = d.installed_order || Object.keys(d.installed||{});
+        sel.innerHTML = '<option value="">— No auto-email —</option>';
+        names.forEach(name=>{
+          const opt = document.createElement('option');
+          opt.value = name; opt.textContent = name;
+          if(name === selectedValue) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      }catch(e){
+        console.warn('wcalPopulateTeammateDropdown failed', e);
+      }
+      return;
+    }
+    await new Promise(r=>setTimeout(r,80));
   }
 }
 
@@ -13058,6 +13305,7 @@ function wcalWireButtons(){
   on('wcalAddBtn',()=>wcalAddEvent());
   on('wcalAddTaskBtn',()=>wcalAddTask());
   on('wcalDetClose',()=>{ get('wcalDetail')?.classList.remove('open'); });
+  on('wcalPopCreate',()=>wcalPopCreate());
   const tf=get('wcalAddTitle'); if(tf) tf.addEventListener('keydown',e=>{ if(e.key==='Enter') wcalAddEvent(); });
   const ttf=get('wcalTaskTitle'); if(ttf) ttf.addEventListener('keydown',e=>{ if(e.key==='Enter') wcalAddTask(); });
   const df=get('wcalAddDate'); if(df&&!df.value) df.value=ymd(new Date());
@@ -13077,7 +13325,7 @@ window.showCalendarModal=function showCalendarModal(){
   try{ ensureModalMinSize(1180,760); }catch(_){}
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
-  wcalWireButtons(); wcalRenderMiniMonth();
+  wcalWireButtons(); wcalWirePopover(); wcalWireKeyboard(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
