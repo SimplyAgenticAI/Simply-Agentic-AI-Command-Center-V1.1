@@ -1940,6 +1940,23 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         raise Exception(f"Calendar API error: {data}")
     return data
 
+def _calendar_move_event(access_token: str, event_id: str, new_start_iso: str, new_end_iso: str, timezone: str, send_updates: str = "none") -> Dict[str, Any]:
+    """PATCH an existing Google Calendar event to a new time — does NOT create a duplicate."""
+    import requests
+    url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
+    body = {
+        "start": {"dateTime": new_start_iso, "timeZone": timezone},
+        "end":   {"dateTime": new_end_iso,   "timeZone": timezone},
+    }
+    params = {"sendUpdates": send_updates}
+    r = requests.patch(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                       json=body, params=params, timeout=20)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise Exception(f"Calendar PATCH error: {data}")
+    return data
+
+
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -3734,6 +3751,34 @@ def api_calendar_create_event():
     except Exception as e:
         append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
         return jsonify({"ok": False, "error": str(e)}), 500
+@app.post("/api/calendar/move_event")
+def api_calendar_move_event():
+    """Move an existing Google Calendar event to a new time/date without creating a duplicate."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    access_token, reason = _calendar_creds_for_user(u)
+    if not access_token:
+        return jsonify({"ok": False, "error": reason}), 400
+    payload = request.get_json(force=True, silent=True) or {}
+    event_id = (payload.get("event_id") or "").strip()
+    start     = (payload.get("start") or "").strip()
+    end       = (payload.get("end")   or "").strip()
+    timezone  = (payload.get("timezone") or "America/New_York").strip()
+    send_upd  = "all" if payload.get("resend") else "none"
+    if not event_id or not start or not end:
+        return jsonify({"ok": False, "error": "Missing event_id, start, or end"}), 400
+    try:
+        updated = _calendar_move_event(access_token, event_id=event_id,
+                                       new_start_iso=start, new_end_iso=end,
+                                       timezone=timezone, send_updates=send_upd)
+        append_log("calendar_event_moved", {"user": u.get("username",""), "event_id": event_id,
+                                             "start": start, "at": now_iso()})
+        return jsonify({"ok": True, "event": updated})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.get("/api/calendar/events")
 def api_calendar_events():
     u = current_user()
@@ -7457,11 +7502,36 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
 .wcal-priority-pill.low { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
 /* Tasks: solid left stripe + diamond shape to distinguish from events */
-.wcal-event[data-etype="task"] { border-left:3px solid rgba(255,255,255,.35) !important; border-radius:4px 6px 6px 4px; }
-.wcal-event[data-etype="task"].task-prio-high   { background:rgba(185,28,28,.75)   !important; color:#fee2e2 !important; border-left-color:rgba(239,68,68,.9) !important; }
-.wcal-event[data-etype="task"].task-prio-medium { background:rgba(99,102,241,.72)  !important; color:#e0e7ff !important; border-left-color:rgba(129,140,248,.9) !important; }
-.wcal-event[data-etype="task"].task-prio-low    { background:rgba(6,95,70,.75)     !important; color:#d1fae5 !important; border-left-color:rgba(16,185,129,.9) !important; }
-.wcal-event[data-etype="task"].is-done { background:rgba(30,40,60,.65) !important; border-left-color:rgba(100,116,139,.4) !important; }
+/* Tasks: always start purple (medium-priority color), stripe + rounded-left */
+.wcal-event[data-etype="task"] {
+  background: rgba(99,102,241,.72) !important;
+  color: #e0e7ff !important;
+  border-left: 3px solid rgba(129,140,248,.9) !important;
+  border-radius: 4px 6px 6px 4px;
+}
+/* Priority overrides — only high and low differ from default purple */
+.wcal-event[data-etype="task"].task-prio-high {
+  background: rgba(185,28,28,.78) !important;
+  color: #fee2e2 !important;
+  border-left-color: rgba(239,68,68,.95) !important;
+}
+.wcal-event[data-etype="task"].task-prio-low {
+  background: rgba(6,95,70,.75) !important;
+  color: #d1fae5 !important;
+  border-left-color: rgba(16,185,129,.9) !important;
+}
+/* Done tasks go grey regardless of priority */
+.wcal-event[data-etype="task"].is-done {
+  background: rgba(30,40,60,.60) !important;
+  color: rgba(148,163,184,.65) !important;
+  border-left-color: rgba(100,116,139,.35) !important;
+}
+/* Dragging state */
+.wcal-event.wcal-drag-ghost {
+  opacity: 0.38 !important;
+  box-shadow: 0 4px 24px rgba(99,102,241,.4) !important;
+  pointer-events: none !important;
+}
 /* Events: rounded pill corners, no left stripe */
 .wcal-event[data-etype="event"] { border-radius:7px; }
 /* Drag ghost: show outline while dragging */
@@ -13043,129 +13113,139 @@ function wcalPlayActivationSound(){
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
 const wcalDrag={
-  active:false,
-  el:null,        // the DOM element being dragged
-  etype:null,     // 'task' | 'event'
-  tid:null,       // task id
-  eid:null,       // event id/key
-  origDate:null,
-  origStart:null, // 'HH:MM'
-  origDur:30,     // minutes
-  offsetMins:0,   // where within the block the user grabbed
-  preview:null,   // drop-preview div
-  startY:0,
-  startX:0,
+  active:false, el:null, ghost:null, tip:null,
+  etype:null, tid:null, eid:null,
+  origDate:null, origStart:null, origDur:30,
+  clickOffsetPx:0,   // px from top of block where user grabbed
+  startY:0, startX:0,
+  _targetDate:null, _targetMins:null,
 };
 
 function wcalDragWireGrid(grid){
-  // Wire mousedown on every .wcal-event inside grid
+  const wrap=document.getElementById('wcalGridWrap');
+
   grid.querySelectorAll('.wcal-event').forEach(el=>{
     if(el._wcalDragWired) return;
     el._wcalDragWired=true;
     el.addEventListener('mousedown',function(e){
-      // Only left button, not on check circle or links
       if(e.button!==0) return;
-      if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a')) return;
+      if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
       e.preventDefault();
+
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const elRect=el.getBoundingClientRect();
-      const topPx=parseFloat(el.style.top)||0;
-      const heightPx=parseFloat(el.style.height)||30;
-      // How many minutes from the top of the block did the user click?
+
+      // Store exactly how far down inside the block the user grabbed
       const clickOffsetPx=e.clientY-elRect.top;
-      const offsetMins=Math.round(clickOffsetPx);
+
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
         if(task){ origStart=task.start||'09:00'; origDur=task.duration||30; }
       } else {
-        // Find event
         let ev=null;
-        Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{ if((e2.id||e2.summary||'')===eid) ev=e2; }));
+        Object.values(cal.events).forEach(arr=>arr.forEach(ev2=>{
+          if((ev2.id||ev2.summary||'')===eid) ev=ev2;
+        }));
         if(ev){
           const sd=new Date(ev.start); const ed=new Date(ev.end||ev.start);
           origStart=pad2(sd.getHours())+':'+pad2(sd.getMinutes());
           origDur=Math.max(15,Math.round((ed-sd)/60000));
         }
       }
-      wcalDrag.active=false; // set true after small movement threshold
-      wcalDrag.el=el; wcalDrag.etype=etype;
-      wcalDrag.tid=tid; wcalDrag.eid=eid;
+      wcalDrag.active=false;
+      wcalDrag.el=el;
+      wcalDrag.etype=etype; wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
-      wcalDrag.offsetMins=offsetMins;
+      wcalDrag.clickOffsetPx=clickOffsetPx;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
-      wcalDrag.preview=null;
+      wcalDrag.ghost=null; wcalDrag.tip=null;
+      wcalDrag._targetDate=null; wcalDrag._targetMins=null;
     });
   });
 
-  // Global mousemove
   if(grid._wcalMoveWired) return;
   grid._wcalMoveWired=true;
-
-  const wrap=document.getElementById('wcalGridWrap');
 
   document.addEventListener('mousemove',function(e){
     if(!wcalDrag.el) return;
     const dy=Math.abs(e.clientY-wcalDrag.startY);
     const dx=Math.abs(e.clientX-wcalDrag.startX);
-    if(!wcalDrag.active && (dy<6 && dx<6)) return;
+    if(!wcalDrag.active && dy<5 && dx<5) return;
+
     if(!wcalDrag.active){
       wcalDrag.active=true;
-      wcalDrag.el.style.opacity='0.55';
-      wcalDrag.el.style.zIndex='20';
-      wcalDrag.el.style.cursor='grabbing';
-      wcalDrag.el.style.pointerEvents='none'; // so mousemove fires on cols below
+      // Dim original in place
+      wcalDrag.el.classList.add('wcal-drag-ghost');
+
+      // Build a floating clone that follows the cursor exactly
+      const ghost=wcalDrag.el.cloneNode(true);
+      const origRect=wcalDrag.el.getBoundingClientRect();
+      ghost.style.cssText=`
+        position:fixed;
+        width:${origRect.width}px;
+        height:${origRect.height}px;
+        left:${origRect.left}px;
+        top:${origRect.top}px;
+        z-index:9998;
+        pointer-events:none;
+        opacity:0.85;
+        box-shadow:0 8px 32px rgba(0,0,0,.55);
+        border-radius:6px;
+        transition:none;
+        cursor:grabbing;
+      `;
+      document.body.appendChild(ghost);
+      wcalDrag.ghost=ghost;
+
+      // Time tooltip
+      const tip=document.createElement('div');
+      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
+      document.body.appendChild(tip);
+      wcalDrag.tip=tip;
     }
 
-    // Find which col we're over
+    // Move ghost so it stays exactly under the cursor at the grab point
+    if(wcalDrag.ghost){
+      wcalDrag.ghost.style.left=(e.clientX-wcalDrag.ghost.offsetWidth/2)+'px';
+      wcalDrag.ghost.style.top=(e.clientY-wcalDrag.clickOffsetPx)+'px';
+    }
+
+    // Find target column
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
       const r=col.getBoundingClientRect();
-      if(e.clientX>=r.left&&e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
+      if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
     });
     if(!targetCol){
       const dayArea=grid.querySelector('[data-date]');
-      if(dayArea){ const r=dayArea.getBoundingClientRect();
-        if(e.clientX>=r.left&&e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
+      if(dayArea){
+        const r=dayArea.getBoundingClientRect();
+        if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
       }
     }
     if(!targetCol||!targetDate) return;
 
+    // Calculate snapped target time using column top + scrollTop
     const colRect=targetCol.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
-    // rawY: pixels from top of scrollable content area at cursor position minus where within block user grabbed
-    const rawY=e.clientY-colRect.top+scrolled-wcalDrag.offsetMins;
-    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15,1410));
+    // The y position within the scrollable grid at the cursor minus the grab offset
+    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
+    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15, 1410));
 
-    // Move the ACTUAL block instead of showing a separate ghost
-    if(wcalDrag._lastTargetCol && wcalDrag._lastTargetCol !== targetCol){
-      // Moved to a different day column — re-parent the element
-      wcalDrag._lastTargetCol.style.position=''; // restore
-      targetCol.appendChild(wcalDrag.el);
+    // Update tooltip
+    if(wcalDrag.tip){
+      const hh=Math.floor(startMins/60), mm=startMins%60;
+      const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
+      wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
+      wcalDrag.tip.style.left=(e.clientX+14)+'px';
+      wcalDrag.tip.style.top=(e.clientY-28)+'px';
     }
-    wcalDrag._lastTargetCol = targetCol;
-    wcalDrag.el.style.top = startMins+'px';
-    wcalDrag.el.style.left = '3px';
-    wcalDrag.el.style.right = '3px';
-    wcalDrag.el.style.position = 'absolute';
-
-    // Show a tiny time tooltip instead of a ghost
-    let tip=wcalDrag._tip;
-    if(!tip){
-      tip=document.createElement('div');
-      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);';
-      document.body.appendChild(tip);
-      wcalDrag._tip=tip;
-    }
-    const hh=Math.floor(startMins/60); const mm=startMins%60;
-    tip.textContent=pad2(hh)+':'+pad2(mm);
-    tip.style.left=(e.clientX+12)+'px';
-    tip.style.top=(e.clientY-20)+'px';
 
     wcalDrag._targetDate=targetDate;
     wcalDrag._targetMins=startMins;
@@ -13174,68 +13254,75 @@ function wcalDragWireGrid(grid){
   document.addEventListener('mouseup',async function(e){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
-    const el=wcalDrag.el;
-    // Restore element styles
-    el.style.opacity='';
-    el.style.zIndex='';
-    el.style.cursor='';
-    el.style.pointerEvents='';
-    el.style.left='3px';
-    el.style.right='3px';
-    el.classList.remove('wcal-dragging');
-    if(wcalDrag.preview){ try{wcalDrag.preview.remove();}catch(err){} wcalDrag.preview=null; }
-    if(wcalDrag._tip){ try{wcalDrag._tip.remove();}catch(err){} wcalDrag._tip=null; }
+
+    // Restore original element
+    wcalDrag.el.classList.remove('wcal-drag-ghost');
+
+    // Remove ghost + tooltip
+    if(wcalDrag.ghost){ try{wcalDrag.ghost.remove();}catch(_){} wcalDrag.ghost=null; }
+    if(wcalDrag.tip){   try{wcalDrag.tip.remove();}catch(_){}   wcalDrag.tip=null; }
+
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
 
-    // Reset drag state BEFORE anything async
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,_targetDate:null,_targetMins:null,_lastTargetCol:null,_tip:null});
+    Object.assign(wcalDrag,{active:false,el:null,ghost:null,tip:null,_targetDate:null,_targetMins:null});
 
     if(!wasDragging||targetMins==null) return;
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate) return; // no change
+    if(newStart===origStart && targetDate===origDate) return;
 
     if(etype==='task'){
       const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
       try{
-        await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({date:targetDate,start:newStart})});
+        await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({date:targetDate,start:newStart})
+        });
         task.date=targetDate; task.start=newStart;
         showToast('Task moved to '+targetDate+' at '+newStart);
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed'); }
 
     } else {
-      // Google Calendar event — rebuild ISO times then save
+      // Google Calendar event — use PATCH (move, not create)
       let ev=null;
-      Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{ if((e2.id||e2.summary||'')===eid) ev=e2; }));
+      Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
+        if((e2.id||e2.summary||'')===eid) ev=e2;
+      }));
       if(!ev) return;
+
       const newStartDt=new Date(targetDate+'T'+newStart+':00');
       const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
 
-      // Only prompt to resend if the event actually has attendees in its data
+      // Only prompt to resend if event has real attendees
       const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
       let resend=false;
       if(hasAttendees){
         resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend the updated invite?');
       }
+
       try{
-        const payload={
-          title:ev.summary||'',
-          start:newStartDt.toISOString(),
-          end:newEndDt.toISOString(),
-          timezone:cal.tz,
-          description:ev.description||'',
-          location:ev.location||'',
-          attendees: resend ? [] : undefined, // empty array = no new invites
-          use_meet:!!(ev.hangoutLink),
-        };
-        const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        const d=await res.json();
-        if(!d.ok) throw new Error(d.error||'Failed');
+        // If event has a Google ID, use PATCH to move it (no duplicate)
+        if(ev.id){
+          const res=await fetch('/api/calendar/move_event',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+              event_id:ev.id,
+              start:newStartDt.toISOString(),
+              end:newEndDt.toISOString(),
+              timezone:cal.tz,
+              resend:resend,
+            })
+          });
+          const d=await res.json();
+          if(!d.ok) throw new Error(d.error||'Move failed');
+        } else {
+          // Fallback for events without ID (shouldn't normally happen)
+          throw new Error('Event has no ID — cannot move. Try dragging again after a refresh.');
+        }
         showToast('Event moved'+(resend?' · Invite resent':''));
         await wcalFetchCurrentRange(); wcalRefresh();
       }catch(err){ showToast('Move failed: '+err.message); }
