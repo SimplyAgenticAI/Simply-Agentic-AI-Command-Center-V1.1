@@ -7453,6 +7453,22 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
 .wcal-priority-pill.low { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
+/* Tasks: solid left stripe + diamond shape to distinguish from events */
+.wcal-event[data-etype="task"] { border-left:3px solid rgba(255,255,255,.35) !important; border-radius:4px 6px 6px 4px; }
+.wcal-event[data-etype="task"].task-prio-high   { background:rgba(185,28,28,.75)   !important; color:#fee2e2 !important; border-left-color:rgba(239,68,68,.9) !important; }
+.wcal-event[data-etype="task"].task-prio-medium { background:rgba(99,102,241,.72)  !important; color:#e0e7ff !important; border-left-color:rgba(129,140,248,.9) !important; }
+.wcal-event[data-etype="task"].task-prio-low    { background:rgba(6,95,70,.75)     !important; color:#d1fae5 !important; border-left-color:rgba(16,185,129,.9) !important; }
+.wcal-event[data-etype="task"].is-done { background:rgba(30,40,60,.65) !important; border-left-color:rgba(100,116,139,.4) !important; }
+/* Events: rounded pill corners, no left stripe */
+.wcal-event[data-etype="event"] { border-radius:7px; }
+/* Drag ghost: show outline while dragging */
+.wcal-event.wcal-dragging { opacity:.45; box-shadow:0 0 0 2px rgba(124,58,237,.8); cursor:grabbing !important; }
+.wcal-drop-preview { position:absolute; left:3px; right:3px; border-radius:6px; border:2px dashed rgba(124,58,237,.7); background:rgba(124,58,237,.12); z-index:2; pointer-events:none; box-sizing:border-box; }
+/* Detail panel: task=indigo header, event=blue header */
+.wcal-detail-header.type-task  { border-bottom-color:rgba(99,102,241,.5); }
+.wcal-detail-header.type-event { border-bottom-color:rgba(59,130,246,.5); }
+.wcal-detail-type.type-task  { color:#a5b4fc; }
+.wcal-detail-type.type-event { color:#93c5fd; }
 </style>
 
 <div class="wcal-wrap" id="wcalWrap">
@@ -10820,6 +10836,17 @@ async function pollImageJob(jobId, seatName){
     $("sendFollow").onclick = sendFollow;
 
     $("installFullBtn").onclick = async () => {
+      // Auto-save settings if the settings modal is open, then close any open modal
+      const overlay = $("overlay");
+      const overlayOpen = overlay && overlay.classList.contains("show");
+      if(overlayOpen){
+        const saveBtn = $("saveSettings");
+        if(saveBtn && typeof saveBtn.onclick === "function"){
+          try{ await saveBtn.onclick(); }catch(e){}
+        }
+        hideModal();
+        await new Promise(r=>setTimeout(r,150));
+      }
       const res = await fetch("/api/install/full", {method:"POST"});
       const data = await res.json();
       if(!data.ok){
@@ -10827,7 +10854,9 @@ async function pollImageJob(jobId, seatName){
         return;
       }
       await loadState();
-      showModal("Installed", "Full team installed.");
+      // Play table activation sound
+      try{ wcalPlayActivationSound(); }catch(e){}
+      showModal("Team Assembled", "Full team installed and seated at the Round Table.");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12580,7 +12609,11 @@ function wcalEventHtml(ev, extraStyle=''){
   const evKey=ev.id||ev.summary||'';
   const isDone=_evDone.has(evKey);
   const doneCls=isDone?' is-done':'';
-  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
+  // Apply any user-set priority override
+  const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
+  const prioColors={high:{bg:'rgba(185,28,28,.75)',text:'#fee2e2'},medium:{bg:'rgba(99,102,241,.72)',text:'#e0e7ff'},low:{bg:'rgba(6,95,70,.75)',text:'#d1fae5'}};
+  const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||color;
+  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
@@ -12592,22 +12625,21 @@ function wcalEventHtml(ev, extraStyle=''){
 function wcalTaskHtml(task, extraStyle=''){
   const [th,tm]=(task.start||'09:00').split(':').map(Number);
   const startMins=th*60+tm;
-  const height=Math.max(28,task.duration||30);
-  const color=task.done?TASK_DONE_COLOR:TASK_COLOR;
+  const height=Math.max(28,task.duration||30); // 1px per minute — longer tasks are taller
+  const prio=task.priority||'medium';
+  const prioCls=task.done?'':' task-prio-'+prio;
   const doneCls=task.done?' is-done':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-  const prioMap={high:'🔴',medium:'🟡',low:'🟢'};
-  const prio=prioMap[task.priority||'medium']||'';
   const isRecur=(task.recurring&&task.recurring!=='none');
   const recurBadge=isRecur?`<span class="wcal-recur-badge" title="Repeats ${task.recurring}">↻</span>`:'';
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
-  const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:4px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
-  let h=`<div class="wcal-event${doneCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
-  // Circle — absolute top-left, always visible
+  const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:20px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
+  const durLabel=height>40?` · ${task.duration||30}m`:'';
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${prio} ${title}</span></div>`;
-  if(height>32) h+=`<div class="wcal-event-time">${task.start||''} · ${task.duration||30}m</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
+  if(height>36) h+=`<div class="wcal-event-time">${task.start||''}${durLabel}</div>`;
   h+=autoEmailBadge;
   h+='</div>';
   return h;
@@ -12748,9 +12780,10 @@ function wcalShowTaskDetail(task){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl) typeLbl.innerText='TASK';
+  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
-  panel._currentTask=task;
+  panel._currentTask=task; panel._currentEvent=null;
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
 }
@@ -12811,15 +12844,25 @@ function wcalShowEventDetail(ev){
       </div>
     </div>
     <input type="hidden" id="detMeet" value="${meetLink?'meet':''}" />
+    <div>
+      <div class="wcal-detail-label">Priority / color</div>
+      <select class="wcal-detail-field" id="detEvPriority" onchange="wcalDetEvPriorityChange(this.value)">
+        <option value="auto" selected>Auto (calendar color)</option>
+        <option value="high">🔴 High</option>
+        <option value="medium">🟡 Medium</option>
+        <option value="low">🟢 Low</option>
+      </select>
+    </div>
     <div class="wcal-detail-actions">
       <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(ev.id||'')}')">Save changes</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl) typeLbl.innerText='EVENT';
+  if(typeLbl){ typeLbl.innerText='📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
+  const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-event';
   panel.classList.add('open');
-  panel._currentEvent=ev;
+  panel._currentEvent=ev; panel._currentTask=null;
 }
 
 // ── Detail panel actions ───────────────────────────────────────
@@ -12880,6 +12923,31 @@ window.wcalDetDeleteTask = async function(taskId){
   }catch(e){ showToast('Delete failed'); }
 };
 
+// Event priority — store in session memory keyed by event id, applied on re-render
+const _evPriority = {};
+window.wcalDetEvPriorityChange = function(val){
+  const panel = document.getElementById('wcalDetail');
+  if(!panel||!panel._currentEvent) return;
+  const ev = panel._currentEvent;
+  const key = ev.id||ev.summary||'';
+  if(val==='auto') delete _evPriority[key];
+  else _evPriority[key] = val;
+  // Apply color live to any matching event block on the grid
+  document.querySelectorAll(`.wcal-event[data-eid="${encodeURIComponent(key)}"]`).forEach(el=>{
+    const prioColors = {
+      high:   {bg:'rgba(185,28,28,.75)',  text:'#fee2e2'},
+      medium: {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'},
+      low:    {bg:'rgba(6,95,70,.75)',    text:'#d1fae5'},
+    };
+    if(val==='auto'){
+      const color=eventColor(ev);
+      el.style.background=color.bg; el.style.color=color.text;
+    } else {
+      const clr=prioColors[val]; if(clr){ el.style.background=clr.bg; el.style.color=clr.text; }
+    }
+  });
+};
+
 window.wcalDetSaveEvent = async function(encodedId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving to Google Calendar...';
   const dateVal=document.getElementById('detDate')?.value||'';
@@ -12905,6 +12973,204 @@ window.wcalDetSaveEvent = async function(encodedId){
     setTimeout(()=>{ if(st) st.innerText=''; },2500);
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
+
+// ── Activation sound (Web Audio API — no file needed) ─────────
+function wcalPlayActivationSound(){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
+    notes.forEach((freq,i)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type='sine'; osc.frequency.value=freq;
+      const t=ctx.currentTime+i*0.09;
+      gain.gain.setValueAtTime(0,t);
+      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+      osc.start(t); osc.stop(t+0.3);
+    });
+  }catch(e){}
+}
+
+// ── Drag-and-drop for calendar tasks & events ──────────────────
+const wcalDrag={
+  active:false,
+  el:null,        // the DOM element being dragged
+  etype:null,     // 'task' | 'event'
+  tid:null,       // task id
+  eid:null,       // event id/key
+  origDate:null,
+  origStart:null, // 'HH:MM'
+  origDur:30,     // minutes
+  offsetMins:0,   // where within the block the user grabbed
+  preview:null,   // drop-preview div
+  startY:0,
+  startX:0,
+};
+
+function wcalDragWireGrid(grid){
+  // Wire mousedown on every .wcal-event inside grid
+  grid.querySelectorAll('.wcal-event').forEach(el=>{
+    if(el._wcalDragWired) return;
+    el._wcalDragWired=true;
+    el.addEventListener('mousedown',function(e){
+      // Only left button, not on check circle or links
+      if(e.button!==0) return;
+      if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a')) return;
+      e.preventDefault();
+      const etype=el.dataset.etype;
+      const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
+      const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
+      const col=el.closest('.wcal-day-col,[data-date]');
+      const origDate=col?col.dataset.date:'';
+      const elRect=el.getBoundingClientRect();
+      const topPx=parseFloat(el.style.top)||0;
+      const heightPx=parseFloat(el.style.height)||30;
+      // How many minutes from the top of the block did the user click?
+      const clickOffsetPx=e.clientY-elRect.top;
+      const offsetMins=Math.round(clickOffsetPx);
+      let origStart='09:00', origDur=30;
+      if(etype==='task'){
+        const task=cal.tasks.find(t=>t.id===tid);
+        if(task){ origStart=task.start||'09:00'; origDur=task.duration||30; }
+      } else {
+        // Find event
+        let ev=null;
+        Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{ if((e2.id||e2.summary||'')===eid) ev=e2; }));
+        if(ev){
+          const sd=new Date(ev.start); const ed=new Date(ev.end||ev.start);
+          origStart=pad2(sd.getHours())+':'+pad2(sd.getMinutes());
+          origDur=Math.max(15,Math.round((ed-sd)/60000));
+        }
+      }
+      wcalDrag.active=false; // set true after small movement threshold
+      wcalDrag.el=el; wcalDrag.etype=etype;
+      wcalDrag.tid=tid; wcalDrag.eid=eid;
+      wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
+      wcalDrag.offsetMins=offsetMins;
+      wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
+      wcalDrag.preview=null;
+    });
+  });
+
+  // Global mousemove
+  if(grid._wcalMoveWired) return;
+  grid._wcalMoveWired=true;
+
+  const wrap=document.getElementById('wcalGridWrap');
+
+  document.addEventListener('mousemove',function(e){
+    if(!wcalDrag.el) return;
+    const dy=Math.abs(e.clientY-wcalDrag.startY);
+    const dx=Math.abs(e.clientX-wcalDrag.startX);
+    if(!wcalDrag.active && (dy<6 && dx<6)) return;
+    if(!wcalDrag.active){
+      wcalDrag.active=true;
+      wcalDrag.el.classList.add('wcal-dragging');
+    }
+
+    // Find which col we're over
+    const cols=grid.querySelectorAll('.wcal-day-col');
+    let targetCol=null, targetDate=null;
+    cols.forEach(col=>{
+      const r=col.getBoundingClientRect();
+      if(e.clientX>=r.left&&e.clientX<=r.right) { targetCol=col; targetDate=col.dataset.date; }
+    });
+    // Day view fallback
+    if(!targetCol){
+      const dayArea=grid.querySelector('[data-date]');
+      if(dayArea){ const r=dayArea.getBoundingClientRect();
+        if(e.clientX>=r.left&&e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
+      }
+    }
+    if(!targetCol||!targetDate) return;
+
+    const colRect=targetCol.getBoundingClientRect();
+    const scrolled=wrap?wrap.scrollTop:0;
+    const rawY=e.clientY-colRect.top+scrolled-wcalDrag.offsetMins;
+    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15,1410));
+    const topPx=startMins;
+    const heightPx=wcalDrag.origDur;
+
+    // Remove old preview; add to targetCol
+    if(wcalDrag.preview){ try{wcalDrag.preview.remove();}catch(err){} }
+    const prev=document.createElement('div');
+    prev.className='wcal-drop-preview';
+    prev.style.top=topPx+'px';
+    prev.style.height=heightPx+'px';
+    const hh=Math.floor(startMins/60); const mm=startMins%60;
+    prev.title=pad2(hh)+':'+pad2(mm);
+    targetCol.appendChild(prev);
+    wcalDrag.preview=prev;
+    wcalDrag._targetDate=targetDate;
+    wcalDrag._targetMins=startMins;
+  });
+
+  document.addEventListener('mouseup',async function(e){
+    if(!wcalDrag.el) return;
+    const wasDragging=wcalDrag.active;
+    const el=wcalDrag.el;
+    el.classList.remove('wcal-dragging');
+    if(wcalDrag.preview){ try{wcalDrag.preview.remove();}catch(err){} wcalDrag.preview=null; }
+    const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
+    const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
+
+    // Reset drag state BEFORE anything async
+    const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
+    Object.assign(wcalDrag,{active:false,el:null,_targetDate:null,_targetMins:null});
+
+    if(!wasDragging||targetMins==null) return;
+
+    const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
+    const newStart=pad2(newHH)+':'+pad2(newMM);
+    if(newStart===origStart && targetDate===origDate) return; // no change
+
+    if(etype==='task'){
+      const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
+      try{
+        await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({date:targetDate,start:newStart})});
+        task.date=targetDate; task.start=newStart;
+        showToast('Task moved to '+targetDate+' at '+newStart);
+        wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
+      }catch(err){ showToast('Move failed'); }
+
+    } else {
+      // Google Calendar event — rebuild ISO times then save
+      let ev=null;
+      Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{ if((e2.id||e2.summary||'')===eid) ev=e2; }));
+      if(!ev) return;
+      const newStartDt=new Date(targetDate+'T'+newStart+':00');
+      const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
+
+      // Ask about resending if event has attendees
+      const hasAttendees=!!(ev.attendees&&ev.attendees.length) || !!(ev.htmlLink);
+      let resend=false;
+      if(hasAttendees){
+        resend=confirm('This event may have attendees. Resend the updated invite by email?');
+      }
+      try{
+        const payload={
+          title:ev.summary||'',
+          start:newStartDt.toISOString(),
+          end:newEndDt.toISOString(),
+          timezone:cal.tz,
+          description:ev.description||'',
+          location:ev.location||'',
+          attendees: resend ? [] : undefined, // empty array = no new invites
+          use_meet:!!(ev.hangoutLink),
+        };
+        const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const d=await res.json();
+        if(!d.ok) throw new Error(d.error||'Failed');
+        showToast('Event moved'+(resend?' · Invite resent':''));
+        await wcalFetchCurrentRange(); wcalRefresh();
+      }catch(err){ showToast('Move failed: '+err.message); }
+    }
+  });
+}
+
 
 // ── Render week view ───────────────────────────────────────────
 function wcalRenderWeek(){
@@ -12960,6 +13226,8 @@ function wcalRenderWeek(){
   }
   html+='</div>';
   grid.innerHTML=html;
+  // Wire drag-and-drop
+  wcalDragWireGrid(grid);
   // Double-click on day column → open create popover at clicked time
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
     col.addEventListener('dblclick',function(e){
@@ -13016,6 +13284,8 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  // Wire drag-and-drop for day view
+  wcalDragWireGrid(grid);
   // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
@@ -14999,19 +15269,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "email_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          focusEl("gmailConnectBtn") || focusEl("smtpHost") || focusEl("smtpUser");
-        }, 180);
+        // Direct to Gmail OAuth — no extra click needed
+        window.location = '/gmail/connect';
         return;
       }
 
       if(key === "calendar_connected"){
-        if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
-        setTimeout(()=>{
-          const btn = document.getElementById("calendarConnectBtn");
-          if(btn) btn.focus();
-        }, 180);
+        // Direct to Calendar OAuth — no extra click needed
+        window.location = '/calendar/connect';
         return;
       }
 
