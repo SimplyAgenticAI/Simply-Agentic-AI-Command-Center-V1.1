@@ -7358,8 +7358,16 @@ label         { font-size: 14px !important; }
 .wcal-event-check:hover { opacity:1; transform:scale(1.15); }
 .wcal-event-check.checked { background:currentColor; }
 .wcal-event-check.checked::after { content:'✓'; color:#080c1a; }
-/* Recurring badge — pinned top-right */
-.wcal-recur-badge { position:absolute; top:3px; right:4px; font-size:11px; opacity:.85; z-index:4; pointer-events:none; line-height:1; }
+/* Recurring badge — pinned top-right, always visible pill */
+.wcal-recur-badge {
+  position:absolute; top:3px; right:4px;
+  width:14px; height:14px; border-radius:50%;
+  background:rgba(0,0,0,.35); border:1px solid currentColor;
+  display:flex; align-items:center; justify-content:center;
+  font-size:9px; font-weight:900; z-index:5;
+  pointer-events:none; line-height:1; opacity:.95;
+  box-shadow:0 0 0 1px rgba(0,0,0,.3);
+}
 .wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:9px; opacity:.75; padding-left:0; }
@@ -7424,44 +7432,23 @@ label         { font-size: 14px !important; }
 .wcal-det-btn.danger:hover { background:rgba(239,68,68,.3); }
 .wcal-meet-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(59,130,246,.15); border:1px solid rgba(59,130,246,.35); border-radius:6px; padding:3px 8px; font-size:11px; color:#93c5fd; font-weight:600; cursor:pointer; text-decoration:none; }
 .wcal-meet-badge:hover { background:rgba(59,130,246,.3); }
+/* Video conference buttons in sidebar + detail panel */
+.wcal-conf-row { display:flex; gap:6px; margin-bottom:5px; }
+.wcal-conf-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px 4px; border-radius:7px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); color:rgba(196,181,253,.8); font-size:11px; font-weight:600; cursor:pointer; transition:background .15s,border-color .15s; }
+.wcal-conf-btn:hover { background:rgba(30,40,80,.9); border-color:rgba(124,58,237,.5); }
+.wcal-conf-btn.active-meet { background:rgba(26,115,232,.2); border-color:rgba(26,115,232,.6); color:#93c5fd; }
+.wcal-conf-btn.active-zoom { background:rgba(45,140,255,.18); border-color:rgba(45,140,255,.55); color:#7dd3fc; }
+.wcal-zoom-input { display:none; margin-top:4px; }
+.wcal-zoom-input.show { display:block; }
+.wcal-join-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:8px; font-size:12px; font-weight:700; text-decoration:none; border:1px solid; cursor:pointer; }
+.wcal-join-meet { background:rgba(26,115,232,.2); border-color:rgba(26,115,232,.6); color:#93c5fd; }
+.wcal-join-zoom { background:rgba(45,140,255,.18); border-color:rgba(45,140,255,.55); color:#7dd3fc; }
+.wcal-join-meet:hover { background:rgba(26,115,232,.4); }
+.wcal-join-zoom:hover { background:rgba(45,140,255,.35); }
 .wcal-autocomplete-section { background:rgba(16,185,129,.08); border:1px solid rgba(16,185,129,.25); border-radius:10px; padding:10px 12px; margin-top:4px; }
 .wcal-autocomplete-title { font-size:10px; font-weight:700; color:rgba(110,231,183,.9); text-transform:uppercase; letter-spacing:.07em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
 .wcal-autocomplete-title::before { content:'⚡'; font-size:12px; }
 .wcal-automail-status { font-size:11px; color:rgba(110,231,183,.8); margin-top:6px; min-height:16px; font-style:italic; }
-/* ── Week stats bar ── */
-.wcal-stats-bar { display:flex; align-items:center; gap:16px; padding:5px 14px; background:rgba(7,10,20,.5); border-bottom:1px solid rgba(42,58,106,.35); font-size:11px; flex-shrink:0; flex-wrap:wrap; }
-.wcal-stat { color:rgba(148,163,184,.7); display:flex; align-items:center; gap:5px; }
-.wcal-stat b { color:rgba(226,232,240,.9); }
-.wcal-stat.done b { color:#6ee7b7; }
-.wcal-stat.pending b { color:#fcd34d; }
-.wcal-stat.events b { color:#93c5fd; }
-/* ── Priority-tinted task colors ── */
-.wcal-event.task-high   { border-left:3px solid rgba(239,68,68,.8)  !important; }
-.wcal-event.task-medium { border-left:3px solid rgba(99,102,241,.8) !important; }
-.wcal-event.task-low    { border-left:3px solid rgba(16,185,129,.8) !important; }
-/* ── Click-to-create popover ── */
-.wcal-popover {
-  position:fixed; z-index:9999;
-  background:#0d1120; border:1px solid rgba(124,58,237,.5);
-  border-radius:12px; padding:14px 16px; min-width:240px;
-  box-shadow:0 8px 40px rgba(0,0,0,.7);
-  display:none; flex-direction:column; gap:9px;
-  animation:wcalPopIn .15s ease;
-}
-.wcal-popover.open { display:flex; }
-@keyframes wcalPopIn { from{opacity:0;transform:scale(.93)} to{opacity:1;transform:scale(1)} }
-.wcal-pop-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
-.wcal-pop-title { font-size:12px; font-weight:700; color:#c4b5fd; }
-.wcal-pop-close { background:none; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:16px; line-height:1; padding:0 2px; }
-.wcal-pop-tabs { display:flex; gap:4px; }
-.wcal-pop-tab { flex:1; padding:5px; border-radius:7px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); color:rgba(148,163,184,.7); font-size:11px; font-weight:600; cursor:pointer; text-align:center; }
-.wcal-pop-tab.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
-.wcal-pop-field { width:100%; background:rgba(7,10,20,.7); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 9px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
-.wcal-pop-field:focus { border-color:rgba(124,58,237,.6); }
-.wcal-pop-row { display:flex; gap:6px; }
-.wcal-pop-btn { flex:1; padding:7px; border-radius:8px; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#f3e8ff; font-size:12px; font-weight:700; cursor:pointer; }
-.wcal-pop-btn:hover { background:rgba(124,58,237,.65); }
-.wcal-pop-hint { font-size:10px; color:rgba(100,116,139,.5); text-align:center; }
 .wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
 .wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
@@ -7506,9 +7493,16 @@ label         { font-size: 14px !important; }
           </select>
         </div>
         <input class="wcal-field" id="wcalAddAttendees" placeholder="Invite emails (comma sep)" autocomplete="off" />
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(196,181,253,.8);margin-bottom:6px;cursor:pointer;">
-          <input type="checkbox" id="wcalAddMeet" style="accent-color:#7c3aed;" /> Add Google Meet
-        </label>
+        <div class="wcal-conf-row">
+          <button class="wcal-conf-btn" id="wcalAddMeetBtn" onclick="wcalToggleConf('meet')" title="Schedule a Google Meet call — a Meet link will be added to the event">
+            📹 Google Meet
+          </button>
+          <button class="wcal-conf-btn" id="wcalAddZoomBtn" onclick="wcalToggleConf('zoom')" title="Add a Zoom meeting link to this event">
+            🔵 Zoom
+          </button>
+        </div>
+        <input class="wcal-field wcal-zoom-input" id="wcalAddZoomUrl" placeholder="Paste Zoom meeting URL…" autocomplete="off" />
+        <input type="hidden" id="wcalAddMeet" value="" />
         <button class="wcal-submit" id="wcalAddBtn">Create event</button>
       </div>
       <!-- Task fields -->
@@ -7570,14 +7564,6 @@ label         { font-size: 14px !important; }
       </div>
     </div>
 
-    <!-- Week stats bar -->
-    <div class="wcal-stats-bar" id="wcalStatsBar">
-      <div class="wcal-stat events"><b id="wcalStatEvents">—</b> events</div>
-      <div class="wcal-stat done"><b id="wcalStatDone">—</b> tasks done</div>
-      <div class="wcal-stat pending"><b id="wcalStatPending">—</b> pending</div>
-      <div class="wcal-stat" style="margin-left:auto;opacity:.5;font-size:10px;">N=event · T=task · Esc=close</div>
-    </div>
-
     <!-- Week/Day grid -->
     <div class="wcal-grid-wrap" id="wcalGridWrap">
       <div class="wcal-grid" id="wcalGrid"><!-- Rendered by JS --></div>
@@ -7598,35 +7584,70 @@ label         { font-size: 14px !important; }
 
 </div>
 
-<!-- Click-to-create popover -->
-<div class="wcal-popover" id="wcalPopover">
-  <div class="wcal-pop-header">
-    <span class="wcal-pop-title" id="wcalPopTitle">New event</span>
-    <button class="wcal-pop-close" id="wcalPopClose">&#x2715;</button>
+<!-- Click-to-create popover (double-click on grid) -->
+<div id="wcalPopover" style="
+  position:fixed;z-index:9999;display:none;
+  background:#0d1120;border:1px solid rgba(124,58,237,.55);
+  border-radius:14px;padding:16px;min-width:250px;
+  box-shadow:0 12px 48px rgba(0,0,0,.75);
+  flex-direction:column;gap:10px;
+  animation:wcalPopIn .14s ease;
+">
+<style>
+@keyframes wcalPopIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+.wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
+.wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
+.wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
+.wcp-field{width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:7px 9px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;}
+.wcp-field:focus{border-color:rgba(124,58,237,.6);}
+.wcp-row{display:flex;gap:6px;}
+.wcp-btn{flex:1;padding:8px;border-radius:8px;background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#f3e8ff;font-size:12px;font-weight:700;cursor:pointer;}
+.wcp-btn:hover{background:rgba(124,58,237,.65);}
+.wcp-cancel{flex:0 0 auto;padding:8px 14px;border-radius:8px;background:transparent;border:1px solid rgba(42,58,106,.5);color:rgba(148,163,184,.6);font-size:12px;cursor:pointer;}
+.wcp-cancel:hover{border-color:rgba(148,163,184,.4);color:#e2e8f0;}
+.wcp-label{font-size:10px;font-weight:700;color:rgba(100,116,139,.6);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;}
+.wcp-hint{font-size:10px;color:rgba(100,116,139,.45);text-align:center;}
+</style>
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <span style="font-size:12px;font-weight:700;color:#c4b5fd;" id="wcalPopLabel">New entry</span>
+    <button onclick="wcalPopClose()" style="background:none;border:none;color:rgba(148,163,184,.5);font-size:17px;cursor:pointer;line-height:1;padding:0 2px;">&times;</button>
   </div>
-  <div class="wcal-pop-tabs">
-    <div class="wcal-pop-tab active" id="wcalPopTabEvent" onclick="wcalPopSwitch('event')">Event</div>
-    <div class="wcal-pop-tab" id="wcalPopTabTask" onclick="wcalPopSwitch('task')">Task</div>
+  <div class="wcp-tabs">
+    <div class="wcp-tab active" id="wcalPopTabEvent" onclick="wcalPopSwitch('event')">📅 Event</div>
+    <div class="wcp-tab" id="wcalPopTabTask"  onclick="wcalPopSwitch('task')">☑ Task</div>
   </div>
-  <input class="wcal-pop-field" id="wcalPopTitle2" placeholder="Title" autocomplete="off" />
-  <div class="wcal-pop-row">
-    <input class="wcal-pop-field" id="wcalPopTime" type="time" style="flex:1;" />
-    <select class="wcal-pop-field" id="wcalPopDur" style="flex:1;">
-      <option value="30">30m</option>
-      <option value="60" selected>1h</option>
-      <option value="90">1.5h</option>
-      <option value="120">2h</option>
+  <div>
+    <div class="wcp-label">Title</div>
+    <input class="wcp-field" id="wcalPopTitle" placeholder="What's this?" autocomplete="off" />
+  </div>
+  <div class="wcp-row">
+    <div style="flex:1;">
+      <div class="wcp-label">Time</div>
+      <input class="wcp-field" id="wcalPopTime" type="time" />
+    </div>
+    <div style="flex:1;">
+      <div class="wcp-label">Duration</div>
+      <select class="wcp-field" id="wcalPopDur">
+        <option value="30">30 min</option>
+        <option value="60" selected>1 hour</option>
+        <option value="90">1.5 hrs</option>
+        <option value="120">2 hours</option>
+      </select>
+    </div>
+  </div>
+  <div id="wcalPopTaskExtras" style="display:none;">
+    <div class="wcp-label">Priority</div>
+    <select class="wcp-field" id="wcalPopPriority">
+      <option value="medium" selected>Medium</option>
+      <option value="high">High</option>
+      <option value="low">Low</option>
     </select>
   </div>
-  <div id="wcalPopTaskExtra" style="display:none;">
-    <select class="wcal-pop-field" id="wcalPopPriority" style="margin-bottom:0;">
-      <option value="medium" selected>Medium priority</option>
-      <option value="high">High priority</option>
-      <option value="low">Low priority</option>
-    </select>
+  <div class="wcp-row">
+    <button class="wcp-btn" id="wcalPopCreate">Create</button>
+    <button class="wcp-cancel" onclick="wcalPopClose()">Cancel</button>
   </div>
-  <button class="wcal-pop-btn" id="wcalPopCreate">Create</button>
-  <div class="wcal-pop-hint">Enter to create · Esc to cancel</div>
+  <div class="wcp-hint">Double-click anywhere on the grid to create &nbsp;·&nbsp; Esc to cancel</div>
 </div>
 
 <!-- Hidden backward-compat inputs -->
@@ -12372,16 +12393,8 @@ const EVENT_COLORS = [
   {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
   {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
 ];
-const TASK_COLOR      = {bg:'rgba(99,102,241,.72)',  text:'#e0e7ff'};
-const TASK_DONE_COLOR  = {bg:'rgba(30,40,60,.65)',   text:'rgba(148,163,184,.6)'};
-const TASK_HIGH_COLOR  = {bg:'rgba(180,40,40,.70)',  text:'#fee2e2'};
-const TASK_LOW_COLOR   = {bg:'rgba(16,130,80,.65)',  text:'#d1fae5'};
-function taskColor(task){
-  if(task.done) return TASK_DONE_COLOR;
-  if(task.priority==='high')   return TASK_HIGH_COLOR;
-  if(task.priority==='low')    return TASK_LOW_COLOR;
-  return TASK_COLOR;
-}
+const TASK_COLOR = {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'};
+const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
 function eventColor(ev){
   const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
   return EVENT_COLORS[h % EVENT_COLORS.length];
@@ -12486,6 +12499,51 @@ function wcalUpdateNowLine(){
 }
 
 // ── Render helpers ─────────────────────────────────────────────
+// ── Strip auto-generated boilerplate from event descriptions ──
+function wcalCleanDescription(raw){
+  if(!raw) return '';
+  // Strip HTML tags
+  let txt = raw.replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').trim();
+  // Remove known Motion/Google Calendar boilerplate
+  const boilerplates=[
+    /This event was created by Motion.*$/si,
+    /To edit settings.*$/si,
+    /To disconnect Motion.*$/si,
+    /https?:\/\/app\.usemotion\.com[^\s]*/gi,
+    /https?:\/\/www\.usemotion\.com[^\s]*/gi,
+  ];
+  boilerplates.forEach(re=>{ txt=txt.replace(re,''); });
+  return txt.trim();
+}
+
+// ── Conference toggle (sidebar quick-add) ──────────────────────
+let _wcalConfMode = 'none'; // 'none' | 'meet' | 'zoom'
+window.wcalToggleConf = function(type){
+  _wcalConfMode = (_wcalConfMode===type) ? 'none' : type;
+  const mb=document.getElementById('wcalAddMeetBtn');
+  const zb=document.getElementById('wcalAddZoomBtn');
+  const zi=document.getElementById('wcalAddZoomUrl');
+  const hidden=document.getElementById('wcalAddMeet');
+  if(mb){ mb.classList.toggle('active-meet',_wcalConfMode==='meet'); }
+  if(zb){ zb.classList.toggle('active-zoom',_wcalConfMode==='zoom'); }
+  if(zi){ zi.classList.toggle('show',_wcalConfMode==='zoom'); if(_wcalConfMode==='zoom') zi.focus(); }
+  if(hidden) hidden.value=_wcalConfMode==='meet'?'meet':'';
+};
+
+// ── Conference toggle (detail panel) ──────────────────────────
+let _detConfMode = 'none';
+window.wcalDetToggleConf = function(type){
+  _detConfMode = (_detConfMode===type) ? 'none' : type;
+  const mb=document.getElementById('detMeetBtn');
+  const zb=document.getElementById('detZoomBtn');
+  const locEl=document.getElementById('detLocation');
+  const hidden=document.getElementById('detMeet');
+  if(mb){ mb.classList.toggle('active-meet',_detConfMode==='meet'); mb.textContent=_detConfMode==='meet'?'📹 Meet added':'📹 Add Google Meet'; }
+  if(zb){ zb.classList.toggle('active-zoom',_detConfMode==='zoom'); zb.textContent=_detConfMode==='zoom'?'🔵 Zoom added':'🔵 Add Zoom'; }
+  if(_detConfMode==='zoom' && locEl && !locEl.value.includes('zoom.us')){ locEl.value=''; locEl.placeholder='Paste your Zoom meeting URL here…'; locEl.focus(); }
+  if(hidden) hidden.value=_detConfMode==='meet'?'meet':'';
+};
+
 // ── Local done-state for Google Calendar events (persisted in localStorage) ──
 const _evDone = (()=>{
   try{ return new Set(JSON.parse(localStorage.getItem('wcal_ev_done')||'[]')); }catch(e){ return new Set(); }
@@ -12535,7 +12593,7 @@ function wcalTaskHtml(task, extraStyle=''){
   const [th,tm]=(task.start||'09:00').split(':').map(Number);
   const startMins=th*60+tm;
   const height=Math.max(28,task.duration||30);
-  const color=taskColor(task);
+  const color=task.done?TASK_DONE_COLOR:TASK_COLOR;
   const doneCls=task.done?' is-done':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const prioMap={high:'🔴',medium:'🟡',low:'🟢'};
@@ -12544,8 +12602,7 @@ function wcalTaskHtml(task, extraStyle=''){
   const recurBadge=isRecur?`<span class="wcal-recur-badge" title="Repeats ${task.recurring}">↻</span>`:'';
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:4px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
-  const prioCls=task.done?'':' task-'+(task.priority||'medium');
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
+  let h=`<div class="wcal-event${doneCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
   // Circle — absolute top-left, always visible
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
@@ -12712,7 +12769,8 @@ function wcalShowEventDetail(ev){
   const htmlLink=ev.htmlLink||'';
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
-    ${meetLink?`<a class="wcal-meet-badge" href="${meetLink}" target="_blank">&#128248; Join Google Meet</a>`:''}
+    ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:``}
+    ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
@@ -12730,22 +12788,29 @@ function wcalShowEventDetail(ev){
       </div>
     </div>
     <div>
-      <div class="wcal-detail-label">Description</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Description...">${ev.description||''}</textarea>
+      <div class="wcal-detail-label">Notes</div>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes…">${wcalCleanDescription(ev.description||'')}</textarea>
     </div>
     <div>
-      <div class="wcal-detail-label">Location</div>
-      <input class="wcal-detail-field" id="detLocation" value="${(ev.location||'').replace(/"/g,'&quot;')}" placeholder="Location or link" />
+      <div class="wcal-detail-label">Location / Meeting link</div>
+      <input class="wcal-detail-field" id="detLocation" value="${(ev.location||'').replace(/"/g,'&quot;')}" placeholder="Address, Zoom URL, or other link" />
     </div>
     <div>
-      <div class="wcal-detail-label">Invite attendees (add emails)</div>
+      <div class="wcal-detail-label">Invite attendees</div>
       <input class="wcal-detail-field" id="detAttendees" placeholder="email1@x.com, email2@x.com" autocomplete="off" />
     </div>
     <div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-        <input type="checkbox" id="detMeet" style="accent-color:#7c3aed;" ${meetLink?'checked':''} /> Add / keep Google Meet
-      </label>
+      <div class="wcal-detail-label">Video call</div>
+      <div class="wcal-conf-row">
+        <button class="wcal-conf-btn ${meetLink?'active-meet':''}" id="detMeetBtn" onclick="wcalDetToggleConf('meet')" title="Generate a Google Meet link when saving">
+          📹 ${meetLink?'Meet added':'Add Google Meet'}
+        </button>
+        <button class="wcal-conf-btn ${(ev.location&&ev.location.includes('zoom.us'))?'active-zoom':''}" id="detZoomBtn" onclick="wcalDetToggleConf('zoom')" title="Paste a Zoom URL into the Location field">
+          🔵 ${(ev.location&&ev.location.includes('zoom.us'))?'Zoom added':'Add Zoom'}
+        </button>
+      </div>
     </div>
+    <input type="hidden" id="detMeet" value="${meetLink?'meet':''}" />
     <div class="wcal-detail-actions">
       <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(ev.id||'')}')">Save changes</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
@@ -12825,7 +12890,7 @@ window.wcalDetSaveEvent = async function(encodedId){
   const loc=(document.getElementById('detLocation')?.value||'').trim();
   const attendeesRaw=document.getElementById('detAttendees')?.value||'';
   const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
-  const useMeet=document.getElementById('detMeet')?.checked||false;
+  const useMeet=document.getElementById('detMeet')?.value==='meet';
   if(!dateVal||!startVal){ if(st) st.innerText='Date and start time required'; return; }
   const startDt=new Date(dateVal+'T'+startVal+':00');
   const endDt=new Date(dateVal+'T'+endVal+':00');
@@ -12895,21 +12960,30 @@ function wcalRenderWeek(){
   }
   html+='</div>';
   grid.innerHTML=html;
-  // Wire day column clicks → open smart popover at click position
+  // Double-click on day column → open create popover at clicked time
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
+    col.addEventListener('dblclick',function(e){
+      if(e.target.closest('.wcal-event')) return;
+      const dt2=col.dataset.date; if(!dt2) return;
+      cal.selected=dt2; wcalRenderMiniMonth();
+      // offsetY is relative to the clicked element (the hour-line div or the col itself)
+      // Each hour = 60px. Use the col's own offsetY for accuracy.
+      const colRect=col.getBoundingClientRect();
+      const wrap=document.getElementById('wcalGridWrap');
+      const scrolled=wrap?wrap.scrollTop:0;
+      // clientY relative to col top + scrolled = raw pixel position in grid
+      const rawY=e.clientY-colRect.top+scrolled;
+      const totalMins=Math.max(0,Math.min(Math.round(rawY)*1,1439)); // 1px=1min
+      const hh=Math.floor(totalMins/60);
+      const mm=Math.round((totalMins%60)/15)*15; // snap to 15-min
+      const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
+      wcalPopOpen(e.clientX,e.clientY,dt2,timeStr);
+    });
+    // Single click still selects the date silently (no modal)
     col.addEventListener('click',function(e){
       if(e.target.closest('.wcal-event')) return;
       const dt2=col.dataset.date; if(!dt2) return;
       cal.selected=dt2; wcalRenderMiniMonth();
-      // Calculate clicked time from Y offset within column
-      const rect=col.getBoundingClientRect();
-      const wrap=document.getElementById('wcalGridWrap');
-      const scrollTop=wrap?wrap.scrollTop:0;
-      const relY=e.clientY-rect.top+scrollTop-44; // 44px for sticky header
-      const mins=Math.max(0,Math.round(relY/15)*15); // snap to 15-min slots
-      const hh=Math.floor(mins/60); const mm=mins%60;
-      const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm);
-      wcalOpenPopover(e.clientX, e.clientY, dt2, timeStr);
     });
   });
   const wrap=document.getElementById('wcalGridWrap');
@@ -12942,22 +13016,20 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
-  // Wire clicks in day view too
-  const dayArea=grid.querySelector('[data-date]');
-  if(dayArea){
-    dayArea.addEventListener('click',function(e){
-      if(e.target.closest('.wcal-event')) return;
-      const dt2=dayArea.dataset.date; if(!dt2) return;
-      const rect=dayArea.getBoundingClientRect();
-      const wrap2=document.getElementById('wcalGridWrap');
-      const scrollTop=wrap2?wrap2.scrollTop:0;
-      const relY=e.clientY-rect.top+scrollTop;
-      const mins=Math.max(0,Math.round(relY/15)*15);
-      const hh=Math.floor(mins/60); const mm=mins%60;
-      const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm);
-      wcalOpenPopover(e.clientX,e.clientY,dt2,timeStr);
-    });
-  }
+  // Double-click on day view grid area → popover
+  const dayArea=grid.querySelector('[data-date]')||grid;
+  dayArea.addEventListener('dblclick',function(e){
+    if(e.target.closest('.wcal-event')) return;
+    const dt2=ymd(cal.selected?new Date(cal.selected+'T12:00:00'):new Date());
+    const areaRect=dayArea.getBoundingClientRect();
+    const scrolled=wrap?wrap.scrollTop:0;
+    const rawY=e.clientY-areaRect.top+scrolled;
+    const totalMins=Math.max(0,Math.min(Math.round(rawY),1439));
+    const hh=Math.floor(totalMins/60);
+    const mm=Math.round((totalMins%60)/15)*15;
+    const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
+    wcalPopOpen(e.clientX,e.clientY,dt2,timeStr);
+  });
   wcalRenderUpcoming();
 }
 
@@ -13067,7 +13139,7 @@ async function wcalFetchCurrentRange(){
   await wcalFetchTasks();
 }
 
-function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); wcalUpdateStats(); }
+function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); }
 
 // ── Add tab switch ─────────────────────────────────────────────
 window.wcalSwitchAddTab=function(tab){
@@ -13087,18 +13159,24 @@ async function wcalAddEvent(){
   const dur=parseInt(document.getElementById('wcalAddDur')?.value||'60',10);
   const attendeesRaw=document.getElementById('wcalAddAttendees')?.value||'';
   const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
-  const useMeet=document.getElementById('wcalAddMeet')?.checked||false;
+  const useMeet=(_wcalConfMode==='meet');
+  const zoomUrl=(_wcalConfMode==='zoom')?(document.getElementById('wcalAddZoomUrl')?.value||'').trim():'';
   if(!title){ if(st) st.innerText='Title required'; return; }
   if(!date){  if(st) st.innerText='Date required'; return; }
   const startDt=new Date(date+'T'+start+':00');
   const endDt=new Date(startDt.getTime()+dur*60000);
   try{
-    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet})});
+    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet,location:zoomUrl})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
     if(st) st.innerText='✓ Created';
     document.getElementById('wcalAddTitle').value='';
     document.getElementById('wcalAddAttendees').value='';
-    showToast(useMeet?'Event + Meet link created':'Event created');
+    const zuEl=document.getElementById('wcalAddZoomUrl'); if(zuEl) zuEl.value='';
+    _wcalConfMode='none';
+    const _mb=document.getElementById('wcalAddMeetBtn'); if(_mb) _mb.classList.remove('active-meet');
+    const _zb=document.getElementById('wcalAddZoomBtn'); if(_zb) _zb.classList.remove('active-zoom');
+    const _zi=document.getElementById('wcalAddZoomUrl'); if(_zi) _zi.classList.remove('show');
+    showToast(useMeet?'Event + Meet link created':zoomUrl?'Event + Zoom link created':'Event created');
     cal.events[date]=cal.events[date]||[];
     const newEv={summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:data.event?.id||'',hangoutLink:data.event?.hangoutLink||''};
     cal.events[date].push(newEv);
@@ -13129,168 +13207,128 @@ async function wcalAddTask(){
   }catch(e){ if(st) st.innerText=e.message||'Failed'; }
 }
 
-// ── Week stats bar ────────────────────────────────────────────
-function wcalUpdateStats(){
-  const statsBar=document.getElementById('wcalStatsBar'); if(!statsBar) return;
-  // Determine visible date range
-  let dates=[];
-  if(cal.view==='week'){
-    const mon=cal.weekStart||wcalMonday(new Date());
-    for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); dates.push(ymd(d)); }
-  } else {
-    dates=[cal.selected||ymd(new Date())];
+// ── Populate teammate dropdown in detail panel ─────────────────
+async function wcalPopulateTeammateDropdown(selectId, selectedValue){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  try{
+    const res = await fetch('/api/state');
+    const d = await res.json();
+    const names = d.installed_order || Object.keys(d.installed||{});
+    // Keep the first "no auto-email" option, add teammates
+    while(sel.options.length > 1) sel.remove(1);
+    names.forEach(name=>{
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      if(name === selectedValue) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }catch(e){
+    console.warn('wcalPopulateTeammateDropdown failed', e);
   }
-  let evCount=0, taskDone=0, taskPending=0;
-  dates.forEach(dt=>{
-    evCount+=(cal.events[dt]||[]).length;
-  });
-  cal.tasks.forEach(t=>{
-    if(dates.includes(t.date)){
-      t.done?taskDone++:taskPending++;
-    }
-  });
-  const se=document.getElementById('wcalStatEvents');
-  const sd=document.getElementById('wcalStatDone');
-  const sp=document.getElementById('wcalStatPending');
-  if(se) se.textContent=evCount;
-  if(sd) sd.textContent=taskDone;
-  if(sp) sp.textContent=taskPending;
 }
 
-// ── Click-to-create popover ────────────────────────────────────
-let _popType='event', _popDate='', _popClosed=false;
+// ── Popover state ─────────────────────────────────────────────
+let _wcalPopType='event', _wcalPopDate='';
 
-function wcalOpenPopover(clientX, clientY, dt, timeStr){
+function wcalPopOpen(clientX, clientY, dt, timeStr){
   const pop=document.getElementById('wcalPopover'); if(!pop) return;
-  _popDate=dt; _popClosed=false;
-  // Position near click, keep inside viewport
+  _wcalPopDate=dt;
+  // Smart positioning: keep inside viewport
+  pop.style.display='flex';
+  const pw=pop.offsetWidth||260, ph=pop.offsetHeight||320;
   const W=window.innerWidth, H=window.innerHeight;
-  const pw=260, ph=280;
-  let left=clientX+10, top=clientY-20;
-  if(left+pw>W-10) left=clientX-pw-10;
-  if(top+ph>H-10) top=H-ph-10;
+  let left=clientX+12, top=clientY-20;
+  if(left+pw>W-8) left=clientX-pw-12;
+  if(top+ph>H-8) top=H-ph-8;
+  if(top<8) top=8;
   pop.style.left=left+'px'; pop.style.top=top+'px';
-  // Pre-fill time
-  const timeEl=document.getElementById('wcalPopTime'); if(timeEl) timeEl.value=timeStr;
-  // Clear title
-  const titleEl=document.getElementById('wcalPopTitle2'); if(titleEl){ titleEl.value=''; }
-  pop.classList.add('open');
-  setTimeout(()=>{ if(titleEl) titleEl.focus(); },60);
+  // Pre-fill
+  const tEl=document.getElementById('wcalPopTime'); if(tEl) tEl.value=timeStr;
+  const titleEl=document.getElementById('wcalPopTitle'); if(titleEl){ titleEl.value=''; titleEl.focus(); }
+  // Update label
+  const lbl=document.getElementById('wcalPopLabel');
+  const d=new Date(dt+'T12:00:00');
+  if(lbl) lbl.textContent=d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
 }
 
-function wcalClosePopover(){
-  const pop=document.getElementById('wcalPopover'); if(pop) pop.classList.remove('open');
-  _popClosed=true;
+function wcalPopClose(){
+  const pop=document.getElementById('wcalPopover'); if(pop) pop.style.display='none';
 }
 
 window.wcalPopSwitch=function(type){
-  _popType=type;
-  const te=document.getElementById('wcalPopTabEvent'); if(te) te.classList.toggle('active',type==='event');
-  const tt=document.getElementById('wcalPopTabTask');  if(tt) tt.classList.toggle('active',type==='task');
-  const ex=document.getElementById('wcalPopTaskExtra'); if(ex) ex.style.display=type==='task'?'block':'none';
-  const lbl=document.getElementById('wcalPopTitle'); if(lbl) lbl.textContent=type==='event'?'New event':'New task';
+  _wcalPopType=type;
+  document.getElementById('wcalPopTabEvent')?.classList.toggle('active',type==='event');
+  document.getElementById('wcalPopTabTask')?.classList.toggle('active',type==='task');
+  const ex=document.getElementById('wcalPopTaskExtras');
+  if(ex) ex.style.display=type==='task'?'block':'none';
 };
 
 async function wcalPopCreate(){
-  const title=(document.getElementById('wcalPopTitle2')?.value||'').trim();
+  const title=(document.getElementById('wcalPopTitle')?.value||'').trim();
   const time=document.getElementById('wcalPopTime')?.value||'09:00';
   const dur=parseInt(document.getElementById('wcalPopDur')?.value||'60',10);
-  if(!title){ document.getElementById('wcalPopTitle2')?.focus(); return; }
-  if(!_popDate){ wcalClosePopover(); return; }
-  wcalClosePopover();
-  if(_popType==='event'){
-    const startDt=new Date(_popDate+'T'+time+':00');
+  if(!title||!_wcalPopDate){ document.getElementById('wcalPopTitle')?.focus(); return; }
+  wcalPopClose();
+  const st=document.getElementById('wcalAddStatus');
+  if(_wcalPopType==='event'){
+    const startDt=new Date(_wcalPopDate+'T'+time+':00');
     const endDt=new Date(startDt.getTime()+dur*60000);
-    const st=document.getElementById('wcalAddStatus'); if(st) st.innerText='Creating…';
+    if(st) st.innerText='Creating…';
     try{
-      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz})});
+      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
-      cal.events[_popDate]=cal.events[_popDate]||[];
-      cal.events[_popDate].push({summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:d.event?.id||''});
-      showToast('Event created: '+title); wcalRefresh(); wcalUpdateStats();
+      cal.events[_wcalPopDate]=cal.events[_wcalPopDate]||[];
+      cal.events[_wcalPopDate].push({summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:d.event?.id||''});
+      showToast('Event created: '+title); wcalRefresh();
       if(st) st.innerText='';
-    }catch(e){ showToast('Could not create event: '+(e.message||e)+' (connect Calendar in Settings)'); }
+    }catch(e){ showToast('Event creation failed: '+(e.message||e)+' — connect Calendar in Settings'); }
   } else {
     const priority=document.getElementById('wcalPopPriority')?.value||'medium';
     try{
-      const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date:_popDate,start:time,duration:dur,priority})});
+      const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
-      cal.tasks.push(d.task);
-      showToast('Task added: '+title); wcalRefresh(); wcalUpdateStats();
-    }catch(e){ showToast('Could not create task: '+(e.message||e)); }
+      cal.tasks.push(d.task); showToast('Task added: '+title); wcalRefresh();
+    }catch(e){ showToast('Task creation failed: '+(e.message||e)); }
   }
 }
 
 function wcalWirePopover(){
   const pop=document.getElementById('wcalPopover'); if(!pop) return;
-  document.getElementById('wcalPopClose')?.addEventListener('click', wcalClosePopover);
-  document.getElementById('wcalPopCreate')?.addEventListener('click', wcalPopCreate);
-  document.getElementById('wcalPopTitle2')?.addEventListener('keydown',e=>{
+  document.getElementById('wcalPopCreate')?.addEventListener('click',wcalPopCreate);
+  document.getElementById('wcalPopTitle')?.addEventListener('keydown',e=>{
     if(e.key==='Enter'){ e.preventDefault(); wcalPopCreate(); }
-    if(e.key==='Escape'){ wcalClosePopover(); }
+    if(e.key==='Escape') wcalPopClose();
   });
-  // Close on outside click
-  document.addEventListener('mousedown',function(e){
-    if(!pop.classList.contains('open')) return;
-    if(!pop.contains(e.target)) wcalClosePopover();
-  });
-}
-
-// ── Keyboard shortcuts ─────────────────────────────────────────
-function wcalWireKeyboard(){
+  // Keyboard shortcuts: N = new event, T = new task (only when calendar open, not in input)
   document.addEventListener('keydown',function(e){
-    // Only when calendar modal is open
     const calForm=document.getElementById('calendarForm');
     if(!calForm||calForm.style.display==='none') return;
-    // Don't fire when typing in inputs
     const tag=(e.target.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
-    if(e.key==='Escape'){
-      wcalClosePopover();
-      document.getElementById('wcalDetail')?.classList.remove('open');
-    }
+    if(e.key==='Escape'){ wcalPopClose(); document.getElementById('wcalDetail')?.classList.remove('open'); }
     if(e.key==='n'||e.key==='N'){
-      e.preventDefault();
-      wcalPopSwitch('event');
+      e.preventDefault(); wcalPopSwitch('event');
       const dt=cal.selected||ymd(new Date());
-      const now=new Date(); const ts=pad2(now.getHours())+':'+pad2(now.getMinutes());
-      // Open popover centered
-      wcalOpenPopover(window.innerWidth/2-130, window.innerHeight/2-140, dt, ts);
+      const now=new Date(); const mm=Math.round(now.getMinutes()/15)*15;
+      const ts=pad2(now.getHours())+':'+pad2(mm>=60?45:mm);
+      wcalPopOpen(window.innerWidth/2-130, window.innerHeight/2-160, dt, ts);
     }
     if(e.key==='t'||e.key==='T'){
-      e.preventDefault();
-      wcalPopSwitch('task');
+      e.preventDefault(); wcalPopSwitch('task');
       const dt=cal.selected||ymd(new Date());
-      const now=new Date(); const ts=pad2(now.getHours())+':'+pad2(now.getMinutes());
-      wcalOpenPopover(window.innerWidth/2-130, window.innerHeight/2-140, dt, ts);
+      const now=new Date(); const mm=Math.round(now.getMinutes()/15)*15;
+      const ts=pad2(now.getHours())+':'+pad2(mm>=60?45:mm);
+      wcalPopOpen(window.innerWidth/2-130, window.innerHeight/2-160, dt, ts);
     }
   });
-}
-
-// ── Populate teammate dropdown in detail panel ─────────────────
-async function wcalPopulateTeammateDropdown(selectId, selectedValue){
-  // Retry up to 5 times in case the element was just injected via innerHTML
-  for(let attempt=0;attempt<5;attempt++){
-    const sel = document.getElementById(selectId);
-    if(sel){
-      try{
-        const res = await fetch('/api/state');
-        const d = await res.json();
-        const names = d.installed_order || Object.keys(d.installed||{});
-        sel.innerHTML = '<option value="">— No auto-email —</option>';
-        names.forEach(name=>{
-          const opt = document.createElement('option');
-          opt.value = name; opt.textContent = name;
-          if(name === selectedValue) opt.selected = true;
-          sel.appendChild(opt);
-        });
-      }catch(e){
-        console.warn('wcalPopulateTeammateDropdown failed', e);
-      }
-      return;
-    }
-    await new Promise(r=>setTimeout(r,80));
-  }
+  // Click outside closes
+  document.addEventListener('mousedown',function(e){
+    if(pop.style.display==='none') return;
+    if(!pop.contains(e.target)) wcalPopClose();
+  });
 }
 
 // ── Wire buttons ───────────────────────────────────────────────
@@ -13325,7 +13363,7 @@ window.showCalendarModal=function showCalendarModal(){
   try{ ensureModalMinSize(1180,760); }catch(_){}
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
-  wcalWireButtons(); wcalWirePopover(); wcalWireKeyboard(); wcalRenderMiniMonth();
+  wcalWireButtons(); wcalWirePopover(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
