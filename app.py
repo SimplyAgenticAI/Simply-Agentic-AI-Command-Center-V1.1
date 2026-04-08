@@ -1911,8 +1911,8 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
             pass
     return access_token, ""
 
-def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "") -> Dict[str, Any]:
-    import requests
+def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", use_meet: bool = False) -> Dict[str, Any]:
+    import requests, uuid as _uuid
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     event: Dict[str, Any] = {
         "summary": title,
@@ -1922,16 +1922,19 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         "end": {"dateTime": end_iso, "timeZone": timezone},
     }
     if attendees:
-        clean = []
-        for a in attendees:
-            a = (a or "").strip()
-            if not a:
-                continue
-            clean.append({"email": a})
+        clean = [{"email": a.strip()} for a in attendees if (a or "").strip()]
         if clean:
             event["attendees"] = clean
-
-    r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=event, timeout=20)
+            event["sendUpdates"] = "all"
+    if use_meet:
+        event["conferenceData"] = {
+            "createRequest": {
+                "requestId": str(_uuid.uuid4()),
+                "conferenceSolutionKey": {"type": "hangoutsMeet"}
+            }
+        }
+    params = {"conferenceDataVersion": "1"} if use_meet else {}
+    r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=event, params=params, timeout=20)
     data = r.json() if r.content else {}
     if r.status_code >= 400:
         raise Exception(f"Calendar API error: {data}")
@@ -3714,11 +3717,12 @@ def api_calendar_create_event():
         attendees = [a.strip() for a in attendees.split(',') if a.strip()]
     description = (payload.get("description") or "").strip()
     location = (payload.get("location") or "").strip()
+    use_meet = bool(payload.get("use_meet"))
 
     if not start or not end:
         return jsonify({"ok": False, "error": "Missing start/end. Provide ISO datetime strings."}), 400
     try:
-        created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location)
+        created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location, use_meet=use_meet)
         append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
         return jsonify({"ok": True, "event": created})
     except Exception as e:
@@ -3746,6 +3750,93 @@ def api_calendar_events():
         return jsonify({"ok": True, "events": events})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# =========================
+# LOCAL CALENDAR TASKS (stored per-user in DATA)
+# =========================
+
+def _cal_tasks_path(username: str) -> Path:
+    return DATA / f"cal_tasks_{username}.json"
+
+def _load_cal_tasks(username: str) -> List[Dict[str, Any]]:
+    p = _cal_tasks_path(username)
+    try:
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return []
+
+def _save_cal_tasks(username: str, tasks: List[Dict[str, Any]]) -> None:
+    p = _cal_tasks_path(username)
+    p.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+
+@app.get("/api/cal/tasks")
+def api_cal_tasks_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    tasks = _load_cal_tasks(u.get("username", ""))
+    return jsonify({"ok": True, "tasks": tasks})
+
+@app.post("/api/cal/tasks")
+def api_cal_tasks_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    task: Dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "title": (payload.get("title") or "Untitled task").strip(),
+        "date": (payload.get("date") or "").strip(),
+        "start": (payload.get("start") or "09:00").strip(),
+        "duration": int(payload.get("duration") or 30),
+        "priority": (payload.get("priority") or "medium").strip(),
+        "description": (payload.get("description") or "").strip(),
+        "done": False,
+        "completed_at": None,
+        "created_at": now_iso(),
+    }
+    tasks = _load_cal_tasks(u.get("username", ""))
+    tasks.append(task)
+    _save_cal_tasks(u.get("username", ""), tasks)
+    return jsonify({"ok": True, "task": task})
+
+@app.post("/api/cal/tasks/<task_id>")
+def api_cal_tasks_update(task_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    tasks = _load_cal_tasks(u.get("username", ""))
+    for t in tasks:
+        if t.get("id") == task_id:
+            for field in ("title", "date", "start", "priority", "description"):
+                if field in payload:
+                    t[field] = (payload[field] or "").strip()
+            if "duration" in payload:
+                t["duration"] = int(payload["duration"] or 30)
+            if "done" in payload:
+                was_done = t.get("done", False)
+                t["done"] = bool(payload["done"])
+                if t["done"] and not was_done:
+                    t["completed_at"] = now_iso()
+                elif not t["done"]:
+                    t["completed_at"] = None
+            _save_cal_tasks(u.get("username", ""), tasks)
+            return jsonify({"ok": True, "task": t})
+    return jsonify({"ok": False, "error": "Task not found"}), 404
+
+@app.delete("/api/cal/tasks/<task_id>")
+def api_cal_tasks_delete(task_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    tasks = _load_cal_tasks(u.get("username", ""))
+    tasks = [t for t in tasks if t.get("id") != task_id]
+    _save_cal_tasks(u.get("username", ""), tasks)
+    return jsonify({"ok": True})
 
 # =========================
 # AUTH ROUTES
@@ -7121,40 +7212,45 @@ label         { font-size: 14px !important; }
     #saMsgModal.open { display:flex !important; }
 
 /* ── Motion-style Calendar ── */
-.wcal-wrap { display:flex; height:100%; min-height:620px; background:#0a0e1e; border-radius:12px; overflow:hidden; }
-.wcal-sidebar { width:220px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:12px; gap:12px; overflow-y:auto; }
+.wcal-wrap { display:flex; height:100%; min-height:640px; background:#080c1a; border-radius:12px; overflow:hidden; position:relative; }
+.wcal-sidebar { width:230px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
-.wcal-topbar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
-.wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
+.wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
+.wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:4px 11px; font-size:12px; cursor:pointer; }
 .wcal-nav-btn:hover { background:rgba(30,40,80,.9); }
 .wcal-nav-btn.today { background:rgba(124,58,237,.25); border-color:rgba(124,58,237,.5); }
 .wcal-range-label { font-size:13px; font-weight:700; color:#c4b5fd; flex:1; }
 .wcal-view-btns { display:flex; gap:4px; }
-.wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; }
+.wcal-view-btn { background:rgba(14,22,48,.6); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; }
 .wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
 .wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; width:100%; }
 .wcal-grid { display:flex; flex-direction:column; position:relative; min-height:1440px; width:100%; min-width:0; }
-.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0a0e1e; z-index:5; }
+.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#080c1a; z-index:5; }
 .wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
 .wcal-days-area { flex:1; display:grid; position:relative; }
 .wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; flex:1; min-width:0; }
-.wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.2); position:relative; }
-.wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.1); top:50%; }
-.wcal-col-header { text-align:center; padding:6px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
+.wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.18); position:relative; }
+.wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.09); top:50%; }
+.wcal-col-header { text-align:center; padding:5px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
 .wcal-col-header .wd { font-size:10px; color:rgba(148,163,184,.6); text-transform:uppercase; letter-spacing:.06em; }
-.wcal-col-header .dd { font-size:20px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
-.wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s; }
-.wcal-event:hover { filter:brightness(1.2); }
-.wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
+.wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s,box-shadow 0.15s; }
+.wcal-event:hover { filter:brightness(1.15); box-shadow:0 2px 12px rgba(0,0,0,.4); }
+.wcal-event.is-done { opacity:.7; }
+.wcal-event-check { display:inline-block; width:13px; height:13px; border-radius:50%; border:2px solid currentColor; margin-right:4px; vertical-align:middle; flex-shrink:0; cursor:pointer; transition:background .15s; }
+.wcal-event-check.checked { background:currentColor; }
+.wcal-event-check.checked::after { content:'✓'; color:#0d1120; font-size:8px; font-weight:900; display:flex; align-items:center; justify-content:center; line-height:1; margin-top:1px; }
+.wcal-event-row { display:flex; align-items:center; min-width:0; }
+.wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
 .wcal-event-time { font-size:9px; opacity:.75; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
 /* Sidebar mini-month */
 .wcal-mini-month { font-size:11px; }
-.wcal-mini-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.wcal-mini-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
 .wcal-mini-month-label { font-size:12px; font-weight:700; color:#c4b5fd; }
-.wcal-mini-nav { background:transparent; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:12px; padding:2px 4px; }
+.wcal-mini-nav { background:transparent; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:13px; padding:2px 4px; }
 .wcal-mini-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; }
 .wcal-mini-day { text-align:center; padding:3px 1px; font-size:10px; border-radius:4px; cursor:pointer; color:rgba(148,163,184,.7); }
 .wcal-mini-day:hover { background:rgba(124,58,237,.2); color:#c4b5fd; }
@@ -7164,20 +7260,58 @@ label         { font-size: 14px !important; }
 .wcal-mini-wd { font-size:9px; color:rgba(100,116,139,.5); text-align:center; padding:2px 0; }
 /* Quick-add form in sidebar */
 .wcal-add-form { background:rgba(14,22,48,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:10px; }
-.wcal-add-label { font-size:11px; font-weight:600; color:rgba(196,181,253,.8); margin-bottom:8px; }
-.wcal-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 8px; font-size:12px; color:#e2e8f0; margin-bottom:6px; outline:none; }
+.wcal-add-tabs { display:flex; gap:4px; margin-bottom:8px; }
+.wcal-add-tab { flex:1; background:rgba(7,10,20,.5); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px; font-size:11px; font-weight:600; cursor:pointer; text-align:center; }
+.wcal-add-tab.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
+.wcal-add-label { font-size:11px; font-weight:600; color:rgba(196,181,253,.8); margin-bottom:6px; }
+.wcal-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; margin-bottom:5px; outline:none; box-sizing:border-box; }
 .wcal-field:focus { border-color:rgba(124,58,237,.6); }
-.wcal-submit { width:100%; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#c4b5fd; border-radius:7px; padding:7px; font-size:12px; font-weight:600; cursor:pointer; }
+.wcal-submit { width:100%; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#c4b5fd; border-radius:7px; padding:6px; font-size:12px; font-weight:600; cursor:pointer; }
 .wcal-submit:hover { background:rgba(124,58,237,.6); }
 .wcal-status { font-size:10px; color:rgba(148,163,184,.6); margin-top:4px; min-height:14px; }
 .wcal-section-title { font-size:10px; font-weight:700; color:rgba(100,116,139,.6); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
 .wcal-upcoming { font-size:11px; }
-.wcal-upcoming-item { padding:5px 0; border-bottom:1px solid rgba(42,58,106,.25); }
+.wcal-upcoming-item { padding:4px 0; border-bottom:1px solid rgba(42,58,106,.25); cursor:pointer; }
+.wcal-upcoming-item:hover { color:#c4b5fd; }
 .wcal-upcoming-time { font-size:10px; color:rgba(100,116,139,.6); }
 .wcal-upcoming-title { color:rgba(226,232,240,.85); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Detail Panel (Motion-style right sidebar) */
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#0d1120; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:20; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail.open { transform:translateX(0); }
+.wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
+.wcal-detail-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(148,163,184,.6); }
+.wcal-detail-close { background:transparent; border:none; color:rgba(148,163,184,.6); font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px; }
+.wcal-detail-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
+.wcal-detail-body { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+.wcal-detail-title { font-size:16px; font-weight:700; color:#e2e8f0; background:transparent; border:none; border-bottom:1px solid rgba(42,58,106,.5); padding:4px 0; width:100%; outline:none; }
+.wcal-detail-title:focus { border-color:rgba(124,58,237,.7); }
+.wcal-detail-label { font-size:10px; font-weight:700; color:rgba(100,116,139,.6); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+.wcal-detail-value { font-size:12px; color:#e2e8f0; }
+.wcal-detail-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
+.wcal-detail-field:focus { border-color:rgba(124,58,237,.6); }
+.wcal-detail-textarea { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 8px; font-size:12px; color:#e2e8f0; outline:none; resize:vertical; min-height:70px; box-sizing:border-box; }
+.wcal-detail-textarea:focus { border-color:rgba(124,58,237,.6); }
+.wcal-detail-row { display:flex; gap:8px; align-items:center; }
+.wcal-detail-status { display:flex; align-items:center; gap:8px; }
+.wcal-done-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; padding:5px 10px; border-radius:8px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); font-size:12px; color:#e2e8f0; font-weight:600; user-select:none; }
+.wcal-done-toggle:hover { border-color:rgba(124,58,237,.5); }
+.wcal-done-toggle.done { border-color:rgba(16,185,129,.5); background:rgba(16,185,129,.1); color:#6ee7b7; }
+.wcal-detail-actions { display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; }
+.wcal-det-btn { flex:1; padding:7px; border-radius:8px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); color:#c4b5fd; font-size:12px; font-weight:600; cursor:pointer; }
+.wcal-det-btn:hover { background:rgba(30,40,80,.9); }
+.wcal-det-btn.primary { background:rgba(124,58,237,.4); border-color:rgba(124,58,237,.6); color:#f3e8ff; }
+.wcal-det-btn.primary:hover { background:rgba(124,58,237,.65); }
+.wcal-det-btn.danger { background:rgba(239,68,68,.15); border-color:rgba(239,68,68,.4); color:#fca5a5; }
+.wcal-det-btn.danger:hover { background:rgba(239,68,68,.3); }
+.wcal-meet-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(59,130,246,.15); border:1px solid rgba(59,130,246,.35); border-radius:6px; padding:3px 8px; font-size:11px; color:#93c5fd; font-weight:600; cursor:pointer; text-decoration:none; }
+.wcal-meet-badge:hover { background:rgba(59,130,246,.3); }
+.wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
+.wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
+.wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
+.wcal-priority-pill.low { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
 </style>
 
-<div class="wcal-wrap">
+<div class="wcal-wrap" id="wcalWrap">
 
   <!-- LEFT SIDEBAR -->
   <div class="wcal-sidebar">
@@ -7194,27 +7328,58 @@ label         { font-size: 14px !important; }
 
     <div style="border-top:1px solid rgba(42,58,106,.4);"></div>
 
-    <!-- Quick add event -->
+    <!-- Quick add -->
     <div class="wcal-add-form">
-      <div class="wcal-add-label">+ Quick add</div>
-      <input class="wcal-field" id="wcalAddTitle" placeholder="Event title" autocomplete="off" data-lpignore="true" />
-      <input class="wcal-field" id="wcalAddDate" type="date" />
-      <div style="display:flex;gap:6px;">
-        <input class="wcal-field" id="wcalAddStart" type="time" value="09:00" style="flex:1;" />
-        <select class="wcal-field" id="wcalAddDur" style="flex:1;">
-          <option value="30">30m</option>
-          <option value="60" selected>1h</option>
-          <option value="90">1.5h</option>
-          <option value="120">2h</option>
-        </select>
+      <div class="wcal-add-tabs">
+        <div class="wcal-add-tab active" id="wcalTabEvent" onclick="wcalSwitchAddTab('event')">Event</div>
+        <div class="wcal-add-tab" id="wcalTabTask" onclick="wcalSwitchAddTab('task')">Task</div>
       </div>
-      <button class="wcal-submit" id="wcalAddBtn">Create event</button>
+      <!-- Event fields -->
+      <div id="wcalAddEventFields">
+        <input class="wcal-field" id="wcalAddTitle" placeholder="Event title" autocomplete="off" data-lpignore="true" />
+        <input class="wcal-field" id="wcalAddDate" type="date" />
+        <div style="display:flex;gap:5px;">
+          <input class="wcal-field" id="wcalAddStart" type="time" value="09:00" style="flex:1;" />
+          <select class="wcal-field" id="wcalAddDur" style="flex:1;">
+            <option value="30">30m</option>
+            <option value="60" selected>1h</option>
+            <option value="90">1.5h</option>
+            <option value="120">2h</option>
+            <option value="180">3h</option>
+          </select>
+        </div>
+        <input class="wcal-field" id="wcalAddAttendees" placeholder="Invite emails (comma sep)" autocomplete="off" />
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(196,181,253,.8);margin-bottom:6px;cursor:pointer;">
+          <input type="checkbox" id="wcalAddMeet" style="accent-color:#7c3aed;" /> Add Google Meet
+        </label>
+        <button class="wcal-submit" id="wcalAddBtn">Create event</button>
+      </div>
+      <!-- Task fields -->
+      <div id="wcalAddTaskFields" style="display:none;">
+        <input class="wcal-field" id="wcalTaskTitle" placeholder="Task title" autocomplete="off" data-lpignore="true" />
+        <input class="wcal-field" id="wcalTaskDate" type="date" />
+        <div style="display:flex;gap:5px;">
+          <input class="wcal-field" id="wcalTaskStart" type="time" value="09:00" style="flex:1;" />
+          <select class="wcal-field" id="wcalTaskDur" style="flex:1;">
+            <option value="15">15m</option>
+            <option value="30" selected>30m</option>
+            <option value="60">1h</option>
+            <option value="90">1.5h</option>
+          </select>
+        </div>
+        <select class="wcal-field" id="wcalTaskPriority">
+          <option value="medium" selected>Medium priority</option>
+          <option value="high">High priority</option>
+          <option value="low">Low priority</option>
+        </select>
+        <button class="wcal-submit" id="wcalAddTaskBtn">Add task</button>
+      </div>
       <div class="wcal-status" id="wcalAddStatus"></div>
     </div>
 
     <div style="border-top:1px solid rgba(42,58,106,.4);"></div>
 
-    <!-- Upcoming events -->
+    <!-- Upcoming -->
     <div>
       <div class="wcal-section-title">Upcoming</div>
       <div class="wcal-upcoming" id="wcalUpcoming">
@@ -7222,7 +7387,6 @@ label         { font-size: 14px !important; }
       </div>
     </div>
 
-    <!-- Load status -->
     <div class="wcal-status" id="calLoadStatus"></div>
 
   </div>
@@ -7242,17 +7406,27 @@ label         { font-size: 14px !important; }
       </div>
     </div>
 
-    <!-- Week grid -->
+    <!-- Week/Day grid -->
     <div class="wcal-grid-wrap" id="wcalGridWrap">
-      <div class="wcal-grid" id="wcalGrid">
-        <!-- Rendered by JS -->
-      </div>
+      <div class="wcal-grid" id="wcalGrid"><!-- Rendered by JS --></div>
     </div>
 
   </div>
+
+  <!-- DETAIL PANEL (Motion-style) -->
+  <div class="wcal-detail" id="wcalDetail">
+    <div class="wcal-detail-header">
+      <span class="wcal-detail-type" id="wcalDetType">EVENT</span>
+      <button class="wcal-detail-close" id="wcalDetClose" title="Close">&#x2715;</button>
+    </div>
+    <div class="wcal-detail-body" id="wcalDetBody">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
 </div>
 
-<!-- Hidden inputs kept for backward compat with existing JS functions -->
+<!-- Hidden backward-compat inputs -->
 <input id="calTaskTitle" type="hidden" />
 <input id="calTaskTime" type="hidden" value="17:00" />
 <input id="calCallTitle" type="hidden" value="Strategy call" />
@@ -7271,6 +7445,7 @@ label         { font-size: 14px !important; }
             </div>
           </div>
         </div>
+
 
         <div class="tableWrap" id="tableWrap">
           <div class="table" id="tableCore">
@@ -11967,10 +12142,12 @@ const cal = {
   y: (new Date()).getFullYear(),
   m: (new Date()).getMonth(),
   selected: null,
-  events: {},
+  events: {},   // keyed by YYYY-MM-DD, Google Calendar events
+  tasks: [],    // local tasks array
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
   view: "week",
-  weekStart: null // Date object, Monday of current week
+  weekStart: null,
+  addTab: "event"
 };
 
 function pad2(n){ return (n<10?('0'+n):(''+n)); }
@@ -11992,457 +12169,615 @@ const EVENT_COLORS = [
   {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
   {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
 ];
+const TASK_COLOR = {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'};
+const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
 function eventColor(ev){
   const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
   return EVENT_COLORS[h % EVENT_COLORS.length];
 }
 
-// ── Fetch events for a date range ─────────────────────────────
+// ── Fetch Google Calendar events ───────────────────────────────
 async function wcalFetchRange(start, end){
   const st = document.getElementById('calLoadStatus');
   if(st) st.innerText = 'Loading...';
   try{
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
-    if(!data.ok){
-      if(st) st.innerText = data.error || 'Calendar not connected — connect in Settings';
-      return;
-    }
-    const events = data.events || [];
+    if(!data.ok){ if(st) st.innerText = data.error||'Calendar not connected — connect in Settings'; return; }
     const map = {};
-    events.forEach(ev=>{
-      const s = (ev.start||'').slice(0,10);
-      if(!s) return;
-      map[s] = map[s]||[];
-      map[s].push(ev);
+    (data.events||[]).forEach(ev=>{
+      const s=(ev.start||'').slice(0,10); if(!s) return;
+      map[s]=map[s]||[]; map[s].push(ev);
     });
     cal.events = Object.assign(cal.events, map);
-    if(st) st.innerText = '';
-  }catch(e){
-    if(st) st.innerText = 'Could not load events';
-  }
+    if(st) st.innerText='';
+  }catch(e){ if(st) st.innerText='Could not load events'; }
+}
+
+// ── Fetch local tasks ──────────────────────────────────────────
+async function wcalFetchTasks(){
+  try{
+    const res = await fetch('/api/cal/tasks');
+    const data = await res.json();
+    if(data.ok) cal.tasks = data.tasks||[];
+  }catch(e){}
 }
 
 // ── Now line ───────────────────────────────────────────────────
-function wcalNowMinutes(){
-  const n = new Date();
-  return n.getHours()*60 + n.getMinutes();
-}
+function wcalNowMinutes(){ const n=new Date(); return n.getHours()*60+n.getMinutes(); }
 function wcalUpdateNowLine(){
-  const line = document.getElementById('wcalNowLine');
-  if(!line) return;
-  const mins = wcalNowMinutes();
-  line.style.top = (mins)+'px'; // 1px per minute (60px per hour)
+  const line=document.getElementById('wcalNowLine');
+  if(line) line.style.top=wcalNowMinutes()+'px';
 }
 
-// ── Week view renderer ─────────────────────────────────────────
+// ── Render helpers ─────────────────────────────────────────────
+function wcalEventHtml(ev, extraStyle=''){
+  const startDate=new Date(ev.start);
+  const endDate=new Date(ev.end||ev.start);
+  if(isNaN(startDate)) return '';
+  const startMins=startDate.getHours()*60+startDate.getMinutes();
+  const durMins=Math.max(30,(endDate-startDate)/60000);
+  const top=startMins; const height=Math.max(22,durMins);
+  const color=eventColor(ev);
+  const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+  const title=(ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const meetLink=ev.hangoutLink||'';
+  const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">&#128248;</a>`:'';
+  let h=`<div class="wcal-event" style="top:${top}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-eid="${encodeURIComponent(ev.id||ev.summary||'')}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
+  if(height>28) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+  h+='</div>';
+  return h;
+}
+
+function wcalTaskHtml(task, extraStyle=''){
+  const [th,tm]=(task.start||'09:00').split(':').map(Number);
+  const startMins=th*60+tm;
+  const height=Math.max(22,task.duration||30);
+  const color=task.done?TASK_DONE_COLOR:TASK_COLOR;
+  const checkCls='wcal-event-check'+(task.done?' checked':'');
+  const doneCls=task.done?' is-done':'';
+  const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const prioMap={high:'🔴',medium:'🟡',low:'🟢'};
+  const prio=prioMap[task.priority||'medium']||'';
+  let h=`<div class="wcal-event${doneCls}" style="top:${startMins}px;height:${height}px;background:${color.bg};color:${color.text};${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" onclick="wcalOpenDetail(this)" title="${title}">`;
+  h+=`<div class="wcal-event-row">`;
+  h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Mark todo':'Mark done'}"></span>`;
+  h+=`<span class="wcal-event-title">${prio} ${title}</span></div>`;
+  if(height>28) h+=`<div class="wcal-event-time">${task.start||''} · ${task.duration||30}m</div>`;
+  h+='</div>';
+  return h;
+}
+
+// ── Toggle task done ───────────────────────────────────────────
+window.wcalToggleTask = async function(e, taskId){
+  e.stopPropagation();
+  const task=cal.tasks.find(t=>t.id===taskId); if(!task) return;
+  const newDone=!task.done;
+  try{
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:newDone})});
+    task.done=newDone;
+    task.completed_at=newDone?new Date().toISOString():null;
+    wcalRefresh();
+    wcalRenderUpcoming();
+    showToast(newDone?'✓ Task complete':'Task marked todo');
+  }catch(err){ showToast('Update failed'); }
+};
+
+// ── Open detail panel ──────────────────────────────────────────
+window.wcalOpenDetail = function(el){
+  const etype=el.dataset.etype;
+  if(etype==='task'){
+    const tid=decodeURIComponent(el.dataset.tid||'');
+    const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
+    wcalShowTaskDetail(task);
+  } else {
+    // Find event from cal.events by matching id or summary
+    const eid=decodeURIComponent(el.dataset.eid||'');
+    let ev=null;
+    Object.values(cal.events).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
+    if(!ev){ ev={summary:eid}; }
+    wcalShowEventDetail(ev);
+  }
+};
+
+function wcalShowTaskDetail(task){
+  const panel=document.getElementById('wcalDetail');
+  const body=document.getElementById('wcalDetBody');
+  const typeLbl=document.getElementById('wcalDetType');
+  if(!panel||!body) return;
+  const prioColors={high:'high',medium:'medium',low:'low'};
+  const prioLabel={high:'High',medium:'Medium',low:'Low'};
+  body.innerHTML=`
+    <input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" />
+    <div>
+      <div class="wcal-detail-label">Status</div>
+      <div class="wcal-done-toggle ${task.done?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
+        <span id="detDoneIcon">${task.done?'✓':'○'}</span>
+        <span id="detDoneLabel">${task.done?'Completed':'Mark complete'}</span>
+      </div>
+    </div>
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Date</div>
+        <input class="wcal-detail-field" id="detDate" type="date" value="${task.date||''}" />
+      </div>
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Start time</div>
+        <input class="wcal-detail-field" id="detStart" type="time" value="${task.start||'09:00'}" />
+      </div>
+    </div>
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Duration (min)</div>
+        <input class="wcal-detail-field" id="detDur" type="number" min="5" max="480" value="${task.duration||30}" />
+      </div>
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Priority</div>
+        <select class="wcal-detail-field" id="detPriority">
+          <option value="high" ${task.priority==='high'?'selected':''}>High</option>
+          <option value="medium" ${(task.priority||'medium')==='medium'?'selected':''}>Medium</option>
+          <option value="low" ${task.priority==='low'?'selected':''}>Low</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <div class="wcal-detail-label">Description / Notes</div>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${task.description||''}</textarea>
+    </div>
+    ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
+    <div class="wcal-detail-actions">
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveTask('${task.id}')">Save</button>
+      <button class="wcal-det-btn danger" onclick="wcalDetDeleteTask('${task.id}')">Delete</button>
+    </div>
+    <div class="wcal-status" id="detStatus"></div>
+  `;
+  if(typeLbl) typeLbl.innerText='TASK';
+  panel.classList.add('open');
+  panel._currentTask=task;
+}
+
+function wcalShowEventDetail(ev){
+  const panel=document.getElementById('wcalDetail');
+  const body=document.getElementById('wcalDetBody');
+  const typeLbl=document.getElementById('wcalDetType');
+  if(!panel||!body) return;
+  const startD=new Date(ev.start||'');
+  const endD=new Date(ev.end||ev.start||'');
+  const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
+  const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
+  const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
+  const meetLink=ev.hangoutLink||ev.conferenceData?.entryPoints?.[0]?.uri||'';
+  const htmlLink=ev.htmlLink||'';
+  body.innerHTML=`
+    <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
+    ${meetLink?`<a class="wcal-meet-badge" href="${meetLink}" target="_blank">&#128248; Join Google Meet</a>`:''}
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Date</div>
+        <input class="wcal-detail-field" id="detDate" type="date" value="${dateVal}" />
+      </div>
+    </div>
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Start</div>
+        <input class="wcal-detail-field" id="detStart" type="time" value="${startVal}" />
+      </div>
+      <div style="flex:1;">
+        <div class="wcal-detail-label">End</div>
+        <input class="wcal-detail-field" id="detEnd" type="time" value="${endVal}" />
+      </div>
+    </div>
+    <div>
+      <div class="wcal-detail-label">Description</div>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Description...">${ev.description||''}</textarea>
+    </div>
+    <div>
+      <div class="wcal-detail-label">Location</div>
+      <input class="wcal-detail-field" id="detLocation" value="${(ev.location||'').replace(/"/g,'&quot;')}" placeholder="Location or link" />
+    </div>
+    <div>
+      <div class="wcal-detail-label">Invite attendees (add emails)</div>
+      <input class="wcal-detail-field" id="detAttendees" placeholder="email1@x.com, email2@x.com" autocomplete="off" />
+    </div>
+    <div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#e2e8f0;cursor:pointer;">
+        <input type="checkbox" id="detMeet" style="accent-color:#7c3aed;" ${meetLink?'checked':''} /> Add / keep Google Meet
+      </label>
+    </div>
+    <div class="wcal-detail-actions">
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(ev.id||'')}')">Save changes</button>
+      ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
+    </div>
+    <div class="wcal-status" id="detStatus"></div>
+  `;
+  if(typeLbl) typeLbl.innerText='EVENT';
+  panel.classList.add('open');
+  panel._currentEvent=ev;
+}
+
+// ── Detail panel actions ───────────────────────────────────────
+window.wcalDetToggleDone = async function(){
+  const panel=document.getElementById('wcalDetail');
+  if(!panel||!panel._currentTask) return;
+  const task=panel._currentTask;
+  await wcalToggleTaskById(task.id,!task.done);
+  task.done=!task.done; task.completed_at=task.done?new Date().toISOString():null;
+  const toggle=document.getElementById('detDoneToggle');
+  const icon=document.getElementById('detDoneIcon');
+  const lbl=document.getElementById('detDoneLabel');
+  if(toggle){ toggle.classList.toggle('done',task.done); }
+  if(icon) icon.textContent=task.done?'✓':'○';
+  if(lbl) lbl.textContent=task.done?'Completed':'Mark complete';
+};
+
+async function wcalToggleTaskById(id,done){
+  try{
+    await fetch('/api/cal/tasks/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})});
+    const t=cal.tasks.find(x=>x.id===id); if(t){ t.done=done; t.completed_at=done?new Date().toISOString():null; }
+    wcalRefresh(); wcalRenderUpcoming();
+    showToast(done?'✓ Task complete':'Task marked todo');
+  }catch(e){ showToast('Update failed'); }
+}
+
+window.wcalDetSaveTask = async function(taskId){
+  const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
+  const payload={
+    title:(document.getElementById('detTitle')?.value||'').trim(),
+    date:(document.getElementById('detDate')?.value||'').trim(),
+    start:(document.getElementById('detStart')?.value||'09:00').trim(),
+    duration:parseInt(document.getElementById('detDur')?.value||'30',10),
+    priority:document.getElementById('detPriority')?.value||'medium',
+    description:(document.getElementById('detDesc')?.value||'').trim(),
+  };
+  try{
+    const res=await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
+    Object.assign(cal.tasks.find(t=>t.id===taskId)||{},payload);
+    await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
+    if(st) st.innerText='Saved ✓';
+    showToast('Task saved');
+    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+  }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
+};
+
+window.wcalDetDeleteTask = async function(taskId){
+  if(!confirm('Delete this task?')) return;
+  try{
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
+    cal.tasks=cal.tasks.filter(t=>t.id!==taskId);
+    document.getElementById('wcalDetail')?.classList.remove('open');
+    wcalRefresh(); wcalRenderUpcoming(); showToast('Task deleted');
+  }catch(e){ showToast('Delete failed'); }
+};
+
+window.wcalDetSaveEvent = async function(encodedId){
+  const st=document.getElementById('detStatus'); if(st) st.innerText='Saving to Google Calendar...';
+  const dateVal=document.getElementById('detDate')?.value||'';
+  const startVal=document.getElementById('detStart')?.value||'09:00';
+  const endVal=document.getElementById('detEnd')?.value||'10:00';
+  const title=(document.getElementById('detTitle')?.value||'').trim();
+  const desc=(document.getElementById('detDesc')?.value||'').trim();
+  const loc=(document.getElementById('detLocation')?.value||'').trim();
+  const attendeesRaw=document.getElementById('detAttendees')?.value||'';
+  const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
+  const useMeet=document.getElementById('detMeet')?.checked||false;
+  if(!dateVal||!startVal){ if(st) st.innerText='Date and start time required'; return; }
+  const startDt=new Date(dateVal+'T'+startVal+':00');
+  const endDt=new Date(dateVal+'T'+endVal+':00');
+  const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
+  try{
+    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await res.json();
+    if(!d.ok) throw new Error(d.error||'Failed');
+    if(st) st.innerText='Saved ✓';
+    showToast(useMeet?'Event updated with Meet link':'Event updated');
+    await wcalFetchCurrentRange(); wcalRefresh();
+    setTimeout(()=>{ if(st) st.innerText=''; },2500);
+  }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
+};
+
+// ── Render week view ───────────────────────────────────────────
 function wcalRenderWeek(){
-  const grid = document.getElementById('wcalGrid');
-  if(!grid) return;
-
-  const mon = cal.weekStart || wcalMonday(new Date());
-  cal.weekStart = mon;
-
-  // Update range label
-  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
-  const opts = {month:'short', day:'numeric'};
-  const label = document.getElementById('wcalRangeLabel');
-  if(label) label.innerText = mon.toLocaleDateString('en-US',{month:'long',day:'numeric'}) + ' – ' + sun.toLocaleDateString('en-US',opts) + ', ' + sun.getFullYear();
-
-  const today = ymd(new Date());
-  const days = [];
-  for(let i=0;i<7;i++){
-    const d = new Date(mon);
-    d.setDate(mon.getDate()+i);
-    days.push(d);
-  }
-
-  // Build HTML
-  let html = '';
-
-  // Time column + day columns header row
-  html += '<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;width:100%;">';
-  html += '<div style="width:54px;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);"></div>';
-  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const grid=document.getElementById('wcalGrid'); if(!grid) return;
+  const mon=cal.weekStart||wcalMonday(new Date());
+  cal.weekStart=mon;
+  const sun=new Date(mon); sun.setDate(mon.getDate()+6);
+  const opts={month:'short',day:'numeric'};
+  const label=document.getElementById('wcalRangeLabel');
+  if(label) label.innerText=mon.toLocaleDateString('en-US',{month:'long',day:'numeric'})+' – '+sun.toLocaleDateString('en-US',opts)+', '+sun.getFullYear();
+  const today=ymd(new Date());
+  const days=[]; for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); days.push(d); }
+  let html='';
+  // Header row
+  html+='<div style="display:flex;position:sticky;top:0;z-index:10;background:#0d1120;width:100%;">';
+  html+='<div style="width:54px;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);"></div>';
+  const dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   days.forEach((d,i)=>{
-    const isToday = ymd(d) === today;
-    const numEl = isToday
-      ? '<div class="dd today-num">'+d.getDate()+'</div>'
-      : '<div class="dd">'+d.getDate()+'</div>';
-    html += '<div class="wcal-col-header" style="flex:1;min-width:0;">';
-    html += '<div class="wd">'+dayNames[i]+'</div>'+numEl;
-    html += '</div>';
+    const isToday=ymd(d)===today;
+    const numEl=isToday?'<div class="dd today-num">'+d.getDate()+'</div>':'<div class="dd">'+d.getDate()+'</div>';
+    html+='<div class="wcal-col-header" style="flex:1;min-width:0;"><div class="wd">'+dayNames[i]+'</div>'+numEl+'</div>';
   });
-  html += '</div>';
-
-  // Time + event area
-  html += '<div style="display:flex;position:relative;width:100%;flex:1;">';
-
-  // Time labels column
-  html += '<div class="wcal-time-col">';
+  html+='</div>';
+  // Time + event rows
+  html+='<div style="display:flex;position:relative;width:100%;flex:1;">';
+  html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
-    const label = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
-    html += '<div class="wcal-time-label">'+label+'</div>';
+    const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
+    html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
-  html += '</div>';
-
-  // Day columns
+  html+='</div>';
   days.forEach((d,di)=>{
-    const dt = ymd(d);
-    const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
-    html += '<div class="wcal-day-col" style="flex:1;position:relative;min-width:0;" data-date="'+dt+'">';
-
-    // Hour lines
-    for(let h=0;h<24;h++){
-      html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-    }
-
-    // Events
-    evs.forEach((ev,ei)=>{
-      const startStr = ev.start||'';
-      const endStr   = ev.end||ev.start||'';
-      const startDate = new Date(startStr);
-      const endDate   = new Date(endStr);
-      if(isNaN(startDate)) return;
-      const startMins = startDate.getHours()*60 + startDate.getMinutes();
-      const durationMins = Math.max(30, (endDate - startDate)/60000);
-      const top = startMins; // 1px per minute
-      const height = Math.max(22, durationMins);
-      const color = eventColor(ev);
-      const timeStr = startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-      const title = (ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-      const link = ev.htmlLink||ev.hangoutLink||'';
-      html += '<div class="wcal-event" style="top:'+top+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';" ';
-      if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
-      html += 'title="'+title+'">';
-      html += '<div class="wcal-event-title">'+title+'</div>';
-      if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
-      html += '</div>';
+    const dt=ymd(d);
+    const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+    const dayTasks=cal.tasks.filter(t=>t.date===dt);
+    html+='<div class="wcal-day-col" style="flex:1;position:relative;min-width:0;" data-date="'+dt+'">';
+    for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
+    evs.forEach(ev=>{ html+=wcalEventHtml(ev); });
+    dayTasks.forEach(t=>{ html+=wcalTaskHtml(t); });
+    // All-day events
+    const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
+    allDay.forEach(ev=>{
+      const color=eventColor(ev); const title=(ev.summary||'Event').replace(/</g,'&lt;');
+      html+='<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" title="'+title+'"><div class="wcal-event-title">'+title+'</div></div>';
     });
-
-    // All-day events (no T in start)
-    const allDay = (cal.events[dt]||[]).filter(ev=>ev.start && !ev.start.includes('T'));
-    if(allDay.length){
-      allDay.forEach(ev=>{
-        const color = eventColor(ev);
-        const title = (ev.summary||'Event').replace(/</g,'&lt;');
-        html += '<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" title="'+title+'">';
-        html += '<div class="wcal-event-title">'+title+'</div></div>';
-      });
-    }
-
-    html += '</div>';
+    html+='</div>';
   });
-
-  // Now line (only if today is in view)
-  const todayInView = days.some(d=>ymd(d)===today);
+  // Now line
+  const todayInView=days.some(d=>ymd(d)===today);
   if(todayInView){
-    const todayIdx = days.findIndex(d=>ymd(d)===today);
-    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:'+(54+todayIdx*(100/7))+'%;width:'+(100/7)+'%;"><div class="wcal-now-dot"></div></div>';
+    const ti=days.findIndex(d=>ymd(d)===today);
+    html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:'+(54+ti*(100/7))+'%;width:'+(100/7)+'%;"><div class="wcal-now-dot"></div></div>';
   }
-
-  html += '</div>'; // end time+event area
-
-  grid.innerHTML = html;
-
-  // Scroll to 8 AM on load
-  const wrap = document.getElementById('wcalGridWrap');
-  if(wrap && wrap._firstRender !== false){
-    wrap._firstRender = false;
-    setTimeout(()=>{ wrap.scrollTop = 8*60; }, 50);
-  }
-
-  // Wire click on day columns to set date + prefill quick-add
+  html+='</div>';
+  grid.innerHTML=html;
+  // Wire day column clicks for quick-add prefill
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
-    col.addEventListener('click', function(e){
-      if(e.target.classList.contains('wcal-event')) return;
-      const dt = col.dataset.date;
-      if(dt){
-        const dateEl = document.getElementById('wcalAddDate');
-        if(dateEl) dateEl.value = dt;
-        cal.selected = dt;
-        wcalRenderMiniMonth();
-        const titleEl = document.getElementById('wcalAddTitle');
-        if(titleEl) titleEl.focus();
-      }
+    col.addEventListener('click',function(e){
+      if(e.target.closest('.wcal-event')) return;
+      const dt2=col.dataset.date; if(!dt2) return;
+      ['wcalAddDate','wcalTaskDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=dt2; });
+      cal.selected=dt2; wcalRenderMiniMonth();
+      const tf=document.getElementById(cal.addTab==='task'?'wcalTaskTitle':'wcalAddTitle');
+      if(tf) tf.focus();
     });
   });
-
+  const wrap=document.getElementById('wcalGridWrap');
+  if(wrap&&wrap._firstRender!==false){ wrap._firstRender=false; setTimeout(()=>{ wrap.scrollTop=8*60; },50); }
   wcalRenderUpcoming();
 }
 
-// ── Day view renderer ─────────────────────────────────────────
+// ── Render day view ────────────────────────────────────────────
 function wcalRenderDay(){
-  const grid = document.getElementById('wcalGrid');
-  if(!grid) return;
-  const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
-  const dt = ymd(d);
-  const today = ymd(new Date());
-
-  const label = document.getElementById('wcalRangeLabel');
-  if(label) label.innerText = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  const evs = (cal.events[dt]||[]).filter(ev=>ev.start && ev.start.includes('T'));
-
-  let html = '<div style="display:flex;">';
-  html += '<div class="wcal-time-col">';
+  const grid=document.getElementById('wcalGrid'); if(!grid) return;
+  const d=cal.selected?new Date(cal.selected+'T12:00:00'):new Date();
+  const dt=ymd(d); const today=ymd(new Date());
+  const label=document.getElementById('wcalRangeLabel');
+  if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const dayTasks=cal.tasks.filter(t=>t.date===dt);
+  let html='<div style="display:flex;width:100%;">';
+  html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
-    const lbl = h===0?'':((h<12?(h+' AM'):(h===12?'12 PM':((h-12)+' PM'))));
-    html += '<div class="wcal-time-label">'+lbl+'</div>';
+    const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
+    html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
-  html += '</div>';
-  html += '<div style="flex:1;position:relative;">';
-  for(let h=0;h<24;h++) html += '<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-
-  evs.forEach(ev=>{
-    const startDate = new Date(ev.start);
-    const endDate   = new Date(ev.end||ev.start);
-    if(isNaN(startDate)) return;
-    const startMins = startDate.getHours()*60+startDate.getMinutes();
-    const height = Math.max(28,(endDate-startDate)/60000);
-    const color = eventColor(ev);
-    const timeStr = startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-    const title = (ev.summary||'Event').replace(/</g,'&lt;');
-    const link = ev.htmlLink||ev.hangoutLink||'';
-    html += '<div class="wcal-event" style="top:'+startMins+'px;height:'+height+'px;background:'+color.bg+';color:'+color.text+';left:8px;right:8px;" ';
-    if(link) html += ' onclick="saCalOpen(this)" data-href="'+link+'"';
-    html += 'title="'+title+'">';
-    html += '<div class="wcal-event-title">'+title+'</div>';
-    if(height>28) html += '<div class="wcal-event-time">'+timeStr+'</div>';
-    html += '</div>';
-  });
-
-  if(dt===today){
-    html += '<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
-  }
-  html += '</div></div>';
-  grid.innerHTML = html;
-  const wrap = document.getElementById('wcalGridWrap');
-  if(wrap) setTimeout(()=>{ wrap.scrollTop = 8*60; }, 50);
+  html+='</div>';
+  html+='<div style="flex:1;position:relative;">';
+  for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
+  evs.forEach(ev=>{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); });
+  dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
+  if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
+  html+='</div></div>';
+  grid.innerHTML=html;
+  const wrap=document.getElementById('wcalGridWrap');
+  if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  wcalRenderUpcoming();
 }
 
-// ── Mini month ────────────────────────────────────────────────
+// ── Mini month ─────────────────────────────────────────────────
 function wcalRenderMiniMonth(){
-  const grid = document.getElementById('wcalMiniGrid');
-  const label = document.getElementById('wcalMiniLabel');
+  const grid=document.getElementById('wcalMiniGrid');
+  const label=document.getElementById('wcalMiniLabel');
   if(!grid) return;
-  const y = cal.y, m = cal.m;
-  if(label) label.innerText = new Date(y,m,1).toLocaleDateString('en-US',{month:'long',year:'numeric'});
-  const today = ymd(new Date());
-  const firstDay = new Date(y,m,1).getDay();
-  const daysInMonth = new Date(y,m+1,0).getDate();
-  const dayNames = ['S','M','T','W','T','F','S'];
-  let html = dayNames.map(d=>'<div class="wcal-mini-wd">'+d+'</div>').join('');
-  for(let i=0;i<firstDay;i++) html += '<div></div>';
-  for(let d=1;d<=daysInMonth;d++){
-    const dt = y+'-'+pad2(m+1)+'-'+pad2(d);
-    let cls = 'wcal-mini-day';
-    if(dt===today) cls += ' today';
-    if(dt===cal.selected) cls += ' selected';
-    const hasEv = cal.events[dt] && cal.events[dt].length;
-    if(hasEv) cls += ' has-events';
-    html += '<div class="'+cls+'" onclick="wcalSelectDate(&quot;'+dt+'&quot;)">'+d+'</div>';
+  const y=cal.y, m=cal.m;
+  if(label) label.innerText=new Date(y,m,1).toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const today=ymd(new Date());
+  const firstDay=new Date(y,m,1).getDay();
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const dayNames=['S','M','T','W','T','F','S'];
+  let html=dayNames.map(n=>'<div class="wcal-mini-wd">'+n+'</div>').join('');
+  for(let i=0;i<firstDay;i++) html+='<div></div>';
+  for(let dd=1;dd<=daysInMonth;dd++){
+    const dt=y+'-'+pad2(m+1)+'-'+pad2(dd);
+    let cls='wcal-mini-day';
+    if(dt===today) cls+=' today';
+    if(dt===cal.selected) cls+=' selected';
+    const hasEv=(cal.events[dt]&&cal.events[dt].length)||cal.tasks.some(t=>t.date===dt);
+    if(hasEv) cls+=' has-events';
+    html+='<div class="'+cls+'" onclick="wcalSelectDate(&quot;'+dt+'&quot;)">'+dd+'</div>';
   }
-  grid.innerHTML = html;
+  grid.innerHTML=html;
 }
 
-window.wcalSelectDate = function wcalSelectDate(dt){
-  cal.selected = dt;
-  const d = new Date(dt+'T12:00:00');
-  if(cal.view==='week'){
-    cal.weekStart = wcalMonday(d);
-  }
-  const dateEl = document.getElementById('wcalAddDate');
-  if(dateEl) dateEl.value = dt;
-  wcalRenderMiniMonth();
-  wcalRefresh();
-}
+window.wcalSelectDate=function wcalSelectDate(dt){
+  cal.selected=dt;
+  const d=new Date(dt+'T12:00:00');
+  if(cal.view==='week') cal.weekStart=wcalMonday(d);
+  ['wcalAddDate','wcalTaskDate'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=dt; });
+  wcalRenderMiniMonth(); wcalRefresh();
+};
 
-// ── Upcoming events sidebar ───────────────────────────────────
+// ── Upcoming sidebar ───────────────────────────────────────────
 function wcalRenderUpcoming(){
-  const box = document.getElementById('wcalUpcoming');
-  if(!box) return;
-  const now = new Date();
-  const items = [];
+  const box=document.getElementById('wcalUpcoming'); if(!box) return;
+  const now=new Date(); const todayStr=ymd(now);
+  const items=[];
   Object.keys(cal.events).sort().forEach(dt=>{
-    if(dt < ymd(now)) return;
-    (cal.events[dt]||[]).forEach(ev=>{
-      if(ev.start) items.push(ev);
-    });
+    if(dt<todayStr) return;
+    (cal.events[dt]||[]).forEach(ev=>{ if(ev.start) items.push({type:'event',dt,ev}); });
   });
-  if(!items.length){
-    box.innerHTML = '<div class="wcal-upcoming-time">No upcoming events</div>';
-    return;
-  }
-  box.innerHTML = items.slice(0,8).map(ev=>{
-    const d = new Date(ev.start);
-    const dateStr = isNaN(d)?ev.start:d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    const timeStr = isNaN(d)||!ev.start.includes('T')?'':d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-    const title = (ev.summary||'Event').replace(/</g,'&lt;');
-    const link = ev.htmlLink||ev.hangoutLink||'';
-    return '<div class="wcal-upcoming-item">'
-      +(link?'<a href="'+link+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">':'')
-      +'<div class="wcal-upcoming-title">'+title+'</div>'
-      +'<div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div>'
-      +(link?'</a>':'')
-      +'</div>';
+  cal.tasks.filter(t=>t.date>=todayStr).forEach(t=>items.push({type:'task',dt:t.date,task:t}));
+  items.sort((a,b)=>{
+    const aStr=a.type==='event'?a.ev.start:a.task.date+'T'+(a.task.start||'09:00');
+    const bStr=b.type==='event'?b.ev.start:b.task.date+'T'+(b.task.start||'09:00');
+    return aStr.localeCompare(bStr);
+  });
+  if(!items.length){ box.innerHTML='<div class="wcal-upcoming-time">No upcoming</div>'; return; }
+  box.innerHTML=items.slice(0,10).map(item=>{
+    if(item.type==='event'){
+      const ev=item.ev;
+      const sd=new Date(ev.start); const dateStr=isNaN(sd)?ev.start:sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      const title=(ev.summary||'Event').replace(/</g,'&lt;');
+      return '<div class="wcal-upcoming-item"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+    } else {
+      const t=item.task;
+      const doneMark=t.done?'✓ ':'';
+      const title=(t.title||'Task').replace(/</g,'&lt;');
+      return '<div class="wcal-upcoming-item" onclick="wcalSelectDate(&quot;'+t.date+'&quot;)"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+t.date+' · '+(t.start||'')+'</div></div>';
+    }
   }).join('');
 }
 
-// ── View switch ───────────────────────────────────────────────
-window.wcalSetView = function wcalSetView(v){
-  cal.view = v;
+// ── View & navigation ──────────────────────────────────────────
+window.wcalSetView=function wcalSetView(v){
+  cal.view=v;
   document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
-  const btn = document.getElementById('wcalView'+v.charAt(0).toUpperCase()+v.slice(1));
+  const btn=document.getElementById('wcalView'+v.charAt(0).toUpperCase()+v.slice(1));
   if(btn) btn.classList.add('active');
   wcalRefresh();
-}
+};
 
-// ── Navigation ────────────────────────────────────────────────
 async function wcalNav(dir){
   if(cal.view==='week'){
-    const mon = cal.weekStart || wcalMonday(new Date());
-    mon.setDate(mon.getDate() + dir*7);
-    cal.weekStart = mon;
-    // Update cal.y and cal.m to match
-    cal.y = mon.getFullYear();
-    cal.m = mon.getMonth();
+    const mon=cal.weekStart||wcalMonday(new Date());
+    mon.setDate(mon.getDate()+dir*7);
+    cal.weekStart=mon; cal.y=mon.getFullYear(); cal.m=mon.getMonth();
   } else {
-    const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
-    d.setDate(d.getDate() + dir);
-    cal.selected = ymd(d);
-    cal.y = d.getFullYear();
-    cal.m = d.getMonth();
+    const d=cal.selected?new Date(cal.selected+'T12:00:00'):new Date();
+    d.setDate(d.getDate()+dir); cal.selected=ymd(d); cal.y=d.getFullYear(); cal.m=d.getMonth();
   }
-  await wcalFetchCurrentRange();
-  wcalRenderMiniMonth();
-  wcalRefresh();
+  await wcalFetchCurrentRange(); wcalRenderMiniMonth(); wcalRefresh();
 }
 
 async function wcalFetchCurrentRange(){
-  let start, end;
+  let start,end;
   if(cal.view==='week'){
-    const mon = cal.weekStart || wcalMonday(new Date());
-    start = new Date(mon);
-    end = new Date(mon); end.setDate(mon.getDate()+7);
+    const mon=cal.weekStart||wcalMonday(new Date());
+    start=new Date(mon); end=new Date(mon); end.setDate(mon.getDate()+7);
   } else {
-    const d = cal.selected ? new Date(cal.selected+'T12:00:00') : new Date();
-    start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    end = new Date(start); end.setDate(start.getDate()+1);
+    const d=cal.selected?new Date(cal.selected+'T12:00:00'):new Date();
+    start=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+    end=new Date(start); end.setDate(start.getDate()+1);
   }
-  // Also fetch mini-month range
-  const first = new Date(cal.y, cal.m, 1);
-  const mStart = new Date(first); mStart.setDate(1-first.getDay());
-  const last = new Date(cal.y, cal.m+1, 0);
-  const mEnd = new Date(last); mEnd.setDate(last.getDate()+(6-last.getDay())+1);
-  const fetchStart = start < mStart ? start : mStart;
-  const fetchEnd   = end   > mEnd   ? end   : mEnd;
-  await wcalFetchRange(fetchStart, fetchEnd);
+  const first=new Date(cal.y,cal.m,1);
+  const mStart=new Date(first); mStart.setDate(1-first.getDay());
+  const last=new Date(cal.y,cal.m+1,0);
+  const mEnd=new Date(last); mEnd.setDate(last.getDate()+(6-last.getDay())+1);
+  const fetchStart=start<mStart?start:mStart;
+  const fetchEnd=end>mEnd?end:mEnd;
+  await wcalFetchRange(fetchStart,fetchEnd);
+  await wcalFetchTasks();
 }
 
-function wcalRefresh(){
-  if(cal.view==='week') wcalRenderWeek();
-  else wcalRenderDay();
-}
+function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); }
 
-// ── Quick-add event ───────────────────────────────────────────
+// ── Add tab switch ─────────────────────────────────────────────
+window.wcalSwitchAddTab=function(tab){
+  cal.addTab=tab;
+  document.getElementById('wcalTabEvent')?.classList.toggle('active',tab==='event');
+  document.getElementById('wcalTabTask')?.classList.toggle('active',tab==='task');
+  document.getElementById('wcalAddEventFields').style.display=tab==='event'?'block':'none';
+  document.getElementById('wcalAddTaskFields').style.display=tab==='task'?'block':'none';
+};
+
+// ── Quick add event ────────────────────────────────────────────
 async function wcalAddEvent(){
-  const st = document.getElementById('wcalAddStatus');
-  if(st) st.innerText = 'Creating...';
-  const title = (document.getElementById('wcalAddTitle')?.value||'').trim();
-  const date  = (document.getElementById('wcalAddDate')?.value||'').trim();
-  const start = (document.getElementById('wcalAddStart')?.value||'09:00').trim();
-  const dur   = parseInt(document.getElementById('wcalAddDur')?.value||'60',10);
-  if(!title){ if(st) st.innerText = 'Title required'; return; }
-  if(!date){  if(st) st.innerText = 'Date required';  return; }
-  const startDt = new Date(date+'T'+start+':00');
-  const endDt   = new Date(startDt.getTime()+dur*60000);
+  const st=document.getElementById('wcalAddStatus'); if(st) st.innerText='Creating...';
+  const title=(document.getElementById('wcalAddTitle')?.value||'').trim();
+  const date=(document.getElementById('wcalAddDate')?.value||'').trim();
+  const start=(document.getElementById('wcalAddStart')?.value||'09:00').trim();
+  const dur=parseInt(document.getElementById('wcalAddDur')?.value||'60',10);
+  const attendeesRaw=document.getElementById('wcalAddAttendees')?.value||'';
+  const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
+  const useMeet=document.getElementById('wcalAddMeet')?.checked||false;
+  if(!title){ if(st) st.innerText='Title required'; return; }
+  if(!date){  if(st) st.innerText='Date required'; return; }
+  const startDt=new Date(date+'T'+start+':00');
+  const endDt=new Date(startDt.getTime()+dur*60000);
   try{
-    const res = await fetch('/api/calendar/create_event',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({title, start:startDt.toISOString(), end:endDt.toISOString(), timezone:cal.tz})
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'Failed');
-    if(st) st.innerText = '✓ Created';
-    document.getElementById('wcalAddTitle').value = '';
-    showToast('Event created');
-    // Add to local cache immediately
-    const dt = date;
-    cal.events[dt] = cal.events[dt]||[];
-    cal.events[dt].push({summary:title, start:startDt.toISOString(), end:endDt.toISOString()});
+    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet})});
+    const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
+    if(st) st.innerText='✓ Created';
+    document.getElementById('wcalAddTitle').value='';
+    document.getElementById('wcalAddAttendees').value='';
+    showToast(useMeet?'Event + Meet link created':'Event created');
+    cal.events[date]=cal.events[date]||[];
+    const newEv={summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:data.event?.id||'',hangoutLink:data.event?.hangoutLink||''};
+    cal.events[date].push(newEv);
     wcalRefresh();
-    setTimeout(()=>{ if(st) st.innerText=''; }, 2000);
-  }catch(e){
-    if(st) st.innerText = (e.message||'Failed') + ' (connect Calendar in Settings)';
-  }
+    setTimeout(()=>{ if(st) st.innerText=''; },2500);
+  }catch(e){ if(st) st.innerText=(e.message||'Failed')+' (connect Calendar in Settings)'; }
 }
 
-// ── Wire buttons ──────────────────────────────────────────────
+// ── Quick add task ─────────────────────────────────────────────
+async function wcalAddTask(){
+  const st=document.getElementById('wcalAddStatus'); if(st) st.innerText='Adding...';
+  const title=(document.getElementById('wcalTaskTitle')?.value||'').trim();
+  const date=(document.getElementById('wcalTaskDate')?.value||'').trim();
+  const start=(document.getElementById('wcalTaskStart')?.value||'09:00').trim();
+  const dur=parseInt(document.getElementById('wcalTaskDur')?.value||'30',10);
+  const priority=document.getElementById('wcalTaskPriority')?.value||'medium';
+  if(!title){ if(st) st.innerText='Title required'; return; }
+  if(!date){  if(st) st.innerText='Date required'; return; }
+  try{
+    const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority})});
+    const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
+    cal.tasks.push(data.task);
+    document.getElementById('wcalTaskTitle').value='';
+    if(st) st.innerText='✓ Task added'; showToast('Task added');
+    wcalRefresh(); wcalRenderMiniMonth();
+    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+  }catch(e){ if(st) st.innerText=e.message||'Failed'; }
+}
+
+// ── Wire buttons ───────────────────────────────────────────────
 function wcalWireButtons(){
-  const prev = document.getElementById('calPrevBtn');
-  const next = document.getElementById('calNextBtn');
-  const today = document.getElementById('calTodayBtn');
-  const miniPrev = document.getElementById('wcalMiniPrev');
-  const miniNext = document.getElementById('wcalMiniNext');
-  const addBtn = document.getElementById('wcalAddBtn');
-
-  if(prev)    prev.onclick    = ()=>wcalNav(-1);
-  if(next)    next.onclick    = ()=>wcalNav(1);
-  if(today)   today.onclick   = ()=>{ cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date()); wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); }); };
-  if(miniPrev) miniPrev.onclick = ()=>{ cal.m--; if(cal.m<0){cal.m=11;cal.y--;} wcalRenderMiniMonth(); };
-  if(miniNext) miniNext.onclick = ()=>{ cal.m++; if(cal.m>11){cal.m=0;cal.y++;} wcalRenderMiniMonth(); };
-  if(addBtn)  addBtn.onclick  = ()=>wcalAddEvent();
-
-  // Enter key on title field
-  const titleField = document.getElementById('wcalAddTitle');
-  if(titleField) titleField.addEventListener('keydown', e=>{ if(e.key==='Enter') wcalAddEvent(); });
-
-  // Set today's date in quick-add
-  const dateField = document.getElementById('wcalAddDate');
-  if(dateField && !dateField.value) dateField.value = ymd(new Date());
+  const get=id=>document.getElementById(id);
+  const on=(id,fn)=>{ const el=get(id); if(el) el.onclick=fn; };
+  on('calPrevBtn',()=>wcalNav(-1));
+  on('calNextBtn',()=>wcalNav(1));
+  on('calTodayBtn',()=>{ cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date()); wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); }); });
+  on('wcalMiniPrev',()=>{ cal.m--; if(cal.m<0){cal.m=11;cal.y--;} wcalRenderMiniMonth(); });
+  on('wcalMiniNext',()=>{ cal.m++; if(cal.m>11){cal.m=0;cal.y++;} wcalRenderMiniMonth(); });
+  on('wcalAddBtn',()=>wcalAddEvent());
+  on('wcalAddTaskBtn',()=>wcalAddTask());
+  on('wcalDetClose',()=>{ get('wcalDetail')?.classList.remove('open'); });
+  const tf=get('wcalAddTitle'); if(tf) tf.addEventListener('keydown',e=>{ if(e.key==='Enter') wcalAddEvent(); });
+  const ttf=get('wcalTaskTitle'); if(ttf) ttf.addEventListener('keydown',e=>{ if(e.key==='Enter') wcalAddTask(); });
+  const df=get('wcalAddDate'); if(df&&!df.value) df.value=ymd(new Date());
+  const dtf=get('wcalTaskDate'); if(dtf&&!dtf.value) dtf.value=ymd(new Date());
 }
 
-// ── showCalendarModal ─────────────────────────────────────────
-// (keep the function that existing calendarBtn calls)
-window.showCalendarModal = function showCalendarModal(){
+// ── showCalendarModal ──────────────────────────────────────────
+window.showCalendarModal=function showCalendarModal(){
   showModal();
-  if(typeof hideAllModalForms === 'function') hideAllModalForms();
-  else {
-    ['frameworkForm','modalForm','manageForm','createForm','settingsForm',
-     'stackForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{
-      const el = document.getElementById(id);
-      if(el) el.style.display = 'none';
-    });
-  }
-  const calForm = document.getElementById('calendarForm');
-  if(calForm) calForm.style.display = 'block';
-  const modalBody = document.getElementById('modalBody');
-  if(modalBody) modalBody.style.display = 'none';
-  const modalImg = document.getElementById('modalImg');
-  if(modalImg) modalImg.style.display = 'none';
-  const modalTitle = document.getElementById('modalTitle');
-  if(modalTitle) modalTitle.innerText = 'Calendar';
-
-  // Maximise modal for the week view
-  try{ ensureModalMinSize(1100, 760); }catch(_){}
-
-  cal.weekStart = wcalMonday(new Date());
-  cal.selected  = ymd(new Date());
-  cal.y = (new Date()).getFullYear();
-  cal.m = (new Date()).getMonth();
-
-  wcalWireButtons();
-  wcalRenderMiniMonth();
-  wcalFetchCurrentRange().then(()=>{
-    wcalRenderMiniMonth();
-    wcalRefresh();
-  });
-
-  // Update now-line every minute
+  if(typeof hideAllModalForms==='function') hideAllModalForms();
+  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','stackForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  const calForm=document.getElementById('calendarForm');
+  if(calForm) calForm.style.display='block';
+  const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
+  const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
+  const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
+  try{ ensureModalMinSize(1180,760); }catch(_){}
+  cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
+  cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
+  wcalWireButtons(); wcalRenderMiniMonth();
+  wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
-  window._wcalNowInterval = setInterval(wcalUpdateNowLine, 60000);
-}
+  window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
+};
 
 // Keep backward-compat stubs
 async function calFetchEventsForVisibleRange(){ await wcalFetchCurrentRange(); }
