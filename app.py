@@ -1960,6 +1960,8 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     for it in items:
         start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
         end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
+        raw_attendees = it.get("attendees") or []
+        attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
         out.append({
             "id": it.get("id",""),
             "summary": it.get("summary",""),
@@ -1970,6 +1972,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             "recurringEventId": it.get("recurringEventId",""),
             "description": it.get("description",""),
             "location": it.get("location",""),
+            "attendees": attendee_emails,
         })
     return out
 
@@ -6352,7 +6355,7 @@ label         { font-size: 14px !important; }
       <div class="saNavCenter">
         <div class="saCommandWrap">
           <span class="saCmdIcon">&#8984;</span>
-          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" autocomplete="off" data-lpignore="true" />
+          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true" role="combobox" />
           <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
         </div>
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
@@ -7709,7 +7712,7 @@ label         { font-size: 14px !important; }
               </div>
             </div>
 
-            <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table"></textarea>
+            <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
@@ -7797,7 +7800,7 @@ label         { font-size: 14px !important; }
         <div class="thread" id="thread" style="flex:1;height:auto;min-height:80px;overflow-y:auto;"></div>
         <!-- Sticky input area -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
-          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" data-lpignore="true"></textarea>
+          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
           <div class="pillRow" style="margin-top:6px;">
             <input type="file" id="dmFiles" multiple style="display:none" />
             <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
@@ -8722,12 +8725,27 @@ window.showModal = function showModal(title, body, imgUrl){
         // Clear the command bar
         if(inp){ inp.value = ''; inp.placeholder = 'Type a command... e.g. Alex open lead lab'; }
 
-        // Execute the module
+        // Execute the module (open the right panel)
         dispatch();
 
-        // Show a brief non-blocking toast so user knows what happened
+        // If the AI identified a specific teammate, route the full query to them
+        const namedTeammate = data.teammate || data.target_teammate || '';
+        if(namedTeammate && typeof selectSeat === 'function'){
+          await selectSeat(namedTeammate);
+          // Pre-fill followMsg with the full query so user just hits Send (or it auto-sends)
+          const fm = document.getElementById('followMsg');
+          if(fm){
+            fm.value = q;
+            // Auto-send after short delay so UI can settle
+            setTimeout(async ()=>{ if(typeof sendFollow==='function') await sendFollow(); }, 400);
+          }
+        } else if(module === 'round_table'){
+          // Already pre-filled opPrompt above — nothing extra needed
+        }
+
+        // Show a brief non-blocking toast
         const label = module.replace(/_/g,' ');
-        if(typeof showToast==='function') showToast('Routed to: ' + label + (data.confidence ? ' (' + Math.round((data.confidence||0)*100) + '% confident)' : ''));
+        if(typeof showToast==='function') showToast('Routed to: ' + label + (namedTeammate ? ' → '+namedTeammate : '') + (data.confidence ? ' (' + Math.round((data.confidence||0)*100) + '% confident)' : ''));
 
       }catch(e){
         showModal('Command router error', String(e && e.message ? e.message : e));
@@ -10358,6 +10376,7 @@ function makeSeat(defn, idx){
       try{
         if(alwaysRec){
           alwaysRec.onresult = null;
+        if(window._alwaysAutoSendTimer){ clearTimeout(window._alwaysAutoSendTimer); window._alwaysAutoSendTimer=null; }
           alwaysRec.onerror = null;
           alwaysRec.onend = null;
           alwaysRec.stop();
@@ -10492,6 +10511,35 @@ function makeSeat(defn, idx){
           target.value = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
             .replace(/\s+/g, " ")
             .trim();
+        }
+
+        // ── Auto-send after 2.5 s of no new speech ──────────────
+        // Only fires when there is actual content and it's a final result
+        if(allFinal && allFinal.trim()){
+          if(window._alwaysAutoSendTimer) clearTimeout(window._alwaysAutoSendTimer);
+          window._alwaysAutoSendTimer = setTimeout(async ()=>{
+            if(!alwaysOn) return;
+            const tgt = currentAlwaysTarget();
+            if(!tgt) return;
+            const msg = tgt.value.trim();
+            if(!msg) return;
+            // Clear accumulators so next phrase starts fresh
+            alwaysFinalText = "";
+            alwaysInterimText = "";
+            alwaysBaseText = "";
+            _resetCanonicalSpeech();
+            // Send via the correct channel
+            if(alwaysMode === "dm"){
+              if(typeof sendFollow === "function") await sendFollow();
+            } else {
+              // Group mode — use conveneAll if available, else trigger opPrompt send
+              if(typeof conveneAll === "function") await conveneAll();
+              else {
+                const btn = document.getElementById("sendGroup") || document.getElementById("conveneBtn");
+                if(btn) btn.click();
+              }
+            }
+          }, 2500);
         }
       };
 
@@ -13067,7 +13115,10 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.active && (dy<6 && dx<6)) return;
     if(!wcalDrag.active){
       wcalDrag.active=true;
-      wcalDrag.el.classList.add('wcal-dragging');
+      wcalDrag.el.style.opacity='0.55';
+      wcalDrag.el.style.zIndex='20';
+      wcalDrag.el.style.cursor='grabbing';
+      wcalDrag.el.style.pointerEvents='none'; // so mousemove fires on cols below
     }
 
     // Find which col we're over
@@ -13075,9 +13126,8 @@ function wcalDragWireGrid(grid){
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
       const r=col.getBoundingClientRect();
-      if(e.clientX>=r.left&&e.clientX<=r.right) { targetCol=col; targetDate=col.dataset.date; }
+      if(e.clientX>=r.left&&e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
     });
-    // Day view fallback
     if(!targetCol){
       const dayArea=grid.querySelector('[data-date]');
       if(dayArea){ const r=dayArea.getBoundingClientRect();
@@ -13088,21 +13138,35 @@ function wcalDragWireGrid(grid){
 
     const colRect=targetCol.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
+    // rawY: pixels from top of scrollable content area at cursor position minus where within block user grabbed
     const rawY=e.clientY-colRect.top+scrolled-wcalDrag.offsetMins;
     const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15,1410));
-    const topPx=startMins;
-    const heightPx=wcalDrag.origDur;
 
-    // Remove old preview; add to targetCol
-    if(wcalDrag.preview){ try{wcalDrag.preview.remove();}catch(err){} }
-    const prev=document.createElement('div');
-    prev.className='wcal-drop-preview';
-    prev.style.top=topPx+'px';
-    prev.style.height=heightPx+'px';
+    // Move the ACTUAL block instead of showing a separate ghost
+    if(wcalDrag._lastTargetCol && wcalDrag._lastTargetCol !== targetCol){
+      // Moved to a different day column — re-parent the element
+      wcalDrag._lastTargetCol.style.position=''; // restore
+      targetCol.appendChild(wcalDrag.el);
+    }
+    wcalDrag._lastTargetCol = targetCol;
+    wcalDrag.el.style.top = startMins+'px';
+    wcalDrag.el.style.left = '3px';
+    wcalDrag.el.style.right = '3px';
+    wcalDrag.el.style.position = 'absolute';
+
+    // Show a tiny time tooltip instead of a ghost
+    let tip=wcalDrag._tip;
+    if(!tip){
+      tip=document.createElement('div');
+      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);';
+      document.body.appendChild(tip);
+      wcalDrag._tip=tip;
+    }
     const hh=Math.floor(startMins/60); const mm=startMins%60;
-    prev.title=pad2(hh)+':'+pad2(mm);
-    targetCol.appendChild(prev);
-    wcalDrag.preview=prev;
+    tip.textContent=pad2(hh)+':'+pad2(mm);
+    tip.style.left=(e.clientX+12)+'px';
+    tip.style.top=(e.clientY-20)+'px';
+
     wcalDrag._targetDate=targetDate;
     wcalDrag._targetMins=startMins;
   });
@@ -13111,14 +13175,22 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
     const el=wcalDrag.el;
+    // Restore element styles
+    el.style.opacity='';
+    el.style.zIndex='';
+    el.style.cursor='';
+    el.style.pointerEvents='';
+    el.style.left='3px';
+    el.style.right='3px';
     el.classList.remove('wcal-dragging');
     if(wcalDrag.preview){ try{wcalDrag.preview.remove();}catch(err){} wcalDrag.preview=null; }
+    if(wcalDrag._tip){ try{wcalDrag._tip.remove();}catch(err){} wcalDrag._tip=null; }
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
 
     // Reset drag state BEFORE anything async
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,_targetDate:null,_targetMins:null});
+    Object.assign(wcalDrag,{active:false,el:null,_targetDate:null,_targetMins:null,_lastTargetCol:null,_tip:null});
 
     if(!wasDragging||targetMins==null) return;
 
@@ -13144,11 +13216,11 @@ function wcalDragWireGrid(grid){
       const newStartDt=new Date(targetDate+'T'+newStart+':00');
       const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
 
-      // Ask about resending if event has attendees
-      const hasAttendees=!!(ev.attendees&&ev.attendees.length) || !!(ev.htmlLink);
+      // Only prompt to resend if the event actually has attendees in its data
+      const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
       let resend=false;
       if(hasAttendees){
-        resend=confirm('This event may have attendees. Resend the updated invite by email?');
+        resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend the updated invite?');
       }
       try{
         const payload={
