@@ -4931,13 +4931,11 @@ HTML = r"""
       height: 62%;
       border-radius: 999px;
       background:
-        radial-gradient(circle at 50% 50%, rgba(124,58,237,.20), rgba(11,16,36,.86) 52%, rgba(7,10,20,.95) 76%),
-        radial-gradient(circle at 50% 55%, rgba(59,130,246,.16), transparent 55%);
+        radial-gradient(circle at 50% 50%, rgba(124,58,237,.22), rgba(11,16,36,.88) 52%, rgba(7,10,20,.96) 76%);
       border: 1px solid rgba(42,58,106,.85);
       box-shadow:
         0 0 0 1px rgba(17,24,39,.35) inset,
-        0 0 70px rgba(124,58,237,.18),
-        0 0 120px rgba(59,130,246,.10);
+        0 0 70px rgba(124,58,237,.18);
       overflow:hidden;
     }
     .table:before{
@@ -4952,8 +4950,8 @@ HTML = r"""
       position:absolute;
       inset: 6%;
       border-radius:999px;
-      border: 1px solid rgba(59,130,246,.15);
-      box-shadow: 0 0 60px rgba(59,130,246,.10) inset;
+      border: 1px solid rgba(124,58,237,.18);
+      box-shadow: 0 0 40px rgba(124,58,237,.10) inset;
     }
 
     .operator{
@@ -7512,41 +7510,41 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
 .wcal-priority-pill.low { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
 /* Tasks: solid left stripe + diamond shape to distinguish from events */
-/* Tasks: always start purple (medium-priority color), stripe + rounded-left */
+/* Tasks: default = purple (medium priority is yellow, default is purple = high) */
 .wcal-event[data-etype="task"] {
-  background: rgba(99,102,241,.72) !important;
+  background: rgba(99,102,241,.75) !important;  /* purple — default */
   color: #e0e7ff !important;
-  border-left: 3px solid rgba(129,140,248,.9) !important;
+  border-left: 3px solid rgba(129,140,248,.95) !important;
   border-radius: 4px 6px 6px 4px;
 }
-/* Priority overrides — only high and low differ from default purple */
+/* HIGH priority = purple (same as default, distinct via brighter stripe) */
 .wcal-event[data-etype="task"].task-prio-high {
-  background: rgba(185,28,28,.78) !important;
-  color: #fee2e2 !important;
-  border-left-color: rgba(239,68,68,.95) !important;
+  background: rgba(109,40,217,.80) !important;  /* deep purple */
+  color: #ede9fe !important;
+  border-left-color: rgba(167,139,250,.95) !important;
 }
+/* MEDIUM priority = yellow/amber */
+.wcal-event[data-etype="task"].task-prio-medium {
+  background: rgba(161,98,7,.78) !important;    /* amber/gold */
+  color: #fef9c3 !important;
+  border-left-color: rgba(234,179,8,.95) !important;
+}
+/* LOW priority = green */
 .wcal-event[data-etype="task"].task-prio-low {
-  background: rgba(6,95,70,.75) !important;
+  background: rgba(6,95,70,.78) !important;     /* green */
   color: #d1fae5 !important;
-  border-left-color: rgba(16,185,129,.9) !important;
+  border-left-color: rgba(16,185,129,.95) !important;
 }
-/* Done tasks go grey regardless of priority */
+/* Done tasks go grey regardless of priority — but stay visible with strikethrough */
 .wcal-event[data-etype="task"].is-done {
-  background: rgba(30,40,60,.60) !important;
-  color: rgba(148,163,184,.65) !important;
-  border-left-color: rgba(100,116,139,.35) !important;
-}
-/* Dragging state */
-.wcal-event.wcal-drag-ghost {
-  opacity: 0.38 !important;
-  box-shadow: 0 4px 24px rgba(99,102,241,.4) !important;
-  pointer-events: none !important;
+  background: rgba(30,40,70,.75) !important;
+  color: rgba(160,180,220,.75) !important;
+  border-left-color: rgba(100,120,180,.4) !important;
 }
 /* Events: rounded pill corners, no left stripe */
 .wcal-event[data-etype="event"] { border-radius:7px; }
-/* Drag ghost: show outline while dragging */
-.wcal-event.wcal-dragging { opacity:.45; box-shadow:0 0 0 2px rgba(124,58,237,.8); cursor:grabbing !important; }
-.wcal-drop-preview { position:absolute; left:3px; right:3px; border-radius:6px; border:2px dashed rgba(124,58,237,.7); background:rgba(124,58,237,.12); z-index:2; pointer-events:none; box-sizing:border-box; }
+/* Dragging: the original block dims in-place (no ghost clone) */
+.wcal-event[style*="cursor: grabbing"] { outline:2px solid rgba(167,139,250,.7); }
 /* Detail panel: task=indigo header, event=blue header */
 .wcal-detail-header.type-task  { border-bottom-color:rgba(99,102,241,.5); }
 .wcal-detail-header.type-event { border-bottom-color:rgba(59,130,246,.5); }
@@ -12803,10 +12801,25 @@ window.wcalToggleTask = async function(e, taskId){
     await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:newDone})});
     task.done=newDone;
     task.completed_at=newDone?new Date().toISOString():null;
-    wcalRefresh();
+    // Update ALL matching task blocks in-place (no full refresh = no disappear)
+    document.querySelectorAll('.wcal-event[data-etype="task"]').forEach(el=>{
+      const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
+      if(tid!==taskId) return;
+      // Toggle done class (strikethrough + grey)
+      el.classList.toggle('is-done', newDone);
+      // Update check circle
+      const circle=el.querySelector('.wcal-event-check');
+      if(circle){ circle.classList.toggle('checked', newDone); circle.title=newDone?'Unmark':'Mark done'; }
+      // Update priority class (remove if done)
+      if(newDone){
+        el.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
+      } else {
+        const p=task.priority||'medium';
+        el.classList.add('task-prio-'+p);
+      }
+    });
     wcalRenderUpcoming();
     showToast(newDone?'✓ Task complete':'Task marked todo');
-    // Fire auto-email if task just became done and teammate + email are configured
     if(newDone && task.on_complete_teammate && task.on_complete_client_email){
       wcalFireCompleteAction(taskId, task);
     }
@@ -13144,11 +13157,10 @@ function wcalPlayActivationSound(){
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
 const wcalDrag={
-  active:false, el:null, ghost:null, tip:null,
+  active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
-  clickOffsetPx:0,   // px from top of block where user grabbed
-  clickOffsetX:0,    // px from left of block where user grabbed
+  clickOffsetPx:0,
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
 };
@@ -13163,18 +13175,14 @@ function wcalDragWireGrid(grid){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
       e.preventDefault();
-
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const elRect=el.getBoundingClientRect();
-
-      // Store exactly how far down inside the block the user grabbed
+      // How many minutes from the TOP of this block did the user click?
       const clickOffsetPx=e.clientY-elRect.top;
-      const clickOffsetX=e.clientX-elRect.left;
-
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -13191,14 +13199,12 @@ function wcalDragWireGrid(grid){
         }
       }
       wcalDrag.active=false;
-      wcalDrag.el=el;
-      wcalDrag.etype=etype; wcalDrag.tid=tid; wcalDrag.eid=eid;
+      wcalDrag.el=el; wcalDrag.etype=etype;
+      wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
       wcalDrag.clickOffsetPx=clickOffsetPx;
-      wcalDrag.clickOffsetX=clickOffsetX;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
-      wcalDrag.ghost=null; wcalDrag.tip=null;
-      wcalDrag._targetDate=null; wcalDrag._targetMins=null;
+      wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
     });
   });
 
@@ -13213,46 +13219,18 @@ function wcalDragWireGrid(grid){
 
     if(!wcalDrag.active){
       wcalDrag.active=true;
-      // Dim original in place
-      wcalDrag.el.classList.add('wcal-drag-ghost');
-
-      // Build a floating clone that follows the cursor exactly
-      const ghost=wcalDrag.el.cloneNode(true);
-      const origRect=wcalDrag.el.getBoundingClientRect();
-      ghost.style.cssText=`
-        position:fixed;
-        width:${origRect.width}px;
-        height:${origRect.height}px;
-        left:${origRect.left}px;
-        top:${origRect.top}px;
-        z-index:9998;
-        pointer-events:none;
-        opacity:0.85;
-        box-shadow:0 8px 32px rgba(0,0,0,.55);
-        border-radius:6px;
-        transition:none;
-        cursor:grabbing;
-      `;
-      document.body.appendChild(ghost);
-      wcalDrag.ghost=ghost;
-
+      wcalDrag.el.style.opacity='0.5';
+      wcalDrag.el.style.zIndex='20';
+      wcalDrag.el.style.cursor='grabbing';
+      wcalDrag.el.style.pointerEvents='none';
       // Time tooltip
       const tip=document.createElement('div');
-      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
+      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
       document.body.appendChild(tip);
       wcalDrag.tip=tip;
     }
 
-    // Move ghost: track cursor with exact grab offset in both axes
-    if(wcalDrag.ghost){
-      const gw=wcalDrag.ghost.offsetWidth||100;
-      // X: follow cursor, clamped to keep ghost inside viewport
-      const gx=Math.min(e.clientX-wcalDrag.clickOffsetX, window.innerWidth-gw-8);
-      wcalDrag.ghost.style.left=Math.max(0,gx)+'px';
-      wcalDrag.ghost.style.top=(e.clientY-wcalDrag.clickOffsetPx)+'px';
-    }
-
-    // Find target column
+    // Find target column by X position
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -13268,15 +13246,29 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // Calculate snapped target time
-    // colRect.top = viewport-top of the day column (which starts BELOW the sticky header)
-    // wrap.scrollTop = how far user has scrolled in the grid wrap
-    // clickOffsetPx = where within the block the user grabbed (so the block top tracks cursor)
+    // ── TIME CALCULATION ──────────────────────────────────────────
+    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
+    // Its height is constant (~44px) but visually it stays at the top of the wrap.
+    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
+    // the column, which is BELOW the sticky header. So:
+    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
+    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
+    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
+    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
     const colRect=targetCol.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
-    // pixels from the very top of the scrollable time area to the cursor position
     const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
-    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15, 23*60));
+    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
+
+    // Move the original block visually (no ghost clone)
+    const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
+    if(origCol && targetCol !== origCol){
+      targetCol.appendChild(wcalDrag.el);
+    }
+    wcalDrag.el.style.top=startMins+'px';
+    wcalDrag.el.style.left='3px';
+    wcalDrag.el.style.right='3px';
+    wcalDrag.el.style.position='absolute';
 
     // Update tooltip
     if(wcalDrag.tip){
@@ -13284,7 +13276,7 @@ function wcalDragWireGrid(grid){
       const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
       wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
       wcalDrag.tip.style.left=(e.clientX+14)+'px';
-      wcalDrag.tip.style.top=(e.clientY-28)+'px';
+      wcalDrag.tip.style.top=(e.clientY-26)+'px';
     }
 
     wcalDrag._targetDate=targetDate;
@@ -13295,77 +13287,64 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
 
-    // Restore original element
-    wcalDrag.el.classList.remove('wcal-drag-ghost');
+    // Restore element styles
+    wcalDrag.el.style.opacity='';
+    wcalDrag.el.style.zIndex='';
+    wcalDrag.el.style.cursor='';
+    wcalDrag.el.style.pointerEvents='';
 
-    // Remove ghost + tooltip
-    if(wcalDrag.ghost){ try{wcalDrag.ghost.remove();}catch(_){} wcalDrag.ghost=null; }
-    if(wcalDrag.tip){   try{wcalDrag.tip.remove();}catch(_){}   wcalDrag.tip=null; }
+    // Remove tooltip
+    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
 
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
 
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,ghost:null,tip:null,_targetDate:null,_targetMins:null});
+    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
 
-    if(!wasDragging||targetMins==null) return;
+    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate) return;
+    if(newStart===origStart && targetDate===origDate){ return; }
 
     if(etype==='task'){
-      const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
+      const task=cal.tasks.find(t=>t.id===tid); if(!task){ wcalRefresh(); return; }
       try{
         await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({date:targetDate,start:newStart})
         });
         task.date=targetDate; task.start=newStart;
-        showToast('Task moved to '+targetDate+' at '+newStart);
+        showToast('Task moved → '+targetDate+' '+newStart);
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
-      }catch(err){ showToast('Move failed'); }
+      }catch(err){ showToast('Move failed'); wcalRefresh(); }
 
     } else {
-      // Google Calendar event — use PATCH (move, not create)
       let ev=null;
       Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
         if((e2.id||e2.summary||'')===eid) ev=e2;
       }));
-      if(!ev) return;
-
+      if(!ev){ wcalRefresh(); return; }
       const newStartDt=new Date(targetDate+'T'+newStart+':00');
       const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
-
-      // Only prompt to resend if event has real attendees
       const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
       let resend=false;
-      if(hasAttendees){
-        resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend the updated invite?');
-      }
-
+      if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
       try{
-        // If event has a Google ID, use PATCH to move it (no duplicate)
         if(ev.id){
           const res=await fetch('/api/calendar/move_event',{
             method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-              event_id:ev.id,
-              start:newStartDt.toISOString(),
-              end:newEndDt.toISOString(),
-              timezone:cal.tz,
-              resend:resend,
-            })
+            body:JSON.stringify({event_id:ev.id,start:newStartDt.toISOString(),end:newEndDt.toISOString(),timezone:cal.tz,resend})
           });
           const d=await res.json();
           if(!d.ok) throw new Error(d.error||'Move failed');
         } else {
-          // Fallback for events without ID (shouldn't normally happen)
-          throw new Error('Event has no ID — cannot move. Try dragging again after a refresh.');
+          throw new Error('No event ID — refresh and try again');
         }
         showToast('Event moved'+(resend?' · Invite resent':''));
         await wcalFetchCurrentRange(); wcalRefresh();
-      }catch(err){ showToast('Move failed: '+err.message); }
+      }catch(err){ showToast('Move failed: '+err.message); wcalRefresh(); }
     }
   });
 }
@@ -13440,7 +13419,8 @@ function wcalRenderWeek(){
       const scrolled=wrap?wrap.scrollTop:0;
       // clientY relative to col top + scrolled = raw pixel position in grid
       const rawY=e.clientY-colRect.top+scrolled;
-      const totalMins=Math.max(0,Math.min(Math.round(rawY)*1,1439)); // 1px=1min
+      // 1px = 1 minute in the grid (hour rows are 60px tall)
+      const totalMins=Math.max(0,Math.min(Math.round(rawY),23*60+45));
       const hh=Math.floor(totalMins/60);
       const mm=Math.round((totalMins%60)/15)*15; // snap to 15-min
       const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
@@ -13493,7 +13473,7 @@ function wcalRenderDay(){
     const areaRect=dayArea.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
     const rawY=e.clientY-areaRect.top+scrolled;
-    const totalMins=Math.max(0,Math.min(Math.round(rawY),1439));
+    const totalMins=Math.max(0,Math.min(Math.round(rawY),23*60+45));
     const hh=Math.floor(totalMins/60);
     const mm=Math.round((totalMins%60)/15)*15;
     const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
