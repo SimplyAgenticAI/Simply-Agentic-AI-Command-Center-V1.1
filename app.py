@@ -2130,6 +2130,15 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "goal": defn.get("goal", ""),
     }
 
+    image_rules = (
+        "IMAGE GENERATION CAPABILITY\n"
+        "You CAN generate images. When the user asks for an image, graphic, logo, poster, "
+        "illustration, or visual — respond with a brief confirmation and a clear DALL-E style prompt. "
+        "The system will automatically detect image requests and generate the image for you. "
+        "Do NOT say you cannot generate images. Do NOT say you lack image capabilities. "
+        "Simply acknowledge the request enthusiastically and describe what you will create.\n"
+    )
+
     email_rules = (
         "EMAIL CAPABILITY\n"
         "You can draft emails, but you cannot send emails.\n"
@@ -2217,6 +2226,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
+        f"{image_rules}\n"
         f"{email_rules}\n"
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
@@ -4800,16 +4810,16 @@ HTML = r"""
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <title>{{app_title}}</title>
   <style>
-    :root{ --text:#e6edff; --muted:#b8c4ffcc; }
+    :root{ --text:#eef2ff; --muted:#d4dcffee; --surface:#1a2040; --card:#1e2548; --border:rgba(80,110,200,.35); }
     *{box-sizing:border-box}
     html, body{ height:auto; min-height:100%; overflow-y:auto; }
     body{
       margin:0;
       font-family: Arial, sans-serif;
       background:
-        radial-gradient(900px 600px at 50% 52%, rgba(124,58,237,.22), transparent 55%),
-        radial-gradient(800px 600px at 50% 45%, rgba(59,130,246,.15), transparent 55%),
-        radial-gradient(1100px 800px at 50% 60%, rgba(10,14,30,.9), rgba(7,10,20,1) 65%);
+        radial-gradient(900px 600px at 50% 30%, rgba(124,58,237,.18), transparent 55%),
+        radial-gradient(800px 600px at 70% 60%, rgba(59,130,246,.14), transparent 55%),
+        linear-gradient(160deg, #111827 0%, #0f1629 40%, #121c38 100%);
       color:var(--text);
     }
 
@@ -4817,7 +4827,7 @@ HTML = r"""
       position: relative;
       z-index: 20;
       padding: 14px 16px 12px 16px;
-      background: linear-gradient(180deg, rgba(14,22,48,.96), rgba(14,22,48,.88));
+      background: linear-gradient(180deg, rgba(20,30,65,.97), rgba(18,26,56,.92));
       border-bottom:1px solid rgba(34,49,90,.8);
       backdrop-filter: blur(10px);
     }
@@ -4953,7 +4963,7 @@ HTML = r"""
       width: 44%;
       min-width: 340px;
       max-width: 520px;
-      background: rgba(14,22,48,.82);
+      background: rgba(22,34,72,.82);
       border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
       padding: 12px;
@@ -5151,8 +5161,8 @@ HTML = r"""
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
     .seatName{ font-weight:800; font-size:13px; }
-    .seatRole{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:11px; color:var(--muted); opacity:.95; }
+    .seatRole{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .seatStatus{ font-size:12px; color:var(--muted); opacity:.95; }
 
     .seatTools{
       position:absolute;
@@ -5165,7 +5175,7 @@ HTML = r"""
     }
     .seatToolBtn{
       border:1px solid rgba(42,58,106,.85);
-      background: rgba(7,10,20,.65);
+      background: rgba(20,30,60,.65);
       color: var(--text);
       padding: 6px 8px;
       border-radius: 10px;
@@ -5174,7 +5184,7 @@ HTML = r"""
       pointer-events:auto;
     }
     .seatToolBtn:hover{
-      background: rgba(14,22,48,.75);
+      background: rgba(22,34,72,.78);
       border-color: rgba(124,58,237,.55);
     }
 
@@ -5215,34 +5225,34 @@ HTML = r"""
 
 
     /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(10,14,30,.95);border-bottom:1px solid rgba(42,58,106,.7);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
+    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
     .saNavCenter{flex:1;display:flex;flex-direction:column;gap:5px;min-width:240px;}
     .saNavRight{flex-shrink:0;}
-    .saModelTag{font-size:11px;color:rgba(148,163,184,.6);white-space:nowrap;}
+    .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
-    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);border-radius:10px;color:rgba(196,181,253,.9);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
     .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
     .saChevron{font-size:9px;opacity:.7;}
-    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
+    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
-    .saCommandWrap{display:flex;align-items:center;background:rgba(14,22,48,.8);border:1px solid rgba(80,100,180,.5);border-radius:12px;padding:0 12px;gap:8px;}
+    .saCommandWrap{display:flex;align-items:center;background:rgba(22,34,72,.85);border:1px solid rgba(100,130,220,.5);border-radius:12px;padding:0 12px;gap:8px;}
     .saCommandWrap:focus-within{border-color:rgba(124,58,237,.7);}
     .saCmdIcon{font-size:14px;color:rgba(124,58,237,.7);flex-shrink:0;}
     .saCmdInput{flex:1;background:transparent;border:none;outline:none;color:rgba(226,232,240,.9);font-size:13px;padding:10px 0;min-width:0;}
     .saCmdInput::placeholder{color:rgba(100,116,139,.6);}
     .saCmdBtn{background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;}
     .saCmdBtn:hover{background:rgba(124,58,237,.5);}
-    .saObjectivePill{font-size:11px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .saObjectivePill{font-size:12px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
     .thread{
       height: 40vh;
       overflow:auto;
-      background: rgba(7,10,20,.65);
+      background: rgba(20,30,60,.65);
       border:1px solid rgba(42,58,106,.6);
       border-radius: 14px;
       padding: 10px;
@@ -5300,7 +5310,7 @@ HTML = r"""
     .groupReplies{
       max-height: 52vh;
       overflow:auto;
-      background: rgba(7,10,20,.65);
+      background: rgba(20,30,60,.65);
       border:1px solid rgba(42,58,106,.6);
       border-radius: 14px;
       padding: 10px;
@@ -5338,13 +5348,13 @@ HTML = r"""
       gap: 10px;
     }
 
-    .tiny{ font-size: 11px; color:var(--muted); }
+    .tiny{ font-size: 12px; color:var(--muted); }
 
     .overlay{
       position:fixed; inset:0; display:none;
       align-items:flex-start; justify-content:center;
       padding-top: 68px;
-      background: rgba(7,10,20,.65);
+      background: rgba(20,30,60,.65);
       backdrop-filter: blur(8px);
       z-index: 80;
     }
@@ -5381,7 +5391,7 @@ HTML = r"""
       padding: 8px 10px;
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.7);
-      background: rgba(7,10,20,.45);
+      background: rgba(18,28,56,.5);
       cursor: move;
       user-select:none;
     }
@@ -5408,7 +5418,7 @@ HTML = r"""
       overflow: auto;
       border-radius: 14px;
       border: 1px solid rgba(42,58,106,.6);
-      background: rgba(7,10,20,.45);
+      background: rgba(18,28,56,.5);
       padding: 10px;
     }
 
@@ -6400,7 +6410,7 @@ label         { font-size: 14px !important; }
       <div class="saNavCenter">
         <div class="saCommandWrap">
           <span class="saCmdIcon">&#8984;</span>
-          <input id="globalCommandBar" class="saCmdInput" placeholder="Type a command... e.g. get me 20 NJ realtors" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true" role="combobox" />
+          <input id="globalCommandBar" class="saCmdInput" placeholder="Command… e.g. Open Lead Lab and find 10 NJ realtors" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true" role="combobox" />
           <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
         </div>
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
@@ -7365,8 +7375,8 @@ label         { font-size: 14px !important; }
     #saMsgModal.open { display:flex !important; }
 
 /* ── Motion-style Calendar ── */
-.wcal-wrap { display:flex; height:100%; min-height:640px; background:#080c1a; border-radius:12px; overflow:hidden; position:relative; }
-.wcal-sidebar { width:230px; flex-shrink:0; background:#0d1120; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
+.wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
+.wcal-sidebar { width:230px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
 .wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:4px 11px; font-size:12px; cursor:pointer; }
@@ -7378,17 +7388,17 @@ label         { font-size: 14px !important; }
 .wcal-view-btn.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
 .wcal-grid-wrap { flex:1; overflow:auto; position:relative; min-height:0; width:100%; }
 .wcal-grid { display:flex; flex-direction:column; position:relative; min-height:1440px; width:100%; min-width:0; }
-.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#080c1a; z-index:5; }
-.wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:10px; color:rgba(100,116,139,.6); }
+.wcal-time-col { width:54px; flex-shrink:0; position:sticky; left:0; background:#0f1629; z-index:5; }
+.wcal-time-label { height:60px; display:flex; align-items:flex-start; justify-content:flex-end; padding:2px 8px 0 0; font-size:12px; color:rgba(148,168,210,.75); }
 .wcal-days-area { flex:1; display:grid; position:relative; }
-.wcal-day-col { border-left:1px solid rgba(42,58,106,.25); position:relative; flex:1; min-width:0; }
-.wcal-hour-line { height:60px; border-bottom:1px solid rgba(42,58,106,.18); position:relative; }
+.wcal-day-col { border-left:1px solid rgba(80,110,180,.22); position:relative; flex:1; min-width:0; }
+.wcal-hour-line { height:60px; border-bottom:1px solid rgba(80,110,180,.18); position:relative; }
 .wcal-half-line { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(42,58,106,.09); top:50%; }
-.wcal-col-header { text-align:center; padding:5px 2px; border-left:1px solid rgba(42,58,106,.3); border-bottom:1px solid rgba(42,58,106,.5); background:#0d1120; position:sticky; top:0; z-index:4; }
-.wcal-col-header .wd { font-size:10px; color:rgba(148,163,184,.6); text-transform:uppercase; letter-spacing:.06em; }
-.wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(226,232,240,.9); line-height:1.1; }
+.wcal-col-header { text-align:center; padding:5px 2px; border-left:1px solid rgba(80,110,180,.3); border-bottom:1px solid rgba(80,110,180,.4); background:#131e3a; position:sticky; top:0; z-index:4; }
+.wcal-col-header .wd { font-size:12px; color:rgba(180,200,240,.85); text-transform:uppercase; letter-spacing:.06em; }
+.wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(230,238,255,.95); line-height:1.1; }
 .wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:11px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s,box-shadow 0.15s; min-height:22px; box-sizing:border-box; }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:12px; font-weight:600; cursor:pointer; overflow:hidden; z-index:3; transition:filter 0.15s,box-shadow 0.15s; min-height:22px; box-sizing:border-box; }
 .wcal-event:hover { filter:brightness(1.15); box-shadow:0 2px 12px rgba(0,0,0,.4); }
 .wcal-event.is-done { opacity:.72; }
 .wcal-event.is-done .wcal-event-title { text-decoration:line-through; text-decoration-color:currentColor; text-decoration-thickness:2px; }
@@ -7400,7 +7410,7 @@ label         { font-size: 14px !important; }
   border:1.5px solid currentColor;
   cursor:pointer; z-index:4;
   transition:background .15s;
-  font-size:8px; font-weight:900; line-height:1;
+  font-size:9px; font-weight:900; line-height:1;
   opacity:.9; flex-shrink:0;
 }
 .wcal-event-check:hover { opacity:1; transform:scale(1.15); }
@@ -7418,7 +7428,7 @@ label         { font-size: 14px !important; }
 }
 .wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
-.wcal-event-time { font-size:9px; opacity:.75; padding-left:0; }
+.wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
 /* Sidebar mini-month */
@@ -7427,42 +7437,42 @@ label         { font-size: 14px !important; }
 .wcal-mini-month-label { font-size:12px; font-weight:700; color:#c4b5fd; }
 .wcal-mini-nav { background:transparent; border:none; color:rgba(148,163,184,.6); cursor:pointer; font-size:13px; padding:2px 4px; }
 .wcal-mini-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; }
-.wcal-mini-day { text-align:center; padding:3px 1px; font-size:10px; border-radius:4px; cursor:pointer; color:rgba(148,163,184,.7); }
+.wcal-mini-day { text-align:center; padding:3px 1px; font-size:11px; border-radius:4px; cursor:pointer; color:rgba(180,200,240,.85); }
 .wcal-mini-day:hover { background:rgba(124,58,237,.2); color:#c4b5fd; }
 .wcal-mini-day.today { background:rgba(124,58,237,.6); color:#fff; border-radius:50%; }
 .wcal-mini-day.selected { background:rgba(59,130,246,.4); color:#93c5fd; border-radius:50%; }
 .wcal-mini-day.has-events::after { content:''; display:block; width:4px; height:4px; border-radius:50%; background:#7c3aed; margin:1px auto 0; }
-.wcal-mini-wd { font-size:9px; color:rgba(100,116,139,.5); text-align:center; padding:2px 0; }
+.wcal-mini-wd { font-size:11px; color:rgba(100,116,139,.5); text-align:center; padding:2px 0; }
 /* Quick-add form in sidebar */
 .wcal-add-form { background:rgba(14,22,48,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:10px; }
 .wcal-add-tabs { display:flex; gap:4px; margin-bottom:8px; }
-.wcal-add-tab { flex:1; background:rgba(7,10,20,.5); border:1px solid rgba(42,58,106,.5); color:rgba(148,163,184,.7); border-radius:6px; padding:4px; font-size:11px; font-weight:600; cursor:pointer; text-align:center; }
+.wcal-add-tab { flex:1; background:rgba(7,10,20,.5); border:1px solid rgba(42,58,106,.5); color:rgba(180,196,255,.8); border-radius:6px; padding:4px; font-size:12px; font-weight:600; cursor:pointer; text-align:center; }
 .wcal-add-tab.active { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.6); color:#c4b5fd; }
-.wcal-add-label { font-size:11px; font-weight:600; color:rgba(196,181,253,.8); margin-bottom:6px; }
-.wcal-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; margin-bottom:5px; outline:none; box-sizing:border-box; }
+.wcal-add-label { font-size:12px; font-weight:600; color:rgba(196,181,253,.8); margin-bottom:6px; }
+.wcal-field { width:100%; background:rgba(20,30,60,.7); border:1px solid rgba(80,110,180,.45); border-radius:7px; padding:5px 8px; font-size:13px; color:#e2e8f0; margin-bottom:5px; outline:none; box-sizing:border-box; }
 .wcal-field:focus { border-color:rgba(124,58,237,.6); }
 .wcal-submit { width:100%; background:rgba(124,58,237,.4); border:1px solid rgba(124,58,237,.6); color:#c4b5fd; border-radius:7px; padding:6px; font-size:12px; font-weight:600; cursor:pointer; }
 .wcal-submit:hover { background:rgba(124,58,237,.6); }
-.wcal-status { font-size:10px; color:rgba(148,163,184,.6); margin-top:4px; min-height:14px; }
-.wcal-section-title { font-size:10px; font-weight:700; color:rgba(100,116,139,.6); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
+.wcal-status { font-size:12px; color:rgba(148,163,184,.6); margin-top:4px; min-height:14px; }
+.wcal-section-title { font-size:11px; font-weight:700; color:rgba(160,185,240,.75); text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; }
 .wcal-upcoming { font-size:11px; }
 .wcal-upcoming-item { padding:4px 0; border-bottom:1px solid rgba(42,58,106,.25); cursor:pointer; }
 .wcal-upcoming-item:hover { color:#c4b5fd; }
-.wcal-upcoming-time { font-size:10px; color:rgba(100,116,139,.6); }
-.wcal-upcoming-title { color:rgba(226,232,240,.85); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
+.wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Detail Panel (Motion-style right sidebar) */
-.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#0d1120; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:20; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:20; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
-.wcal-detail-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(148,163,184,.6); }
+.wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
 .wcal-detail-close { background:transparent; border:none; color:rgba(148,163,184,.6); font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px; }
 .wcal-detail-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
 .wcal-detail-body { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
 .wcal-detail-title { font-size:16px; font-weight:700; color:#e2e8f0; background:transparent; border:none; border-bottom:1px solid rgba(42,58,106,.5); padding:4px 0; width:100%; outline:none; }
 .wcal-detail-title:focus { border-color:rgba(124,58,237,.7); }
-.wcal-detail-label { font-size:10px; font-weight:700; color:rgba(100,116,139,.6); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+.wcal-detail-label { font-size:11px; font-weight:700; color:rgba(160,185,240,.8); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
 .wcal-detail-value { font-size:12px; color:#e2e8f0; }
-.wcal-detail-field { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
+.wcal-detail-field { width:100%; background:rgba(20,30,60,.7); border:1px solid rgba(80,110,180,.45); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
 .wcal-detail-field:focus { border-color:rgba(124,58,237,.6); }
 .wcal-detail-textarea { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 8px; font-size:12px; color:#e2e8f0; outline:none; resize:vertical; min-height:70px; box-sizing:border-box; }
 .wcal-detail-textarea:focus { border-color:rgba(124,58,237,.6); }
@@ -8749,78 +8759,97 @@ window.showModal = function showModal(title, body, imgUrl){
     window.runGlobalCommandBar = async function runGlobalCommandBar(){
       const inp = $("globalCommandBar");
       const q = ((inp && inp.value) ? inp.value : '').trim();
-      if(!q){ showModal('Missing command', 'Type a command first.'); return; }
+      if(!q){ showToast('Type a command first'); return; }
 
-      // Module dispatch table — maps intent_route module names to open functions
-      const moduleDispatch = {
-        'lead_lab':       () => { if(typeof showLeadLabModal==='function') showLeadLabModal(); },
-        'crm_clients':    () => { if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
-        'crm_pipeline':   () => { if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
-        'crm_broadcast':  () => { if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast'); },
-        'calendar':       () => { if(typeof showCalendarModal==='function') showCalendarModal(); },
-        'social_studio':  () => { if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
-        'offer_builder':  () => { if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
-        'growth_playbook':() => { if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
-        'image_library':  () => { if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
-        'email_console':  () => { if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
-        'action_stacks':  () => {
-          const seat = window.selectedSeat || selectedSeat;
-          if(seat && typeof showStackTab==='function') showStackTab('Action Stacks — ' + seat);
-        },
-        'round_table':    () => {
-          // Pre-fill the group console and focus it
-          const opPrompt = $('opPrompt');
-          if(opPrompt){ opPrompt.value = q; opPrompt.focus(); }
-          showToast('Ready — press Send to All or refine your prompt');
-        },
-      };
+      // ── Local keyword shortcuts (no AI round-trip needed) ────────
+      const ql = q.toLowerCase();
+      const localDispatch = [
+        { test: /\blead.?lab\b/i,         fn: ()=>{ if(typeof showLeadLabModal==='function') showLeadLabModal(); }, label:'Lead Lab' },
+        { test: /\bcalendar\b/i,           fn: ()=>{ if(typeof showCalendarModal==='function') showCalendarModal(); }, label:'Calendar' },
+        { test: /\bclient.?center|\bcrm\b/i, fn: ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); }, label:'Client Center' },
+        { test: /\bpipeline\b/i,           fn: ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); }, label:'Pipeline' },
+        { test: /\bsocial.?studio\b/i,     fn: ()=>{ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); }, label:'Social Studio' },
+        { test: /\boffer.?builder\b/i,     fn: ()=>{ if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); }, label:'Offer Builder' },
+        { test: /\bgrowth.?playbook\b/i,   fn: ()=>{ if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); }, label:'Growth Playbook' },
+        { test: /\bimage.?lib(?:rary)?\b/i,fn: ()=>{ if(typeof showImageLibraryModal==='function') showImageLibraryModal(); }, label:'Image Library' },
+        { test: /\bemail.?console\b/i,     fn: ()=>{ if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); }, label:'Email Console' },
+        { test: /\bsettings\b/i,           fn: ()=>{ if(typeof showSettingsModal==='function') showSettingsModal(); }, label:'Settings' },
+      ];
 
-      // Show brief thinking indicator without blocking
-      if(inp) inp.disabled = true;
-      if(inp) inp.placeholder = 'Routing…';
-
+      // Check if the command names a teammate
+      let detectedTeammate = '';
       try{
-        const res = await fetch('/api/os/intent_route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:q})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Route failed');
-
-        const module = data.module || 'round_table';
-        const dispatch = moduleDispatch[module] || moduleDispatch['round_table'];
-
-        // Pre-fill session objective if the AI suggested one
-        if(data.prefill_objective && $("sessionObjectiveInput") && !(($("sessionObjectiveInput").value||'').trim())){
-          $("sessionObjectiveInput").value = data.prefill_objective;
+        const reg = window._cachedRegistry || {};
+        const names = Object.keys(reg.installed||{});
+        for(const name of names){
+          if(ql.includes(name.toLowerCase())){ detectedTeammate=name; break; }
         }
+      }catch(_){}
 
-        // Clear the command bar
-        if(inp){ inp.value = ''; inp.placeholder = 'Type a command... e.g. Alex open lead lab'; }
-
-        // Execute the module (open the right panel)
-        dispatch();
-
-        // If the AI identified a specific teammate, route the full query to them
-        const namedTeammate = data.teammate || data.target_teammate || '';
-        if(namedTeammate && typeof selectSeat === 'function'){
-          await selectSeat(namedTeammate);
-          // Pre-fill followMsg with the full query so user just hits Send (or it auto-sends)
-          const fm = document.getElementById('followMsg');
-          if(fm){
-            fm.value = q;
-            // Auto-send after short delay so UI can settle
-            setTimeout(async ()=>{ if(typeof sendFollow==='function') await sendFollow(); }, 400);
+      // Try local dispatch first
+      let dispatched = false;
+      for(const rule of localDispatch){
+        if(rule.test.test(q)){
+          rule.fn();
+          // Strip the module keyword from q to get the task portion
+          const task = q.replace(rule.test,'').replace(/^\s*(and|then|to|:)\s*/i,'').trim();
+          if(task && detectedTeammate && typeof selectSeat==='function'){
+            await selectSeat(detectedTeammate);
+            const fm = document.getElementById('followMsg');
+            if(fm){ fm.value = task;
+              setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },350);
+            }
+          } else if(task && !detectedTeammate){
+            // Route task to whoever is currently selected
+            const fm = document.getElementById('followMsg');
+            if(fm && (window.selectedSeat||selectedSeat)){
+              fm.value=task;
+              setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },350);
+            }
           }
-        } else if(module === 'round_table'){
-          // Already pre-filled opPrompt above — nothing extra needed
+          if(inp){ inp.value=''; }
+          showToast('✓ Opened '+rule.label+(detectedTeammate?' → '+detectedTeammate:'')+(task?' · task queued':''));
+          dispatched = true;
+          break;
         }
+      }
+      if(dispatched) return;
 
-        // Show a brief non-blocking toast
-        const label = module.replace(/_/g,' ');
-        if(typeof showToast==='function') showToast('Routed to: ' + label + (namedTeammate ? ' → '+namedTeammate : '') + (data.confidence ? ' (' + Math.round((data.confidence||0)*100) + '% confident)' : ''));
-
+      // ── Fallback: AI intent router ───────────────────────────────
+      if(inp){ inp.disabled=true; inp.placeholder='Routing…'; }
+      try{
+        const res = await fetch('/api/os/intent_route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
+        const data = await res.json();
+        const module = (data.ok && data.module) ? data.module : 'round_table';
+        const moduleActions = {
+          'lead_lab':       ()=>{ if(typeof showLeadLabModal==='function') showLeadLabModal(); },
+          'crm_clients':    ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
+          'crm_pipeline':   ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
+          'calendar':       ()=>{ if(typeof showCalendarModal==='function') showCalendarModal(); },
+          'social_studio':  ()=>{ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
+          'offer_builder':  ()=>{ if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
+          'growth_playbook':()=>{ if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
+          'image_library':  ()=>{ if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
+          'email_console':  ()=>{ if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
+          'round_table':    ()=>{ const op=$('opPrompt'); if(op){op.value=q;op.focus();} },
+        };
+        (moduleActions[module]||moduleActions['round_table'])();
+        const namedTeammate = data.teammate||data.target_teammate||detectedTeammate||'';
+        if(namedTeammate && typeof selectSeat==='function'){
+          await selectSeat(namedTeammate);
+          const fm=document.getElementById('followMsg');
+          if(fm){ fm.value=q; setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },400); }
+        }
+        if(inp){ inp.value=''; }
+        showToast('✓ '+(module.replace(/_/g,' '))+(namedTeammate?' → '+namedTeammate:''));
       }catch(e){
-        showModal('Command router error', String(e && e.message ? e.message : e));
+        // If AI router fails, just pre-fill followMsg with the raw command
+        const fm=document.getElementById('followMsg');
+        if(fm){ fm.value=q; fm.focus(); }
+        showToast('Sent to selected teammate');
+        if(inp) inp.value='';
       }finally{
-        if(inp){ inp.disabled = false; inp.placeholder = 'Type a command... e.g. Alex open lead lab'; }
+        if(inp){ inp.disabled=false; inp.placeholder='Command… e.g. "Open Lead Lab and find 10 NJ realtors"'; }
       }
     }
 
@@ -10685,6 +10714,8 @@ function makeSeat(defn, idx){
     (function(){
       const cmdInput=document.getElementById('globalCommandBar');
       const runBtn=document.getElementById('globalCommandRunBtn');
+      // Cache registry for command-bar teammate detection
+      try{ fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; }); }catch(_){}
       if(cmdInput) cmdInput.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();if(typeof runGlobalCommandBar==='function')runGlobalCommandBar();} });
       if(runBtn) runBtn.onclick=function(){ if(typeof runGlobalCommandBar==='function')runGlobalCommandBar(); };
     })();
@@ -13117,6 +13148,7 @@ const wcalDrag={
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
   clickOffsetPx:0,   // px from top of block where user grabbed
+  clickOffsetX:0,    // px from left of block where user grabbed
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
 };
@@ -13141,6 +13173,7 @@ function wcalDragWireGrid(grid){
 
       // Store exactly how far down inside the block the user grabbed
       const clickOffsetPx=e.clientY-elRect.top;
+      const clickOffsetX=e.clientX-elRect.left;
 
       let origStart='09:00', origDur=30;
       if(etype==='task'){
@@ -13162,6 +13195,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.etype=etype; wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
       wcalDrag.clickOffsetPx=clickOffsetPx;
+      wcalDrag.clickOffsetX=clickOffsetX;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.ghost=null; wcalDrag.tip=null;
       wcalDrag._targetDate=null; wcalDrag._targetMins=null;
@@ -13209,9 +13243,12 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // Move ghost so it stays exactly under the cursor at the grab point
+    // Move ghost: track cursor with exact grab offset in both axes
     if(wcalDrag.ghost){
-      wcalDrag.ghost.style.left=(e.clientX-wcalDrag.ghost.offsetWidth/2)+'px';
+      const gw=wcalDrag.ghost.offsetWidth||100;
+      // X: follow cursor, clamped to keep ghost inside viewport
+      const gx=Math.min(e.clientX-wcalDrag.clickOffsetX, window.innerWidth-gw-8);
+      wcalDrag.ghost.style.left=Math.max(0,gx)+'px';
       wcalDrag.ghost.style.top=(e.clientY-wcalDrag.clickOffsetPx)+'px';
     }
 
@@ -13231,12 +13268,15 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // Calculate snapped target time using column top + scrollTop
+    // Calculate snapped target time
+    // colRect.top = viewport-top of the day column (which starts BELOW the sticky header)
+    // wrap.scrollTop = how far user has scrolled in the grid wrap
+    // clickOffsetPx = where within the block the user grabbed (so the block top tracks cursor)
     const colRect=targetCol.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
-    // The y position within the scrollable grid at the cursor minus the grab offset
+    // pixels from the very top of the scrollable time area to the cursor position
     const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
-    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15, 1410));
+    const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15, 23*60));
 
     // Update tooltip
     if(wcalDrag.tip){
