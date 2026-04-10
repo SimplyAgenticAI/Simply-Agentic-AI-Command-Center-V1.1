@@ -8705,8 +8705,6 @@ window.showModal = function showModal(title, body, imgUrl){
       }
     }
 
-    }
-
     async function openOperatorProfileModal(){
       try{ document.body.style.overflow = 'hidden'; }catch(_){ }
       showModal();
@@ -15772,8 +15770,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
     }catch(_){}
   }
 
+  // Call on load
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", loadSharedMemory);
+  } else {
     loadSharedMemory();
-  });
+  }
 
 })();
 </script>
