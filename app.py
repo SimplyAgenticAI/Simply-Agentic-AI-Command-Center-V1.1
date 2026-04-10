@@ -5236,13 +5236,9 @@ HTML = r"""
     .saDrop.open{display:block;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
-    .saCommandWrap{display:flex;align-items:center;background:rgba(22,34,72,.85);border:1px solid rgba(100,130,220,.5);border-radius:12px;padding:0 12px;gap:8px;}
-    .saCommandWrap:focus-within{border-color:rgba(124,58,237,.7);}
+
     .saCmdIcon{font-size:14px;color:rgba(124,58,237,.7);flex-shrink:0;}
-    .saCmdInput{flex:1;background:transparent;border:none;outline:none;color:rgba(226,232,240,.9);font-size:13px;padding:10px 0;min-width:0;}
-    .saCmdInput::placeholder{color:rgba(100,116,139,.6);}
-    .saCmdBtn{background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;}
-    .saCmdBtn:hover{background:rgba(124,58,237,.5);}
+
     .saObjectivePill{font-size:12px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
@@ -6315,8 +6311,7 @@ body { font-size: 15px; }
 /* Nav bar */
 .saNavBtn     { font-size: 14px !important; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
-.saCmdInput   { font-size: 14px !important; }
-.saCmdBtn     { font-size: 13px !important; }
+
 .saObjectivePill { font-size: 12px !important; }
 .saModelTag   { font-size: 12px !important; }
 
@@ -6382,7 +6377,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
-            <button class="saDropItem" id="webhooksBtn">🔗 Webhooks</button>
           </div>
         </div>
 
@@ -6404,13 +6398,8 @@ label         { font-size: 14px !important; }
 
       </div>
 
-      <!-- Center: Command bar -->
+      <!-- Center: Session objective pill only -->
       <div class="saNavCenter">
-        <div class="saCommandWrap">
-          <span class="saCmdIcon">&#8984;</span>
-          <input id="globalCommandBar" class="saCmdInput" placeholder="Command… e.g. Open Lead Lab and find 10 NJ realtors" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true" role="combobox" />
-          <button class="saCmdBtn" id="globalCommandRunBtn">Run</button>
-        </div>
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
 
@@ -6485,53 +6474,7 @@ label         { font-size: 14px !important; }
               <pre id="modalBody"></pre>
 
 
-<div id="stackForm" class="modalForm" style="display:none;">
-  <div class="tiny">Stack: queue multiple prompts for this teammate. Run now or schedule.</div>
 
-  <div class="grid" style="margin-top:10px;">
-    <div>
-      <label>Stack name</label>
-      <input id="stackName" placeholder="e.g. Welcome Sequence" />
-    </div>
-    <div>
-      <label>Saved stacks</label>
-      <select id="stackSelect"></select>
-    </div>
-  </div>
-
-  <div style="margin-top:10px;">
-    <label>Add Prompt step</label>
-    <textarea id="stackPrompt" rows="3" placeholder="Example: Write the welcome email for {{input}}"></textarea>
-    <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
-      <button class="btn" id="stackAddPromptBtn">Add step</button>
-      <button class="btn" id="stackClearBtn">Clear</button>
-      <button class="btn" id="stackSaveBtn">Save</button>
-      <button class="btn btnPrimary" id="stackRunBtn">Run</button>
-      <button class="btn" id="cancelStack">Close</button>
-    </div>
-  </div>
-
-  <div id="stackSteps" style="margin-top:10px;"></div>
-  <div id="stackStatus" class="tiny" style="margin-top:10px;"></div>
-
-  <div class="tiny" style="margin:14px 0 6px;">Scheduling</div>
-  <div class="grid">
-    <div>
-      <label>Run once at</label>
-      <input id="stackRunAt" type="datetime-local" />
-    </div>
-    <div>
-      <label>Run daily at</label>
-      <input id="stackDailyAt" type="time" />
-    </div>
-  </div>
-  <div class="actions" style="justify-content:flex-start; gap:8px; margin-top:8px; flex-wrap:wrap;">
-    <button class="btn" id="stackScheduleOnceBtn">Schedule once</button>
-    <button class="btn" id="stackScheduleDailyBtn">Schedule daily</button>
-    <button class="btn" id="stackRefreshSchedulesBtn">Refresh</button>
-  </div>
-  <div id="stackSchedules" style="margin-top:8px;"></div>
-</div>
 
 
               <div class="modalForm" id="modalForm">
@@ -8138,8 +8081,7 @@ function applyModalPos(){
       if($("createForm")) $("createForm").style.display = "none";
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+            if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
@@ -8754,101 +8696,6 @@ window.showModal = function showModal(title, body, imgUrl){
       }
     }
 
-    window.runGlobalCommandBar = async function runGlobalCommandBar(){
-      const inp = $("globalCommandBar");
-      const q = ((inp && inp.value) ? inp.value : '').trim();
-      if(!q){ showToast('Type a command first'); return; }
-
-      // ── Local keyword shortcuts (no AI round-trip needed) ────────
-      const ql = q.toLowerCase();
-      const localDispatch = [
-        { test: /\blead.?lab\b/i,         fn: ()=>{ if(typeof showLeadLabModal==='function') showLeadLabModal(); }, label:'Lead Lab' },
-        { test: /\bcalendar\b/i,           fn: ()=>{ if(typeof showCalendarModal==='function') showCalendarModal(); }, label:'Calendar' },
-        { test: /\bclient.?center|\bcrm\b/i, fn: ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); }, label:'Client Center' },
-        { test: /\bpipeline\b/i,           fn: ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); }, label:'Pipeline' },
-        { test: /\bsocial.?studio\b/i,     fn: ()=>{ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); }, label:'Social Studio' },
-        { test: /\boffer.?builder\b/i,     fn: ()=>{ if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); }, label:'Offer Builder' },
-        { test: /\bgrowth.?playbook\b/i,   fn: ()=>{ if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); }, label:'Growth Playbook' },
-        { test: /\bimage.?lib(?:rary)?\b/i,fn: ()=>{ if(typeof showImageLibraryModal==='function') showImageLibraryModal(); }, label:'Image Library' },
-        { test: /\bemail.?console\b/i,     fn: ()=>{ if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); }, label:'Email Console' },
-        { test: /\bsettings\b/i,           fn: ()=>{ if(typeof showSettingsModal==='function') showSettingsModal(); }, label:'Settings' },
-      ];
-
-      // Check if the command names a teammate
-      let detectedTeammate = '';
-      try{
-        const reg = window._cachedRegistry || {};
-        const names = Object.keys(reg.installed||{});
-        for(const name of names){
-          if(ql.includes(name.toLowerCase())){ detectedTeammate=name; break; }
-        }
-      }catch(_){}
-
-      // Try local dispatch first
-      let dispatched = false;
-      for(const rule of localDispatch){
-        if(rule.test.test(q)){
-          rule.fn();
-          // Strip the module keyword from q to get the task portion
-          const task = q.replace(rule.test,'').replace(/^\s*(and|then|to|:)\s*/i,'').trim();
-          if(task && detectedTeammate && typeof selectSeat==='function'){
-            await selectSeat(detectedTeammate);
-            const fm = document.getElementById('followMsg');
-            if(fm){ fm.value = task;
-              setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },350);
-            }
-          } else if(task && !detectedTeammate){
-            // Route task to whoever is currently selected
-            const fm = document.getElementById('followMsg');
-            if(fm && (window.selectedSeat||selectedSeat)){
-              fm.value=task;
-              setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },350);
-            }
-          }
-          if(inp){ inp.value=''; }
-          showToast('✓ Opened '+rule.label+(detectedTeammate?' → '+detectedTeammate:'')+(task?' · task queued':''));
-          dispatched = true;
-          break;
-        }
-      }
-      if(dispatched) return;
-
-      // ── Fallback: AI intent router ───────────────────────────────
-      if(inp){ inp.disabled=true; inp.placeholder='Routing…'; }
-      try{
-        const res = await fetch('/api/os/intent_route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
-        const data = await res.json();
-        const module = (data.ok && data.module) ? data.module : 'round_table';
-        const moduleActions = {
-          'lead_lab':       ()=>{ if(typeof showLeadLabModal==='function') showLeadLabModal(); },
-          'crm_clients':    ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewClients'); },
-          'crm_pipeline':   ()=>{ if(typeof showCRMModal==='function') showCRMModal('crmViewPipeline'); },
-          'calendar':       ()=>{ if(typeof showCalendarModal==='function') showCalendarModal(); },
-          'social_studio':  ()=>{ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); },
-          'offer_builder':  ()=>{ if(typeof showOfferBuilderModal==='function') showOfferBuilderModal(); },
-          'growth_playbook':()=>{ if(typeof showGrowthPlaybookModal==='function') showGrowthPlaybookModal(); },
-          'image_library':  ()=>{ if(typeof showImageLibraryModal==='function') showImageLibraryModal(); },
-          'email_console':  ()=>{ if(typeof showEmailConsoleModal==='function') showEmailConsoleModal(); },
-          'round_table':    ()=>{ const op=$('opPrompt'); if(op){op.value=q;op.focus();} },
-        };
-        (moduleActions[module]||moduleActions['round_table'])();
-        const namedTeammate = data.teammate||data.target_teammate||detectedTeammate||'';
-        if(namedTeammate && typeof selectSeat==='function'){
-          await selectSeat(namedTeammate);
-          const fm=document.getElementById('followMsg');
-          if(fm){ fm.value=q; setTimeout(async()=>{ if(typeof sendFollow==='function') await sendFollow(); },400); }
-        }
-        if(inp){ inp.value=''; }
-        showToast('✓ '+(module.replace(/_/g,' '))+(namedTeammate?' → '+namedTeammate:''));
-      }catch(e){
-        // If AI router fails, just pre-fill followMsg with the raw command
-        const fm=document.getElementById('followMsg');
-        if(fm){ fm.value=q; fm.focus(); }
-        showToast('Sent to selected teammate');
-        if(inp) inp.value='';
-      }finally{
-        if(inp){ inp.disabled=false; inp.placeholder='Command… e.g. "Open Lead Lab and find 10 NJ realtors"'; }
-      }
     }
 
     async function openOperatorProfileModal(){
@@ -8985,144 +8832,6 @@ window.showModal = function showModal(title, body, imgUrl){
     // -------- Action Stacks (Sequence Runner) --------
 const ActionStack = { teammate: "", steps: [] };
 
-function showStackTab(title){
-  try{ document.body.style.overflow = "hidden"; }catch(_){}
-  if($("modalTitle")) $("modalTitle").innerText = title || "Stack";
-  if(typeof hideAllModalForms === "function") hideAllModalForms();
-  if($("modalBody")) $("modalBody").style.display = "none";
-  if($("stackForm")) $("stackForm").style.display = "block";
-  if($("overlay")) $("overlay").classList.add("show");
-  if(typeof applyModalPos === "function") applyModalPos();
-  const sc = $("modalScroll");
-  if(sc) sc.scrollTop = 0;  if($("clientsForm")) $("clientsForm").style.display = "none";
-}
-
-
-
-function renderRunOutputs(run){
-  const box = $("stackStatus");
-  if(!box || !run) return;
-  const outputs = run.outputs || {};
-  const keys = Object.keys(outputs).map(k => parseInt(k,10)).filter(n => !isNaN(n)).sort((a,b)=>a-b);
-  if(keys.length === 0){
-    box.innerHTML = `<div class="tiny">Run status: ${run.status}</div>`;
-    return;
-  }
-  const lastKey = keys[keys.length-1];
-  const last = outputs[String(lastKey)] || "";
-  box.innerHTML = `<div class="tiny">Run status: ${run.status} • Last output shown below</div>`;
-  if(run.status === "needs_input"){
-    const wrap = document.createElement("div");
-    wrap.className = "pillRow";
-    wrap.style.marginTop = "10px";
-    const inp = document.createElement("input");
-    inp.id = "stackResumeInput";
-    inp.className = "input";
-    inp.placeholder = "Reply for Ask user step...";
-    inp.style.flex = "1";
-    const btn = document.createElement("button");
-    btn.id = "stackResumeBtn";
-    btn.className = "btn btnPrimary";
-    btn.innerText = "Resume";
-    btn.onclick = async()=>{
-      try{
-        const r = await fetch(`/api/action_stack_runs/${encodeURIComponent(run.id)}/resume`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({input: inp.value||""})});
-        const d = await r.json();
-        if(d.ok){ renderStackSteps(); renderRunOutputs(d.run); }
-        else{ if($('stackStatus')) $('stackStatus').innerText = d.error || 'Resume failed.'; }
-      }catch(e){ if($('stackStatus')) $('stackStatus').innerText = 'Resume failed.'; }
-    };
-    wrap.appendChild(inp);
-    wrap.appendChild(btn);
-    box.appendChild(wrap);
-  }
-  const stepsBox = $("stackSteps");
-  // Remove previous output blocks if any
-  try{ Array.from(document.querySelectorAll('.stackLastOutputBlock')).forEach(n=>n.remove()); }catch(_){ }
-  if(stepsBox){
-    const hr = document.createElement("div");
-    hr.style.height="1px"; hr.style.background="rgba(42,58,106,.55)"; hr.style.margin="10px 0";
-    const outTitle = document.createElement("div");
-    outTitle.className="tiny";
-    outTitle.className = (outTitle.className || "") + " stackLastOutputBlock";
-    outTitle.innerText="Latest run outputs";
-    const outPre = document.createElement("div");
-    outPre.className="tiny";
-    outPre.style.whiteSpace="pre-wrap";
-    outPre.style.padding="10px";
-    outPre.style.border="1px solid rgba(42,58,106,.65)";
-    outPre.style.borderRadius="12px";
-    outPre.style.background="rgba(7,10,20,.25)";
-    outPre.className = (outPre.className || "") + " stackLastOutputBlock";
-    outPre.innerText = String(last).slice(0,8000);
-    hr.className = "stackLastOutputBlock";
-    stepsBox.appendChild(hr);
-    stepsBox.appendChild(outTitle);
-    stepsBox.appendChild(outPre);
-  }
-}
-
-function renderStackSteps(){
-  const box = $("stackSteps");
-  if(!box) return;
-  box.innerHTML = "";
-  if(ActionStack.steps.length === 0){
-    const t = document.createElement("div");
-    t.className = "tiny";
-    t.innerText = "No steps yet. Add one or more prompt steps.";
-    box.appendChild(t);
-    return;
-  }
-  ActionStack.steps.forEach((s, idx) => {
-    const row = document.createElement("div");
-    row.className = "pillRow";
-    row.style.marginTop = "6px";
-
-    const pill = document.createElement("div");
-    pill.className = "pill";
-    pill.innerText = `Step ${idx+1}: Prompt`;
-    row.appendChild(pill);
-
-    const del = document.createElement("button");
-    del.className = "btn";
-    del.innerText = "Delete";
-    del.onclick = () => { ActionStack.steps.splice(idx,1); renderStackSteps(); };
-    row.appendChild(del);
-
-    const up = document.createElement("button");
-    up.className = "btn";
-    up.innerText = "Up";
-    up.onclick = () => {
-      if(idx === 0) return;
-      const tmp = ActionStack.steps[idx-1];
-      ActionStack.steps[idx-1] = ActionStack.steps[idx];
-      ActionStack.steps[idx] = tmp;
-      renderStackSteps();
-    };
-    row.appendChild(up);
-
-    const down = document.createElement("button");
-    down.className = "btn";
-    down.innerText = "Down";
-    down.onclick = () => {
-      if(idx >= ActionStack.steps.length-1) return;
-      const tmp = ActionStack.steps[idx+1];
-      ActionStack.steps[idx+1] = ActionStack.steps[idx];
-      ActionStack.steps[idx] = tmp;
-      renderStackSteps();
-    };
-    row.appendChild(down);
-
-    box.appendChild(row);
-
-    const pre = document.createElement("div");
-    pre.className = "tiny";
-    pre.style.whiteSpace = "pre-wrap";
-    pre.style.marginTop = "4px";
-    pre.innerText = (s.prompt || "").slice(0, 1200);
-    box.appendChild(pre);
-  });
-}
 
 async function loadStacksForTeammate(teammate){
   const sel = $("stackSelect");
@@ -9304,18 +9013,6 @@ function makeSeat(defn, idx){
 
       tools.appendChild(editBtn);
 
-      const stackBtn = document.createElement("button");
-      stackBtn.className = "seatToolBtn";
-      stackBtn.innerText = "Stack";
-      stackBtn.title = "Open Stack (queue multiple prompts and schedule)";
-      stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      stackBtn.addEventListener("touchstart", (e) => { try{ if(window.openStackForTeammate) window.openStackForTeammate(defn.name); }catch(_){ } }, {passive:true});
-      stackBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if(window.openStackForTeammate) window.openStackForTeammate(defn.name);
-      });
-      tools.appendChild(stackBtn);
 
       seat.appendChild(tools);
 
@@ -10710,12 +10407,8 @@ function makeSeat(defn, idx){
 
     // Wire command bar
     (function(){
-      const cmdInput=document.getElementById('globalCommandBar');
-      const runBtn=document.getElementById('globalCommandRunBtn');
       // Cache registry for command-bar teammate detection
       try{ fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; }); }catch(_){}
-      if(cmdInput) cmdInput.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();if(typeof runGlobalCommandBar==='function')runGlobalCommandBar();} });
-      if(runBtn) runBtn.onclick=function(){ if(typeof runGlobalCommandBar==='function')runGlobalCommandBar(); };
     })();
     // ===== END NAV BAR JS =====
 
@@ -11209,8 +10902,6 @@ Body: ${body ? "[present]" : "[empty]"}
     if($("sessionObjectiveBtn")) $("sessionObjectiveBtn").onclick = openSessionObjectiveModal;
     if($("sessionObjectiveCloseBtn")) $("sessionObjectiveCloseBtn").onclick = () => hideModal();
     if($("sessionObjectiveSaveBtn")) $("sessionObjectiveSaveBtn").onclick = saveSessionObjectiveModal;
-    if($("globalCommandRunBtn")) $("globalCommandRunBtn").onclick = runGlobalCommandBar;
-    if($("globalCommandBar")) $("globalCommandBar").addEventListener("keydown", (e)=>{ if(e.key === "Enter"){ e.preventDefault(); runGlobalCommandBar(); } });
     // Manage teammates (active seats)
     function renderManageList(){
       const list = $("manageList");
@@ -12175,8 +11866,7 @@ async function crmFetchTasks(){
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "none";
-      if($("stackForm")) $("stackForm").style.display = "none";
-      if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
+            if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "block";
@@ -13174,14 +12864,14 @@ function wcalDragWireGrid(grid){
     el.addEventListener('mousedown',function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
-      e.preventDefault();
+      // Do NOT call preventDefault here — that would kill the onclick/detail-open.
+      // We only take over if the user actually drags (detected in mousemove).
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const elRect=el.getBoundingClientRect();
-      // How many minutes from the TOP of this block did the user click?
       const clickOffsetPx=e.clientY-elRect.top;
       let origStart='09:00', origDur=30;
       if(etype==='task'){
@@ -13215,7 +12905,7 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const dy=Math.abs(e.clientY-wcalDrag.startY);
     const dx=Math.abs(e.clientX-wcalDrag.startX);
-    if(!wcalDrag.active && dy<5 && dx<5) return;
+    if(!wcalDrag.active && dy<6 && dx<6) return;
 
     if(!wcalDrag.active){
       wcalDrag.active=true;
@@ -13223,6 +12913,8 @@ function wcalDragWireGrid(grid){
       wcalDrag.el.style.zIndex='20';
       wcalDrag.el.style.cursor='grabbing';
       wcalDrag.el.style.pointerEvents='none';
+      // Suppress the upcoming click so the detail panel doesn't open on drag-release
+      wcalDrag._suppressNextClick=true;
       // Time tooltip
       const tip=document.createElement('div');
       tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
@@ -13256,7 +12948,11 @@ function wcalDragWireGrid(grid){
     // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
     // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
     const colRect=targetCol.getBoundingClientRect();
+    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
     const scrolled=wrap?wrap.scrollTop:0;
+    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
+    // The sticky header is ~44px. Using colRect.top already accounts for it since
+    // wcal-day-col starts BELOW the sticky header in the DOM flow.
     const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
     const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
 
@@ -13292,6 +12988,13 @@ function wcalDragWireGrid(grid){
     wcalDrag.el.style.zIndex='';
     wcalDrag.el.style.cursor='';
     wcalDrag.el.style.pointerEvents='';
+    // If we actually dragged, suppress the next click event so detail panel doesn't open
+    if(wcalDrag._suppressNextClick){
+      wcalDrag._suppressNextClick=false;
+      const el2=wcalDrag.el;
+      const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
+      wcalDrag.el.addEventListener('click',suppressHandler,true);
+    }
 
     // Remove tooltip
     if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
@@ -13803,7 +13506,7 @@ function wcalWireButtons(){
 window.showCalendarModal=function showCalendarModal(){
   showModal();
   if(typeof hideAllModalForms==='function') hideAllModalForms();
-  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','stackForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
   if(calForm) calForm.style.display='block';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
@@ -14364,7 +14067,6 @@ if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionSta
 // Safe schedule runner tick (no background threads)
 if(!window.__stackTickInterval){
   window.__stackTickInterval = setInterval(() => {
-    fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
   }, 20000);
 }
 // API key help button
@@ -14397,7 +14099,6 @@ if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionSta
 // Safe schedule runner tick (no background threads)
 if(!window.__stackTickInterval){
   window.__stackTickInterval = setInterval(() => {
-    fetch("/api/action_stack_schedules/tick", {method:"POST"}).catch(() => {});
   }, 20000);
 }
 // API key help delegation (works even if elements render later)
@@ -15853,39 +15554,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
 <!-- ═══════════════════════════════════════════════════════════════════════
      SESSION 2 HTML — WEBHOOKS MANAGER MODAL
      ═══════════════════════════════════════════════════════════════════════ -->
-<div id="webhooksModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseWebhooks()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(740px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
-      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔗 Inbound Webhooks</span>
-      <button onclick="saCloseWebhooks()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="flex:1;overflow-y:auto;padding:20px;">
-      <div class="tiny" style="margin-bottom:14px;opacity:.75;line-height:1.6;">Create a unique URL for each action stack. External tools (Zapier, Make, Stripe, custom apps) POST to that URL to trigger the stack automatically.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-        <div>
-          <label style="font-size:11px;opacity:.65;">Teammate</label>
-          <select id="wh_teammate" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;">
-            <option value="">Select teammate…</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:11px;opacity:.65;">Stack name</label>
-          <select id="wh_stack" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;">
-            <option value="">Select stack…</option>
-          </select>
-        </div>
-      </div>
-      <div style="margin-bottom:10px;">
-        <label style="font-size:11px;opacity:.65;">Label (optional)</label>
-        <input id="wh_label" placeholder="e.g. Stripe payment received" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;margin-top:4px;" />
-      </div>
-      <button onclick="saCreateWebhook()" class="btn btnPrimary" style="width:100%;margin-bottom:18px;">+ Create Webhook URL</button>
-      <div style="font-size:12px;font-weight:600;opacity:.5;margin-bottom:8px;letter-spacing:.05em;">YOUR WEBHOOKS</div>
-      <div id="wh_list" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="tiny" style="opacity:.5;">Loading…</div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <style>
@@ -15903,17 +15571,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   background:rgba(99,102,241,.1); border-left:2px solid rgba(99,102,241,.5);
   border-radius:0 6px 6px 0; color:rgba(196,181,253,.9); line-height:1.5;
 }
-/* Webhook card */
-.sa-wh-card {
-  background:rgba(11,16,36,.88); border:1px solid rgba(42,58,106,.7);
-  border-radius:10px; padding:10px 14px; font-size:12px;
-}
-.sa-wh-url {
-  font-family:monospace; font-size:11px; background:rgba(0,0,0,.3);
-  border:1px solid rgba(42,58,106,.6); border-radius:6px;
-  padding:5px 8px; word-break:break-all; color:#a5b4fc;
-  display:block; margin:6px 0;
-}
+
 </style>
 
 }
@@ -16310,113 +15968,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
     }catch(_){}
   }
 
-  /* ── 3. WEBHOOKS MANAGER ───────────────────────────────────────────────────── */
-  function _saEsc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
-
-  window.saOpenWebhooks = async function saOpenWebhooks(){
-    const modal = document.getElementById("webhooksModal");
-    if(!modal) return;
-    modal.style.display = "flex";
-    document.body.style.overflow = "hidden";
-    await _saPopulateTeammates();
-    await saLoadWebhooks();
-  };
-
-  window.saCloseWebhooks = function saCloseWebhooks(){
-    const modal = document.getElementById("webhooksModal");
-    if(modal) modal.style.display = "none";
-    document.body.style.overflow = "";
-  };
-
-  async function _saPopulateTeammates(){
-    const sel = document.getElementById("wh_teammate");
-    if(!sel) return;
-    try{
-      const r = await fetch("/api/state"); const d = await r.json();
-      if(!d.ok) return;
-      const names = d.installed_order || Object.keys(d.installed || {});
-      sel.innerHTML = '<option value="">Select teammate…</option>' +
-        names.map(n=>`<option value="${_saEsc(n)}">${_saEsc(n)}</option>`).join("");
-      sel.onchange = _saLoadStacksForTeammate;
-    }catch(_){}
-  }
-
-  async function _saLoadStacksForTeammate(){
-    const tm  = (document.getElementById("wh_teammate")||{}).value || "";
-    const sel = document.getElementById("wh_stack");
-    if(!sel) return;
-    sel.innerHTML = '<option value="">Loading…</option>';
-    if(!tm){ sel.innerHTML='<option value="">Select teammate first…</option>'; return; }
-    try{
-      const r = await fetch("/api/teammates/"+encodeURIComponent(tm)+"/stacks");
-      const d = await r.json();
-      const stacks = d.stacks || [];
-      if(!stacks.length){ sel.innerHTML='<option value="">No stacks found</option>'; return; }
-      sel.innerHTML = '<option value="">Select stack…</option>' +
-        stacks.map(s=>`<option value="${_saEsc(s)}">${_saEsc(s)}</option>`).join("");
-    }catch(_){ sel.innerHTML='<option value="">Error loading stacks</option>'; }
-  }
-
-  window.saCreateWebhook = async function saCreateWebhook(){
-    const tm    = (document.getElementById("wh_teammate")||{}).value||"";
-    const stack = (document.getElementById("wh_stack")||{}).value||"";
-    const label = (document.getElementById("wh_label")||{}).value||"";
-    if(!tm || !stack){ if(typeof showToast==="function") showToast("Select a teammate and stack first","error"); return; }
-    try{
-      const r = await fetch("/api/webhooks",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({teammate:tm, stack_name:stack, label})
-      });
-      const d = await r.json();
-      if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Create failed","error"); return; }
-      if(typeof showToast==="function") showToast("Webhook created");
-      if(document.getElementById("wh_label")) document.getElementById("wh_label").value="";
-      await saLoadWebhooks();
-    }catch(e){ if(typeof showToast==="function") showToast("Error: "+(e.message||e),"error"); }
-  };
-
-  window.saLoadWebhooks = async function saLoadWebhooks(){
-    const list = document.getElementById("wh_list");
-    if(!list) return;
-    list.innerHTML = '<div class="tiny" style="opacity:.5;">Loading…</div>';
-    try{
-      const r = await fetch("/api/webhooks"); const d = await r.json();
-      const whs = d.webhooks || [];
-      if(!whs.length){ list.innerHTML='<div class="tiny" style="opacity:.5;">No webhooks yet. Create one above.</div>'; return; }
-      const base = window.location.origin;
-      list.innerHTML = whs.map(wh => `
-        <div class="sa-wh-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-weight:600;color:#c4b5fd;">${_saEsc(wh.label||wh.stack_name)}</span>
-            <button onclick="saDeleteWebhook('${_saEsc(wh.id)}')" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Delete</button>
-          </div>
-          <div style="opacity:.6;margin-bottom:4px;">${_saEsc(wh.teammate)} → ${_saEsc(wh.stack_name)}</div>
-          <code class="sa-wh-url">${base}/webhook/${_saEsc(wh.token)}</code>
-          <button onclick="navigator.clipboard.writeText('${base}/webhook/${wh.token}').then(()=>showToast('Copied'))" style="background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.4);color:#a5b4fc;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;margin-bottom:4px;">📋 Copy URL</button>
-          <div style="opacity:.45;font-size:10px;margin-top:4px;">Triggered ${wh.trigger_count||0}× · POST this URL from Zapier, Make, or any HTTP tool</div>
-        </div>
-      `).join("");
-    }catch(e){ list.innerHTML='<div class="tiny" style="color:#fca5a5;">Load failed: '+(e.message||e)+'</div>'; }
-  };
-
-  window.saDeleteWebhook = async function saDeleteWebhook(id){
-    if(!confirm("Delete this webhook? Any external tools pointing to it will stop working.")) return;
-    try{
-      const r = await fetch("/api/webhooks/"+encodeURIComponent(id)+"/delete",{method:"POST"});
-      const d = await r.json();
-      if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Delete failed","error"); return; }
-      if(typeof showToast==="function") showToast("Webhook deleted");
-      await saLoadWebhooks();
-    }catch(e){ if(typeof showToast==="function") showToast("Error: "+(e.message||e),"error"); }
-  };
-
-  // Wire Webhooks button in Tools dropdown
-  document.addEventListener("DOMContentLoaded", function(){
-    const btn = document.getElementById("webhooksBtn");
-    if(btn) btn.addEventListener("click", function(){
-      if(typeof saToggleDrop==="function") saToggleDrop("saToolsDrop");
-      saOpenWebhooks();
-    });
     loadSharedMemory();
   });
 
