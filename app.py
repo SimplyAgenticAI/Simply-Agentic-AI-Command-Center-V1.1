@@ -2772,7 +2772,7 @@ def api_action_stacks_schedules_delete(teammate: str):
     _save_schedules(uname, schedules)
     return jsonify({"ok": True})
 
-@app.post()
+@app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
     try:
         # Action Stacks schedules
