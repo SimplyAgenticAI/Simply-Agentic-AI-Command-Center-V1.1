@@ -397,6 +397,20 @@ def _clean_username(u: str) -> str:
     u = re.sub(r"[^a-z0-9_\.\-]+", "", u)
     return u
 
+def _find_user_by_login(identifier: str) -> Optional[Dict[str, Any]]:
+    """Look up a user by username. The email field is no longer used for registration,
+    but this stays in case old accounts have emails stored."""
+    identifier = (identifier or "").strip().lower()
+    if not identifier:
+        return None
+    data = load_users()
+    users = data.get("users") or {}
+    # Direct username match first
+    clean = re.sub(r"[^a-z0-9_\.\-]+", "", identifier)
+    if clean in users:
+        return users[clean]
+    return None
+
 def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
     return {
         "username": username,
@@ -461,7 +475,7 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/action_stack_schedules/tick"}
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
 
@@ -2758,7 +2772,7 @@ def api_action_stacks_schedules_delete(teammate: str):
     _save_schedules(uname, schedules)
     return jsonify({"ok": True})
 
-@app.post("/api/action_stack_schedules/tick")
+@app.post()
 def api_action_stack_schedules_tick():
     try:
         # Action Stacks schedules
@@ -4073,7 +4087,7 @@ AUTH_BASE_CSS = r"""
     width:100%;
     border-radius: 16px;
     border:1px solid rgba(82,98,156,.92);
-    background: rgba(8,12,27,.92);
+    background: rgba(12,18,38,.94);
     color: var(--text);
     padding:16px 18px;
     outline:none;
@@ -4082,7 +4096,7 @@ AUTH_BASE_CSS = r"""
     min-height: 54px;
     box-shadow: inset 0 0 0 1px rgba(247,211,106,.04);
   }
-  input:focus{ border-color: rgba(247,211,106,.82); box-shadow: 0 0 0 3px rgba(247,211,106,.14), 0 0 22px rgba(124,58,237,.12); }
+  input:focus{ border-color: rgba(167,139,250,.85); box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(124,58,237,.14); outline:none; }
   .row{ display:flex; gap:14px; align-items:center; justify-content:space-between; margin-top: 18px; flex-wrap:wrap; }
   .btn{
     border:1px solid rgba(82,98,156,.9);
@@ -4435,11 +4449,11 @@ LOGIN_HTML = r"""
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="muted">Login to access your command center.</div>
+    <div class="muted">Sign in to your command center.</div>
 
     <form method="post" action="/login">
       <label>Username</label>
-      <input name="username" autocomplete="username" required/>
+      <input name="username" placeholder="Username" autocomplete="username" required/>
       <label>Password</label>
       <input name="password" type="password" autocomplete="current-password" required/>
       <div class="row">
@@ -4474,13 +4488,11 @@ REGISTER_HTML = r"""
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="muted">Create a new account.</div>
+    <div class="muted">Create your account to get started.</div>
 
     <form method="post" action="/register">
       <label>Username</label>
-      <input name="username" autocomplete="username" required/>
-      <label>Email (optional)</label>
-      <input name="email" autocomplete="email"/>
+      <input name="username" placeholder="Choose a username" autocomplete="username" required/>
       <label>Password</label>
       <input name="password" type="password" autocomplete="new-password" required/>
       <label>Confirm password</label>
@@ -4510,13 +4522,11 @@ SETUP_HTML = r"""
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="muted">Create the first account.</div>
+    <div class="muted">Welcome! Create the admin account to get started.</div>
 
     <form method="post" action="/setup">
       <label>Username</label>
-      <input name="username" autocomplete="username" required/>
-      <label>Email (optional)</label>
-      <input name="email" autocomplete="email"/>
+      <input name="username" placeholder="Choose a username" autocomplete="username" required/>
       <label>Password</label>
       <input name="password" type="password" autocomplete="new-password" required/>
       <div class="row">
@@ -4623,7 +4633,7 @@ def login_post():
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u or not check_password_hash(u.get("password_hash",""), password):
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password.", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     session["user"] = username
     session.permanent = bool(remember)
@@ -5225,7 +5235,7 @@ HTML = r"""
     /* ===== REDESIGNED NAV BAR ===== */
     .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
-    .saNavCenter{flex:1;display:flex;flex-direction:column;gap:5px;min-width:240px;}
+    .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
     .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
@@ -5237,7 +5247,6 @@ HTML = r"""
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
-    .saCmdIcon{font-size:14px;color:rgba(124,58,237,.7);flex-shrink:0;}
 
     .saObjectivePill{font-size:12px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .commandHeader,.commandRow{display:none !important;}
@@ -8829,160 +8838,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal("Saved", "Teammate framework updated.");
     };
 
-    // -------- Action Stacks (Sequence Runner) --------
-const ActionStack = { teammate: "", steps: [] };
 
-
-async function loadStacksForTeammate(teammate){
-  const sel = $("stackSelect");
-  if(!sel) return;
-  sel.innerHTML = "";
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks`);
-  const data = await res.json();
-  if(!data.ok) return;
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.text = "(select)";
-  sel.appendChild(opt0);
-  (data.stacks || []).forEach((n) => {
-    const opt = document.createElement("option");
-    opt.value = n;
-    opt.text = n;
-    sel.appendChild(opt);
-  });
-}
-
-async function loadStackDetail(teammate, name){
-  if(!name) return;
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`);
-  const data = await res.json();
-  if(!data.ok) return;
-  const stack = data.stack || {};
-  ActionStack.steps = (stack.steps || []).map(s => ({type:"prompt", prompt: s.prompt || ""}));
-  if($("stackName")) $("stackName").value = stack.name || name;
-  renderStackSteps();
-}
-
-async function loadSchedulesForTeammate(teammate){
-  const box = $("stackSchedules");
-  if(!box) return;
-  box.innerHTML = "";
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedules`);
-  const data = await res.json();
-  if(!data.ok) return;
-  const items = data.schedules || [];
-  if(items.length === 0){
-    const t = document.createElement("div");
-    t.className = "tiny";
-    t.innerText = "No schedules yet.";
-    box.appendChild(t);
-    return;
-  }
-  items.forEach((s) => {
-    const row = document.createElement("div");
-    row.className = "pillRow";
-    row.style.marginTop = "6px";
-    const pill = document.createElement("div");
-    pill.className = "pill";
-    const mode = s.mode || "once";
-    const when = mode === "daily" ? (`daily @ ${s.time || ""}`) : (s.run_at || "");
-        const lr = s.last_run ? (` • last: ${s.last_run}`) : "";
-        
-    pill.innerText = `${s.stack_name || ""} • ${when}${lr}`;
-    row.appendChild(pill);
-
-    const del = document.createElement("button");
-    del.className = "btn";
-    del.innerText = "Delete";
-    del.onclick = async () => {
-      await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule/delete`, {
-        method:"POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({schedule_id: s.id})
-      });
-      loadSchedulesForTeammate(teammate);
-    };
-    row.appendChild(del);
-    box.appendChild(row);
-  });
-}
-
-async function saveCurrentStack(){
-  const teammate = ActionStack.teammate;
-  const name = (($("stackName") && $("stackName").value) || "").trim();
-  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
-  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Enter a stack name."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({steps: ActionStack.steps})
-  });
-  const data = await res.json();
-  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Saved." : (data.error || "Save failed.");
-  loadStacksForTeammate(teammate);
-}
-
-async function runCurrentStack(){
-  const teammate = ActionStack.teammate;
-  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
-  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
-  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick or type a stack name."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/${encodeURIComponent(name)}/run`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({input: (($("mainPrompt") && $("mainPrompt").value) || "").trim(), client_id: (window.ClientStore ? (ClientStore.active_id || "") : "")})
-  });
-  const data = await res.json();
-  if(!data.ok){ if($("stackStatus")) $("stackStatus").innerText = data.error || "Run failed."; return; }
-  renderStackSteps();
-  renderRunOutputs(data.run);
-}
-
-async function scheduleOnce(){
-  const teammate = ActionStack.teammate;
-  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
-  const runAt = ($("stackRunAt") && $("stackRunAt").value) || "";
-  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
-  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
-  if(!runAt){ if($("stackStatus")) $("stackStatus").innerText = "Pick a datetime."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({mode:"once", stack_name:name, run_at: runAt})
-  });
-  const data = await res.json();
-  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
-  loadSchedulesForTeammate(teammate);
-}
-
-async function scheduleDaily(){
-  const teammate = ActionStack.teammate;
-  const name = ((($("stackName") && $("stackName").value) || "").trim()) || ((($("stackSelect") && $("stackSelect").value) || "").trim());
-  const t = ($("stackDailyAt") && $("stackDailyAt").value) || "";
-  if(!teammate){ if($("stackStatus")) $("stackStatus").innerText = "No teammate selected."; return; }
-  if(!name){ if($("stackStatus")) $("stackStatus").innerText = "Pick a stack name."; return; }
-  if(!t){ if($("stackStatus")) $("stackStatus").innerText = "Pick a daily time."; return; }
-  const res = await fetch(`/api/teammates/${encodeURIComponent(teammate)}/stacks/schedule`, {
-    method:"POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({mode:"daily", stack_name:name, time: t})
-  });
-  const data = await res.json();
-  if($("stackStatus")) $("stackStatus").innerText = data.ok ? "Scheduled." : (data.error || "Schedule failed.");
-  loadSchedulesForTeammate(teammate);
-}
-
-window.openStackForTeammate = function(name){
-  ActionStack.teammate = name;
-  ActionStack.steps = [];
-  if($("stackName")) $("stackName").value = "";
-  if($("stackPrompt")) $("stackPrompt").value = "";
-  if($("stackStatus")) $("stackStatus").innerText = "";
-  renderStackSteps();
-  showStackTab(`Stack: ${name}`);
-  loadStacksForTeammate(name);
-  loadSchedulesForTeammate(name);
-};
 
 function makeSeat(defn, idx){
       const wrap = $("tableWrap");
@@ -14046,29 +13902,6 @@ function openApiKeyHelp(){
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
 }
 
-// Stack UI bindings
-if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
-  const p = ($("stackPrompt").value || "").trim();
-  if(!p){ $("stackStatus").innerText = "Enter a prompt for the step."; return; }
-  ActionStack.steps.push({type:"prompt", prompt: p});
-  $("stackPrompt").value = "";
-  $("stackStatus").innerText = "";
-  renderStackSteps();
-};
-if($("stackClearBtn")) $("stackClearBtn").onclick = () => { ActionStack.steps = []; renderStackSteps(); $("stackStatus").innerText = "Cleared."; };
-if($("stackSaveBtn")) $("stackSaveBtn").onclick = saveCurrentStack;
-if($("stackRunBtn")) $("stackRunBtn").onclick = runCurrentStack;
-if($("cancelStack")) $("cancelStack").onclick = () => hideModal();
-if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
-if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
-if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
-if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
-
-// Safe schedule runner tick (no background threads)
-if(!window.__stackTickInterval){
-  window.__stackTickInterval = setInterval(() => {
-  }, 20000);
-}
 // API key help button
 if($("openApiKeyHelpBtn")) $("openApiKeyHelpBtn").onclick = () => openApiKeyHelp();
 if($("closeApiKeyHelpBtn")) $("closeApiKeyHelpBtn").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
@@ -14078,29 +13911,6 @@ if($("closeApiKeyHelpBtn")) $("closeApiKeyHelpBtn").onclick = () => { try{ docum
 if($("activeClientSelect")) $("activeClientSelect").onchange = () => setActiveClient($("activeClientSelect").value);
 if($("clientSearch")) $("clientSearch").oninput = () => _renderClientSelect($("clientSearch").value);
 
-// Stack UI bindings (safe)
-if($("stackAddPromptBtn")) $("stackAddPromptBtn").onclick = () => {
-  const p = ($("stackPrompt").value || "").trim();
-  if(!p){ $("stackStatus").innerText = "Enter a prompt for the step."; return; }
-  ActionStack.steps.push({type:"prompt", prompt: p});
-  $("stackPrompt").value = "";
-  $("stackStatus").innerText = "";
-  renderStackSteps();
-};
-if($("stackClearBtn")) $("stackClearBtn").onclick = () => { ActionStack.steps = []; renderStackSteps(); $("stackStatus").innerText = "Cleared."; };
-if($("stackSaveBtn")) $("stackSaveBtn").onclick = saveCurrentStack;
-if($("stackRunBtn")) $("stackRunBtn").onclick = runCurrentStack;
-if($("cancelStack")) $("cancelStack").onclick = () => { try{ document.body.style.overflow = ""; }catch(_){ } hideModal(); };
-if($("stackScheduleOnceBtn")) $("stackScheduleOnceBtn").onclick = scheduleOnce;
-if($("stackScheduleDailyBtn")) $("stackScheduleDailyBtn").onclick = scheduleDaily;
-if($("stackRefreshSchedulesBtn")) $("stackRefreshSchedulesBtn").onclick = () => loadSchedulesForTeammate(ActionStack.teammate);
-if($("stackSelect")) $("stackSelect").onchange = () => loadStackDetail(ActionStack.teammate, $("stackSelect").value);
-
-// Safe schedule runner tick (no background threads)
-if(!window.__stackTickInterval){
-  window.__stackTickInterval = setInterval(() => {
-  }, 20000);
-}
 // API key help delegation (works even if elements render later)
 document.addEventListener("click", (e) => {
           // Clients delegation
@@ -15615,17 +15425,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!d.ok || !body) return;
       const s   = d.stats   || {};
       const act = s.activity || {}; const crm  = s.crm  || {};
-      const runs= s.runs    || {}; const rag   = s.rag  || {};
-      const smem= s.shared_memory || {}; const wh= s.webhooks || {};
-      const sched= s.schedules || {};
+      const rag   = s.rag  || {};
+      const smem= s.shared_memory || {};
       body.innerHTML = `
         <div class="sa-stat-grid">
           <div class="sa-stat-card"><div class="sa-stat-num">${act.total_actions||0}</div><div class="sa-stat-lbl">AI Actions</div></div>
           <div class="sa-stat-card"><div class="sa-stat-num">${crm.total_clients||0}</div><div class="sa-stat-lbl">CRM Contacts</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${runs.total||0}</div><div class="sa-stat-lbl">Stack Runs</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_docs||0}</div><div class="sa-stat-lbl">RAG Docs</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${wh.total||0}</div><div class="sa-stat-lbl">Webhooks</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${sched.total||0}</div><div class="sa-stat-lbl">Schedules</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_docs||0}</div><div class="sa-stat-lbl">Knowledge Docs</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_chunks||0}</div><div class="sa-stat-lbl">Knowledge Chunks</div></div>
         </div>
         <div class="sa-dash-section">
           <h3>TOP TEAMMATES BY ACTIVITY</h3>
@@ -15635,10 +15442,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
           <h3>CRM PIPELINE</h3>
           ${Object.entries(crm.stages||{}).map(([st,cnt])=>`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No CRM data.</div>'}
         </div>
-        <div class="sa-dash-section">
-          <h3>STACK RUNS BY STATUS</h3>
-          ${Object.entries(runs.by_status||{}).map(([st,cnt])=>`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No runs yet.</div>'}
-        </div>
+
         <div class="sa-dash-section">
           <h3>SHARED TEAM MEMORY</h3>
           <div class="sa-dash-row"><span>Facts</span><span style="color:#a5b4fc;">${smem.facts||0}</span></div>
