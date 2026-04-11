@@ -2235,6 +2235,23 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
         )
 
+    # Session objective — gives all teammates awareness of the current goal
+    session_obj_block = ""
+    try:
+        osd2 = _os_load(_op_user or "anon")
+        obj = osd2.get("session_objective") or {}
+        obj_title = (obj.get("title") or "").strip()
+        obj_context = (obj.get("context") or "").strip()
+        if obj_title:
+            session_obj_block = (
+                "\n\nSESSION GOAL (active right now — all teammates are aligned to this)\n"
+                f"Goal: {obj_title}\n"
+            )
+            if obj_context:
+                session_obj_block += f"Context: {obj_context}\n"
+    except Exception:
+        session_obj_block = ""
+
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
@@ -2245,6 +2262,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
+        f"{session_obj_block}"
         f"{client_block}"
         f"{shared_memory_block}\n"
         f"{rag_context}"
@@ -9007,9 +9025,10 @@ function makeSeat(defn, idx){
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const pad = 6;
-        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
-        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
+        // Use full viewport for bounds (not just tableWrap) so seats can be moved freely
+        const pad = -120;  // allow seats to go slightly off-edge for natural feel
+        const maxLeft = (boundsEl.clientWidth || window.innerWidth) - seat.offsetWidth + 120;
+        const maxTop  = (boundsEl.clientHeight || window.innerHeight) - seat.offsetHeight + 120;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -10047,19 +10066,48 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
+    // Phonetic aliases — maps speech-recognition output → canonical teammate name
+    const SEAT_NAME_ALIASES = {
+      'atlas':    'Atlis',
+      'atlis':    'Atlis',
+      'atlus':    'Atlis',
+      'atlass':   'Atlis',
+      'alex':     'Alex',
+      'alexa':    'Alex',
+      'willow':   'Willow',
+      'willo':    'Willow',
+      'ava':      'Ava',
+      'orion':    'Orion',
+      'orian':    'Orion',
+      'sunshine': 'Sunshine',
+      'luna':     'Luna',
+    };
+
     function findFirstNameMention(text){
       const names = getInstalledNamesInOrder();
       const lower = (text || "").toLowerCase();
       let best = null;
 
-      for(const name of names){
-        if(!name) continue;
-        const nl = name.toLowerCase();
-        const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      // Build match list: installed names + all aliases that map to an installed name
+      const installedSet = new Set(names.map(n=>n.toLowerCase()));
+      const matchPairs = []; // [{pattern, canonicalName}]
+      names.forEach(name=>{
+        if(!name) return;
+        matchPairs.push({pattern: name.toLowerCase(), canonical: name});
+      });
+      // Add alias patterns
+      Object.entries(SEAT_NAME_ALIASES).forEach(([alias, canonical])=>{
+        if(names.some(n=>n===canonical)){
+          matchPairs.push({pattern: alias, canonical});
+        }
+      });
+
+      for(const {pattern, canonical} of matchPairs){
+        const rx = new RegExp("\\b" + pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
         const m = rx.exec(lower);
         if(m && m.index >= 0){
           if(best === null || m.index < best.idx){
-            best = { name, idx: m.index };
+            best = { name: canonical, idx: m.index };
           }
         }
       }
@@ -10269,11 +10317,17 @@ function makeSeat(defn, idx){
       };
 
       rec.onerror = (e) => {
+        const errType = (e && e.error) ? e.error : "unknown";
+        // Non-fatal: no-speech (silence timeout) and aborted — just restart quietly
+        if(errType === "no-speech" || errType === "aborted"){
+          // onend will fire after onerror and restart automatically — nothing to do here
+          return;
+        }
+        // Fatal errors: stop and inform user
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
         try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        try{ showModal("Mic error", "Mic error: " + errType + ". " + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -12923,13 +12977,17 @@ function wcalDragWireGrid(grid){
     const colRect=targetCol.getBoundingClientRect();
     const scrolled=wrap?wrap.scrollTop:0;
     const cursorGridPx = (e.clientY - colRect.top) + scrolled;
+    // blockTopPx = where the block TOP should be (cursor minus grab offset within block)
     const blockTopPx = cursorGridPx - wcalDrag.grabOffsetMins;
-    const startMins=Math.max(0, Math.min(Math.round(blockTopPx/15)*15, 23*60));
+    // Visual position: smooth (no snap) so block follows cursor precisely
+    const visualTop = Math.max(0, Math.min(blockTopPx, 23*60));
+    // Drop target: snapped to 15 minutes for the saved time
+    const startMins = Math.max(0, Math.min(Math.round(blockTopPx/15)*15, 23*60));
 
-    // Move block visually
+    // Move block visually — smooth, unsnapped
     const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
     if(origCol && targetCol !== origCol) targetCol.appendChild(wcalDrag.el);
-    wcalDrag.el.style.top=startMins+'px';
+    wcalDrag.el.style.top=visualTop+'px';
     wcalDrag.el.style.left='3px';
     wcalDrag.el.style.right='3px';
     wcalDrag.el.style.position='absolute';
@@ -12971,7 +13029,7 @@ function wcalDragWireGrid(grid){
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
     Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_suppressNextClick:false});
 
-    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
+    if(!wasDragging||targetMins==null){ return; }  // clean click — let onclick fire naturally
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
@@ -18468,8 +18526,27 @@ def api_crm_social_studio():
     if not offer:
         return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+    asset_labels = {
+        "content_pack": "5 posts (hook + body + CTA each)",
+        "hooks": "10 scroll-stopping hooks",
+        "comments": "10 engagement comments",
+        "dms": "5 DM openers",
+        "captions": "5 short captions with hashtags",
+        "stories": "5 story frames (scene + text overlay + CTA)",
+    }
+    asset_desc = asset_labels.get(asset_type, asset_type.replace("_", " "))
+    system = (
+        "You are a social media copywriter. Output ONLY ready-to-post copy — no advice, no strategy, no explanations, no bullet-point recommendations. "
+        "Every line you write should be something the user can copy and paste directly. "
+        "Format clearly with numbered items and section headers. No em dashes."
+    )
+    prompt = (
+        f"Platform: {platform}\n"
+        f"What to generate: {asset_desc}\n"
+        f"Target audience: {audience}\n"
+        f"Offer / angle: {offer}\n\n"
+        f"Write the {asset_desc} now. Output only the copy itself, ready to post. No preamble, no strategy, no tips."
+    )
     fallback = (
         f"Content pack for {platform}\n"
         f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
