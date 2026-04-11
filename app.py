@@ -2235,23 +2235,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
         )
 
-    # Session objective — gives all teammates awareness of the current goal
-    session_obj_block = ""
-    try:
-        osd2 = _os_load(_op_user or "anon")
-        obj = osd2.get("session_objective") or {}
-        obj_title = (obj.get("title") or "").strip()
-        obj_context = (obj.get("context") or "").strip()
-        if obj_title:
-            session_obj_block = (
-                "\n\nSESSION GOAL (active right now — all teammates are aligned to this)\n"
-                f"Goal: {obj_title}\n"
-            )
-            if obj_context:
-                session_obj_block += f"Context: {obj_context}\n"
-    except Exception:
-        session_obj_block = ""
-
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
@@ -2262,7 +2245,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
-        f"{session_obj_block}"
         f"{client_block}"
         f"{shared_memory_block}\n"
         f"{rag_context}"
@@ -4054,18 +4036,19 @@ AUTH_BASE_CSS = r"""
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 20px 18px;
+    padding: 28px 18px;
   }
   .card{
-    width: min(480px, calc(100vw - 36px));
+    width: min(860px, calc(100vw - 36px));
+    min-height: min(84vh, 820px);
     max-width: calc(100vw - 36px);
     background:
-      linear-gradient(180deg, rgba(19,28,59,.96), rgba(10,15,33,.98)),
-      radial-gradient(600px 320px at 50% 0%, rgba(124,58,237,.16), transparent 65%);
+      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
+      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
     border:1px solid rgba(76,92,148,.72);
-    border-radius: 24px;
-    padding: 36px 36px 32px;
-    box-shadow: 0 24px 90px rgba(0,0,0,.62), 0 0 40px rgba(124,58,237,.14);
+    border-radius: 26px;
+    padding: 34px 34px 30px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
     backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
@@ -4127,7 +4110,7 @@ AUTH_BASE_CSS = r"""
     min-height: 52px;
   }
   .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 100%; }
+  .card form{ max-width: 640px; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.72);
     background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
@@ -4166,41 +4149,6 @@ AUTH_BASE_CSS = r"""
     .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
     .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
 
-
-  /* ── Mushroom & dragonfly animation ─────────────────────── */
-  .login-scene{
-    width:100%; height:80px; position:relative; overflow:hidden;
-    margin-bottom: 22px; user-select:none; pointer-events:none;
-  }
-  @keyframes mushroomGrow{
-    0%{ transform:scaleY(0) translateX(-50%); opacity:0; }
-    60%{ transform:scaleY(1.08) translateX(-50%); opacity:1; }
-    80%{ transform:scaleY(.96) translateX(-50%); }
-    100%{ transform:scaleY(1) translateX(-50%); opacity:1; }
-  }
-  @keyframes dragonflyIn{
-    0%{ transform:translate(-60px,-10px) rotate(-8deg); opacity:0; }
-    30%{ opacity:1; }
-    55%{ transform:translate(0px,0px) rotate(2deg); }
-    70%{ transform:translate(4px,-3px) rotate(-3deg); }
-    100%{ transform:translate(0px,0px) rotate(0deg); }
-  }
-  @keyframes dragonflyOut{
-    0%{ transform:translate(0,0) rotate(0deg); opacity:1; }
-    20%{ transform:translate(6px,-8px) rotate(-12deg); }
-    100%{ transform:translate(160px,-60px) rotate(-25deg); opacity:0; }
-  }
-  @keyframes wingFlap{
-    0%,100%{ transform:scaleX(1) rotate(-5deg); }
-    50%{ transform:scaleX(.7) rotate(5deg); }
-  }
-  .mushroom{ position:absolute; left:50%; bottom:0; transform:scaleY(0) translateX(-50%);
-    transform-origin: bottom center; animation: mushroomGrow .9s cubic-bezier(.34,1.56,.64,1) .2s forwards; }
-  .dragonfly{ position:absolute; bottom:38px; left:calc(50% - 12px);
-    animation: dragonflyIn .7s ease-out 1.4s both; }
-  .dragonfly.fly-away{ animation: dragonflyOut .9s ease-in 3.2s both; }
-  .df-wing{ animation: wingFlap .12s linear infinite; transform-origin: center left; }
-  .df-wing.right{ transform-origin: center right; animation-direction: alternate; }
   /* Mobile responsiveness */
 @media (max-width: 640px){
   body{ overflow-x:hidden; padding: 16px 10px; }
@@ -4496,30 +4444,70 @@ LOGIN_HTML = r"""
     margin-right:auto !important;
   }
 }
+
+/* ===== MUSHROOM + DRAGONFLY ANIMATION ===== */
+.loginScene{
+  position:relative;
+  width:100%;
+  height:160px;
+  margin-top:28px;
+  overflow:hidden;
+  pointer-events:none;
+  user-select:none;
+}
+
+/* Mushroom grows from bottom center */
+@keyframes mushroomGrow{
+  0%  { transform: scaleY(0) translateX(-50%); opacity:0; }
+  15% { opacity:1; }
+  60% { transform: scaleY(1.08) translateX(-50%); }
+  75% { transform: scaleY(0.96) translateX(-50%); }
+  100%{ transform: scaleY(1)    translateX(-50%); opacity:1; }
+}
+.mushroomSvg{
+  position:absolute;
+  bottom:0;
+  left:50%;
+  transform-origin: bottom center;
+  animation: mushroomGrow 1.2s cubic-bezier(.34,1.56,.64,1) 0.3s both;
+  width:110px;
+  height:130px;
+}
+
+/* Dragonfly: fly in from right, land, pause, fly off left */
+@keyframes dragonflyFlight{
+  0%   { transform: translate(220px, 60px) rotate(-20deg) scaleX(1);  opacity:0; }
+  8%   { opacity:1; }
+  38%  { transform: translate(0px,   0px) rotate(5deg)  scaleX(1);  opacity:1; }
+  55%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(1);  opacity:1; }
+  56%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(-1); opacity:1; }
+  88%  { transform: translate(-260px, 55px) rotate(15deg) scaleX(-1); opacity:1; }
+  95%  { opacity:0.3; }
+  100% { transform: translate(-320px, 80px) rotate(15deg) scaleX(-1); opacity:0; }
+}
+@keyframes wingBeat{
+  0%,100%{ transform: scaleY(1);   }
+  50%    { transform: scaleY(0.35);}
+}
+.dragonflySvg{
+  position:absolute;
+  bottom:92px;
+  left:calc(50% + 6px);
+  width:54px;
+  height:28px;
+  transform-origin: center center;
+  animation: dragonflyFlight 5.8s ease-in-out 1.2s both;
+}
+.dfWing{
+  animation: wingBeat 0.18s linear infinite;
+  transform-origin: center center;
+}
+/* Pause wing beat during landing phase (38%-55% = ~2.3s-3.2s into 5.8s) */
+.dragonflySvg:hover .dfWing{ animation-play-state:paused; }
 </style>
 
 </head><body>
   <div class="card">
-    <div class="login-scene" aria-hidden="true">
-      <!-- Mushroom -->
-      <svg class="mushroom" width="64" height="54" viewBox="0 0 64 54" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="23" y="34" width="18" height="20" rx="3" fill="rgba(200,160,120,.85)"/>
-        <ellipse cx="32" cy="34" rx="26" ry="16" fill="rgba(160,60,60,.88)"/>
-        <ellipse cx="20" cy="28" rx="5" ry="4" fill="rgba(255,255,255,.45)"/>
-        <ellipse cx="38" cy="24" rx="4" ry="3" fill="rgba(255,255,255,.35)"/>
-        <ellipse cx="46" cy="30" rx="3.5" ry="3" fill="rgba(255,255,255,.3)"/>
-      </svg>
-      <!-- Dragonfly -->
-      <svg class="dragonfly fly-away" width="36" height="24" viewBox="0 0 36 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="18" cy="14" rx="3" ry="7" fill="rgba(120,200,180,.9)"/>
-        <circle cx="18" cy="7" r="3.5" fill="rgba(100,180,160,.95)"/>
-        <circle cx="18" cy="6" r="1.5" fill="rgba(30,60,50,.7)"/>
-        <ellipse class="df-wing" cx="10" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(-15 10 10)"/>
-        <ellipse class="df-wing right" cx="26" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(15 26 10)"/>
-        <ellipse cx="10" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(10 10 16)"/>
-        <ellipse cx="26" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(-10 26 16)"/>
-      </svg>
-    </div>
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
 
@@ -4547,6 +4535,59 @@ LOGIN_HTML = r"""
     </div>
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
+
+    <!-- ===== MUSHROOM + DRAGONFLY SCENE ===== -->
+    <div class="loginScene" aria-hidden="true">
+      <!-- Mushroom SVG -->
+      <svg class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
+        <!-- stem -->
+        <rect x="36" y="72" width="38" height="58" rx="10" fill="rgba(230,220,200,0.88)"/>
+        <!-- stem shading -->
+        <rect x="36" y="72" width="14" height="58" rx="7" fill="rgba(200,185,165,0.45)"/>
+        <!-- gill underside -->
+        <ellipse cx="55" cy="74" rx="34" ry="10" fill="rgba(220,200,175,0.75)"/>
+        <!-- cap -->
+        <ellipse cx="55" cy="55" rx="52" ry="32" fill="#c0392b"/>
+        <!-- cap highlight gradient dome -->
+        <ellipse cx="55" cy="44" rx="44" ry="25" fill="rgba(220,80,60,0.55)"/>
+        <!-- white spots -->
+        <circle cx="55" cy="38" r="11" fill="rgba(255,255,255,0.88)"/>
+        <circle cx="28" cy="52" r="7"  fill="rgba(255,255,255,0.82)"/>
+        <circle cx="82" cy="50" r="7"  fill="rgba(255,255,255,0.82)"/>
+        <circle cx="43" cy="62" r="4"  fill="rgba(255,255,255,0.72)"/>
+        <circle cx="70" cy="60" r="5"  fill="rgba(255,255,255,0.72)"/>
+        <!-- shimmer -->
+        <ellipse cx="40" cy="38" rx="14" ry="6" fill="rgba(255,255,255,0.18)" transform="rotate(-18 40 38)"/>
+        <!-- ground ring -->
+        <ellipse cx="55" cy="128" rx="30" ry="5" fill="rgba(100,180,80,0.35)"/>
+        <ellipse cx="55" cy="128" rx="22" ry="3.5" fill="rgba(80,160,60,0.25)"/>
+      </svg>
+
+      <!-- Dragonfly SVG -->
+      <svg class="dragonflySvg" viewBox="0 0 54 28" xmlns="http://www.w3.org/2000/svg">
+        <!-- body -->
+        <ellipse cx="27" cy="16" rx="13" ry="4" fill="#2d7a4f"/>
+        <ellipse cx="27" cy="16" rx="5"  ry="3.5" fill="#1a5c37"/>
+        <!-- abdomen segments -->
+        <ellipse cx="36" cy="17" rx="4" ry="2.5" fill="#3a9e65"/>
+        <ellipse cx="42" cy="18" rx="3" ry="2"   fill="#2d7a4f"/>
+        <ellipse cx="47" cy="19" rx="2" ry="1.5" fill="#1a5c37"/>
+        <!-- head -->
+        <circle cx="18" cy="15" r="4.5" fill="#1a5c37"/>
+        <circle cx="16" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
+        <circle cx="20" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
+        <!-- wings (upper pair) -->
+        <g class="dfWing">
+          <ellipse cx="27" cy="9"  rx="18" ry="7" fill="rgba(160,220,255,0.55)" stroke="rgba(80,180,220,0.6)" stroke-width="0.5" transform="rotate(-8 27 9)"/>
+          <ellipse cx="27" cy="23" rx="16" ry="6" fill="rgba(160,220,255,0.45)" stroke="rgba(80,180,220,0.5)" stroke-width="0.5" transform="rotate(10 27 23)"/>
+        </g>
+        <!-- wing veins -->
+        <line x1="18" y1="9"  x2="44" y2="6"  stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
+        <line x1="18" y1="23" x2="42" y2="27" stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
+      </svg>
+    </div>
+    <!-- ===== END SCENE ===== -->
+
   </div>
 </body></html>
 """
@@ -6467,7 +6508,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saSettingsDrop">
             <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="operatorProfileBtn">Operator</button>
+            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
@@ -6484,9 +6525,10 @@ label         { font-size: 14px !important; }
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
 
-      <!-- Right: model tag -->
+      <!-- Right: model tag + logout -->
       <div class="saNavRight">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
+        <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
     </div>
@@ -8784,7 +8826,7 @@ window.showModal = function showModal(title, body, imgUrl){
       hideAllModalForms();
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'block';
       if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("modalTitle")) $("modalTitle").innerText = 'Operator';
+      if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
       try{
         const res = await fetch('/api/operator_profile');
@@ -8823,7 +8865,7 @@ window.showModal = function showModal(title, body, imgUrl){
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         if(st) st.innerText = 'Saved';
-        showToast('Operator profile saved');
+        showToast('Saved Operator Profile');
         if(selectedSeat === 'Operator'){ try{ await refreshThread(); }catch(e){} }
       }catch(e){
         if(st) st.innerText = e && e.message ? e.message : 'Save failed';
@@ -9025,10 +9067,9 @@ function makeSeat(defn, idx){
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        // Use full viewport for bounds (not just tableWrap) so seats can be moved freely
-        const pad = -120;  // allow seats to go slightly off-edge for natural feel
-        const maxLeft = (boundsEl.clientWidth || window.innerWidth) - seat.offsetWidth + 120;
-        const maxTop  = (boundsEl.clientHeight || window.innerHeight) - seat.offsetHeight + 120;
+        const pad = 6;
+        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
+        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -9089,7 +9130,7 @@ function makeSeat(defn, idx){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
 
-        showToast("No active teammates — use Team menu to add seats");
+        showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
@@ -9128,7 +9169,7 @@ function makeSeat(defn, idx){
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
-      profBtn.title = "Edit Operator (shared context)";
+      profBtn.title = "Edit Operator Profile (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openOperatorProfileModal(); });
       tools.appendChild(profBtn);
@@ -9344,29 +9385,6 @@ function makeSeat(defn, idx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
-
-      // ── First-time teammate self-introduction ──────────────
-      // Only once per teammate per browser session (sessionStorage key)
-      if(name && name !== "Operator"){
-        const introKey = "sa_intro_" + name;
-        if(!sessionStorage.getItem(introKey)){
-          sessionStorage.setItem(introKey, "1");
-          const defnI = (state && state.installed && state.installed[name]) || {};
-          const role = defnI.job_title || "your AI teammate";
-          const mission = defnI.mission || "";
-          const sysPrompt = `You are ${name}, ${role}. ${mission ? "Your mission: " + mission + "." : ""}`;
-          const introPrompt = `Introduce yourself briefly (2-3 sentences max). State your name, your specialty, and one concrete way you help. Be warm but concise. No em dashes.`;
-          try{
-            const res = await fetch("/api/followup", {
-              method:"POST",
-              headers:{"Content-Type":"application/json"},
-              body: JSON.stringify({name, message: introPrompt, lighting_mode: false})
-            });
-            const d = await res.json();
-            if(d && d.ok) await refreshThread();
-          }catch(e){}
-        }
-      }
     }
 
     function renderThread(msgs, imageState){
@@ -9971,6 +9989,24 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
 
+        // FIX: if the only thing spoken was a teammate name, switch seats — don't fill the box
+        try{
+          const dtHit = findFirstNameMention(combined);
+          if(dtHit){
+            const withoutName = combined
+              .replace(new RegExp("\\b" + dtHit.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi"), "")
+              .replace(/\s+/g, " ").trim();
+            if(!withoutName){
+              // Only the name was spoken — switch without putting it in the box
+              try{ if(typeof selectSeat === "function") selectSeat(dtHit.name); }catch(_){}
+              try{ if(typeof forceSeatSelectUI === "function") forceSeatSelectUI(dtHit.name); }catch(_){}
+              target.value = baseText;
+              finalText = ""; // prevent onend from re-adding the name
+              return;
+            }
+          }
+        }catch(_){}
+
         target.value = combined;
       };
 
@@ -10066,48 +10102,19 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // Phonetic aliases — maps speech-recognition output → canonical teammate name
-    const SEAT_NAME_ALIASES = {
-      'atlas':    'Atlis',
-      'atlis':    'Atlis',
-      'atlus':    'Atlis',
-      'atlass':   'Atlis',
-      'alex':     'Alex',
-      'alexa':    'Alex',
-      'willow':   'Willow',
-      'willo':    'Willow',
-      'ava':      'Ava',
-      'orion':    'Orion',
-      'orian':    'Orion',
-      'sunshine': 'Sunshine',
-      'luna':     'Luna',
-    };
-
     function findFirstNameMention(text){
       const names = getInstalledNamesInOrder();
       const lower = (text || "").toLowerCase();
       let best = null;
 
-      // Build match list: installed names + all aliases that map to an installed name
-      const installedSet = new Set(names.map(n=>n.toLowerCase()));
-      const matchPairs = []; // [{pattern, canonicalName}]
-      names.forEach(name=>{
-        if(!name) return;
-        matchPairs.push({pattern: name.toLowerCase(), canonical: name});
-      });
-      // Add alias patterns
-      Object.entries(SEAT_NAME_ALIASES).forEach(([alias, canonical])=>{
-        if(names.some(n=>n===canonical)){
-          matchPairs.push({pattern: alias, canonical});
-        }
-      });
-
-      for(const {pattern, canonical} of matchPairs){
-        const rx = new RegExp("\\b" + pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      for(const name of names){
+        if(!name) continue;
+        const nl = name.toLowerCase();
+        const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
         const m = rx.exec(lower);
         if(m && m.index >= 0){
           if(best === null || m.index < best.idx){
-            best = { name: canonical, idx: m.index };
+            best = { name, idx: m.index };
           }
         }
       }
@@ -10164,16 +10171,19 @@ function makeSeat(defn, idx){
     // This prevents the repeated phrases caused by appending partials.
     // Accumulates only NEW final results — never replays old ones
     let _alwaysAccumFinals = "";
+    let _alwaysLastProcIdx  = 0;   // FIX: track highest processed resultIndex to prevent replaying
 
     function getCanonicalSpeech(event){
       let newFinals = "";
       let interim   = "";
 
-      // Only process results we haven't seen yet (start from resultIndex)
-      for(let i = event.resultIndex; i < event.results.length; i++){
+      // Only process results we haven't seen yet (start from resultIndex, but never below our watermark)
+      const startIdx = Math.max(event.resultIndex, _alwaysLastProcIdx);
+      for(let i = startIdx; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
           newFinals += txt + " ";
+          _alwaysLastProcIdx = i + 1;   // advance watermark past this final result
         } else {
           interim += txt;
         }
@@ -10190,7 +10200,8 @@ function makeSeat(defn, idx){
     }
 
     function _resetCanonicalSpeech(){
-      _alwaysAccumFinals = "";
+      _alwaysAccumFinals   = "";
+      _alwaysLastProcIdx   = 0;   // FIX: also reset watermark on name switch
     }
 
     function subtractBaseline(allFinal){
@@ -10245,20 +10256,23 @@ function makeSeat(defn, idx){
         const allFinal   = canon.allFinal;   // accumulated new finals only
         const interimRaw = canon.interim;
 
-        // Detect name ONLY in interim — never in finalized text
-        // This prevents the name from ever appearing in the text box
-        const hit = findFirstNameMention(interimRaw);
+        // FIX: Detect name in INTERIM first (fast response), then fallback to allFinal.
+        // This catches names whether they arrive as interim or finalized text.
+        const hit = findFirstNameMention(interimRaw) || findFirstNameMention(allFinal);
 
         if(hit){
           const now = Date.now();
           if(now - lastNameSwitchAt > 800){
             lastNameSwitchAt = now;
+            window._alwaysLastSwitchedName = hit.name;   // FIX: remember for normal-path filtering
 
             // Save clean text (without name) to current target
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
             const targetBefore = currentAlwaysTarget();
             if(targetBefore && cleanedFinal){
               targetBefore.value = cleanedFinal.trim();
+            }else if(targetBefore){
+              targetBefore.value = "";  // FIX: clear box when only the name was spoken
             }
 
             // Switch to named teammate
@@ -10276,8 +10290,17 @@ function makeSeat(defn, idx){
         }
 
         // Normal update — accumulated finals + current interim
-        alwaysFinalText   = allFinal;
-        alwaysInterimText = interimRaw;
+        // FIX: Strip the last switched name so it never bleeds into the box after finalization
+        const _lsn = window._alwaysLastSwitchedName || "";
+        const filteredFinal  = _lsn ? removeNameOnce(allFinal,   _lsn) : allFinal;
+        const filteredInterim = _lsn ? removeNameOnce(interimRaw, _lsn) : interimRaw;
+        alwaysFinalText   = filteredFinal;
+        alwaysInterimText = filteredInterim;
+
+        // Clear the filter name once we have new speech that isn't the name
+        if(filteredFinal && filteredFinal !== alwaysBaseText){
+          window._alwaysLastSwitchedName = "";
+        }
 
         const target = currentAlwaysTarget();
         if(target){
@@ -10317,17 +10340,11 @@ function makeSeat(defn, idx){
       };
 
       rec.onerror = (e) => {
-        const errType = (e && e.error) ? e.error : "unknown";
-        // Non-fatal: no-speech (silence timeout) and aborted — just restart quietly
-        if(errType === "no-speech" || errType === "aborted"){
-          // onend will fire after onerror and restart automatically — nothing to do here
-          return;
-        }
-        // Fatal errors: stop and inform user
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
+        // In many webviews, errors persist; stop to avoid a dead loop.
         try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", "Mic error: " + errType + ". " + micHelpText()); }catch(_){ }
+        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -10434,7 +10451,7 @@ function makeSeat(defn, idx){
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
-        showToast("Add teammates to the round table first");
+        showModal("No active teammates", "Add teammates to the round table first.");
         return;
       }
 
@@ -10681,7 +10698,7 @@ async function pollImageJob(jobId, seatName){
       await loadState();
       // Play table activation sound
       try{ wcalPlayActivationSound(); }catch(e){}
-      showToast("✓ Full team assembled at the Round Table");
+      showModal("Team Assembled", "Full team installed and seated at the Round Table.");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12815,64 +12832,27 @@ window.wcalDetSaveEvent = async function(encodedId){
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const now=ctx.currentTime;
-    // Layer 1: low engine rumble sweep (80→220 Hz)
-    const rumble=ctx.createOscillator();
-    const rumbleGain=ctx.createGain();
-    rumble.type='sawtooth';
-    rumble.frequency.setValueAtTime(80,now);
-    rumble.frequency.exponentialRampToValueAtTime(220,now+1.1);
-    rumbleGain.gain.setValueAtTime(0,now);
-    rumbleGain.gain.linearRampToValueAtTime(0.12,now+0.15);
-    rumbleGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
-    rumble.connect(rumbleGain); rumbleGain.connect(ctx.destination);
-    rumble.start(now); rumble.stop(now+1.5);
-    // Layer 2: rising power tone (110→440)
-    const power=ctx.createOscillator();
-    const powerGain=ctx.createGain();
-    power.type='sine';
-    power.frequency.setValueAtTime(110,now+0.1);
-    power.frequency.exponentialRampToValueAtTime(440,now+1.0);
-    powerGain.gain.setValueAtTime(0,now+0.1);
-    powerGain.gain.linearRampToValueAtTime(0.18,now+0.4);
-    powerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
-    power.connect(powerGain); powerGain.connect(ctx.destination);
-    power.start(now+0.1); power.stop(now+1.5);
-    // Layer 3: high harmonic shimmer
-    const shimmer=ctx.createOscillator();
-    const shimmerGain=ctx.createGain();
-    shimmer.type='triangle';
-    shimmer.frequency.setValueAtTime(660,now+0.6);
-    shimmer.frequency.exponentialRampToValueAtTime(880,now+1.1);
-    shimmerGain.gain.setValueAtTime(0,now+0.6);
-    shimmerGain.gain.linearRampToValueAtTime(0.09,now+0.75);
-    shimmerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
-    shimmer.connect(shimmerGain); shimmerGain.connect(ctx.destination);
-    shimmer.start(now+0.6); shimmer.stop(now+1.5);
-    // Layer 4: final activation chime (two-note confirm)
-    [880,1174.7].forEach((freq,i)=>{
-      const o=ctx.createOscillator(); const g=ctx.createGain();
-      o.type='sine'; o.frequency.value=freq;
-      const t=now+1.05+i*0.14;
-      g.gain.setValueAtTime(0,t);
-      g.gain.linearRampToValueAtTime(0.14,t+0.04);
-      g.gain.exponentialRampToValueAtTime(0.001,t+0.35);
-      o.connect(g); g.connect(ctx.destination);
-      o.start(t); o.stop(t+0.4);
+    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
+    notes.forEach((freq,i)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type='sine'; osc.frequency.value=freq;
+      const t=ctx.currentTime+i*0.09;
+      gain.gain.setValueAtTime(0,t);
+      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+      osc.start(t); osc.stop(t+0.3);
     });
   }catch(e){}
 }
-
-// Alias so onboarding & other callers can use the same sound
-window.playRoundTableStartup = wcalPlayActivationSound;
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
 const wcalDrag={
   active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
-  // Pixel offset WITHIN the block where user clicked (in grid-pixel space)
-  grabOffsetMins:0,
+  clickOffsetPx:0,
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
 };
@@ -12886,22 +12866,15 @@ function wcalDragWireGrid(grid){
     el.addEventListener('mousedown',function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
+      // Do NOT call preventDefault here — that would kill the onclick/detail-open.
+      // We only take over if the user actually drags (detected in mousemove).
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
-
-      // Grab offset in MINUTES = (pixels from block top) = (cursor Y - block top in viewport) 
-      // + wrap.scrollTop - col.getBoundingClientRect().top
-      // This gives us the minute offset from the block's own start time
-      const colRect = col ? col.getBoundingClientRect() : {top:0};
-      const scrolled = wrap ? wrap.scrollTop : 0;
-      const elTopInGrid = e.clientY - colRect.top + scrolled - (e.clientY - el.getBoundingClientRect().top);
-      // Simpler: pixels from block top = cursor Y - block.top (both in viewport coords)
-      const grabPx = e.clientY - el.getBoundingClientRect().top;
-      const grabOffsetMins = Math.max(0, Math.round(grabPx)); // 1px = 1min
-
+      const elRect=el.getBoundingClientRect();
+      const clickOffsetPx=e.clientY-elRect.top;
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -12921,7 +12894,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el=el; wcalDrag.etype=etype;
       wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
-      wcalDrag.grabOffsetMins=grabOffsetMins;
+      wcalDrag.clickOffsetPx=clickOffsetPx;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
     });
@@ -12942,7 +12915,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el.style.zIndex='20';
       wcalDrag.el.style.cursor='grabbing';
       wcalDrag.el.style.pointerEvents='none';
-      // Suppress the upcoming click so detail panel doesn't open on drag-release
+      // Suppress the upcoming click so the detail panel doesn't open on drag-release
       wcalDrag._suppressNextClick=true;
       // Time tooltip
       const tip=document.createElement('div');
@@ -12951,7 +12924,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // Find target column by X
+    // Find target column by X position
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -12967,27 +12940,30 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // ── CORRECTED TIME CALCULATION ──────────────────────────────
-    // cursor position in the scrollable grid (absolute pixel from grid top):
-    //   gridPx = (e.clientY - col.getBoundingClientRect().top) + wrap.scrollTop
-    // This gives us where the cursor is in minute-space (1px = 1min).
-    // Subtract grabOffsetMins so the block's TOP snaps to the right slot,
-    // not the cursor position. The result: block top = where cursor is minus
-    // how far down the block the user grabbed.
+    // ── TIME CALCULATION ──────────────────────────────────────────
+    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
+    // Its height is constant (~44px) but visually it stays at the top of the wrap.
+    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
+    // the column, which is BELOW the sticky header. So:
+    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
+    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
+    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
+    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
     const colRect=targetCol.getBoundingClientRect();
+    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
     const scrolled=wrap?wrap.scrollTop:0;
-    const cursorGridPx = (e.clientY - colRect.top) + scrolled;
-    // blockTopPx = where the block TOP should be (cursor minus grab offset within block)
-    const blockTopPx = cursorGridPx - wcalDrag.grabOffsetMins;
-    // Visual position: smooth (no snap) so block follows cursor precisely
-    const visualTop = Math.max(0, Math.min(blockTopPx, 23*60));
-    // Drop target: snapped to 15 minutes for the saved time
-    const startMins = Math.max(0, Math.min(Math.round(blockTopPx/15)*15, 23*60));
+    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
+    // The sticky header is ~44px. Using colRect.top already accounts for it since
+    // wcal-day-col starts BELOW the sticky header in the DOM flow.
+    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
+    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
 
-    // Move block visually — smooth, unsnapped
+    // Move the original block visually (no ghost clone)
     const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
-    if(origCol && targetCol !== origCol) targetCol.appendChild(wcalDrag.el);
-    wcalDrag.el.style.top=visualTop+'px';
+    if(origCol && targetCol !== origCol){
+      targetCol.appendChild(wcalDrag.el);
+    }
+    wcalDrag.el.style.top=startMins+'px';
     wcalDrag.el.style.left='3px';
     wcalDrag.el.style.right='3px';
     wcalDrag.el.style.position='absolute';
@@ -13009,31 +12985,33 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
 
+    // Restore element styles
     wcalDrag.el.style.opacity='';
     wcalDrag.el.style.zIndex='';
     wcalDrag.el.style.cursor='';
     wcalDrag.el.style.pointerEvents='';
-
-    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
-
-    // Suppress detail-panel click after a drag
+    // If we actually dragged, suppress the next click event so detail panel doesn't open
     if(wcalDrag._suppressNextClick){
       wcalDrag._suppressNextClick=false;
       const el2=wcalDrag.el;
-      const sup=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',sup,true); };
-      wcalDrag.el.addEventListener('click',sup,true);
+      const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
+      wcalDrag.el.addEventListener('click',suppressHandler,true);
     }
+
+    // Remove tooltip
+    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
 
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
-    const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_suppressNextClick:false});
 
-    if(!wasDragging||targetMins==null){ return; }  // clean click — let onclick fire naturally
+    const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
+    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
+
+    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate) return;
+    if(newStart===origStart && targetDate===origDate){ return; }
 
     if(etype==='task'){
       const task=cal.tasks.find(t=>t.id===tid); if(!task){ wcalRefresh(); return; }
@@ -13046,6 +13024,7 @@ function wcalDragWireGrid(grid){
         showToast('Task moved → '+targetDate+' '+newStart);
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed'); wcalRefresh(); }
+
     } else {
       let ev=null;
       Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
@@ -13818,7 +13797,8 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const needsEmail = !me.has_smtp;
 
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // Show coach bubble only — do NOT auto-open settings modal, let user land on main UI
+        // auto open settings, and show a coach bubble on the Settings button
+        try{ showSettingsModal(true); }catch(e){}
         const b = placeCoach($("settingsBtn"),
           "Start here: Settings",
           "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
@@ -15137,20 +15117,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "first_prompt"){
-        // Auto-save settings if the settings modal is open, then close it
-        try{
-          const overlay = document.getElementById("overlay");
-          if(overlay && overlay.classList.contains("show")){
-            const saveBtn = document.getElementById("saveSettings");
-            if(saveBtn && typeof saveBtn.onclick === "function") await saveBtn.onclick();
-            if(typeof hideModal === "function") hideModal();
-            await new Promise(r=>setTimeout(r,200));
-          }
-        }catch(e){}
-        // Play activation sound and focus the DM input
-        try{ if(typeof wcalPlayActivationSound === "function") wcalPlayActivationSound(); }catch(e){}
         focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Round table active — send your first prompt!"); }catch(e){}
+        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
         return;
       }
     }finally{
@@ -18526,27 +18494,8 @@ def api_crm_social_studio():
     if not offer:
         return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    asset_labels = {
-        "content_pack": "5 posts (hook + body + CTA each)",
-        "hooks": "10 scroll-stopping hooks",
-        "comments": "10 engagement comments",
-        "dms": "5 DM openers",
-        "captions": "5 short captions with hashtags",
-        "stories": "5 story frames (scene + text overlay + CTA)",
-    }
-    asset_desc = asset_labels.get(asset_type, asset_type.replace("_", " "))
-    system = (
-        "You are a social media copywriter. Output ONLY ready-to-post copy — no advice, no strategy, no explanations, no bullet-point recommendations. "
-        "Every line you write should be something the user can copy and paste directly. "
-        "Format clearly with numbered items and section headers. No em dashes."
-    )
-    prompt = (
-        f"Platform: {platform}\n"
-        f"What to generate: {asset_desc}\n"
-        f"Target audience: {audience}\n"
-        f"Offer / angle: {offer}\n\n"
-        f"Write the {asset_desc} now. Output only the copy itself, ready to post. No preamble, no strategy, no tips."
-    )
+    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
+    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
     fallback = (
         f"Content pack for {platform}\n"
         f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
