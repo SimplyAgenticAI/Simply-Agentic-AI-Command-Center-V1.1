@@ -279,8 +279,6 @@ except Exception:
 DATA_DIR = str(DATA)
 REGISTRY_PATH = DATA / "teammates.json"
 THREADS_DIR = DATA / "threads"
-TEAMMATE_MEMORY_DIR = DATA / "teammate_memory"
-TEAMMATE_MEMORY_DIR.mkdir(exist_ok=True)
 LOGS_DIR = DATA / "logs"
 UPLOADS_DIR = DATA / "uploads"
 UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
@@ -660,8 +658,6 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 # Schedules run via /api/action_stack_schedules/tick which the UI pings.
 
 ACTION_STACKS_DIR = DATA / "action_stacks"
-PLAYS_DIR = DATA / "plays"
-PLAYS_DIR.mkdir(exist_ok=True)
 ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
 ACTION_STACK_MEMORY_DIR = DATA / "action_stack_memory"
 OPERATOR_PROFILE_DIR = DATA / "operator_profile"
@@ -1383,68 +1379,6 @@ def load_thread(teammate_name: str) -> List[Dict[str, str]]:
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]]) -> None:
     save_json(thread_path(teammate_name), msgs)
 
-
-def _teammate_memory_path(username: str, teammate: str) -> Path:
-    safe_u = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
-    safe_t = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate or "unknown")
-    return TEAMMATE_MEMORY_DIR / f"{safe_u}_{safe_t}.json"
-
-def load_teammate_memory(username: str, teammate: str) -> Dict[str, Any]:
-    """Load persistent memory for a teammate (key facts, client names, preferences)."""
-    return load_json(_teammate_memory_path(username, teammate), {"facts": [], "updated_at": ""})
-
-def save_teammate_memory(username: str, teammate: str, mem: Dict[str, Any]) -> None:
-    mem["updated_at"] = now_iso()
-    save_json(_teammate_memory_path(username, teammate), mem)
-
-def _extract_teammate_memory_async(username: str, teammate: str, thread: List[Dict]) -> None:
-    """Background extraction of key facts from recent conversation."""
-    import threading
-    def _run():
-        try:
-            recent = thread[-10:] if len(thread) > 10 else thread
-            conversation = "\n".join(
-                f"{m['role'].upper()}: {str(m.get('content',''))[:400]}"
-                for m in recent if m.get("content")
-            )
-            if not conversation.strip():
-                return
-            sys = (
-                "Extract up to 6 key facts from this conversation that the teammate should remember long-term. "
-                "Focus on: client names, business goals, preferences, decisions made, ongoing projects. "
-                "Return JSON only: {\"facts\": [\"fact 1\", \"fact 2\", ...]}. "
-                "If nothing worth remembering, return {\"facts\": []}. No explanation."
-            )
-            raw = call_llm(sys, [{"role": "user", "content": conversation}], temperature=0.1)
-            import json as _json
-            cleaned = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-            parsed = _json.loads(cleaned)
-            new_facts = [str(f).strip() for f in (parsed.get("facts") or []) if f]
-            if not new_facts:
-                return
-            mem = load_teammate_memory(username, teammate)
-            existing = mem.get("facts") or []
-            # Merge, dedup loosely, keep most recent 12
-            merged = list(dict.fromkeys(new_facts + existing))[:12]
-            mem["facts"] = merged
-            save_teammate_memory(username, teammate, mem)
-        except Exception:
-            pass
-    threading.Thread(target=_run, daemon=True).start()
-
-def _teammate_memory_block(username: str, teammate: str) -> str:
-    """Format memory block for injection into system prompt."""
-    try:
-        mem = load_teammate_memory(username, teammate)
-        facts = mem.get("facts") or []
-        if not facts:
-            return ""
-        lines = ["\n\nYOUR PERSISTENT MEMORY (recalled from past sessions — treat as established context)"]
-        for f in facts[:10]:
-            lines.append(f"- {f}")
-        return "\n".join(lines) + "\n"
-    except Exception:
-        return ""
 
 def _normalize_lines_to_list(val: Any) -> List[str]:
     if val is None:
@@ -2301,26 +2235,22 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
         )
 
-    # Session objective
+    # Session objective — gives all teammates awareness of the current goal
     session_obj_block = ""
     try:
-        _osd2 = _os_load(_op_user or "anon")
-        _obj = _osd2.get("session_objective") or {}
-        _obj_title = (_obj.get("title") or "").strip()
-        _obj_ctx = (_obj.get("context") or "").strip()
-        if _obj_title:
+        osd2 = _os_load(_op_user or "anon")
+        obj = osd2.get("session_objective") or {}
+        obj_title = (obj.get("title") or "").strip()
+        obj_context = (obj.get("context") or "").strip()
+        if obj_title:
             session_obj_block = (
-                "\n\nSESSION GOAL (active right now — align all responses to this)\n"
-                f"Goal: {_obj_title}\n"
+                "\n\nSESSION GOAL (active right now — all teammates are aligned to this)\n"
+                f"Goal: {obj_title}\n"
             )
-            if _obj_ctx:
-                session_obj_block += f"Context: {_obj_ctx}\n"
+            if obj_context:
+                session_obj_block += f"Context: {obj_context}\n"
     except Exception:
         session_obj_block = ""
-
-    # Persistent teammate memory
-    teammate_name = defn.get("name", "")
-    mem_block = _teammate_memory_block(_op_user or "anon", teammate_name)
 
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
@@ -2334,7 +2264,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{operator_block}"
         f"{session_obj_block}"
         f"{client_block}"
-        f"{mem_block}"
         f"{shared_memory_block}\n"
         f"{rag_context}"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
@@ -2861,53 +2790,6 @@ def api_action_stacks_schedules_delete(teammate: str):
     _save_schedules(uname, schedules)
     return jsonify({"ok": True})
 
-
-
-@app.get("/api/plays")
-def api_plays_list():
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username","anon")
-    path = PLAYS_DIR / f"{uname}.json"
-    plays = load_json(path, [])
-    return jsonify({"ok": True, "plays": plays})
-
-@app.post("/api/plays")
-def api_plays_save():
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username","anon")
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    prompt = (data.get("prompt") or "").strip()
-    target = (data.get("target") or "dm").strip()   # "dm" or "group"
-    teammate = (data.get("teammate") or "").strip()
-    if not name or not prompt:
-        return jsonify({"ok": False, "error": "Name and prompt required"}), 400
-    path = PLAYS_DIR / f"{uname}.json"
-    plays = load_json(path, [])
-    # Update existing or append
-    existing = next((p for p in plays if p.get("name") == name), None)
-    if existing:
-        existing.update({"prompt": prompt, "target": target, "teammate": teammate, "updated_at": now_iso()})
-    else:
-        plays.append({"name": name, "prompt": prompt, "target": target, "teammate": teammate,
-                      "created_at": now_iso(), "updated_at": now_iso()})
-    save_json(path, plays)
-    return jsonify({"ok": True, "plays": plays})
-
-@app.post("/api/plays/delete")
-def api_plays_delete():
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username","anon")
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    path = PLAYS_DIR / f"{uname}.json"
-    plays = [p for p in load_json(path, []) if p.get("name") != name]
-    save_json(path, plays)
-    return jsonify({"ok": True, "plays": plays})
-
 @app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
     try:
@@ -3416,38 +3298,13 @@ def _api_convene_impl(data):
     except Exception:
         pass
 
-    # ── Session recap: Atlis synthesizes what happened in this round ──
-    recap = ""
-    try:
-        uname_recap = _get_session_username()
-        recap_prompt = (
-            f"The team just finished a round on this prompt: '{prompt2[:300]}'.\n"
-            f"Here is what each teammate produced:\n"
-            + "\n".join(f"**{n}**: {o[:400]}" for n,o in outputs.items())
-            + "\n\nWrite a 3-5 sentence synthesis: what was decided, what is each person's next action, and what stays open. "
-              "Be specific, use names. No em dashes. Start with '📋 Session recap:'"
-        )
-        recap = call_llm(
-            f"You are Atlis, the team's strategic coordinator. Synthesize group outputs concisely.",
-            [{"role": "user", "content": recap_prompt}],
-            temperature=0.3
-        )
-        # Save recap into Atlis thread so it persists
-        atlis_thread = load_thread("Atlis")
-        atlis_thread = atlis_thread[-12:] if len(atlis_thread) > 12 else atlis_thread
-        atlis_thread.append({"role": "assistant", "content": recap})
-        save_thread("Atlis", atlis_thread)
-    except Exception:
-        recap = ""
-
     return jsonify({
         "ok": True,
         "mode": "execute",
         "atlis_report": atlis_report,
         "outputs": outputs,
         "email_drafts": email_drafts,
-        "attachment_meta": attach_meta,
-        "recap": recap,
+        "attachment_meta": attach_meta
     })
 
 
@@ -3531,29 +3388,6 @@ def _api_followup_impl(data):
         return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
 
 
-
-    # If an active CRM client is set, prepend client-context reminder to the user message
-    try:
-        _active_c = _get_active_client(uname) or {}
-        if _active_c and _active_c.get("name"):
-            _cn = _active_c.get("name","")
-            _ce = _active_c.get("email","")
-            _cnotes = (_active_c.get("notes") or "")[:200]
-            _client_reminder = (
-                f"[Active client: {_cn}" +
-                (f" <{_ce}>" if _ce else "") +
-                (f" | Notes: {_cnotes}" if _cnotes else "") +
-                "] Frame your response around this client where relevant.\n"
-            )
-            if isinstance(user_content, str):
-                user_content = _client_reminder + user_content
-            elif isinstance(user_content, list):
-                # vision content — prepend to first text part
-                for part in user_content:
-                    if part.get("type") == "text":
-                        part["text"] = _client_reminder + part["text"]; break
-    except Exception:
-        pass
 
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
@@ -4220,19 +4054,18 @@ AUTH_BASE_CSS = r"""
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 28px 18px;
+    padding: 20px 18px;
   }
   .card{
-    width: min(860px, calc(100vw - 36px));
-    min-height: min(84vh, 820px);
+    width: min(480px, calc(100vw - 36px));
     max-width: calc(100vw - 36px);
     background:
-      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
-      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
+      linear-gradient(180deg, rgba(19,28,59,.96), rgba(10,15,33,.98)),
+      radial-gradient(600px 320px at 50% 0%, rgba(124,58,237,.16), transparent 65%);
     border:1px solid rgba(76,92,148,.72);
-    border-radius: 26px;
-    padding: 34px 34px 30px;
-    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
+    border-radius: 24px;
+    padding: 36px 36px 32px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.62), 0 0 40px rgba(124,58,237,.14);
     backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
@@ -4294,7 +4127,7 @@ AUTH_BASE_CSS = r"""
     min-height: 52px;
   }
   .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+  .card form{ max-width: 100%; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.72);
     background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
@@ -4333,6 +4166,41 @@ AUTH_BASE_CSS = r"""
     .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
     .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
 
+
+  /* ── Mushroom & dragonfly animation ─────────────────────── */
+  .login-scene{
+    width:100%; height:80px; position:relative; overflow:hidden;
+    margin-bottom: 22px; user-select:none; pointer-events:none;
+  }
+  @keyframes mushroomGrow{
+    0%{ transform:scaleY(0) translateX(-50%); opacity:0; }
+    60%{ transform:scaleY(1.08) translateX(-50%); opacity:1; }
+    80%{ transform:scaleY(.96) translateX(-50%); }
+    100%{ transform:scaleY(1) translateX(-50%); opacity:1; }
+  }
+  @keyframes dragonflyIn{
+    0%{ transform:translate(-60px,-10px) rotate(-8deg); opacity:0; }
+    30%{ opacity:1; }
+    55%{ transform:translate(0px,0px) rotate(2deg); }
+    70%{ transform:translate(4px,-3px) rotate(-3deg); }
+    100%{ transform:translate(0px,0px) rotate(0deg); }
+  }
+  @keyframes dragonflyOut{
+    0%{ transform:translate(0,0) rotate(0deg); opacity:1; }
+    20%{ transform:translate(6px,-8px) rotate(-12deg); }
+    100%{ transform:translate(160px,-60px) rotate(-25deg); opacity:0; }
+  }
+  @keyframes wingFlap{
+    0%,100%{ transform:scaleX(1) rotate(-5deg); }
+    50%{ transform:scaleX(.7) rotate(5deg); }
+  }
+  .mushroom{ position:absolute; left:50%; bottom:0; transform:scaleY(0) translateX(-50%);
+    transform-origin: bottom center; animation: mushroomGrow .9s cubic-bezier(.34,1.56,.64,1) .2s forwards; }
+  .dragonfly{ position:absolute; bottom:38px; left:calc(50% - 12px);
+    animation: dragonflyIn .7s ease-out 1.4s both; }
+  .dragonfly.fly-away{ animation: dragonflyOut .9s ease-in 3.2s both; }
+  .df-wing{ animation: wingFlap .12s linear infinite; transform-origin: center left; }
+  .df-wing.right{ transform-origin: center right; animation-direction: alternate; }
   /* Mobile responsiveness */
 @media (max-width: 640px){
   body{ overflow-x:hidden; padding: 16px 10px; }
@@ -4632,6 +4500,26 @@ LOGIN_HTML = r"""
 
 </head><body>
   <div class="card">
+    <div class="login-scene" aria-hidden="true">
+      <!-- Mushroom -->
+      <svg class="mushroom" width="64" height="54" viewBox="0 0 64 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="23" y="34" width="18" height="20" rx="3" fill="rgba(200,160,120,.85)"/>
+        <ellipse cx="32" cy="34" rx="26" ry="16" fill="rgba(160,60,60,.88)"/>
+        <ellipse cx="20" cy="28" rx="5" ry="4" fill="rgba(255,255,255,.45)"/>
+        <ellipse cx="38" cy="24" rx="4" ry="3" fill="rgba(255,255,255,.35)"/>
+        <ellipse cx="46" cy="30" rx="3.5" ry="3" fill="rgba(255,255,255,.3)"/>
+      </svg>
+      <!-- Dragonfly -->
+      <svg class="dragonfly fly-away" width="36" height="24" viewBox="0 0 36 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="18" cy="14" rx="3" ry="7" fill="rgba(120,200,180,.9)"/>
+        <circle cx="18" cy="7" r="3.5" fill="rgba(100,180,160,.95)"/>
+        <circle cx="18" cy="6" r="1.5" fill="rgba(30,60,50,.7)"/>
+        <ellipse class="df-wing" cx="10" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(-15 10 10)"/>
+        <ellipse class="df-wing right" cx="26" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(15 26 10)"/>
+        <ellipse cx="10" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(10 10 16)"/>
+        <ellipse cx="26" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(-10 26 16)"/>
+      </svg>
+    </div>
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
 
@@ -6570,7 +6458,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
-            <button class="saDropItem" id="playsBtn">🎯 Plays</button>
           </div>
         </div>
 
@@ -6580,7 +6467,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saSettingsDrop">
             <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
+            <button class="saDropItem" id="operatorProfileBtn">Operator</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
@@ -6938,32 +6825,6 @@ label         { font-size: 14px !important; }
 
               
 
-<div id="playsModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closePlaysModal()">
-  <div style="background:rgba(14,20,44,.98);border:1px solid rgba(80,110,200,.5);border-radius:18px;width:min(560px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(60,80,140,.5);flex-shrink:0;">
-      <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🎯 Plays — Saved Prompt Templates</span>
-      <button onclick="closePlaysModal()" style="background:rgba(120,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="flex:1;overflow-y:auto;padding:16px 20px;">
-      <div style="margin-bottom:14px;font-size:12px;opacity:.65;line-height:1.5;">Save any prompt as a Play. Run it in one click — it fills your prompt field and fires automatically.</div>
-      <!-- Save new play form -->
-      <div style="background:rgba(20,30,60,.7);border:1px solid rgba(60,80,140,.4);border-radius:12px;padding:12px;margin-bottom:14px;">
-        <div style="font-size:12px;font-weight:700;color:#a5b4fc;margin-bottom:8px;">Save new Play</div>
-        <input id="playName" placeholder="Play name (e.g. Monday playbook)" style="width:100%;background:rgba(10,15,35,.8);border:1px solid rgba(60,80,140,.5);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;margin-bottom:6px;box-sizing:border-box;" />
-        <textarea id="playPrompt" rows="3" placeholder="Prompt text..." style="width:100%;background:rgba(10,15,35,.8);border:1px solid rgba(60,80,140,.5);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;margin-bottom:6px;box-sizing:border-box;resize:vertical;"></textarea>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <select id="playTarget" style="background:rgba(10,15,35,.8);border:1px solid rgba(60,80,140,.5);border-radius:8px;padding:6px 10px;font-size:13px;color:#e2e8f0;">
-            <option value="dm">DM (selected teammate)</option>
-            <option value="group">Group (all teammates)</option>
-          </select>
-          <button onclick="savePlay()" style="background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);color:#c4b5fd;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">Save Play</button>
-        </div>
-      </div>
-      <!-- Saved plays list -->
-      <div id="playsList" style="display:flex;flex-direction:column;gap:8px;"></div>
-    </div>
-  </div>
-</div>
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="tiny" style="margin-bottom:10px;">When a teammate drafts an email, fields auto fill here. You approve before sending.</div>
   <div class="tiny" id="smtpStatus">SMTP: checking...</div>
@@ -7963,9 +7824,6 @@ label         { font-size: 14px !important; }
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
 
-            <!-- Session recap banner (shown after convene) -->
-            <div id="groupRecapBanner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:10px;font-size:13px;line-height:1.6;color:rgba(224,231,255,.92);"></div>
-
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
               <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
@@ -8163,7 +8021,6 @@ if (typeof window.showToast !== "function") {
     // =========================
     let alwaysOn = false;
     let alwaysMode = "dm"; // "dm" or "group"
-    let lastConveneRecap = "";
     let alwaysRec = null;
     let alwaysBaseText = "";
     let alwaysFinalText = "";
@@ -8927,7 +8784,7 @@ window.showModal = function showModal(title, body, imgUrl){
       hideAllModalForms();
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'block';
       if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
+      if($("modalTitle")) $("modalTitle").innerText = 'Operator';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
       try{
         const res = await fetch('/api/operator_profile');
@@ -8966,7 +8823,7 @@ window.showModal = function showModal(title, body, imgUrl){
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         if(st) st.innerText = 'Saved';
-        showToast('Saved Operator Profile');
+        showToast('Operator profile saved');
         if(selectedSeat === 'Operator'){ try{ await refreshThread(); }catch(e){} }
       }catch(e){
         if(st) st.innerText = e && e.message ? e.message : 'Save failed';
@@ -9168,9 +9025,10 @@ function makeSeat(defn, idx){
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const pad = 6;
-        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
-        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
+        // Use full viewport for bounds (not just tableWrap) so seats can be moved freely
+        const pad = -120;  // allow seats to go slightly off-edge for natural feel
+        const maxLeft = (boundsEl.clientWidth || window.innerWidth) - seat.offsetWidth + 120;
+        const maxTop  = (boundsEl.clientHeight || window.innerHeight) - seat.offsetHeight + 120;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -9231,7 +9089,7 @@ function makeSeat(defn, idx){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
 
-        showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
+        showToast("No active teammates — use Team menu to add seats");
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
@@ -9270,7 +9128,7 @@ function makeSeat(defn, idx){
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
-      profBtn.title = "Edit Operator Profile (shared context)";
+      profBtn.title = "Edit Operator (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openOperatorProfileModal(); });
       tools.appendChild(profBtn);
@@ -9486,6 +9344,29 @@ function makeSeat(defn, idx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
+
+      // ── First-time teammate self-introduction ──────────────
+      // Only once per teammate per browser session (sessionStorage key)
+      if(name && name !== "Operator"){
+        const introKey = "sa_intro_" + name;
+        if(!sessionStorage.getItem(introKey)){
+          sessionStorage.setItem(introKey, "1");
+          const defnI = (state && state.installed && state.installed[name]) || {};
+          const role = defnI.job_title || "your AI teammate";
+          const mission = defnI.mission || "";
+          const sysPrompt = `You are ${name}, ${role}. ${mission ? "Your mission: " + mission + "." : ""}`;
+          const introPrompt = `Introduce yourself briefly (2-3 sentences max). State your name, your specialty, and one concrete way you help. Be warm but concise. No em dashes.`;
+          try{
+            const res = await fetch("/api/followup", {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({name, message: introPrompt, lighting_mode: false})
+            });
+            const d = await res.json();
+            if(d && d.ok) await refreshThread();
+          }catch(e){}
+        }
+      }
     }
 
     function renderThread(msgs, imageState){
@@ -9633,52 +9514,11 @@ function makeSeat(defn, idx){
           actions.appendChild(useBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
-        } else if(raw.startsWith('[') && raw.includes('job:')) {
-          // Still generating — show spinner
-          content.innerHTML = '<span style="opacity:.6;">⏳ Generating image…</span>';
-        } else {
-          // Render basic markdown: bold, newlines
-          content.innerHTML = raw
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-            .replace(/\n/g,'<br>');
+        }else{
+          content.innerText = raw;
         }
 
-        if(m.role !== "user"){
-          lastSeatAssistantText = (m.content || "");
-          // ── Handoff buttons: pass this response to another teammate ──
-          try{
-            const handoffRow = document.createElement("div");
-            handoffRow.style.cssText = "margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;";
-            const handoffLabel = document.createElement("span");
-            handoffLabel.style.cssText = "font-size:10px;opacity:.45;margin-right:2px;";
-            handoffLabel.innerText = "Hand to:";
-            handoffRow.appendChild(handoffLabel);
-            const allNames = (state && state.installed_order) ? state.installed_order : [];
-            allNames.forEach(tname=>{
-              if(tname === selectedSeat || tname === "Operator") return;
-              const btn = document.createElement("button");
-              btn.className = "btn btnMini";
-              btn.style.cssText = "font-size:10px;padding:2px 8px;opacity:.7;";
-              btn.innerText = tname;
-              btn.title = "Hand this response to " + tname;
-              btn.addEventListener("click", async function(ev){
-                ev.stopPropagation();
-                const msgText = (m.content || "").trim();
-                if(!msgText) return;
-                // Switch seat then send
-                await selectSeat(tname);
-                const fm = document.getElementById("followMsg");
-                if(fm){
-                  fm.value = "Based on " + (selectedSeat||"the previous teammate") + "'s response:\n" + msgText.slice(0,600) + (msgText.length>600?"...":"");
-                }
-                if(window.showToast) window.showToast("Handed to " + tname + " — review and send");
-              });
-              handoffRow.appendChild(btn);
-            });
-            if(allNames.length > 1) content.appendChild(handoffRow);
-          }catch(e){}
-        }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -9810,22 +9650,6 @@ function makeSeat(defn, idx){
         return;
       }
       renderThread(data.thread, data.image_state || {});
-
-      // ── Auto-speak last response when Always Listen is active ─
-      try{
-        if(window.alwaysOn && data.thread && data.thread.length > 0){
-          const last = data.thread[data.thread.length-1];
-          if(last && last.role === "assistant" && last.content && !last.content.startsWith("[") && last.content !== window._lastSpokenContent){
-            window._lastSpokenContent = last.content;
-            const defnSpeak = state && state.installed && state.installed[selectedSeat];
-            const voice = (defnSpeak && defnSpeak.tts_voice) || "alloy";
-            // Speak after a short delay so the UI settles
-            setTimeout(()=>{
-              if(typeof saTtsSpeak === "function") saTtsSpeak(last.content.slice(0,800), voice, null);
-            }, 400);
-          }
-        }
-      }catch(e){}
     }
 
     $("refreshThread").onclick = refreshThread;
@@ -10242,19 +10066,48 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
+    // Phonetic aliases — maps speech-recognition output → canonical teammate name
+    const SEAT_NAME_ALIASES = {
+      'atlas':    'Atlis',
+      'atlis':    'Atlis',
+      'atlus':    'Atlis',
+      'atlass':   'Atlis',
+      'alex':     'Alex',
+      'alexa':    'Alex',
+      'willow':   'Willow',
+      'willo':    'Willow',
+      'ava':      'Ava',
+      'orion':    'Orion',
+      'orian':    'Orion',
+      'sunshine': 'Sunshine',
+      'luna':     'Luna',
+    };
+
     function findFirstNameMention(text){
       const names = getInstalledNamesInOrder();
       const lower = (text || "").toLowerCase();
       let best = null;
 
-      for(const name of names){
-        if(!name) continue;
-        const nl = name.toLowerCase();
-        const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+      // Build match list: installed names + all aliases that map to an installed name
+      const installedSet = new Set(names.map(n=>n.toLowerCase()));
+      const matchPairs = []; // [{pattern, canonicalName}]
+      names.forEach(name=>{
+        if(!name) return;
+        matchPairs.push({pattern: name.toLowerCase(), canonical: name});
+      });
+      // Add alias patterns
+      Object.entries(SEAT_NAME_ALIASES).forEach(([alias, canonical])=>{
+        if(names.some(n=>n===canonical)){
+          matchPairs.push({pattern: alias, canonical});
+        }
+      });
+
+      for(const {pattern, canonical} of matchPairs){
+        const rx = new RegExp("\\b" + pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
         const m = rx.exec(lower);
         if(m && m.index >= 0){
           if(best === null || m.index < best.idx){
-            best = { name, idx: m.index };
+            best = { name: canonical, idx: m.index };
           }
         }
       }
@@ -10464,11 +10317,17 @@ function makeSeat(defn, idx){
       };
 
       rec.onerror = (e) => {
+        const errType = (e && e.error) ? e.error : "unknown";
+        // Non-fatal: no-speech (silence timeout) and aborted — just restart quietly
+        if(errType === "no-speech" || errType === "aborted"){
+          // onend will fire after onerror and restart automatically — nothing to do here
+          return;
+        }
+        // Fatal errors: stop and inform user
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
         try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        try{ showModal("Mic error", "Mic error: " + errType + ". " + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -10575,7 +10434,7 @@ function makeSeat(defn, idx){
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
-        showModal("No active teammates", "Add teammates to the round table first.");
+        showToast("Add teammates to the round table first");
         return;
       }
 
@@ -10594,7 +10453,6 @@ function makeSeat(defn, idx){
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
           });
           const data = await res.json();
-          if(data && data.recap) lastConveneRecap = data.recap;
 
           if(!data.ok){
             order.forEach(n => setSeatLive(n, "waiting"));
@@ -10684,22 +10542,6 @@ function makeSeat(defn, idx){
       setOpStatus("Complete");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
-      // ── Show Atlis session recap if returned ──────────────────
-      try{
-        // Convene uses fanout, so recap comes from first successful response
-        // We request it from the /api/convene endpoint separately in batch mode
-        // For now: if selectedSeat is Atlis, thread already has recap; otherwise show toast
-        if(lastConveneRecap && lastConveneRecap.trim()){
-          // Show recap as a sticky banner in the group panel
-          const recapEl = document.getElementById('groupRecapBanner');
-          if(recapEl){
-            recapEl.innerHTML = marked ? marked.parse(lastConveneRecap) : lastConveneRecap.replace(/\n/g,'<br>');
-            recapEl.style.display='block';
-          }
-          lastConveneRecap = '';
-        }
-      }catch(e){}
-
       groupFileIds = [];
       renderAttachList("groupAttachList", groupFileIds);
 
@@ -10734,20 +10576,15 @@ async function pollImageJob(jobId, seatName){
       if(data && data.ok && data.job){
         const st = data.job.status;
         if(st === "done" || st === "error"){
+          // thread will have been updated server-side
           await refreshThread();
           setSeatLive(seatName || selectedSeat, (st==="done") ? "done" : "waiting");
           setOpStatus((st==="done") ? "Complete" : "Error");
-          if(st === "done"){
-            const thread=document.getElementById("thread");
-            if(thread) thread.scrollTop=thread.scrollHeight;
-            if(window.showToast) window.showToast("✓ Image ready — see below");
+          if(st === "error"){
             try{
-              const msgs=document.querySelectorAll(".msg.assistant");
-              const last=msgs[msgs.length-1];
-              if(last){ last.style.transition="box-shadow .3s"; last.style.boxShadow="0 0 0 2px rgba(99,102,241,.8)"; setTimeout(()=>{ last.style.boxShadow=""; last.style.transition=""; },2200); }
+              const msg = ((data.job && data.job.error) ? String(data.job.error) : "Image generation failed");
+              if(window.showToast) window.showToast(msg, "error");
             }catch(e){}
-          } else {
-            try{ const msg=(data.job&&data.job.error)?String(data.job.error):"Image generation failed"; if(window.showToast) window.showToast(msg); }catch(e){}
           }
           return;
         }
@@ -10844,7 +10681,7 @@ async function pollImageJob(jobId, seatName){
       await loadState();
       // Play table activation sound
       try{ wcalPlayActivationSound(); }catch(e){}
-      showModal("Team Assembled", "Full team installed and seated at the Round Table.");
+      showToast("✓ Full team assembled at the Round Table");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12978,27 +12815,64 @@ window.wcalDetSaveEvent = async function(encodedId){
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
-    notes.forEach((freq,i)=>{
-      const osc=ctx.createOscillator();
-      const gain=ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type='sine'; osc.frequency.value=freq;
-      const t=ctx.currentTime+i*0.09;
-      gain.gain.setValueAtTime(0,t);
-      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
-      osc.start(t); osc.stop(t+0.3);
+    const now=ctx.currentTime;
+    // Layer 1: low engine rumble sweep (80→220 Hz)
+    const rumble=ctx.createOscillator();
+    const rumbleGain=ctx.createGain();
+    rumble.type='sawtooth';
+    rumble.frequency.setValueAtTime(80,now);
+    rumble.frequency.exponentialRampToValueAtTime(220,now+1.1);
+    rumbleGain.gain.setValueAtTime(0,now);
+    rumbleGain.gain.linearRampToValueAtTime(0.12,now+0.15);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    rumble.connect(rumbleGain); rumbleGain.connect(ctx.destination);
+    rumble.start(now); rumble.stop(now+1.5);
+    // Layer 2: rising power tone (110→440)
+    const power=ctx.createOscillator();
+    const powerGain=ctx.createGain();
+    power.type='sine';
+    power.frequency.setValueAtTime(110,now+0.1);
+    power.frequency.exponentialRampToValueAtTime(440,now+1.0);
+    powerGain.gain.setValueAtTime(0,now+0.1);
+    powerGain.gain.linearRampToValueAtTime(0.18,now+0.4);
+    powerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    power.connect(powerGain); powerGain.connect(ctx.destination);
+    power.start(now+0.1); power.stop(now+1.5);
+    // Layer 3: high harmonic shimmer
+    const shimmer=ctx.createOscillator();
+    const shimmerGain=ctx.createGain();
+    shimmer.type='triangle';
+    shimmer.frequency.setValueAtTime(660,now+0.6);
+    shimmer.frequency.exponentialRampToValueAtTime(880,now+1.1);
+    shimmerGain.gain.setValueAtTime(0,now+0.6);
+    shimmerGain.gain.linearRampToValueAtTime(0.09,now+0.75);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    shimmer.connect(shimmerGain); shimmerGain.connect(ctx.destination);
+    shimmer.start(now+0.6); shimmer.stop(now+1.5);
+    // Layer 4: final activation chime (two-note confirm)
+    [880,1174.7].forEach((freq,i)=>{
+      const o=ctx.createOscillator(); const g=ctx.createGain();
+      o.type='sine'; o.frequency.value=freq;
+      const t=now+1.05+i*0.14;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(0.14,t+0.04);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t+0.4);
     });
   }catch(e){}
 }
+
+// Alias so onboarding & other callers can use the same sound
+window.playRoundTableStartup = wcalPlayActivationSound;
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
 const wcalDrag={
   active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
-  clickOffsetPx:0,
+  // Pixel offset WITHIN the block where user clicked (in grid-pixel space)
+  grabOffsetMins:0,
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
 };
@@ -13012,15 +12886,22 @@ function wcalDragWireGrid(grid){
     el.addEventListener('mousedown',function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
-      // Do NOT call preventDefault here — that would kill the onclick/detail-open.
-      // We only take over if the user actually drags (detected in mousemove).
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
-      const elRect=el.getBoundingClientRect();
-      const clickOffsetPx=e.clientY-elRect.top;
+
+      // Grab offset in MINUTES = (pixels from block top) = (cursor Y - block top in viewport) 
+      // + wrap.scrollTop - col.getBoundingClientRect().top
+      // This gives us the minute offset from the block's own start time
+      const colRect = col ? col.getBoundingClientRect() : {top:0};
+      const scrolled = wrap ? wrap.scrollTop : 0;
+      const elTopInGrid = e.clientY - colRect.top + scrolled - (e.clientY - el.getBoundingClientRect().top);
+      // Simpler: pixels from block top = cursor Y - block.top (both in viewport coords)
+      const grabPx = e.clientY - el.getBoundingClientRect().top;
+      const grabOffsetMins = Math.max(0, Math.round(grabPx)); // 1px = 1min
+
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -13040,7 +12921,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el=el; wcalDrag.etype=etype;
       wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
-      wcalDrag.clickOffsetPx=clickOffsetPx;
+      wcalDrag.grabOffsetMins=grabOffsetMins;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
     });
@@ -13061,7 +12942,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el.style.zIndex='20';
       wcalDrag.el.style.cursor='grabbing';
       wcalDrag.el.style.pointerEvents='none';
-      // Suppress the upcoming click so the detail panel doesn't open on drag-release
+      // Suppress the upcoming click so detail panel doesn't open on drag-release
       wcalDrag._suppressNextClick=true;
       // Time tooltip
       const tip=document.createElement('div');
@@ -13070,7 +12951,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // Find target column by X position
+    // Find target column by X
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -13086,30 +12967,27 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // ── TIME CALCULATION ──────────────────────────────────────────
-    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
-    // Its height is constant (~44px) but visually it stays at the top of the wrap.
-    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
-    // the column, which is BELOW the sticky header. So:
-    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
-    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
-    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
-    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
+    // ── CORRECTED TIME CALCULATION ──────────────────────────────
+    // cursor position in the scrollable grid (absolute pixel from grid top):
+    //   gridPx = (e.clientY - col.getBoundingClientRect().top) + wrap.scrollTop
+    // This gives us where the cursor is in minute-space (1px = 1min).
+    // Subtract grabOffsetMins so the block's TOP snaps to the right slot,
+    // not the cursor position. The result: block top = where cursor is minus
+    // how far down the block the user grabbed.
     const colRect=targetCol.getBoundingClientRect();
-    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
     const scrolled=wrap?wrap.scrollTop:0;
-    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
-    // The sticky header is ~44px. Using colRect.top already accounts for it since
-    // wcal-day-col starts BELOW the sticky header in the DOM flow.
-    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
-    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
+    const cursorGridPx = (e.clientY - colRect.top) + scrolled;
+    // blockTopPx = where the block TOP should be (cursor minus grab offset within block)
+    const blockTopPx = cursorGridPx - wcalDrag.grabOffsetMins;
+    // Visual position: smooth (no snap) so block follows cursor precisely
+    const visualTop = Math.max(0, Math.min(blockTopPx, 23*60));
+    // Drop target: snapped to 15 minutes for the saved time
+    const startMins = Math.max(0, Math.min(Math.round(blockTopPx/15)*15, 23*60));
 
-    // Move the original block visually (no ghost clone)
+    // Move block visually — smooth, unsnapped
     const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
-    if(origCol && targetCol !== origCol){
-      targetCol.appendChild(wcalDrag.el);
-    }
-    wcalDrag.el.style.top=startMins+'px';
+    if(origCol && targetCol !== origCol) targetCol.appendChild(wcalDrag.el);
+    wcalDrag.el.style.top=visualTop+'px';
     wcalDrag.el.style.left='3px';
     wcalDrag.el.style.right='3px';
     wcalDrag.el.style.position='absolute';
@@ -13131,33 +13009,31 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
 
-    // Restore element styles
     wcalDrag.el.style.opacity='';
     wcalDrag.el.style.zIndex='';
     wcalDrag.el.style.cursor='';
     wcalDrag.el.style.pointerEvents='';
-    // If we actually dragged, suppress the next click event so detail panel doesn't open
+
+    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
+
+    // Suppress detail-panel click after a drag
     if(wcalDrag._suppressNextClick){
       wcalDrag._suppressNextClick=false;
       const el2=wcalDrag.el;
-      const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
-      wcalDrag.el.addEventListener('click',suppressHandler,true);
+      const sup=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',sup,true); };
+      wcalDrag.el.addEventListener('click',sup,true);
     }
-
-    // Remove tooltip
-    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
 
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
-
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
+    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_suppressNextClick:false});
 
-    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
+    if(!wasDragging||targetMins==null){ return; }  // clean click — let onclick fire naturally
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate){ return; }
+    if(newStart===origStart && targetDate===origDate) return;
 
     if(etype==='task'){
       const task=cal.tasks.find(t=>t.id===tid); if(!task){ wcalRefresh(); return; }
@@ -13170,7 +13046,6 @@ function wcalDragWireGrid(grid){
         showToast('Task moved → '+targetDate+' '+newStart);
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed'); wcalRefresh(); }
-
     } else {
       let ev=null;
       Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
@@ -13679,73 +13554,6 @@ function calSelectDate(dt){ wcalSelectDate(dt); }
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
-// ── Plays ──────────────────────────────────────────────────────
-window.openPlaysModal = async function openPlaysModal(){
-  const modal = document.getElementById("playsModal");
-  if(!modal) return;
-  modal.style.display = "flex";
-  document.body.style.overflow = "hidden";
-  await loadPlays();
-};
-window.closePlaysModal = function closePlaysModal(){
-  const m = document.getElementById("playsModal");
-  if(m) m.style.display = "none";
-  document.body.style.overflow = "";
-};
-async function loadPlays(){
-  try{
-    const r = await fetch("/api/plays"); const d = await r.json();
-    renderPlaysList(d.plays || []);
-  }catch(e){}
-}
-function renderPlaysList(plays){
-  const list = document.getElementById("playsList");
-  if(!list) return;
-  if(!plays.length){ list.innerHTML = '<div style="opacity:.45;font-size:12px;">No plays saved yet. Create one above.</div>'; return; }
-  list.innerHTML = plays.map((p,i)=>`
-    <div style="background:rgba(20,30,60,.7);border:1px solid rgba(60,80,140,.4);border-radius:10px;padding:10px 12px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <span style="font-weight:600;color:#c4b5fd;font-size:13px;">${p.name||'Play'}</span>
-        <div style="display:flex;gap:6px;">
-          <button onclick="runPlay(${i})" style="background:rgba(99,102,241,.3);border:1px solid rgba(99,102,241,.5);color:#c4b5fd;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;">▶ Run</button>
-          <button onclick="deletePlay(this.dataset.name)" data-name="${(p.name||'').replace(/"/g,'&quot;')}" style="background:rgba(120,30,60,.2);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;">✕</button>
-        </div>
-      </div>
-      <div style="font-size:11px;opacity:.6;">${p.target==='group'?'Group':'DM'} · ${(p.prompt||'').slice(0,80)}${(p.prompt||'').length>80?'...':''}</div>
-    </div>`).join('');
-  window._playsCache = plays;
-}
-window.savePlay = async function savePlay(){
-  const name=(document.getElementById('playName')||{}).value?.trim();
-  const prompt=(document.getElementById('playPrompt')||{}).value?.trim();
-  const target=(document.getElementById('playTarget')||{}).value||'dm';
-  if(!name||!prompt){ if(window.showToast) showToast('Name and prompt required'); return; }
-  const r=await fetch('/api/plays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,prompt,target})});
-  const d=await r.json();
-  if(d.ok){ renderPlaysList(d.plays||[]); document.getElementById('playName').value=''; document.getElementById('playPrompt').value=''; showToast('Play saved: '+name); }
-};
-window.runPlay = async function runPlay(idx){
-  const plays=window._playsCache||[];
-  const play=plays[idx];
-  if(!play) return;
-  closePlaysModal();
-  if(play.target==='group'){
-    const op=document.getElementById('opPrompt'); if(op) op.value=play.prompt;
-    if(typeof conveneAll==='function') await conveneAll();
-  } else {
-    const fm=document.getElementById('followMsg'); if(fm) fm.value=play.prompt;
-    if(typeof sendFollow==='function') await sendFollow();
-  }
-  if(window.showToast) showToast('▶ Running play: '+play.name);
-};
-window.deletePlay = async function deletePlay(name){
-  name = (name instanceof Element ? name.dataset.name : name) || name;
-  if(!confirm('Delete play "'+name+'"?')) return;
-  const r=await fetch('/api/plays/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
-  const d=await r.json(); if(d.ok) renderPlaysList(d.plays||[]);
-};
-if($("playsBtn")) $("playsBtn").onclick = ()=> openPlaysModal();
-
 async function showImageLibraryModal(){
   try{
     const res = await fetch("/api/images");
@@ -14010,8 +13818,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const needsEmail = !me.has_smtp;
 
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // auto open settings, and show a coach bubble on the Settings button
-        try{ showSettingsModal(true); }catch(e){}
+        // Show coach bubble only — do NOT auto-open settings modal, let user land on main UI
         const b = placeCoach($("settingsBtn"),
           "Start here: Settings",
           "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
@@ -15330,30 +15137,20 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "first_prompt"){
-        // Close any open modal first
+        // Auto-save settings if the settings modal is open, then close it
         try{
-          const ov=document.getElementById("overlay");
-          if(ov&&ov.classList.contains("show")){ const sb=document.getElementById("saveSettings"); if(sb&&typeof sb.onclick==="function") await sb.onclick(); if(typeof hideModal==="function") hideModal(); await new Promise(r=>setTimeout(r,180)); }
-        }catch(e){}
-        // Play startup sound
-        try{ if(typeof wcalPlayActivationSound==="function") wcalPlayActivationSound(); }catch(e){}
-        // Build operator-aware starter prompt
-        try{
-          const opRes=await fetch('/api/operator_profile'); const opD=await opRes.json();
-          const op=opD.profile||{};
-          const biz=(op.business||'').trim(); const aud=(op.audience||'').trim(); const off=(op.offers||'').trim();
-          const fm=document.getElementById('followMsg');
-          if(fm&&!fm.value.trim()){
-            if(biz||aud){
-              const who=aud||'my target audience'; const what=off||'my services';
-              fm.value='Write me a compelling 3-post social media sequence introducing '+what+' to '+who+'. Each post: hook + value + soft CTA.';
-            } else {
-              fm.value='Introduce yourself and tell me the most impactful thing you can help me with right now.';
-            }
+          const overlay = document.getElementById("overlay");
+          if(overlay && overlay.classList.contains("show")){
+            const saveBtn = document.getElementById("saveSettings");
+            if(saveBtn && typeof saveBtn.onclick === "function") await saveBtn.onclick();
+            if(typeof hideModal === "function") hideModal();
+            await new Promise(r=>setTimeout(r,200));
           }
-          focusEl('followMsg');
-        }catch(e){ focusEl("followMsg"); }
-        try{ if(typeof showToast==="function") showToast("Round table active — your first prompt is ready!"); }catch(e){}
+        }catch(e){}
+        // Play activation sound and focus the DM input
+        try{ if(typeof wcalPlayActivationSound === "function") wcalPlayActivationSound(); }catch(e){}
+        focusEl("followMsg");
+        try{ if(typeof showToast === "function") showToast("Round table active — send your first prompt!"); }catch(e){}
         return;
       }
     }finally{
@@ -18729,8 +18526,27 @@ def api_crm_social_studio():
     if not offer:
         return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+    asset_labels = {
+        "content_pack": "5 posts (hook + body + CTA each)",
+        "hooks": "10 scroll-stopping hooks",
+        "comments": "10 engagement comments",
+        "dms": "5 DM openers",
+        "captions": "5 short captions with hashtags",
+        "stories": "5 story frames (scene + text overlay + CTA)",
+    }
+    asset_desc = asset_labels.get(asset_type, asset_type.replace("_", " "))
+    system = (
+        "You are a social media copywriter. Output ONLY ready-to-post copy — no advice, no strategy, no explanations, no bullet-point recommendations. "
+        "Every line you write should be something the user can copy and paste directly. "
+        "Format clearly with numbered items and section headers. No em dashes."
+    )
+    prompt = (
+        f"Platform: {platform}\n"
+        f"What to generate: {asset_desc}\n"
+        f"Target audience: {audience}\n"
+        f"Offer / angle: {offer}\n\n"
+        f"Write the {asset_desc} now. Output only the copy itself, ready to post. No preamble, no strategy, no tips."
+    )
     fallback = (
         f"Content pack for {platform}\n"
         f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
