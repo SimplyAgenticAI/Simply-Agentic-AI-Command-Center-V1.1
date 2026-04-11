@@ -3872,6 +3872,7 @@ def api_cal_tasks_create():
         "recurring": (payload.get("recurring") or "none").strip(),
         "on_complete_teammate": (payload.get("on_complete_teammate") or "").strip(),
         "on_complete_client_email": (payload.get("on_complete_client_email") or "").strip(),
+        "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
         "done": False,
         "completed_at": None,
         "created_at": now_iso(),
@@ -3890,7 +3891,7 @@ def api_cal_tasks_update(task_id: str):
     tasks = _load_cal_tasks(u.get("username", ""))
     for t in tasks:
         if t.get("id") == task_id:
-            for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email"):
+            for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email", "on_complete_client_name"):
                 if field in payload:
                     t[field] = (payload[field] or "").strip()
             if "duration" in payload:
@@ -3909,7 +3910,7 @@ def api_cal_tasks_update(task_id: str):
 
 @app.post("/api/cal/tasks/<task_id>/complete_action")
 def api_cal_task_complete_action(task_id: str):
-    """When a task is marked done, use the assigned teammate to draft and send a completion email to the client."""
+    """When a task is marked done, have the assigned teammate draft a completion email — returned for user approval, never auto-sent."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -3921,6 +3922,7 @@ def api_cal_task_complete_action(task_id: str):
 
     teammate_name = (task.get("on_complete_teammate") or "").strip()
     client_email  = (task.get("on_complete_client_email") or "").strip()
+    client_name   = (task.get("on_complete_client_name") or "").strip()
     if not teammate_name or not client_email:
         return jsonify({"ok": False, "error": "No teammate or client email configured on this task"}), 400
 
@@ -3929,17 +3931,20 @@ def api_cal_task_complete_action(task_id: str):
     if not defn:
         return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found"}), 404
 
-    # Build prompt for the teammate to draft a completion email
+    # Build prompt — use the client's real name if provided, otherwise fall back to email
     task_title = task.get("title","Untitled task")
     task_desc  = task.get("description","")
     task_date  = task.get("date","")
+    client_ref = client_name if client_name else client_email
     prompt = (
         f"The task '{task_title}' has just been marked complete"
         + (f" (scheduled {task_date})" if task_date else "")
         + ". "
         + (f"Task notes: {task_desc}. " if task_desc else "")
-        + f"Please draft a professional, warm, concise email to the client at {client_email} "
-        + "letting them know this task is complete. Include a subject line on the first line in the format 'Subject: ...' "
+        + f"Please draft a professional, warm, concise email to {client_ref} "
+        + f"(email: {client_email}) letting them know this task is complete. "
+        + f"Address them by name as '{client_ref}' in the greeting. "
+        + "Include a subject line on the first line in the format 'Subject: ...' "
         + "followed by the email body. Keep it brief and friendly."
     )
 
@@ -3975,35 +3980,14 @@ def api_cal_task_complete_action(task_id: str):
     if not body:
         body = raw
 
-    # Send the email
-    cap = _email_capability_for_user(u)
-    try:
-        if cap.get("gmail_connected"):
-            access_token, reason = _gmail_creds_for_user(u)
-            if not access_token:
-                return jsonify({"ok": False, "error": f"Gmail not ready: {reason}", "draft_subject": subject, "draft_body": body}), 400
-            smtp_s = _user_smtp_settings(u)
-            _gmail_send_message(access_token, to_addr=client_email, subject=subject, body=body, from_name=smtp_s.get("from_name",""))
-            provider = "gmail_oauth"
-        else:
-            ready, reason = smtp_ready_for_user(u)
-            if not ready:
-                return jsonify({"ok": False, "error": reason, "draft_subject": subject, "draft_body": body}), 400
-            s = _user_smtp_settings(u)
-            send_email_smtp_with_creds(to_addr=client_email, subject=subject, body=body,
-                host=s["host"], port=s["port"],
-                user=s["user"] or SMTP_USER, password=s["pass"] or SMTP_PASS,
-                from_name=s["from_name"])
-            provider = "smtp"
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"Email send failed: {e}", "draft_subject": subject, "draft_body": body}), 500
-
-    append_log("task_complete_email_sent", {
+    # Return draft for user approval — do NOT send automatically
+    append_log("task_complete_email_drafted", {
         "task_id": task_id, "task_title": task_title,
         "teammate": teammate_name, "to": client_email,
-        "provider": provider, "at": now_iso()
+        "client_name": client_name, "at": now_iso()
     })
-    return jsonify({"ok": True, "subject": subject, "body": body, "provider": provider})
+    return jsonify({"ok": True, "draft": True, "subject": subject, "body": body,
+                    "to": client_email, "teammate": teammate_name})
 
 @app.delete("/api/cal/tasks/<task_id>")
 def api_cal_tasks_delete(task_id: str):
@@ -4876,7 +4860,11 @@ def register_get():
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
-    return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code())
+    resp = make_response(render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code()))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.post("/register")
 def register_post():
@@ -9163,9 +9151,9 @@ function makeSeat(defn, idx){
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const pad = 6;
-        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
-        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
+        const pad = -80;
+        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth + 80;
+        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight + 80;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -9367,11 +9355,11 @@ function makeSeat(defn, idx){
         const left = ((e.clientX - boundsRect.left) / sc) - offsetX;
         const top = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const maxLeft = (boundsEl.clientWidth || 0) - 110;
-        const maxTop = (boundsEl.clientHeight || 0) - 110;
+        const maxLeft = (boundsEl.clientWidth || 0) - 30;
+        const maxTop = (boundsEl.clientHeight || 0) - 30;
 
-        seat.style.left = clamp(left, 10, Math.max(10, maxLeft)) + "px";
-        seat.style.top = clamp(top, 10, Math.max(10, maxTop)) + "px";
+        seat.style.left = clamp(left, -80, Math.max(-80, maxLeft)) + "px";
+        seat.style.top = clamp(top, -80, Math.max(-80, maxTop)) + "px";
       });
 
       seat.addEventListener("pointerup", (e) => {
@@ -12615,31 +12603,37 @@ window.wcalToggleTask = async function(e, taskId){
   }catch(err){ showToast('Update failed'); }
 };
 
-// Called when a task with an assigned teammate is marked done
+// Called when a task with an assigned teammate is marked done — opens draft for approval
 async function wcalFireCompleteAction(taskId, task){
-  showToast('⚡ '+task.on_complete_teammate+' is drafting completion email…');
+  const clientRef = task.on_complete_client_name || task.on_complete_client_email || 'client';
+  showToast('⚡ '+task.on_complete_teammate+' is drafting email for '+clientRef+'…');
   try{
     const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{method:'POST'});
     const d = await res.json();
-    if(d.ok){
-      showToast('📧 Completion email sent to '+task.on_complete_client_email+' by '+task.on_complete_teammate);
-    } else if(d.draft_subject){
-      // Email failed to send but we have a draft — show it
-      showToast('⚠️ Could not send email: '+(d.error||'unknown error')+'. Draft ready in Email Console.');
-      // Pre-fill email console if accessible
-      try{
+    if(d.ok && d.draft){
+      // Load into Email Console for approval — same flow as regular teammate email drafts
+      if(typeof applyEmailDraft === 'function'){
+        applyEmailDraft({
+          subject: d.subject,
+          body:    d.body,
+          to:      d.to,
+        }, d.teammate || task.on_complete_teammate);
+        showToast('📝 Draft ready — review and send from Email Console');
+      } else {
+        // Fallback: pre-fill fields directly
         const subEl=document.getElementById('emailSubject');
         const bodyEl=document.getElementById('emailBody');
         const toEl=document.getElementById('emailTo');
-        if(subEl) subEl.value=d.draft_subject;
-        if(bodyEl) bodyEl.value=d.draft_body;
-        if(toEl) toEl.value=task.on_complete_client_email;
-      }catch(_){}
+        if(subEl) subEl.value=d.subject||'';
+        if(bodyEl) bodyEl.value=d.body||'';
+        if(toEl)   toEl.value=d.to||task.on_complete_client_email||'';
+        showToast('📝 Draft ready in Email Console — review before sending');
+      }
     } else {
-      showToast('⚠️ Auto-email error: '+(d.error||'unknown'));
+      showToast('⚠️ Draft error: '+(d.error||'unknown'));
     }
   }catch(err){
-    showToast('⚠️ Auto-email failed: '+String(err));
+    showToast('⚠️ Draft failed: '+String(err));
   }
 }
 
@@ -12716,11 +12710,13 @@ function wcalShowTaskDetail(task){
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
-      <div class="wcal-autocomplete-title">Auto-Email on Complete</div>
-      <div class="wcal-detail-label">Assign teammate to email client</div>
+      <div class="wcal-autocomplete-title">Email on Complete</div>
+      <div class="wcal-detail-label">Assign teammate to draft email</div>
       <select class="wcal-detail-field" id="detAutoTeammate">
-        <option value="">— No auto-email —</option>
+        <option value="">— No email draft —</option>
       </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Stacy" value="${task.on_complete_client_name||''}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -12851,6 +12847,7 @@ window.wcalDetSaveTask = async function(taskId){
     recurring:document.getElementById('detRecurring')?.value||'none',
     description:(document.getElementById('detDesc')?.value||'').trim(),
     on_complete_teammate:document.getElementById('detAutoTeammate')?.value||'',
+    on_complete_client_name:(document.getElementById('detAutoClientName')?.value||'').trim(),
     on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
