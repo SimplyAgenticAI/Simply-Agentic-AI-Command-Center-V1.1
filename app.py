@@ -4039,8 +4039,8 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(860px, calc(100vw - 36px));
-    min-height: min(84vh, 820px);
+    width: min(680px, calc(100vw - 36px));
+    min-height: auto;
     max-width: calc(100vw - 36px);
     background:
       linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
@@ -4735,7 +4735,11 @@ def setup_post():
 @app.get("/login")
 def login():
     allow_setup = not has_any_user()
-    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled())
+    resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.post("/login")
 def login_post():
@@ -13797,8 +13801,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const needsEmail = !me.has_smtp;
 
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // auto open settings, and show a coach bubble on the Settings button
-        try{ showSettingsModal(true); }catch(e){}
+        // show a coach bubble on the Settings button — do NOT auto-open the modal
         const b = placeCoach($("settingsBtn"),
           "Start here: Settings",
           "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
@@ -15117,8 +15120,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "first_prompt"){
-        focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
+        // Close the onboarding panel and any open modal first, then focus the prompt box
+        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
+        try{ if(typeof closeModal === "function") closeModal(); }catch(e){}
+        try{ if(typeof window.onboardingClose === "function") window.onboardingClose(); }catch(e){}
+        setTimeout(() => {
+          focusEl("followMsg");
+          try{ if(typeof showToast === "function") showToast("Type your first message and hit Send ↵"); }catch(e){}
+        }, 80);
         return;
       }
     }finally{
