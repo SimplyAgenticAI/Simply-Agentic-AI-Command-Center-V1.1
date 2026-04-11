@@ -4598,6 +4598,61 @@ REGISTER_HTML = r"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Create Account</title>
 """ + AUTH_BASE_CSS + r"""
+<style>
+/* ===== MUSHROOM + DRAGONFLY ANIMATION (register gate) ===== */
+.loginScene{
+  position:relative;
+  width:100%;
+  height:160px;
+  margin-top:28px;
+  overflow:hidden;
+  pointer-events:none;
+  user-select:none;
+}
+@keyframes mushroomGrow{
+  0%  { transform: scaleY(0) translateX(-50%); opacity:0; }
+  15% { opacity:1; }
+  60% { transform: scaleY(1.08) translateX(-50%); }
+  75% { transform: scaleY(0.96) translateX(-50%); }
+  100%{ transform: scaleY(1)    translateX(-50%); opacity:1; }
+}
+.mushroomSvg{
+  position:absolute;
+  bottom:0;
+  left:50%;
+  transform-origin: bottom center;
+  animation: mushroomGrow 1.2s cubic-bezier(.34,1.56,.64,1) 0.3s both;
+  width:110px;
+  height:130px;
+}
+@keyframes dragonflyFlight{
+  0%   { transform: translate(220px, 60px) rotate(-20deg) scaleX(1);  opacity:0; }
+  8%   { opacity:1; }
+  38%  { transform: translate(0px,   0px) rotate(5deg)  scaleX(1);  opacity:1; }
+  55%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(1);  opacity:1; }
+  56%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(-1); opacity:1; }
+  88%  { transform: translate(-260px, 55px) rotate(15deg) scaleX(-1); opacity:1; }
+  95%  { opacity:0.3; }
+  100% { transform: translate(-320px, 80px) rotate(15deg) scaleX(-1); opacity:0; }
+}
+@keyframes wingBeat{
+  0%,100%{ transform: scaleY(1);   }
+  50%    { transform: scaleY(0.35);}
+}
+.dragonflySvg{
+  position:absolute;
+  bottom:92px;
+  left:calc(50% + 6px);
+  width:54px;
+  height:28px;
+  transform-origin: center center;
+  animation: dragonflyFlight 5.8s ease-in-out 1.2s both;
+}
+.dfWing{
+  animation: wingBeat 0.18s linear infinite;
+  transform-origin: center center;
+}
+</style>
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -4623,6 +4678,43 @@ REGISTER_HTML = r"""
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
     {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
+
+    <!-- ===== MUSHROOM + DRAGONFLY SCENE ===== -->
+    <div class="loginScene" aria-hidden="true">
+      <svg class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
+        <rect x="36" y="72" width="38" height="58" rx="10" fill="rgba(230,220,200,0.88)"/>
+        <rect x="36" y="72" width="14" height="58" rx="7" fill="rgba(200,185,165,0.45)"/>
+        <ellipse cx="55" cy="74" rx="34" ry="10" fill="rgba(220,200,175,0.75)"/>
+        <ellipse cx="55" cy="55" rx="52" ry="32" fill="#c0392b"/>
+        <ellipse cx="55" cy="44" rx="44" ry="25" fill="rgba(220,80,60,0.55)"/>
+        <circle cx="55" cy="38" r="11" fill="rgba(255,255,255,0.88)"/>
+        <circle cx="28" cy="52" r="7"  fill="rgba(255,255,255,0.82)"/>
+        <circle cx="82" cy="50" r="7"  fill="rgba(255,255,255,0.82)"/>
+        <circle cx="43" cy="62" r="4"  fill="rgba(255,255,255,0.72)"/>
+        <circle cx="70" cy="60" r="5"  fill="rgba(255,255,255,0.72)"/>
+        <ellipse cx="40" cy="38" rx="14" ry="6" fill="rgba(255,255,255,0.18)" transform="rotate(-18 40 38)"/>
+        <ellipse cx="55" cy="128" rx="30" ry="5" fill="rgba(100,180,80,0.35)"/>
+        <ellipse cx="55" cy="128" rx="22" ry="3.5" fill="rgba(80,160,60,0.25)"/>
+      </svg>
+      <svg class="dragonflySvg" viewBox="0 0 54 28" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="27" cy="16" rx="13" ry="4" fill="#2d7a4f"/>
+        <ellipse cx="27" cy="16" rx="5"  ry="3.5" fill="#1a5c37"/>
+        <ellipse cx="36" cy="17" rx="4" ry="2.5" fill="#3a9e65"/>
+        <ellipse cx="42" cy="18" rx="3" ry="2"   fill="#2d7a4f"/>
+        <ellipse cx="47" cy="19" rx="2" ry="1.5" fill="#1a5c37"/>
+        <circle cx="18" cy="15" r="4.5" fill="#1a5c37"/>
+        <circle cx="16" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
+        <circle cx="20" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
+        <g class="dfWing">
+          <ellipse cx="27" cy="9"  rx="18" ry="7" fill="rgba(160,220,255,0.55)" stroke="rgba(80,180,220,0.6)" stroke-width="0.5" transform="rotate(-8 27 9)"/>
+          <ellipse cx="27" cy="23" rx="16" ry="6" fill="rgba(160,220,255,0.45)" stroke="rgba(80,180,220,0.5)" stroke-width="0.5" transform="rotate(10 27 23)"/>
+        </g>
+        <line x1="18" y1="9"  x2="44" y2="6"  stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
+        <line x1="18" y1="23" x2="42" y2="27" stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
+      </svg>
+    </div>
+    <!-- ===== END SCENE ===== -->
+
   </div>
 </body></html>
 """
@@ -7435,7 +7527,7 @@ label         { font-size: 14px !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);display:flex;flex-direction:column;">
+              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);flex-direction:column;">
 
 <style>
 /* Message expand modal */
@@ -7529,7 +7621,7 @@ label         { font-size: 14px !important; }
 .wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
 .wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Detail Panel (Motion-style right sidebar) */
-.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:20; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
@@ -9134,7 +9226,8 @@ function makeSeat(defn, idx){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
 
-        showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
+        // FIX: soft toast instead of blocking modal — Operator seat still works
+        try{ if(typeof showToast==='function') showToast('No teammates active — use Add or dismiss to add seats.'); }catch(_){}
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
@@ -13011,7 +13104,11 @@ function wcalDragWireGrid(grid){
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
     Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
 
-    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
+    // FIX: do NOT call wcalRefresh() on a plain click (no drag).
+    // Calling it here replaces grid.innerHTML synchronously, detaching the clicked
+    // element before the browser fires the click event — so onclick="wcalOpenDetail(this)"
+    // never runs. Return here and let the inline onclick open the detail panel naturally.
+    if(!wasDragging||targetMins==null){ return; }
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
@@ -13514,7 +13611,7 @@ window.showCalendarModal=function showCalendarModal(){
   if(typeof hideAllModalForms==='function') hideAllModalForms();
   else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
-  if(calForm) calForm.style.display='block';
+  if(calForm) calForm.style.display='flex';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
   const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
   const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
