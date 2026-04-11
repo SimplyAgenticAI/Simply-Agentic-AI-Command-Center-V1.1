@@ -4036,19 +4036,18 @@ AUTH_BASE_CSS = r"""
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 28px 18px;
+    padding: 20px 18px;
   }
   .card{
-    width: min(860px, calc(100vw - 36px));
-    min-height: min(84vh, 820px);
+    width: min(480px, calc(100vw - 36px));
     max-width: calc(100vw - 36px);
     background:
-      linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
-      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
+      linear-gradient(180deg, rgba(19,28,59,.96), rgba(10,15,33,.98)),
+      radial-gradient(600px 320px at 50% 0%, rgba(124,58,237,.16), transparent 65%);
     border:1px solid rgba(76,92,148,.72);
-    border-radius: 26px;
-    padding: 34px 34px 30px;
-    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
+    border-radius: 24px;
+    padding: 36px 36px 32px;
+    box-shadow: 0 24px 90px rgba(0,0,0,.62), 0 0 40px rgba(124,58,237,.14);
     backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
@@ -4110,7 +4109,7 @@ AUTH_BASE_CSS = r"""
     min-height: 52px;
   }
   .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+  .card form{ max-width: 100%; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.72);
     background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
@@ -4149,6 +4148,41 @@ AUTH_BASE_CSS = r"""
     .coachBody{ font-size: 12px; color: var(--muted); line-height: 1.4; }
     .coachActions{ display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
 
+
+  /* ── Mushroom & dragonfly animation ─────────────────────── */
+  .login-scene{
+    width:100%; height:80px; position:relative; overflow:hidden;
+    margin-bottom: 22px; user-select:none; pointer-events:none;
+  }
+  @keyframes mushroomGrow{
+    0%{ transform:scaleY(0) translateX(-50%); opacity:0; }
+    60%{ transform:scaleY(1.08) translateX(-50%); opacity:1; }
+    80%{ transform:scaleY(.96) translateX(-50%); }
+    100%{ transform:scaleY(1) translateX(-50%); opacity:1; }
+  }
+  @keyframes dragonflyIn{
+    0%{ transform:translate(-60px,-10px) rotate(-8deg); opacity:0; }
+    30%{ opacity:1; }
+    55%{ transform:translate(0px,0px) rotate(2deg); }
+    70%{ transform:translate(4px,-3px) rotate(-3deg); }
+    100%{ transform:translate(0px,0px) rotate(0deg); }
+  }
+  @keyframes dragonflyOut{
+    0%{ transform:translate(0,0) rotate(0deg); opacity:1; }
+    20%{ transform:translate(6px,-8px) rotate(-12deg); }
+    100%{ transform:translate(160px,-60px) rotate(-25deg); opacity:0; }
+  }
+  @keyframes wingFlap{
+    0%,100%{ transform:scaleX(1) rotate(-5deg); }
+    50%{ transform:scaleX(.7) rotate(5deg); }
+  }
+  .mushroom{ position:absolute; left:50%; bottom:0; transform:scaleY(0) translateX(-50%);
+    transform-origin: bottom center; animation: mushroomGrow .9s cubic-bezier(.34,1.56,.64,1) .2s forwards; }
+  .dragonfly{ position:absolute; bottom:38px; left:calc(50% - 12px);
+    animation: dragonflyIn .7s ease-out 1.4s both; }
+  .dragonfly.fly-away{ animation: dragonflyOut .9s ease-in 3.2s both; }
+  .df-wing{ animation: wingFlap .12s linear infinite; transform-origin: center left; }
+  .df-wing.right{ transform-origin: center right; animation-direction: alternate; }
   /* Mobile responsiveness */
 @media (max-width: 640px){
   body{ overflow-x:hidden; padding: 16px 10px; }
@@ -4448,6 +4482,26 @@ LOGIN_HTML = r"""
 
 </head><body>
   <div class="card">
+    <div class="login-scene" aria-hidden="true">
+      <!-- Mushroom -->
+      <svg class="mushroom" width="64" height="54" viewBox="0 0 64 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="23" y="34" width="18" height="20" rx="3" fill="rgba(200,160,120,.85)"/>
+        <ellipse cx="32" cy="34" rx="26" ry="16" fill="rgba(160,60,60,.88)"/>
+        <ellipse cx="20" cy="28" rx="5" ry="4" fill="rgba(255,255,255,.45)"/>
+        <ellipse cx="38" cy="24" rx="4" ry="3" fill="rgba(255,255,255,.35)"/>
+        <ellipse cx="46" cy="30" rx="3.5" ry="3" fill="rgba(255,255,255,.3)"/>
+      </svg>
+      <!-- Dragonfly -->
+      <svg class="dragonfly fly-away" width="36" height="24" viewBox="0 0 36 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <ellipse cx="18" cy="14" rx="3" ry="7" fill="rgba(120,200,180,.9)"/>
+        <circle cx="18" cy="7" r="3.5" fill="rgba(100,180,160,.95)"/>
+        <circle cx="18" cy="6" r="1.5" fill="rgba(30,60,50,.7)"/>
+        <ellipse class="df-wing" cx="10" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(-15 10 10)"/>
+        <ellipse class="df-wing right" cx="26" cy="10" rx="9" ry="5" fill="rgba(180,230,240,.55)" transform="rotate(15 26 10)"/>
+        <ellipse cx="10" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(10 10 16)"/>
+        <ellipse cx="26" cy="16" rx="7" ry="4" fill="rgba(160,220,235,.45)" transform="rotate(-10 26 16)"/>
+      </svg>
+    </div>
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
 
@@ -6395,7 +6449,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saSettingsDrop">
             <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
+            <button class="saDropItem" id="operatorProfileBtn">Operator</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
@@ -8712,7 +8766,7 @@ window.showModal = function showModal(title, body, imgUrl){
       hideAllModalForms();
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'block';
       if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
+      if($("modalTitle")) $("modalTitle").innerText = 'Operator';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
       try{
         const res = await fetch('/api/operator_profile');
@@ -8751,7 +8805,7 @@ window.showModal = function showModal(title, body, imgUrl){
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         if(st) st.innerText = 'Saved';
-        showToast('Saved Operator Profile');
+        showToast('Operator profile saved');
         if(selectedSeat === 'Operator'){ try{ await refreshThread(); }catch(e){} }
       }catch(e){
         if(st) st.innerText = e && e.message ? e.message : 'Save failed';
@@ -9016,7 +9070,7 @@ function makeSeat(defn, idx){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
 
-        showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
+        showToast("No active teammates — use Team menu to add seats");
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
@@ -9055,7 +9109,7 @@ function makeSeat(defn, idx){
       const profBtn = document.createElement("button");
       profBtn.className = "seatToolBtn";
       profBtn.innerText = "Profile";
-      profBtn.title = "Edit Operator Profile (shared context)";
+      profBtn.title = "Edit Operator (shared context)";
       profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
       profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openOperatorProfileModal(); });
       tools.appendChild(profBtn);
@@ -9271,6 +9325,29 @@ function makeSeat(defn, idx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
+
+      // ── First-time teammate self-introduction ──────────────
+      // Only once per teammate per browser session (sessionStorage key)
+      if(name && name !== "Operator"){
+        const introKey = "sa_intro_" + name;
+        if(!sessionStorage.getItem(introKey)){
+          sessionStorage.setItem(introKey, "1");
+          const defnI = (state && state.installed && state.installed[name]) || {};
+          const role = defnI.job_title || "your AI teammate";
+          const mission = defnI.mission || "";
+          const sysPrompt = `You are ${name}, ${role}. ${mission ? "Your mission: " + mission + "." : ""}`;
+          const introPrompt = `Introduce yourself briefly (2-3 sentences max). State your name, your specialty, and one concrete way you help. Be warm but concise. No em dashes.`;
+          try{
+            const res = await fetch("/api/followup", {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({name, message: introPrompt, lighting_mode: false})
+            });
+            const d = await res.json();
+            if(d && d.ok) await refreshThread();
+          }catch(e){}
+        }
+      }
     }
 
     function renderThread(msgs, imageState){
@@ -10303,7 +10380,7 @@ function makeSeat(defn, idx){
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
-        showModal("No active teammates", "Add teammates to the round table first.");
+        showToast("Add teammates to the round table first");
         return;
       }
 
@@ -10550,7 +10627,7 @@ async function pollImageJob(jobId, seatName){
       await loadState();
       // Play table activation sound
       try{ wcalPlayActivationSound(); }catch(e){}
-      showModal("Team Assembled", "Full team installed and seated at the Round Table.");
+      showToast("✓ Full team assembled at the Round Table");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12684,27 +12761,64 @@ window.wcalDetSaveEvent = async function(encodedId){
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
-    notes.forEach((freq,i)=>{
-      const osc=ctx.createOscillator();
-      const gain=ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type='sine'; osc.frequency.value=freq;
-      const t=ctx.currentTime+i*0.09;
-      gain.gain.setValueAtTime(0,t);
-      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
-      osc.start(t); osc.stop(t+0.3);
+    const now=ctx.currentTime;
+    // Layer 1: low engine rumble sweep (80→220 Hz)
+    const rumble=ctx.createOscillator();
+    const rumbleGain=ctx.createGain();
+    rumble.type='sawtooth';
+    rumble.frequency.setValueAtTime(80,now);
+    rumble.frequency.exponentialRampToValueAtTime(220,now+1.1);
+    rumbleGain.gain.setValueAtTime(0,now);
+    rumbleGain.gain.linearRampToValueAtTime(0.12,now+0.15);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    rumble.connect(rumbleGain); rumbleGain.connect(ctx.destination);
+    rumble.start(now); rumble.stop(now+1.5);
+    // Layer 2: rising power tone (110→440)
+    const power=ctx.createOscillator();
+    const powerGain=ctx.createGain();
+    power.type='sine';
+    power.frequency.setValueAtTime(110,now+0.1);
+    power.frequency.exponentialRampToValueAtTime(440,now+1.0);
+    powerGain.gain.setValueAtTime(0,now+0.1);
+    powerGain.gain.linearRampToValueAtTime(0.18,now+0.4);
+    powerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    power.connect(powerGain); powerGain.connect(ctx.destination);
+    power.start(now+0.1); power.stop(now+1.5);
+    // Layer 3: high harmonic shimmer
+    const shimmer=ctx.createOscillator();
+    const shimmerGain=ctx.createGain();
+    shimmer.type='triangle';
+    shimmer.frequency.setValueAtTime(660,now+0.6);
+    shimmer.frequency.exponentialRampToValueAtTime(880,now+1.1);
+    shimmerGain.gain.setValueAtTime(0,now+0.6);
+    shimmerGain.gain.linearRampToValueAtTime(0.09,now+0.75);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.001,now+1.4);
+    shimmer.connect(shimmerGain); shimmerGain.connect(ctx.destination);
+    shimmer.start(now+0.6); shimmer.stop(now+1.5);
+    // Layer 4: final activation chime (two-note confirm)
+    [880,1174.7].forEach((freq,i)=>{
+      const o=ctx.createOscillator(); const g=ctx.createGain();
+      o.type='sine'; o.frequency.value=freq;
+      const t=now+1.05+i*0.14;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(0.14,t+0.04);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t+0.4);
     });
   }catch(e){}
 }
+
+// Alias so onboarding & other callers can use the same sound
+window.playRoundTableStartup = wcalPlayActivationSound;
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
 const wcalDrag={
   active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
-  clickOffsetPx:0,
+  // Pixel offset WITHIN the block where user clicked (in grid-pixel space)
+  grabOffsetMins:0,
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
 };
@@ -12718,15 +12832,22 @@ function wcalDragWireGrid(grid){
     el.addEventListener('mousedown',function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
-      // Do NOT call preventDefault here — that would kill the onclick/detail-open.
-      // We only take over if the user actually drags (detected in mousemove).
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
-      const elRect=el.getBoundingClientRect();
-      const clickOffsetPx=e.clientY-elRect.top;
+
+      // Grab offset in MINUTES = (pixels from block top) = (cursor Y - block top in viewport) 
+      // + wrap.scrollTop - col.getBoundingClientRect().top
+      // This gives us the minute offset from the block's own start time
+      const colRect = col ? col.getBoundingClientRect() : {top:0};
+      const scrolled = wrap ? wrap.scrollTop : 0;
+      const elTopInGrid = e.clientY - colRect.top + scrolled - (e.clientY - el.getBoundingClientRect().top);
+      // Simpler: pixels from block top = cursor Y - block.top (both in viewport coords)
+      const grabPx = e.clientY - el.getBoundingClientRect().top;
+      const grabOffsetMins = Math.max(0, Math.round(grabPx)); // 1px = 1min
+
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -12746,7 +12867,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el=el; wcalDrag.etype=etype;
       wcalDrag.tid=tid; wcalDrag.eid=eid;
       wcalDrag.origDate=origDate; wcalDrag.origStart=origStart; wcalDrag.origDur=origDur;
-      wcalDrag.clickOffsetPx=clickOffsetPx;
+      wcalDrag.grabOffsetMins=grabOffsetMins;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
     });
@@ -12767,7 +12888,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.el.style.zIndex='20';
       wcalDrag.el.style.cursor='grabbing';
       wcalDrag.el.style.pointerEvents='none';
-      // Suppress the upcoming click so the detail panel doesn't open on drag-release
+      // Suppress the upcoming click so detail panel doesn't open on drag-release
       wcalDrag._suppressNextClick=true;
       // Time tooltip
       const tip=document.createElement('div');
@@ -12776,7 +12897,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // Find target column by X position
+    // Find target column by X
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -12792,29 +12913,22 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // ── TIME CALCULATION ──────────────────────────────────────────
-    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
-    // Its height is constant (~44px) but visually it stays at the top of the wrap.
-    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
-    // the column, which is BELOW the sticky header. So:
-    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
-    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
-    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
-    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
+    // ── CORRECTED TIME CALCULATION ──────────────────────────────
+    // cursor position in the scrollable grid (absolute pixel from grid top):
+    //   gridPx = (e.clientY - col.getBoundingClientRect().top) + wrap.scrollTop
+    // This gives us where the cursor is in minute-space (1px = 1min).
+    // Subtract grabOffsetMins so the block's TOP snaps to the right slot,
+    // not the cursor position. The result: block top = where cursor is minus
+    // how far down the block the user grabbed.
     const colRect=targetCol.getBoundingClientRect();
-    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
     const scrolled=wrap?wrap.scrollTop:0;
-    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
-    // The sticky header is ~44px. Using colRect.top already accounts for it since
-    // wcal-day-col starts BELOW the sticky header in the DOM flow.
-    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
-    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
+    const cursorGridPx = (e.clientY - colRect.top) + scrolled;
+    const blockTopPx = cursorGridPx - wcalDrag.grabOffsetMins;
+    const startMins=Math.max(0, Math.min(Math.round(blockTopPx/15)*15, 23*60));
 
-    // Move the original block visually (no ghost clone)
+    // Move block visually
     const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
-    if(origCol && targetCol !== origCol){
-      targetCol.appendChild(wcalDrag.el);
-    }
+    if(origCol && targetCol !== origCol) targetCol.appendChild(wcalDrag.el);
     wcalDrag.el.style.top=startMins+'px';
     wcalDrag.el.style.left='3px';
     wcalDrag.el.style.right='3px';
@@ -12837,33 +12951,31 @@ function wcalDragWireGrid(grid){
     if(!wcalDrag.el) return;
     const wasDragging=wcalDrag.active;
 
-    // Restore element styles
     wcalDrag.el.style.opacity='';
     wcalDrag.el.style.zIndex='';
     wcalDrag.el.style.cursor='';
     wcalDrag.el.style.pointerEvents='';
-    // If we actually dragged, suppress the next click event so detail panel doesn't open
+
+    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
+
+    // Suppress detail-panel click after a drag
     if(wcalDrag._suppressNextClick){
       wcalDrag._suppressNextClick=false;
       const el2=wcalDrag.el;
-      const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
-      wcalDrag.el.addEventListener('click',suppressHandler,true);
+      const sup=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',sup,true); };
+      wcalDrag.el.addEventListener('click',sup,true);
     }
-
-    // Remove tooltip
-    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
 
     const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
     const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
-
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
+    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_suppressNextClick:false});
 
     if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate){ return; }
+    if(newStart===origStart && targetDate===origDate) return;
 
     if(etype==='task'){
       const task=cal.tasks.find(t=>t.id===tid); if(!task){ wcalRefresh(); return; }
@@ -12876,7 +12988,6 @@ function wcalDragWireGrid(grid){
         showToast('Task moved → '+targetDate+' '+newStart);
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed'); wcalRefresh(); }
-
     } else {
       let ev=null;
       Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
@@ -13649,8 +13760,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const needsEmail = !me.has_smtp;
 
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // auto open settings, and show a coach bubble on the Settings button
-        try{ showSettingsModal(true); }catch(e){}
+        // Show coach bubble only — do NOT auto-open settings modal, let user land on main UI
         const b = placeCoach($("settingsBtn"),
           "Start here: Settings",
           "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
@@ -14969,8 +15079,20 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "first_prompt"){
+        // Auto-save settings if the settings modal is open, then close it
+        try{
+          const overlay = document.getElementById("overlay");
+          if(overlay && overlay.classList.contains("show")){
+            const saveBtn = document.getElementById("saveSettings");
+            if(saveBtn && typeof saveBtn.onclick === "function") await saveBtn.onclick();
+            if(typeof hideModal === "function") hideModal();
+            await new Promise(r=>setTimeout(r,200));
+          }
+        }catch(e){}
+        // Play activation sound and focus the DM input
+        try{ if(typeof wcalPlayActivationSound === "function") wcalPlayActivationSound(); }catch(e){}
         focusEl("followMsg");
-        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
+        try{ if(typeof showToast === "function") showToast("Round table active — send your first prompt!"); }catch(e){}
         return;
       }
     }finally{
