@@ -4286,8 +4286,8 @@ LOGIN_HTML = r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 
-/* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
 <style>
+/* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
 @media (max-width: 900px){
   html, body{
     width:100% !important;
@@ -6565,8 +6565,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
             <button class="saDropItem" id="createTeamBtn">Create teammate</button>
             <button class="saDropItem" id="installFullBtn">Install full team</button>
-            <button class="saDropItem" id="onboardingBtn">Onboarding checklist</button>
-            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
           </div>
         </div>
 
@@ -6594,6 +6592,8 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
+            <button class="saDropItem" id="onboardingBtn">Next step</button>
+            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
@@ -6642,7 +6642,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-                <button class="btn" data-click="calendarBtn">Calendar</button>
+        <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
@@ -7945,7 +7945,7 @@ label         { font-size: 14px !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -8008,9 +8008,8 @@ label         { font-size: 14px !important; }
         </div>
         <!-- Pass row -->
         <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">🔍 Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">⚠️ Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatFail" title="Failure Simulator">💥 Failure</button>
           <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraints">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimize">⚡ Optimize</button>
         </div>
@@ -8727,7 +8726,7 @@ window.showModal = function showModal(title, body, imgUrl){
     }
 
     function buildLeadOutreachContext(item, channel){
-      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
       const phone = item.phone || '';
       const site = item.website || item.domain || '';
       const sourceQuery = item.source_query || '';
@@ -8786,7 +8785,7 @@ window.showModal = function showModal(title, body, imgUrl){
         return;
       }
       if(st) st.innerText = 'Writing draft...';
-      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
       const phone = item.phone || '';
       if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
       if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
@@ -10838,14 +10837,12 @@ async function pollImageJob(jobId, seatName){
     // Seat pass buttons
     bind("passSeatRisk",   () => runTacticalPass("risk", "seat"));
     bind("passSeatScale",  () => runTacticalPass("scale", "seat"));
-    bind("passSeatFail",   () => runTacticalPass("failure", "seat"));
     bind("passSeatConstr", () => runTacticalPass("constraints", "seat"));
     bind("passSeatOpt",    () => runTacticalPass("optimize", "seat"));
 
     // Group pass buttons
     bind("passGroupRisk",   () => runTacticalPass("risk", "group"));
     bind("passGroupScale",  () => runTacticalPass("scale", "group"));
-    bind("passGroupFail",   () => runTacticalPass("failure", "group"));
     bind("passGroupConstr", () => runTacticalPass("constraints", "group"));
     bind("passGroupOpt",    () => runTacticalPass("optimize", "group"));
 
@@ -12037,8 +12034,7 @@ async function crmFetchTasks(){
         return;
       }
       box.innerHTML = items.map((item, idx)=>{
-        const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
-        const topEmail = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+        const topEmail = item.email || (((item.email_candidates||[])[0]||{}).email) || '';
         const topPhone = item.phone || '';
         const site = item.website || item.domain || '';
         const sourceQuery = item.source_query || '';
@@ -12050,11 +12046,9 @@ async function crmFetchTasks(){
               <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
               <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
               <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
-              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
+              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
-            <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
           </div>
-          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
           <div class="actions" style="justify-content:flex-end; margin-top:10px; flex-wrap:wrap;">
             <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
             <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
@@ -12067,7 +12061,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
-          const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
           if(!email) return showToast('No email found');
           try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
         };
@@ -12083,7 +12077,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
         btn.onclick = ()=>{
           const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
-          const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
+          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
           if(!email) return showToast('No email found');
           openLeadHandoff('email', item);
         };
@@ -12922,22 +12916,84 @@ window.wcalDetSaveEvent = async function(encodedId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
-// ── Activation sound (Web Audio API — no file needed) ─────────
+// ── Activation sound — futuristic engine startup (Web Audio API) ─
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
-    notes.forEach((freq,i)=>{
-      const osc=ctx.createOscillator();
-      const gain=ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type='sine'; osc.frequency.value=freq;
-      const t=ctx.currentTime+i*0.09;
-      gain.gain.setValueAtTime(0,t);
-      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
-      osc.start(t); osc.stop(t+0.3);
+    const master=ctx.createGain();
+    master.gain.setValueAtTime(0.0,ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0.72,ctx.currentTime+0.08);
+    master.gain.setValueAtTime(0.72,ctx.currentTime+2.6);
+    master.gain.linearRampToValueAtTime(0.0,ctx.currentTime+3.2);
+    master.connect(ctx.destination);
+
+    // 1. Deep low rumble — engine core igniting (sawtooth sweeping 40→110 Hz)
+    const rumble=ctx.createOscillator();
+    const rumbleGain=ctx.createGain();
+    const rumbleFilter=ctx.createBiquadFilter();
+    rumble.type='sawtooth';
+    rumble.frequency.setValueAtTime(38,ctx.currentTime);
+    rumble.frequency.linearRampToValueAtTime(110,ctx.currentTime+1.1);
+    rumble.frequency.linearRampToValueAtTime(88,ctx.currentTime+2.2);
+    rumbleGain.gain.setValueAtTime(0,ctx.currentTime);
+    rumbleGain.gain.linearRampToValueAtTime(0.55,ctx.currentTime+0.18);
+    rumbleGain.gain.setValueAtTime(0.55,ctx.currentTime+1.8);
+    rumbleGain.gain.linearRampToValueAtTime(0.25,ctx.currentTime+2.8);
+    rumbleFilter.type='lowpass'; rumbleFilter.frequency.value=320;
+    rumble.connect(rumbleFilter); rumbleFilter.connect(rumbleGain); rumbleGain.connect(master);
+    rumble.start(ctx.currentTime); rumble.stop(ctx.currentTime+3.0);
+
+    // 2. Mid-range harmonic whine — turbine spooling up (sine 180→1400 Hz)
+    const whine=ctx.createOscillator();
+    const whineGain=ctx.createGain();
+    whine.type='sine';
+    whine.frequency.setValueAtTime(180,ctx.currentTime+0.05);
+    whine.frequency.exponentialRampToValueAtTime(1400,ctx.currentTime+1.6);
+    whine.frequency.setValueAtTime(1400,ctx.currentTime+2.0);
+    whine.frequency.linearRampToValueAtTime(1200,ctx.currentTime+2.8);
+    whineGain.gain.setValueAtTime(0,ctx.currentTime+0.05);
+    whineGain.gain.linearRampToValueAtTime(0.28,ctx.currentTime+0.35);
+    whineGain.gain.setValueAtTime(0.28,ctx.currentTime+2.0);
+    whineGain.gain.linearRampToValueAtTime(0.0,ctx.currentTime+2.9);
+    whine.connect(whineGain); whineGain.connect(master);
+    whine.start(ctx.currentTime+0.05); whine.stop(ctx.currentTime+3.0);
+
+    // 3. High harmonic shimmer — energy field activating (triangle 2200 Hz pulse)
+    const shimmer=ctx.createOscillator();
+    const shimmerGain=ctx.createGain();
+    shimmer.type='triangle';
+    shimmer.frequency.setValueAtTime(2200,ctx.currentTime+0.9);
+    shimmer.frequency.linearRampToValueAtTime(2800,ctx.currentTime+1.7);
+    shimmerGain.gain.setValueAtTime(0,ctx.currentTime+0.9);
+    shimmerGain.gain.linearRampToValueAtTime(0.14,ctx.currentTime+1.1);
+    shimmerGain.gain.setValueAtTime(0.14,ctx.currentTime+1.9);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.7);
+    shimmer.connect(shimmerGain); shimmerGain.connect(master);
+    shimmer.start(ctx.currentTime+0.9); shimmer.stop(ctx.currentTime+2.8);
+
+    // 4. Power-lock thud — system engaged confirmation (short low burst at 1.65s)
+    const thud=ctx.createOscillator();
+    const thudGain=ctx.createGain();
+    thud.type='sine';
+    thud.frequency.setValueAtTime(95,ctx.currentTime+1.65);
+    thud.frequency.exponentialRampToValueAtTime(42,ctx.currentTime+1.95);
+    thudGain.gain.setValueAtTime(0,ctx.currentTime+1.65);
+    thudGain.gain.linearRampToValueAtTime(0.8,ctx.currentTime+1.68);
+    thudGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.05);
+    thud.connect(thudGain); thudGain.connect(master);
+    thud.start(ctx.currentTime+1.65); thud.stop(ctx.currentTime+2.1);
+
+    // 5. Confirmation tone pair — system online (two clean sine pings at end)
+    [[1800,2.05],[2400,2.22]].forEach(([freq,when])=>{
+      const p=ctx.createOscillator(); const pg=ctx.createGain();
+      p.type='sine'; p.frequency.value=freq;
+      pg.gain.setValueAtTime(0,ctx.currentTime+when);
+      pg.gain.linearRampToValueAtTime(0.22,ctx.currentTime+when+0.03);
+      pg.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+when+0.28);
+      p.connect(pg); pg.connect(master);
+      p.start(ctx.currentTime+when); p.stop(ctx.currentTime+when+0.32);
     });
+
   }catch(e){}
 }
 
@@ -12968,7 +13024,11 @@ function wcalDragWireGrid(grid){
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const elRect=el.getBoundingClientRect();
-      const clickOffsetPx=e.clientY-elRect.top;
+      const wrapEl=document.getElementById('wcalGridWrap');
+      const wrapTop=wrapEl?wrapEl.getBoundingClientRect().top:0;
+      const wrapScroll=wrapEl?wrapEl.scrollTop:0;
+      // clickOffsetPx = how many grid-pixels from the grid's scroll-origin the grabbed point is
+      const clickOffsetPx=(e.clientY - wrapTop) + wrapScroll - parseFloat(el.style.top||'0');
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -13018,7 +13078,15 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // Find target column by X position
+    // ── TIME CALCULATION ──────────────────────────────────────────
+    // Use the wrap container's top edge as the stable reference so the
+    // calculation is not affected by the sticky header's visual offset.
+    // pixelsFromGridTop = (mouse viewport Y) - (wrap viewport top) + scrollTop
+    // Then subtract clickOffsetPx so the block's grabbed point stays under the cursor.
+    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0,left:0};
+    const scrolled=wrap?wrap.scrollTop:0;
+
+    // Find which day column the mouse is over (for cross-day drag)
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -13034,22 +13102,7 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    // ── TIME CALCULATION ──────────────────────────────────────────
-    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
-    // Its height is constant (~44px) but visually it stays at the top of the wrap.
-    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
-    // the column, which is BELOW the sticky header. So:
-    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
-    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
-    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
-    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
-    const colRect=targetCol.getBoundingClientRect();
-    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
-    const scrolled=wrap?wrap.scrollTop:0;
-    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
-    // The sticky header is ~44px. Using colRect.top already accounts for it since
-    // wcal-day-col starts BELOW the sticky header in the DOM flow.
-    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
+    const rawY = (e.clientY - wrapRect.top) + scrolled - wcalDrag.clickOffsetPx;
     const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
 
     // Move the original block visually (no ghost clone)
@@ -18162,8 +18215,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "domain": domain,
         "website": website,
         "phone": phones[0] if phones else "",
-        "email": emails[0] if emails else "",
-        "email_candidates": email_candidates,
+        "email": emails[0] if emails else (email_candidates[0].get("email","") if email_candidates else ""),
         "niche_hit": bool(signals.get("niche_hit")),
         "location_hit": bool(signals.get("location_hit")),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
@@ -18192,8 +18244,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
             "domain": domain,
             "website": f"https://{domain}" if domain else "",
             "phone": "",
-            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
-            "email_candidates": email_candidates,
+            "email": (email_candidates[0].get("email","") if email_candidates else ""),
             "niche_hit": True,
             "location_hit": bool(location),
             "notes": (row.get("notes") or "") + (f"\nSeed row for {niche} in {location}." if niche or location else "\nSeed row."),
