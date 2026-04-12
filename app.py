@@ -44,7 +44,7 @@ except Exception:
 
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", " Simply Agentic AI Round Table V1.12")
+APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI v1.11")
 MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", "5000"))
@@ -730,16 +730,6 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
-    # Step 0: Operator Profile filled in
-    try:
-        op = _load_operator_profile(username) or {}
-        op_fields = [op.get("display_name",""), op.get("business",""), op.get("offers",""),
-                     op.get("audience",""), op.get("goals","")]
-        if any((str(f).strip()) for f in op_fields if f):
-            _mark_onboarding_step(username, "operator_profile", True)
-    except Exception:
-        pass
-
     # Step 1: Preferred AI connected (OpenAI or Claude)
     try:
         settings = ((u or {}).get("settings") or {})
@@ -786,12 +776,9 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
 
     # Step: Session goal set
     try:
-        from pathlib import Path as _Path
-        _sess_path = DATA / "os" / _safe_name(username or "anon") / "session_objective.json"
-        if _sess_path.exists():
-            _sess = load_json(_sess_path, {}) or {}
-            if (_sess.get("title") or "").strip():
-                _mark_onboarding_step(username, "session_goal", True)
+        _sess_obj = (_os_load(username).get("session_objective") or {})
+        if (_sess_obj.get("title") or "").strip():
+            _mark_onboarding_step(username, "session_goal", True)
     except Exception:
         pass
 
@@ -5482,7 +5469,7 @@ HTML = r"""
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:12px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .saObjectivePill{font-size:14px;font-weight:600;color:#f59e0b;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 12px rgba(245,158,11,0.35);}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -6543,26 +6530,31 @@ body { font-size: 15px; }
 /* Seat cards */
 .seatName     { font-size: 15px !important; }
 .seatRole     { font-size: 13px !important; }
-.seatStatus   { font-size: 12px !important; }
+.seatStatus   { font-size: 13px !important; }
 
 /* Sidebar headers */
 .sideTitle .h1 { font-size: 16px !important; }
-.sideTitle .h2 { font-size: 13px !important; }
+.sideTitle .h2 { font-size: 14px !important; }
 .opTitle .t1   { font-size: 15px !important; }
-.opTitle .t2   { font-size: 13px !important; }
+.opTitle .t2   { font-size: 14px !important; }
 
 /* Nav bar */
 .saNavBtn     { font-size: 14px !important; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
 
-.saObjectivePill { font-size: 12px !important; }
-.saModelTag   { font-size: 12px !important; }
+.saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #f59e0b !important; }
+.saModelTag   { font-size: 13px !important; }
 
 /* Labels and tiny text */
 .tiny         { font-size: 13px !important; }
 label         { font-size: 14px !important; }
-.pill         { font-size: 13px !important; }
-.pillRow .tiny { font-size: 12px !important; }
+.pill         { font-size: 14px !important; }
+.pillRow .tiny { font-size: 13px !important; }
+
+/* Onboarding Next Step panel */
+.onbTitle     { font-size: 14px !important; }
+.onbMeta      { font-size: 13px !important; }
+#onbSub       { font-size: 13px !important; }
 
 /* Modal forms */
 .modalForm label { font-size: 14px !important; }
@@ -15234,7 +15226,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     const sub = onb$("onbSub");
     if(!panel || !list || !sub || !onbData) return;
 
-    if(onbData.dismissed || onbData.all_done || suppressAutoOpen || loadOnbHidden()){
+    if(onbData.dismissed || onbData.all_done || loadOnbHidden()){
       panel.style.display = "none";
       return;
     }
@@ -15317,9 +15309,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     try{
       if(key === "operator_profile"){
-        // Open the Operator Profile modal directly
+        // Open the Operator Profile modal directly — keep Next Step panel open
         try{ if(typeof openOperatorProfileModal === "function") openOperatorProfileModal(); }catch(e){}
-        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
         setTimeout(()=>{
           focusEl("opm_display_name") || focusEl("opm_business");
           try{ if(typeof showToast === "function") showToast("Fill in your Operator Profile so teammates know who they're working for."); }catch(e){}
@@ -15328,13 +15319,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "session_goal"){
-        // Open the Session Objective modal
+        // Open the Session Objective modal — keep Next Step panel open
         try{
           const btn = document.getElementById("sessionObjectiveBtn");
           if(btn){ btn.click(); }
           else if(typeof showSessionObjectiveModal === "function"){ showSessionObjectiveModal(); }
         }catch(e){}
-        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
         setTimeout(()=>{
           focusEl("sessionObjectiveInput");
           try{ if(typeof showToast === "function") showToast("Set a session goal so the whole team can align around one objective."); }catch(e){}
@@ -19907,6 +19897,12 @@ def api_os_session_objective_set():
         osd["mode"] = ((payload.get("mode") or "operator").strip() or "operator")
     _os_save(uname, osd)
     _os_log(uname, "session_objective", {"title": osd["session_objective"]["title"]})
+    # Mark session_goal onboarding step complete when a real objective is saved
+    try:
+        if (osd["session_objective"].get("title") or "").strip():
+            _mark_onboarding_step(uname, "session_goal", True)
+    except Exception:
+        pass
     return jsonify({"ok": True, "objective": osd["session_objective"], "mode": osd.get("mode")})
 
 
