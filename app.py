@@ -3872,7 +3872,6 @@ def api_cal_tasks_create():
         "recurring": (payload.get("recurring") or "none").strip(),
         "on_complete_teammate": (payload.get("on_complete_teammate") or "").strip(),
         "on_complete_client_email": (payload.get("on_complete_client_email") or "").strip(),
-        "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
         "done": False,
         "completed_at": None,
         "created_at": now_iso(),
@@ -3891,7 +3890,7 @@ def api_cal_tasks_update(task_id: str):
     tasks = _load_cal_tasks(u.get("username", ""))
     for t in tasks:
         if t.get("id") == task_id:
-            for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email", "on_complete_client_name"):
+            for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email"):
                 if field in payload:
                     t[field] = (payload[field] or "").strip()
             if "duration" in payload:
@@ -3910,7 +3909,7 @@ def api_cal_tasks_update(task_id: str):
 
 @app.post("/api/cal/tasks/<task_id>/complete_action")
 def api_cal_task_complete_action(task_id: str):
-    """When a task is marked done, have the assigned teammate draft a completion email — returned for user approval, never auto-sent."""
+    """When a task is marked done, use the assigned teammate to draft and send a completion email to the client."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -3922,7 +3921,6 @@ def api_cal_task_complete_action(task_id: str):
 
     teammate_name = (task.get("on_complete_teammate") or "").strip()
     client_email  = (task.get("on_complete_client_email") or "").strip()
-    client_name   = (task.get("on_complete_client_name") or "").strip()
     if not teammate_name or not client_email:
         return jsonify({"ok": False, "error": "No teammate or client email configured on this task"}), 400
 
@@ -3931,20 +3929,17 @@ def api_cal_task_complete_action(task_id: str):
     if not defn:
         return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found"}), 404
 
-    # Build prompt — use the client's real name if provided, otherwise fall back to email
+    # Build prompt for the teammate to draft a completion email
     task_title = task.get("title","Untitled task")
     task_desc  = task.get("description","")
     task_date  = task.get("date","")
-    client_ref = client_name if client_name else client_email
     prompt = (
         f"The task '{task_title}' has just been marked complete"
         + (f" (scheduled {task_date})" if task_date else "")
         + ". "
         + (f"Task notes: {task_desc}. " if task_desc else "")
-        + f"Please draft a professional, warm, concise email to {client_ref} "
-        + f"(email: {client_email}) letting them know this task is complete. "
-        + f"Address them by name as '{client_ref}' in the greeting. "
-        + "Include a subject line on the first line in the format 'Subject: ...' "
+        + f"Please draft a professional, warm, concise email to the client at {client_email} "
+        + "letting them know this task is complete. Include a subject line on the first line in the format 'Subject: ...' "
         + "followed by the email body. Keep it brief and friendly."
     )
 
@@ -3980,14 +3975,35 @@ def api_cal_task_complete_action(task_id: str):
     if not body:
         body = raw
 
-    # Return draft for user approval — do NOT send automatically
-    append_log("task_complete_email_drafted", {
+    # Send the email
+    cap = _email_capability_for_user(u)
+    try:
+        if cap.get("gmail_connected"):
+            access_token, reason = _gmail_creds_for_user(u)
+            if not access_token:
+                return jsonify({"ok": False, "error": f"Gmail not ready: {reason}", "draft_subject": subject, "draft_body": body}), 400
+            smtp_s = _user_smtp_settings(u)
+            _gmail_send_message(access_token, to_addr=client_email, subject=subject, body=body, from_name=smtp_s.get("from_name",""))
+            provider = "gmail_oauth"
+        else:
+            ready, reason = smtp_ready_for_user(u)
+            if not ready:
+                return jsonify({"ok": False, "error": reason, "draft_subject": subject, "draft_body": body}), 400
+            s = _user_smtp_settings(u)
+            send_email_smtp_with_creds(to_addr=client_email, subject=subject, body=body,
+                host=s["host"], port=s["port"],
+                user=s["user"] or SMTP_USER, password=s["pass"] or SMTP_PASS,
+                from_name=s["from_name"])
+            provider = "smtp"
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Email send failed: {e}", "draft_subject": subject, "draft_body": body}), 500
+
+    append_log("task_complete_email_sent", {
         "task_id": task_id, "task_title": task_title,
         "teammate": teammate_name, "to": client_email,
-        "client_name": client_name, "at": now_iso()
+        "provider": provider, "at": now_iso()
     })
-    return jsonify({"ok": True, "draft": True, "subject": subject, "body": body,
-                    "to": client_email, "teammate": teammate_name})
+    return jsonify({"ok": True, "subject": subject, "body": body, "provider": provider})
 
 @app.delete("/api/cal/tasks/<task_id>")
 def api_cal_tasks_delete(task_id: str):
@@ -4023,8 +4039,8 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(680px, calc(100vw - 36px));
-    min-height: auto;
+    width: min(860px, calc(100vw - 36px));
+    min-height: min(84vh, 820px);
     max-width: calc(100vw - 36px);
     background:
       linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
@@ -4286,8 +4302,8 @@ LOGIN_HTML = r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 
-<style>
 /* ===== MOBILE FIT FIX v2: stop right-lean / clipped controls ===== */
+<style>
 @media (max-width: 900px){
   html, body{
     width:100% !important;
@@ -4428,66 +4444,6 @@ LOGIN_HTML = r"""
     margin-right:auto !important;
   }
 }
-
-/* ===== MUSHROOM + DRAGONFLY ANIMATION ===== */
-.loginScene{
-  position:relative;
-  width:100%;
-  height:160px;
-  margin-top:28px;
-  overflow:hidden;
-  pointer-events:none;
-  user-select:none;
-}
-
-/* Mushroom grows from bottom center */
-@keyframes mushroomGrow{
-  0%  { transform: scaleY(0) translateX(-50%); opacity:0; }
-  15% { opacity:1; }
-  60% { transform: scaleY(1.08) translateX(-50%); }
-  75% { transform: scaleY(0.96) translateX(-50%); }
-  100%{ transform: scaleY(1)    translateX(-50%); opacity:1; }
-}
-.mushroomSvg{
-  position:absolute;
-  bottom:0;
-  left:50%;
-  transform-origin: bottom center;
-  animation: mushroomGrow 1.2s cubic-bezier(.34,1.56,.64,1) 0.3s both;
-  width:110px;
-  height:130px;
-}
-
-/* Dragonfly: fly in from right, land, pause, fly off left */
-@keyframes dragonflyFlight{
-  0%   { transform: translate(220px, 60px) rotate(-20deg) scaleX(1);  opacity:0; }
-  8%   { opacity:1; }
-  38%  { transform: translate(0px,   0px) rotate(5deg)  scaleX(1);  opacity:1; }
-  55%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(1);  opacity:1; }
-  56%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(-1); opacity:1; }
-  88%  { transform: translate(-260px, 55px) rotate(15deg) scaleX(-1); opacity:1; }
-  95%  { opacity:0.3; }
-  100% { transform: translate(-320px, 80px) rotate(15deg) scaleX(-1); opacity:0; }
-}
-@keyframes wingBeat{
-  0%,100%{ transform: scaleY(1);   }
-  50%    { transform: scaleY(0.35);}
-}
-.dragonflySvg{
-  position:absolute;
-  bottom:92px;
-  left:calc(50% + 6px);
-  width:54px;
-  height:28px;
-  transform-origin: center center;
-  animation: dragonflyFlight 5.8s ease-in-out 1.2s both;
-}
-.dfWing{
-  animation: wingBeat 0.18s linear infinite;
-  transform-origin: center center;
-}
-/* Pause wing beat during landing phase (38%-55% = ~2.3s-3.2s into 5.8s) */
-.dragonflySvg:hover .dfWing{ animation-play-state:paused; }
 </style>
 
 </head><body>
@@ -4519,59 +4475,6 @@ LOGIN_HTML = r"""
     </div>
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
-
-    <!-- ===== MUSHROOM + DRAGONFLY SCENE ===== -->
-    <div class="loginScene" aria-hidden="true">
-      <!-- Mushroom SVG -->
-      <svg class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
-        <!-- stem -->
-        <rect x="36" y="72" width="38" height="58" rx="10" fill="rgba(230,220,200,0.88)"/>
-        <!-- stem shading -->
-        <rect x="36" y="72" width="14" height="58" rx="7" fill="rgba(200,185,165,0.45)"/>
-        <!-- gill underside -->
-        <ellipse cx="55" cy="74" rx="34" ry="10" fill="rgba(220,200,175,0.75)"/>
-        <!-- cap -->
-        <ellipse cx="55" cy="55" rx="52" ry="32" fill="#c0392b"/>
-        <!-- cap highlight gradient dome -->
-        <ellipse cx="55" cy="44" rx="44" ry="25" fill="rgba(220,80,60,0.55)"/>
-        <!-- white spots -->
-        <circle cx="55" cy="38" r="11" fill="rgba(255,255,255,0.88)"/>
-        <circle cx="28" cy="52" r="7"  fill="rgba(255,255,255,0.82)"/>
-        <circle cx="82" cy="50" r="7"  fill="rgba(255,255,255,0.82)"/>
-        <circle cx="43" cy="62" r="4"  fill="rgba(255,255,255,0.72)"/>
-        <circle cx="70" cy="60" r="5"  fill="rgba(255,255,255,0.72)"/>
-        <!-- shimmer -->
-        <ellipse cx="40" cy="38" rx="14" ry="6" fill="rgba(255,255,255,0.18)" transform="rotate(-18 40 38)"/>
-        <!-- ground ring -->
-        <ellipse cx="55" cy="128" rx="30" ry="5" fill="rgba(100,180,80,0.35)"/>
-        <ellipse cx="55" cy="128" rx="22" ry="3.5" fill="rgba(80,160,60,0.25)"/>
-      </svg>
-
-      <!-- Dragonfly SVG -->
-      <svg class="dragonflySvg" viewBox="0 0 54 28" xmlns="http://www.w3.org/2000/svg">
-        <!-- body -->
-        <ellipse cx="27" cy="16" rx="13" ry="4" fill="#2d7a4f"/>
-        <ellipse cx="27" cy="16" rx="5"  ry="3.5" fill="#1a5c37"/>
-        <!-- abdomen segments -->
-        <ellipse cx="36" cy="17" rx="4" ry="2.5" fill="#3a9e65"/>
-        <ellipse cx="42" cy="18" rx="3" ry="2"   fill="#2d7a4f"/>
-        <ellipse cx="47" cy="19" rx="2" ry="1.5" fill="#1a5c37"/>
-        <!-- head -->
-        <circle cx="18" cy="15" r="4.5" fill="#1a5c37"/>
-        <circle cx="16" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
-        <circle cx="20" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
-        <!-- wings (upper pair) -->
-        <g class="dfWing">
-          <ellipse cx="27" cy="9"  rx="18" ry="7" fill="rgba(160,220,255,0.55)" stroke="rgba(80,180,220,0.6)" stroke-width="0.5" transform="rotate(-8 27 9)"/>
-          <ellipse cx="27" cy="23" rx="16" ry="6" fill="rgba(160,220,255,0.45)" stroke="rgba(80,180,220,0.5)" stroke-width="0.5" transform="rotate(10 27 23)"/>
-        </g>
-        <!-- wing veins -->
-        <line x1="18" y1="9"  x2="44" y2="6"  stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
-        <line x1="18" y1="23" x2="42" y2="27" stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
-      </svg>
-    </div>
-    <!-- ===== END SCENE ===== -->
-
   </div>
 </body></html>
 """
@@ -4582,61 +4485,6 @@ REGISTER_HTML = r"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 <title>{{app_title}} | Create Account</title>
 """ + AUTH_BASE_CSS + r"""
-<style>
-/* ===== MUSHROOM + DRAGONFLY ANIMATION (register gate) ===== */
-.loginScene{
-  position:relative;
-  width:100%;
-  height:160px;
-  margin-top:28px;
-  overflow:hidden;
-  pointer-events:none;
-  user-select:none;
-}
-@keyframes mushroomGrow{
-  0%  { transform: scaleY(0) translateX(-50%); opacity:0; }
-  15% { opacity:1; }
-  60% { transform: scaleY(1.08) translateX(-50%); }
-  75% { transform: scaleY(0.96) translateX(-50%); }
-  100%{ transform: scaleY(1)    translateX(-50%); opacity:1; }
-}
-.mushroomSvg{
-  position:absolute;
-  bottom:0;
-  left:50%;
-  transform-origin: bottom center;
-  animation: mushroomGrow 1.2s cubic-bezier(.34,1.56,.64,1) 0.3s both;
-  width:110px;
-  height:130px;
-}
-@keyframes dragonflyFlight{
-  0%   { transform: translate(220px, 60px) rotate(-20deg) scaleX(1);  opacity:0; }
-  8%   { opacity:1; }
-  38%  { transform: translate(0px,   0px) rotate(5deg)  scaleX(1);  opacity:1; }
-  55%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(1);  opacity:1; }
-  56%  { transform: translate(0px,   0px) rotate(0deg)  scaleX(-1); opacity:1; }
-  88%  { transform: translate(-260px, 55px) rotate(15deg) scaleX(-1); opacity:1; }
-  95%  { opacity:0.3; }
-  100% { transform: translate(-320px, 80px) rotate(15deg) scaleX(-1); opacity:0; }
-}
-@keyframes wingBeat{
-  0%,100%{ transform: scaleY(1);   }
-  50%    { transform: scaleY(0.35);}
-}
-.dragonflySvg{
-  position:absolute;
-  bottom:92px;
-  left:calc(50% + 6px);
-  width:54px;
-  height:28px;
-  transform-origin: center center;
-  animation: dragonflyFlight 5.8s ease-in-out 1.2s both;
-}
-.dfWing{
-  animation: wingBeat 0.18s linear infinite;
-  transform-origin: center center;
-}
-</style>
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -4662,43 +4510,6 @@ REGISTER_HTML = r"""
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
     {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
-
-    <!-- ===== MUSHROOM + DRAGONFLY SCENE ===== -->
-    <div class="loginScene" aria-hidden="true">
-      <svg class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
-        <rect x="36" y="72" width="38" height="58" rx="10" fill="rgba(230,220,200,0.88)"/>
-        <rect x="36" y="72" width="14" height="58" rx="7" fill="rgba(200,185,165,0.45)"/>
-        <ellipse cx="55" cy="74" rx="34" ry="10" fill="rgba(220,200,175,0.75)"/>
-        <ellipse cx="55" cy="55" rx="52" ry="32" fill="#c0392b"/>
-        <ellipse cx="55" cy="44" rx="44" ry="25" fill="rgba(220,80,60,0.55)"/>
-        <circle cx="55" cy="38" r="11" fill="rgba(255,255,255,0.88)"/>
-        <circle cx="28" cy="52" r="7"  fill="rgba(255,255,255,0.82)"/>
-        <circle cx="82" cy="50" r="7"  fill="rgba(255,255,255,0.82)"/>
-        <circle cx="43" cy="62" r="4"  fill="rgba(255,255,255,0.72)"/>
-        <circle cx="70" cy="60" r="5"  fill="rgba(255,255,255,0.72)"/>
-        <ellipse cx="40" cy="38" rx="14" ry="6" fill="rgba(255,255,255,0.18)" transform="rotate(-18 40 38)"/>
-        <ellipse cx="55" cy="128" rx="30" ry="5" fill="rgba(100,180,80,0.35)"/>
-        <ellipse cx="55" cy="128" rx="22" ry="3.5" fill="rgba(80,160,60,0.25)"/>
-      </svg>
-      <svg class="dragonflySvg" viewBox="0 0 54 28" xmlns="http://www.w3.org/2000/svg">
-        <ellipse cx="27" cy="16" rx="13" ry="4" fill="#2d7a4f"/>
-        <ellipse cx="27" cy="16" rx="5"  ry="3.5" fill="#1a5c37"/>
-        <ellipse cx="36" cy="17" rx="4" ry="2.5" fill="#3a9e65"/>
-        <ellipse cx="42" cy="18" rx="3" ry="2"   fill="#2d7a4f"/>
-        <ellipse cx="47" cy="19" rx="2" ry="1.5" fill="#1a5c37"/>
-        <circle cx="18" cy="15" r="4.5" fill="#1a5c37"/>
-        <circle cx="16" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
-        <circle cx="20" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
-        <g class="dfWing">
-          <ellipse cx="27" cy="9"  rx="18" ry="7" fill="rgba(160,220,255,0.55)" stroke="rgba(80,180,220,0.6)" stroke-width="0.5" transform="rotate(-8 27 9)"/>
-          <ellipse cx="27" cy="23" rx="16" ry="6" fill="rgba(160,220,255,0.45)" stroke="rgba(80,180,220,0.5)" stroke-width="0.5" transform="rotate(10 27 23)"/>
-        </g>
-        <line x1="18" y1="9"  x2="44" y2="6"  stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
-        <line x1="18" y1="23" x2="42" y2="27" stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
-      </svg>
-    </div>
-    <!-- ===== END SCENE ===== -->
-
   </div>
 </body></html>
 """
@@ -4811,11 +4622,7 @@ def setup_post():
 @app.get("/login")
 def login():
     allow_setup = not has_any_user()
-    resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
+    return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled())
 
 @app.post("/login")
 def login_post():
@@ -4860,11 +4667,7 @@ def register_get():
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
-    resp = make_response(render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code()))
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
+    return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code())
 
 @app.post("/register")
 def register_post():
@@ -5365,9 +5168,9 @@ HTML = r"""
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:13px; }
-    .seatRole{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:12px; color:var(--muted); opacity:.95; }
+    .seatName{ font-weight:800; font-size:14px; }
+    .seatRole{ font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .seatStatus{ font-size:13px; color:var(--muted); opacity:.95; }
 
     .seatTools{
       position:absolute;
@@ -5434,7 +5237,7 @@ HTML = r"""
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
     .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
     .saNavRight{flex-shrink:0;}
-    .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
+    .saModelTag{font-size:13px;color:rgba(196,210,255,.75);white-space:nowrap;font-weight:500;}
     .saDropWrap{position:relative;}
     .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
     .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
@@ -5445,7 +5248,7 @@ HTML = r"""
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:12px;color:rgba(148,163,184,.5);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .saObjectivePill{font-size:14px;color:rgba(196,210,255,.82);padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -5548,7 +5351,7 @@ HTML = r"""
       gap: 10px;
     }
 
-    .tiny{ font-size: 12px; color:var(--muted); }
+    .tiny{ font-size: 13px; color:var(--muted); }
 
     .overlay{
       position:fixed; inset:0; display:none;
@@ -5634,6 +5437,34 @@ HTML = r"""
     }
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
+
+    /* ── Space-filling modal forms ── */
+    /* Forms with a single dominant textarea grow it to fill remaining space */
+    #frameworkForm,
+    #operatorProfileModalForm,
+    #sessionObjectiveForm {
+      display:none;
+      flex-direction:column;
+      height:100%;
+      box-sizing:border-box;
+    }
+    #frameworkForm #frameworkText {
+      flex:1 1 auto;
+      min-height:120px;
+      height:auto !important;
+      resize:none;
+    }
+    #sessionObjectiveForm #sessionObjectiveContext {
+      flex:1 1 auto;
+      min-height:80px;
+      height:auto !important;
+      resize:none;
+    }
+    /* Operator profile: give business and offers bigger rows, let notes grow */
+    #operatorProfileModalForm #opm_business { height:110px; resize:vertical; }
+    #operatorProfileModalForm #opm_offers   { height:110px; resize:vertical; }
+    #operatorProfileModalForm #opm_goals    { height:88px;  resize:vertical; }
+    #operatorProfileModalForm #opm_notes    { flex:1 1 auto; min-height:80px; height:auto !important; resize:none; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     .modalForm label{
       display:block;
@@ -6519,7 +6350,7 @@ body { font-size: 15px; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
 
 .saObjectivePill { font-size: 12px !important; }
-.saModelTag   { font-size: 12px !important; }
+.saModelTag   { font-size: 13px !important; }
 
 /* Labels and tiny text */
 .tiny         { font-size: 13px !important; }
@@ -6565,6 +6396,8 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
             <button class="saDropItem" id="createTeamBtn">Create teammate</button>
             <button class="saDropItem" id="installFullBtn">Install full team</button>
+            <button class="saDropItem" id="onboardingBtn">Onboarding checklist</button>
+            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
           </div>
         </div>
 
@@ -6592,8 +6425,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
-            <button class="saDropItem" id="onboardingBtn">Next step</button>
-            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
@@ -6609,10 +6440,9 @@ label         { font-size: 14px !important; }
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
 
-      <!-- Right: model tag + logout -->
+      <!-- Right: model tag -->
       <div class="saNavRight">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
-        <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
     </div>
@@ -6642,7 +6472,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" data-click="calendarBtn">Calendar</button>
+                <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
@@ -7057,10 +6887,6 @@ label         { font-size: 14px !important; }
   <textarea id="opm_offers" rows="4" placeholder="What you sell"></textarea>
   <label style="margin-top:10px;">Goals</label>
   <textarea id="opm_goals" rows="3" placeholder="Current goals"></textarea>
-  <label style="margin-top:10px;">Constraints</label>
-  <textarea id="opm_constraints" rows="3" placeholder="Rules and boundaries"></textarea>
-  <label style="margin-top:10px;">Tone rules</label>
-  <textarea id="opm_tone_rules" rows="3" placeholder="How teammates should communicate"></textarea>
   <label style="margin-top:10px;">Notes</label>
   <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
   <div class="actions">
@@ -7515,7 +7341,7 @@ label         { font-size: 14px !important; }
   </div>
 </div>
 
-              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);flex-direction:column;">
+              <div class="modalForm" id="calendarForm" style="display:none;padding:0;overflow:hidden;height:calc(100% - 0px);display:flex;flex-direction:column;">
 
 <style>
 /* Message expand modal */
@@ -7609,7 +7435,7 @@ label         { font-size: 14px !important; }
 .wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
 .wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 /* Detail Panel (Motion-style right sidebar) */
-.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:20; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
@@ -7945,7 +7771,7 @@ label         { font-size: 14px !important; }
             <div class="passRow" id="groupPassRow">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupFail" title="Run Failure Simulator on the most recent group output">💥 Failure</button>              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
@@ -8008,8 +7834,9 @@ label         { font-size: 14px !important; }
         </div>
         <!-- Pass row -->
         <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">⚠️ Risk</button>
+          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">🔍 Risk</button>
           <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability">📈 Scale</button>
+          <button class="btn btnMini passBtn" id="passSeatFail" title="Failure Simulator">💥 Failure</button>
           <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraints">🧩 Constraints</button>
           <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimize">⚡ Optimize</button>
         </div>
@@ -8420,7 +8247,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("frameworkForm").style.display = "block";
+      $("frameworkForm").style.display = "flex";
       $("frameworkStatus").innerText = "Loading...";
 
       modalMinimized = false;
@@ -8430,6 +8257,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
       $("overlay").classList.add("show");
       applyModalPos();
+      try{ ensureModalMinSize(960, Math.max(680, Math.round((window.innerHeight||800)*0.82))); }catch(e){}
 
       const sc = $("modalScroll");
       if(sc) sc.scrollTop = 0;
@@ -8726,7 +8554,7 @@ window.showModal = function showModal(title, body, imgUrl){
     }
 
     function buildLeadOutreachContext(item, channel){
-      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
       const phone = item.phone || '';
       const site = item.website || item.domain || '';
       const sourceQuery = item.source_query || '';
@@ -8785,7 +8613,7 @@ window.showModal = function showModal(title, body, imgUrl){
         return;
       }
       if(st) st.innerText = 'Writing draft...';
-      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+      const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
       const phone = item.phone || '';
       if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
       if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
@@ -8864,9 +8692,9 @@ window.showModal = function showModal(title, body, imgUrl){
     async function openSessionObjectiveModal(){
       try{ document.body.style.overflow = 'hidden'; }catch(_){ }
       showModal();
-      try{ ensureModalMinSize(860, 620); }catch(e){}
+      try{ ensureModalMinSize(900, Math.max(600, Math.round((window.innerHeight||800)*0.78))); }catch(e){}
       hideAllModalForms();
-      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = 'block';
+      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = 'flex';
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Session objective';
       if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = 'Loading...';
@@ -8907,7 +8735,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal();
       try{ ensureModalMinSize(960, 760); }catch(e){}
       hideAllModalForms();
-      if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'block';
+      if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'flex';
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
@@ -8921,8 +8749,6 @@ window.showModal = function showModal(title, body, imgUrl){
         if($("opm_business")) $("opm_business").value = p.business || '';
         if($("opm_offers")) $("opm_offers").value = p.offers || '';
         if($("opm_goals")) $("opm_goals").value = p.goals || '';
-        if($("opm_constraints")) $("opm_constraints").value = p.constraints || '';
-        if($("opm_tone_rules")) $("opm_tone_rules").value = p.tone_rules || '';
         if($("opm_notes")) $("opm_notes").value = p.notes || '';
         if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Ready';
       }catch(e){
@@ -8939,8 +8765,6 @@ window.showModal = function showModal(title, body, imgUrl){
         business: ($("opm_business")?.value || '').trim(),
         offers: ($("opm_offers")?.value || '').trim(),
         goals: ($("opm_goals")?.value || '').trim(),
-        constraints: ($("opm_constraints")?.value || '').trim(),
-        tone_rules: ($("opm_tone_rules")?.value || '').trim(),
         notes: ($("opm_notes")?.value || '').trim()
       };
       try{
@@ -9150,9 +8974,9 @@ function makeSeat(defn, idx){
         let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
         let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const pad = -80;
-        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth + 80;
-        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight + 80;
+        const pad = 6;
+        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth - pad;
+        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight - pad;
 
         newLeft = clamp(newLeft, pad, maxLeft);
         newTop  = clamp(newTop, pad, maxTop);
@@ -9213,8 +9037,7 @@ function makeSeat(defn, idx){
         // keep operator seat usable even with zero teammates
         if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
 
-        // FIX: soft toast instead of blocking modal — Operator seat still works
-        try{ if(typeof showToast==='function') showToast('No teammates active — use Add or dismiss to add seats.'); }catch(_){}
+        showModal("No active teammates", "Use Add or dismiss teammates in the top right to add seats back to the table.");
         setTablePulse(false);
         setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
@@ -9354,11 +9177,11 @@ function makeSeat(defn, idx){
         const left = ((e.clientX - boundsRect.left) / sc) - offsetX;
         const top = ((e.clientY - boundsRect.top) / sc) - offsetY;
 
-        const maxLeft = (boundsEl.clientWidth || 0) - 30;
-        const maxTop = (boundsEl.clientHeight || 0) - 30;
+        const maxLeft = (boundsEl.clientWidth || 0) - 110;
+        const maxTop = (boundsEl.clientHeight || 0) - 110;
 
-        seat.style.left = clamp(left, -80, Math.max(-80, maxLeft)) + "px";
-        seat.style.top = clamp(top, -80, Math.max(-80, maxTop)) + "px";
+        seat.style.left = clamp(left, 10, Math.max(10, maxLeft)) + "px";
+        seat.style.top = clamp(top, 10, Math.max(10, maxTop)) + "px";
       });
 
       seat.addEventListener("pointerup", (e) => {
@@ -10073,24 +9896,6 @@ function makeSeat(defn, idx){
           .replace(/\s+/g, " ")
           .trim();
 
-        // FIX: if the only thing spoken was a teammate name, switch seats — don't fill the box
-        try{
-          const dtHit = findFirstNameMention(combined);
-          if(dtHit){
-            const withoutName = combined
-              .replace(new RegExp("\\b" + dtHit.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi"), "")
-              .replace(/\s+/g, " ").trim();
-            if(!withoutName){
-              // Only the name was spoken — switch without putting it in the box
-              try{ if(typeof selectSeat === "function") selectSeat(dtHit.name); }catch(_){}
-              try{ if(typeof forceSeatSelectUI === "function") forceSeatSelectUI(dtHit.name); }catch(_){}
-              target.value = baseText;
-              finalText = ""; // prevent onend from re-adding the name
-              return;
-            }
-          }
-        }catch(_){}
-
         target.value = combined;
       };
 
@@ -10255,19 +10060,16 @@ function makeSeat(defn, idx){
     // This prevents the repeated phrases caused by appending partials.
     // Accumulates only NEW final results — never replays old ones
     let _alwaysAccumFinals = "";
-    let _alwaysLastProcIdx  = 0;   // FIX: track highest processed resultIndex to prevent replaying
 
     function getCanonicalSpeech(event){
       let newFinals = "";
       let interim   = "";
 
-      // Only process results we haven't seen yet (start from resultIndex, but never below our watermark)
-      const startIdx = Math.max(event.resultIndex, _alwaysLastProcIdx);
-      for(let i = startIdx; i < event.results.length; i++){
+      // Only process results we haven't seen yet (start from resultIndex)
+      for(let i = event.resultIndex; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
           newFinals += txt + " ";
-          _alwaysLastProcIdx = i + 1;   // advance watermark past this final result
         } else {
           interim += txt;
         }
@@ -10284,8 +10086,7 @@ function makeSeat(defn, idx){
     }
 
     function _resetCanonicalSpeech(){
-      _alwaysAccumFinals   = "";
-      _alwaysLastProcIdx   = 0;   // FIX: also reset watermark on name switch
+      _alwaysAccumFinals = "";
     }
 
     function subtractBaseline(allFinal){
@@ -10340,23 +10141,20 @@ function makeSeat(defn, idx){
         const allFinal   = canon.allFinal;   // accumulated new finals only
         const interimRaw = canon.interim;
 
-        // FIX: Detect name in INTERIM first (fast response), then fallback to allFinal.
-        // This catches names whether they arrive as interim or finalized text.
-        const hit = findFirstNameMention(interimRaw) || findFirstNameMention(allFinal);
+        // Detect name ONLY in interim — never in finalized text
+        // This prevents the name from ever appearing in the text box
+        const hit = findFirstNameMention(interimRaw);
 
         if(hit){
           const now = Date.now();
           if(now - lastNameSwitchAt > 800){
             lastNameSwitchAt = now;
-            window._alwaysLastSwitchedName = hit.name;   // FIX: remember for normal-path filtering
 
             // Save clean text (without name) to current target
             const cleanedFinal = removeNameOnce(allFinal, hit.name);
             const targetBefore = currentAlwaysTarget();
             if(targetBefore && cleanedFinal){
               targetBefore.value = cleanedFinal.trim();
-            }else if(targetBefore){
-              targetBefore.value = "";  // FIX: clear box when only the name was spoken
             }
 
             // Switch to named teammate
@@ -10374,17 +10172,8 @@ function makeSeat(defn, idx){
         }
 
         // Normal update — accumulated finals + current interim
-        // FIX: Strip the last switched name so it never bleeds into the box after finalization
-        const _lsn = window._alwaysLastSwitchedName || "";
-        const filteredFinal  = _lsn ? removeNameOnce(allFinal,   _lsn) : allFinal;
-        const filteredInterim = _lsn ? removeNameOnce(interimRaw, _lsn) : interimRaw;
-        alwaysFinalText   = filteredFinal;
-        alwaysInterimText = filteredInterim;
-
-        // Clear the filter name once we have new speech that isn't the name
-        if(filteredFinal && filteredFinal !== alwaysBaseText){
-          window._alwaysLastSwitchedName = "";
-        }
+        alwaysFinalText   = allFinal;
+        alwaysInterimText = interimRaw;
 
         const target = currentAlwaysTarget();
         if(target){
@@ -10424,11 +10213,21 @@ function makeSeat(defn, idx){
       };
 
       rec.onerror = (e) => {
+        const errType = (e && e.error) ? e.error : '';
+        // Transient errors (no-speech, audio-capture glitches) should silently restart —
+        // never stop always-listening or show a modal for them.
+        const transient = ['no-speech', 'audio-capture', 'network', 'aborted'];
+        if(transient.includes(errType)){
+          // Let onend handle the restart — just update status text briefly
+          const s = currentAlwaysStatusEl();
+          if(s) s.innerText = "Mic: listening...";
+          return;
+        }
+        // Only fatal errors (not-allowed, service-not-allowed, etc.) stop the session
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
         try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        try{ showModal("Mic error", (errType ? ("Mic error: " + errType + ". ") : "") + micHelpText()); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -10837,12 +10636,14 @@ async function pollImageJob(jobId, seatName){
     // Seat pass buttons
     bind("passSeatRisk",   () => runTacticalPass("risk", "seat"));
     bind("passSeatScale",  () => runTacticalPass("scale", "seat"));
+    bind("passSeatFail",   () => runTacticalPass("failure", "seat"));
     bind("passSeatConstr", () => runTacticalPass("constraints", "seat"));
     bind("passSeatOpt",    () => runTacticalPass("optimize", "seat"));
 
     // Group pass buttons
     bind("passGroupRisk",   () => runTacticalPass("risk", "group"));
     bind("passGroupScale",  () => runTacticalPass("scale", "group"));
+    bind("passGroupFail",   () => runTacticalPass("failure", "group"));
     bind("passGroupConstr", () => runTacticalPass("constraints", "group"));
     bind("passGroupOpt",    () => runTacticalPass("optimize", "group"));
 
@@ -12034,7 +11835,8 @@ async function crmFetchTasks(){
         return;
       }
       box.innerHTML = items.map((item, idx)=>{
-        const topEmail = item.email || (((item.email_candidates||[])[0]||{}).email) || '';
+        const guesses = Array.isArray(item.email_candidates) ? item.email_candidates.slice(0,3) : [];
+        const topEmail = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
         const topPhone = item.phone || '';
         const site = item.website || item.domain || '';
         const sourceQuery = item.source_query || '';
@@ -12046,9 +11848,11 @@ async function crmFetchTasks(){
               <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
               <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
               <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
-              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
+              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source query: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
+            <div class="tiny" style="opacity:.9; white-space:nowrap;">Match score ${(item.score || 0)}%</div>
           </div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">${guesses.map(g=>`<span class="pill">${escapeHtml(g.email)} • ${Math.round((g.confidence||0)*100)}%</span>`).join('')}</div>
           <div class="actions" style="justify-content:flex-end; margin-top:10px; flex-wrap:wrap;">
             <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
             <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
@@ -12061,7 +11865,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
-          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+          const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
           if(!email) return showToast('No email found');
           try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
         };
@@ -12077,7 +11881,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
         btn.onclick = ()=>{
           const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
-          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+          const email = (((item.email_candidates||[])[0]||{}).email) || item.email || '';
           if(!email) return showToast('No email found');
           openLeadHandoff('email', item);
         };
@@ -12597,37 +12401,31 @@ window.wcalToggleTask = async function(e, taskId){
   }catch(err){ showToast('Update failed'); }
 };
 
-// Called when a task with an assigned teammate is marked done — opens draft for approval
+// Called when a task with an assigned teammate is marked done
 async function wcalFireCompleteAction(taskId, task){
-  const clientRef = task.on_complete_client_name || task.on_complete_client_email || 'client';
-  showToast('⚡ '+task.on_complete_teammate+' is drafting email for '+clientRef+'…');
+  showToast('⚡ '+task.on_complete_teammate+' is drafting completion email…');
   try{
     const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{method:'POST'});
     const d = await res.json();
-    if(d.ok && d.draft){
-      // Load into Email Console for approval — same flow as regular teammate email drafts
-      if(typeof applyEmailDraft === 'function'){
-        applyEmailDraft({
-          subject: d.subject,
-          body:    d.body,
-          to:      d.to,
-        }, d.teammate || task.on_complete_teammate);
-        showToast('📝 Draft ready — review and send from Email Console');
-      } else {
-        // Fallback: pre-fill fields directly
+    if(d.ok){
+      showToast('📧 Completion email sent to '+task.on_complete_client_email+' by '+task.on_complete_teammate);
+    } else if(d.draft_subject){
+      // Email failed to send but we have a draft — show it
+      showToast('⚠️ Could not send email: '+(d.error||'unknown error')+'. Draft ready in Email Console.');
+      // Pre-fill email console if accessible
+      try{
         const subEl=document.getElementById('emailSubject');
         const bodyEl=document.getElementById('emailBody');
         const toEl=document.getElementById('emailTo');
-        if(subEl) subEl.value=d.subject||'';
-        if(bodyEl) bodyEl.value=d.body||'';
-        if(toEl)   toEl.value=d.to||task.on_complete_client_email||'';
-        showToast('📝 Draft ready in Email Console — review before sending');
-      }
+        if(subEl) subEl.value=d.draft_subject;
+        if(bodyEl) bodyEl.value=d.draft_body;
+        if(toEl) toEl.value=task.on_complete_client_email;
+      }catch(_){}
     } else {
-      showToast('⚠️ Draft error: '+(d.error||'unknown'));
+      showToast('⚠️ Auto-email error: '+(d.error||'unknown'));
     }
   }catch(err){
-    showToast('⚠️ Draft failed: '+String(err));
+    showToast('⚠️ Auto-email failed: '+String(err));
   }
 }
 
@@ -12704,13 +12502,11 @@ function wcalShowTaskDetail(task){
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
-      <div class="wcal-autocomplete-title">Email on Complete</div>
-      <div class="wcal-detail-label">Assign teammate to draft email</div>
+      <div class="wcal-autocomplete-title">Auto-Email on Complete</div>
+      <div class="wcal-detail-label">Assign teammate to email client</div>
       <select class="wcal-detail-field" id="detAutoTeammate">
-        <option value="">— No email draft —</option>
+        <option value="">— No auto-email —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Stacy" value="${task.on_complete_client_name||''}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -12841,7 +12637,6 @@ window.wcalDetSaveTask = async function(taskId){
     recurring:document.getElementById('detRecurring')?.value||'none',
     description:(document.getElementById('detDesc')?.value||'').trim(),
     on_complete_teammate:document.getElementById('detAutoTeammate')?.value||'',
-    on_complete_client_name:(document.getElementById('detAutoClientName')?.value||'').trim(),
     on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
@@ -12916,84 +12711,22 @@ window.wcalDetSaveEvent = async function(encodedId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
-// ── Activation sound — futuristic engine startup (Web Audio API) ─
+// ── Activation sound (Web Audio API — no file needed) ─────────
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const master=ctx.createGain();
-    master.gain.setValueAtTime(0.0,ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.72,ctx.currentTime+0.08);
-    master.gain.setValueAtTime(0.72,ctx.currentTime+2.6);
-    master.gain.linearRampToValueAtTime(0.0,ctx.currentTime+3.2);
-    master.connect(ctx.destination);
-
-    // 1. Deep low rumble — engine core igniting (sawtooth sweeping 40→110 Hz)
-    const rumble=ctx.createOscillator();
-    const rumbleGain=ctx.createGain();
-    const rumbleFilter=ctx.createBiquadFilter();
-    rumble.type='sawtooth';
-    rumble.frequency.setValueAtTime(38,ctx.currentTime);
-    rumble.frequency.linearRampToValueAtTime(110,ctx.currentTime+1.1);
-    rumble.frequency.linearRampToValueAtTime(88,ctx.currentTime+2.2);
-    rumbleGain.gain.setValueAtTime(0,ctx.currentTime);
-    rumbleGain.gain.linearRampToValueAtTime(0.55,ctx.currentTime+0.18);
-    rumbleGain.gain.setValueAtTime(0.55,ctx.currentTime+1.8);
-    rumbleGain.gain.linearRampToValueAtTime(0.25,ctx.currentTime+2.8);
-    rumbleFilter.type='lowpass'; rumbleFilter.frequency.value=320;
-    rumble.connect(rumbleFilter); rumbleFilter.connect(rumbleGain); rumbleGain.connect(master);
-    rumble.start(ctx.currentTime); rumble.stop(ctx.currentTime+3.0);
-
-    // 2. Mid-range harmonic whine — turbine spooling up (sine 180→1400 Hz)
-    const whine=ctx.createOscillator();
-    const whineGain=ctx.createGain();
-    whine.type='sine';
-    whine.frequency.setValueAtTime(180,ctx.currentTime+0.05);
-    whine.frequency.exponentialRampToValueAtTime(1400,ctx.currentTime+1.6);
-    whine.frequency.setValueAtTime(1400,ctx.currentTime+2.0);
-    whine.frequency.linearRampToValueAtTime(1200,ctx.currentTime+2.8);
-    whineGain.gain.setValueAtTime(0,ctx.currentTime+0.05);
-    whineGain.gain.linearRampToValueAtTime(0.28,ctx.currentTime+0.35);
-    whineGain.gain.setValueAtTime(0.28,ctx.currentTime+2.0);
-    whineGain.gain.linearRampToValueAtTime(0.0,ctx.currentTime+2.9);
-    whine.connect(whineGain); whineGain.connect(master);
-    whine.start(ctx.currentTime+0.05); whine.stop(ctx.currentTime+3.0);
-
-    // 3. High harmonic shimmer — energy field activating (triangle 2200 Hz pulse)
-    const shimmer=ctx.createOscillator();
-    const shimmerGain=ctx.createGain();
-    shimmer.type='triangle';
-    shimmer.frequency.setValueAtTime(2200,ctx.currentTime+0.9);
-    shimmer.frequency.linearRampToValueAtTime(2800,ctx.currentTime+1.7);
-    shimmerGain.gain.setValueAtTime(0,ctx.currentTime+0.9);
-    shimmerGain.gain.linearRampToValueAtTime(0.14,ctx.currentTime+1.1);
-    shimmerGain.gain.setValueAtTime(0.14,ctx.currentTime+1.9);
-    shimmerGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.7);
-    shimmer.connect(shimmerGain); shimmerGain.connect(master);
-    shimmer.start(ctx.currentTime+0.9); shimmer.stop(ctx.currentTime+2.8);
-
-    // 4. Power-lock thud — system engaged confirmation (short low burst at 1.65s)
-    const thud=ctx.createOscillator();
-    const thudGain=ctx.createGain();
-    thud.type='sine';
-    thud.frequency.setValueAtTime(95,ctx.currentTime+1.65);
-    thud.frequency.exponentialRampToValueAtTime(42,ctx.currentTime+1.95);
-    thudGain.gain.setValueAtTime(0,ctx.currentTime+1.65);
-    thudGain.gain.linearRampToValueAtTime(0.8,ctx.currentTime+1.68);
-    thudGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.05);
-    thud.connect(thudGain); thudGain.connect(master);
-    thud.start(ctx.currentTime+1.65); thud.stop(ctx.currentTime+2.1);
-
-    // 5. Confirmation tone pair — system online (two clean sine pings at end)
-    [[1800,2.05],[2400,2.22]].forEach(([freq,when])=>{
-      const p=ctx.createOscillator(); const pg=ctx.createGain();
-      p.type='sine'; p.frequency.value=freq;
-      pg.gain.setValueAtTime(0,ctx.currentTime+when);
-      pg.gain.linearRampToValueAtTime(0.22,ctx.currentTime+when+0.03);
-      pg.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+when+0.28);
-      p.connect(pg); pg.connect(master);
-      p.start(ctx.currentTime+when); p.stop(ctx.currentTime+when+0.32);
+    const notes=[261.6,329.6,392,523.2]; // C-E-G-C arpeggio
+    notes.forEach((freq,i)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type='sine'; osc.frequency.value=freq;
+      const t=ctx.currentTime+i*0.09;
+      gain.gain.setValueAtTime(0,t);
+      gain.gain.linearRampToValueAtTime(0.18,t+0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+      osc.start(t); osc.stop(t+0.3);
     });
-
   }catch(e){}
 }
 
@@ -13024,11 +12757,7 @@ function wcalDragWireGrid(grid){
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const elRect=el.getBoundingClientRect();
-      const wrapEl=document.getElementById('wcalGridWrap');
-      const wrapTop=wrapEl?wrapEl.getBoundingClientRect().top:0;
-      const wrapScroll=wrapEl?wrapEl.scrollTop:0;
-      // clickOffsetPx = how many grid-pixels from the grid's scroll-origin the grabbed point is
-      const clickOffsetPx=(e.clientY - wrapTop) + wrapScroll - parseFloat(el.style.top||'0');
+      const clickOffsetPx=e.clientY-elRect.top;
       let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
@@ -13078,15 +12807,7 @@ function wcalDragWireGrid(grid){
       wcalDrag.tip=tip;
     }
 
-    // ── TIME CALCULATION ──────────────────────────────────────────
-    // Use the wrap container's top edge as the stable reference so the
-    // calculation is not affected by the sticky header's visual offset.
-    // pixelsFromGridTop = (mouse viewport Y) - (wrap viewport top) + scrollTop
-    // Then subtract clickOffsetPx so the block's grabbed point stays under the cursor.
-    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0,left:0};
-    const scrolled=wrap?wrap.scrollTop:0;
-
-    // Find which day column the mouse is over (for cross-day drag)
+    // Find target column by X position
     const cols=grid.querySelectorAll('.wcal-day-col');
     let targetCol=null, targetDate=null;
     cols.forEach(col=>{
@@ -13102,7 +12823,22 @@ function wcalDragWireGrid(grid){
     }
     if(!targetCol||!targetDate) return;
 
-    const rawY = (e.clientY - wrapRect.top) + scrolled - wcalDrag.clickOffsetPx;
+    // ── TIME CALCULATION ──────────────────────────────────────────
+    // The sticky header row is the first child of wcalGrid and is position:sticky top:0.
+    // Its height is constant (~44px) but visually it stays at the top of the wrap.
+    // wcal-day-col.getBoundingClientRect().top gives the CURRENT viewport top of
+    // the column, which is BELOW the sticky header. So:
+    //   pixelsFromColTop = e.clientY - colRect.top + wrap.scrollTop
+    // But col starts at pixel 0 in the scrollable area (header is sticky, not in flow),
+    // so this is already the correct grid-pixel-from-top, meaning 1px = 1 minute.
+    // We subtract clickOffsetPx so the block's top edge (not the grab point) sets the time.
+    const colRect=targetCol.getBoundingClientRect();
+    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0};
+    const scrolled=wrap?wrap.scrollTop:0;
+    // Use wrapRect.top + scrolled to get pixels from absolute grid top (not column viewport top)
+    // The sticky header is ~44px. Using colRect.top already accounts for it since
+    // wcal-day-col starts BELOW the sticky header in the DOM flow.
+    const rawY=(e.clientY - colRect.top + scrolled) - wcalDrag.clickOffsetPx;
     const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
 
     // Move the original block visually (no ghost clone)
@@ -13154,11 +12890,7 @@ function wcalDragWireGrid(grid){
     const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
     Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
 
-    // FIX: do NOT call wcalRefresh() on a plain click (no drag).
-    // Calling it here replaces grid.innerHTML synchronously, detaching the clicked
-    // element before the browser fires the click event — so onclick="wcalOpenDetail(this)"
-    // never runs. Return here and let the inline onclick open the detail panel naturally.
-    if(!wasDragging||targetMins==null){ return; }
+    if(!wasDragging||targetMins==null){ wcalRefresh(); return; }
 
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
@@ -13661,7 +13393,7 @@ window.showCalendarModal=function showCalendarModal(){
   if(typeof hideAllModalForms==='function') hideAllModalForms();
   else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
-  if(calForm) calForm.style.display='flex';
+  if(calForm) calForm.style.display='block';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
   const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
   const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
@@ -13948,7 +13680,8 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const needsEmail = !me.has_smtp;
 
       if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // show a coach bubble on the Settings button — do NOT auto-open the modal
+        // auto open settings, and show a coach bubble on the Settings button
+        try{ showSettingsModal(true); }catch(e){}
         const b = placeCoach($("settingsBtn"),
           "Start here: Settings",
           "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
@@ -15267,14 +15000,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       }
 
       if(key === "first_prompt"){
-        // Close the onboarding panel and any open modal first, then focus the prompt box
-        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
-        try{ if(typeof closeModal === "function") closeModal(); }catch(e){}
-        try{ if(typeof window.onboardingClose === "function") window.onboardingClose(); }catch(e){}
-        setTimeout(() => {
-          focusEl("followMsg");
-          try{ if(typeof showToast === "function") showToast("Type your first message and hit Send ↵"); }catch(e){}
-        }, 80);
+        focusEl("followMsg");
+        try{ if(typeof showToast === "function") showToast("Type a first prompt and hit Send"); }catch(e){}
         return;
       }
     }finally{
@@ -18215,7 +17942,8 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "domain": domain,
         "website": website,
         "phone": phones[0] if phones else "",
-        "email": emails[0] if emails else (email_candidates[0].get("email","") if email_candidates else ""),
+        "email": emails[0] if emails else "",
+        "email_candidates": email_candidates,
         "niche_hit": bool(signals.get("niche_hit")),
         "location_hit": bool(signals.get("location_hit")),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
@@ -18244,7 +17972,8 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
             "domain": domain,
             "website": f"https://{domain}" if domain else "",
             "phone": "",
-            "email": (email_candidates[0].get("email","") if email_candidates else ""),
+            "email": ((email_candidates[0] or {}).get("email") if email_candidates else "") or "",
+            "email_candidates": email_candidates,
             "niche_hit": True,
             "location_hit": bool(location),
             "notes": (row.get("notes") or "") + (f"\nSeed row for {niche} in {location}." if niche or location else "\nSeed row."),
