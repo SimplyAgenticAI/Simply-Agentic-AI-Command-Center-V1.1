@@ -671,11 +671,13 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "preferred_ai", "title": "Connect Chat GPT or Claude"},
-    {"key": "full_team", "title": "Install full team"},
+    {"key": "operator_profile", "title": "Complete Your Operator Profile"},
+    {"key": "preferred_ai", "title": "Connect AI (OpenAI or Claude)"},
+    {"key": "full_team", "title": "Install the Full Team"},
+    {"key": "session_goal", "title": "Set a Session Goal"},
     {"key": "email_connected", "title": "Connect Email"},
     {"key": "calendar_connected", "title": "Connect Calendar"},
-    {"key": "first_prompt", "title": "Send first prompt"},
+    {"key": "first_prompt", "title": "Send Your First Message"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -728,6 +730,16 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     username = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     _ = _load_onboarding(username)
 
+    # Step 0: Operator Profile filled in
+    try:
+        op = _load_operator_profile(username) or {}
+        op_fields = [op.get("display_name",""), op.get("business",""), op.get("offers",""),
+                     op.get("audience",""), op.get("goals","")]
+        if any((str(f).strip()) for f in op_fields if f):
+            _mark_onboarding_step(username, "operator_profile", True)
+    except Exception:
+        pass
+
     # Step 1: Preferred AI connected (OpenAI or Claude)
     try:
         settings = ((u or {}).get("settings") or {})
@@ -769,6 +781,17 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     try:
         if _user_calendar_oauth(u):
             _mark_onboarding_step(username, "calendar_connected", True)
+    except Exception:
+        pass
+
+    # Step: Session goal set
+    try:
+        from pathlib import Path as _Path
+        _sess_path = DATA / "os" / _safe_name(username or "anon") / "session_objective.json"
+        if _sess_path.exists():
+            _sess = load_json(_sess_path, {}) or {}
+            if (_sess.get("title") or "").strip():
+                _mark_onboarding_step(username, "session_goal", True)
     except Exception:
         pass
 
@@ -2153,6 +2176,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Simply acknowledge the request enthusiastically and describe what you will create.\n"
     )
 
+    _op_name_for_email = (_load_operator_profile(
+        (lambda: _get_session_username())() if callable(_get_session_username) else "anon"
+    ) or {}).get("display_name") or "Operator"
+    try:
+        _op_name_for_email = (_load_operator_profile(_get_session_username()) or {}).get("display_name") or "Operator"
+    except Exception:
+        _op_name_for_email = "Operator"
+
     email_rules = (
         "EMAIL CAPABILITY\n"
         "You can draft emails, but you cannot send emails.\n"
@@ -2164,8 +2195,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Body: first line of body\n"
         "rest of body.\n"
         "```\n"
-        "Do not claim the email was sent.\n"
-        "No em dashes.\n"
+        "IMPORTANT EMAIL RULES:\n"
+        "- Do NOT include 'To:', 'From:', or any header lines inside the Body section.\n"
+        "- The Body must start directly with the greeting or first sentence (e.g. 'Hi Sarah,' or 'Hello,').\n"
+        f"- Always sign off using the operator's real name. The operator's name is: {_op_name_for_email}.\n"
+        "  Never use placeholder text like 'Name', '[Your Name]', '[Operator Name]', or 'Your Name' in the sign-off.\n"
+        "  Correct example: 'Best,\\n" + _op_name_for_email + "'\n"
+        "- Do not claim the email was sent.\n"
+        "- No em dashes.\n"
     )
 
     # Operator profile (shared business context)
@@ -6589,10 +6626,10 @@ label         { font-size: 14px !important; }
             <span>Settings</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saSettingsDrop">
+            <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
-            <button class="saDropItem" id="onboardingBtn">Next step</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
@@ -8694,9 +8731,32 @@ window.showModal = function showModal(title, body, imgUrl){
 
       lastEmailDraftBy = teammateName || selectedSeat || "";
 
+      // Get operator display name for sign-off replacement
+      const opName = (window._operatorProfile && window._operatorProfile.display_name)
+                     || (window.operatorProfileCache && window.operatorProfileCache.display_name)
+                     || "";
+
+      // Clean body: strip any stray "To: ..." or "From: ..." lines that leaked into the body
+      let cleanBody = (draft.body || "").replace(/^(To|From|CC|BCC)\s*:.*(\r?\n|$)/gim, "").trimStart();
+
+      // Replace placeholder sign-off names with real operator name
+      if(opName){
+        cleanBody = cleanBody
+          .replace(/(\bBest,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bWarm regards,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bRegards,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bSincerely,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bThanks,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bThank you,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/(\bCheers,?\s*\n)\s*(Name|Your Name|\[Your Name\]|\[Name\]|\[Operator Name\]|Operator Name)\s*$/im, `$1${opName}`)
+          .replace(/\[Your Name\]/gi, opName)
+          .replace(/\[Operator Name\]/gi, opName)
+          .replace(/\[Name\]/gi, opName);
+      }
+
       if($("emailTo") && draft.to) $("emailTo").value = draft.to;
       if($("emailSubject") && draft.subject) $("emailSubject").value = draft.subject;
-      if($("emailBody") && draft.body) $("emailBody").value = draft.body;
+      if($("emailBody")) $("emailBody").value = cleanBody;
 
       setEmailFrom(lastEmailDraftBy);
       showEmailConsoleModal("Email Console");
@@ -8916,6 +8976,9 @@ window.showModal = function showModal(title, body, imgUrl){
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Load failed');
         const p = data.profile || {};
+        // Cache globally so applyEmailDraft can use the operator name for sign-offs
+        window._operatorProfile = p;
+        window.operatorProfileCache = p;
         if($("opm_display_name")) $("opm_display_name").value = p.display_name || 'Operator';
         if($("opm_audience")) $("opm_audience").value = p.audience || '';
         if($("opm_business")) $("opm_business").value = p.business || '';
@@ -8947,6 +9010,9 @@ window.showModal = function showModal(title, body, imgUrl){
         const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
+        // Keep global cache fresh for email sign-off replacement
+        window._operatorProfile = payload;
+        window.operatorProfileCache = payload;
         if(st) st.innerText = 'Saved';
         showToast('Saved Operator Profile');
         if(selectedSeat === 'Operator'){ try{ await refreshThread(); }catch(e){} }
@@ -9311,11 +9377,10 @@ function makeSeat(defn, idx){
         seat.style.top = "12%";
       }
 
-      // Click / keyboard select
-      seat.addEventListener("click", (e) => { e.preventDefault(); openOperatorProfileModal(); });
+      // Click / keyboard select — only the Profile button opens the modal (not the card itself)
       seat.addEventListener("keydown", (e) => {
         if(e.key === "Enter" || e.key === " "){
-          e.preventDefault(); openOperatorProfileModal();
+          e.preventDefault(); profBtn.click();
         }
       });
 
@@ -9409,6 +9474,16 @@ function makeSeat(defn, idx){
         if(!state.registry.active_order) state.registry.active_order = (state.active_order||[]);
         if(!state.registry.installed_order) state.registry.installed_order = (state.installed_order||[]);
       }
+
+      // Pre-load operator profile so email sign-offs can use the real name immediately
+      try{
+        const opRes = await fetch('/api/operator_profile');
+        const opData = await opRes.json();
+        if(opData && opData.ok && opData.profile){
+          window._operatorProfile = opData.profile;
+          window.operatorProfileCache = opData.profile;
+        }
+      }catch(_){}
 
       const email = state.email || {};
       const ok = !!email.smtp_ready;
@@ -14984,7 +15059,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
         <div style="width:10px; height:10px; border-radius:999px; background:linear-gradient(135deg,#7c3aed,#22c55e); box-shadow:0 0 18px rgba(124,58,237,0.55);"></div>
         <div>
           <div style="font-weight:800; letter-spacing:0.2px; font-size:14px;">Get Started</div>
-          <div id="onbSub" style="font-size:12px; opacity:0.8;">0 of 5 complete</div>
+          <div id="onbSub" style="font-size:12px; opacity:0.8;">0 of 7 complete</div>
         </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
@@ -15192,7 +15267,20 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
       const meta = document.createElement("div");
       meta.className = "onbMeta";
-      meta.textContent = s.done ? "Done" : (s.key === nextKey ? "Next best action" : "Not done");
+      const stepDescriptions = {
+        operator_profile: "Tell teammates who you are and what you do",
+        preferred_ai: "Connect your OpenAI or Claude API key",
+        full_team: "Install Alex, Willow, Ava, Orion & more",
+        session_goal: "Set what you want to accomplish today",
+        email_connected: "Connect Gmail or SMTP to send emails",
+        calendar_connected: "Connect Google Calendar for scheduling",
+        first_prompt: "Start talking to your AI teammates",
+      };
+      meta.textContent = s.done
+        ? "✓ Complete"
+        : (s.key === nextKey
+            ? "👉 Do this next"
+            : (stepDescriptions[s.key] || "Pending"));
 
       wrap.appendChild(title);
       wrap.appendChild(meta);
@@ -15228,6 +15316,32 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(alreadyDone) return;
 
     try{
+      if(key === "operator_profile"){
+        // Open the Operator Profile modal directly
+        try{ if(typeof openOperatorProfileModal === "function") openOperatorProfileModal(); }catch(e){}
+        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
+        setTimeout(()=>{
+          focusEl("opm_display_name") || focusEl("opm_business");
+          try{ if(typeof showToast === "function") showToast("Fill in your Operator Profile so teammates know who they're working for."); }catch(e){}
+        }, 200);
+        return;
+      }
+
+      if(key === "session_goal"){
+        // Open the Session Objective modal
+        try{
+          const btn = document.getElementById("sessionObjectiveBtn");
+          if(btn){ btn.click(); }
+          else if(typeof showSessionObjectiveModal === "function"){ showSessionObjectiveModal(); }
+        }catch(e){}
+        try{ if(typeof closeOnboarding === "function") closeOnboarding(); }catch(e){}
+        setTimeout(()=>{
+          focusEl("sessionObjectiveInput");
+          try{ if(typeof showToast === "function") showToast("Set a session goal so the whole team can align around one objective."); }catch(e){}
+        }, 200);
+        return;
+      }
+
       if(key === "preferred_ai"){
         if(typeof showSettingsModal === "function"){ showSettingsModal(true); }
         setTimeout(()=>{
