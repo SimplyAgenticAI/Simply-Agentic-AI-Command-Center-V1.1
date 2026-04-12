@@ -3657,7 +3657,14 @@ def gmail_connect():
 
     state = secrets.token_urlsafe(24)
     session["gmail_oauth_states_single"] = state
+    session.modified = True
     _push_oauth_state("gmail_oauth_states", state)
+    # Also persist to file store so redirects don't lose the session cookie
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+        _store_oauth_state(state, uname)
+    except Exception:
+        pass
     auth_url = _oauth_auth_url(GMAIL_SCOPES, "/gmail/callback", state)
     return redirect(auth_url)
 
@@ -3672,8 +3679,26 @@ def gmail_callback():
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
     state = request.args.get("state", "")
-    if not _oauth_state_matches("gmail_oauth_states", state):
-        return make_response("OAuth state mismatch. Please retry Gmail connect.", 400)
+    # Primary check: session-based state (works when cookies persist across redirect)
+    # Fallback: file-based store (works on hosted platforms where session cookies can be lost)
+    state_ok = _oauth_state_matches("gmail_oauth_states", state)
+    if not state_ok:
+        try:
+            rec = _consume_oauth_state(state)
+            if rec:
+                state_ok = True
+        except Exception:
+            pass
+    if not state_ok:
+        return make_response(
+            "<html><body style='font-family:sans-serif;padding:40px;background:#0f172a;color:#e2e8f0'>"
+            "<h2 style='color:#f87171'>Gmail Connect — State Mismatch</h2>"
+            "<p>Your browser session was reset during the Google redirect. This is common on some hosting platforms.</p>"
+            "<p><a href='/gmail/connect' style='color:#818cf8'>Click here to try connecting Gmail again</a> &mdash; "
+            "it usually works on the second attempt.</p>"
+            "<p><a href='/' style='color:#94a3b8;font-size:13px'>Return to app</a></p>"
+            "</body></html>", 400
+        )
     code = request.args.get("code", "")
     if not code:
         return make_response("Missing authorization code from Google.", 400)
@@ -3735,6 +3760,13 @@ def calendar_connect():
 
     state = secrets.token_urlsafe(24)
     session["calendar_oauth_state"] = state
+    session.modified = True
+    # Also persist to file store so redirects don't lose the session cookie
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+        _store_oauth_state("cal_" + state, uname)
+    except Exception:
+        pass
     auth_url = _oauth_auth_url(CALENDAR_SCOPES, "/calendar/callback", state)
     return redirect(auth_url)
 
@@ -3750,8 +3782,25 @@ def calendar_callback():
 
     state = request.args.get("state", "")
     expected = session.get("calendar_oauth_state", "")
-    if not state or not expected or state != expected:
-        return make_response("OAuth state mismatch. Please retry Google Calendar connect.", 400)
+    state_ok = bool(state and expected and state == expected)
+    if not state_ok:
+        # Fallback: check file-based store (handles platforms where session cookies are lost on redirect)
+        try:
+            rec = _consume_oauth_state("cal_" + state)
+            if rec:
+                state_ok = True
+        except Exception:
+            pass
+    if not state_ok:
+        return make_response(
+            "<html><body style='font-family:sans-serif;padding:40px;background:#0f172a;color:#e2e8f0'>"
+            "<h2 style='color:#f87171'>Calendar Connect — State Mismatch</h2>"
+            "<p>Your browser session was reset during the Google redirect. This is common on some hosting platforms.</p>"
+            "<p><a href='/calendar/connect' style='color:#818cf8'>Click here to try connecting Calendar again</a> &mdash; "
+            "it usually works on the second attempt.</p>"
+            "<p><a href='/' style='color:#94a3b8;font-size:13px'>Return to app</a></p>"
+            "</body></html>", 400
+        )
 
     code = request.args.get("code", "")
     if not code:
@@ -7685,34 +7734,34 @@ label         { font-size: 14px !important; }
 .wcal-autocomplete-title::before { content:'⚡'; font-size:12px; }
 .wcal-automail-status { font-size:11px; color:rgba(110,231,183,.8); margin-top:6px; min-height:16px; font-style:italic; }
 .wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
-.wcal-priority-pill.high { background:rgba(239,68,68,.2); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
-.wcal-priority-pill.medium { background:rgba(245,158,11,.18); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
-.wcal-priority-pill.low { background:rgba(16,185,129,.15); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
+.wcal-priority-pill.high   { background:rgba(109,40,217,.22);  color:#c4b5fd; border:1px solid rgba(109,40,217,.45); }
+.wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
+.wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
 /* Tasks: solid left stripe + diamond shape to distinguish from events */
-/* Tasks: default = purple (medium priority is yellow, default is purple = high) */
+/* Tasks: default = purple */
 .wcal-event[data-etype="task"] {
-  background: rgba(99,102,241,.75) !important;  /* purple — default */
-  color: #e0e7ff !important;
-  border-left: 3px solid rgba(129,140,248,.95) !important;
+  background: rgba(109,40,217,.75) !important;  /* purple — default/high */
+  color: #ede9fe !important;
+  border-left: 3px solid rgba(167,139,250,.95) !important;
   border-radius: 4px 6px 6px 4px;
 }
-/* HIGH priority = purple (same as default, distinct via brighter stripe) */
+/* HIGH priority = purple (bright) */
 .wcal-event[data-etype="task"].task-prio-high {
-  background: rgba(109,40,217,.80) !important;  /* deep purple */
+  background: rgba(109,40,217,.85) !important;
   color: #ede9fe !important;
-  border-left-color: rgba(167,139,250,.95) !important;
+  border-left-color: rgba(192,160,255,.99) !important;
 }
 /* MEDIUM priority = yellow/amber */
 .wcal-event[data-etype="task"].task-prio-medium {
-  background: rgba(161,98,7,.78) !important;    /* amber/gold */
+  background: rgba(161,98,7,.82) !important;
   color: #fef9c3 !important;
-  border-left-color: rgba(234,179,8,.95) !important;
+  border-left-color: rgba(234,179,8,.99) !important;
 }
 /* LOW priority = green */
 .wcal-event[data-etype="task"].task-prio-low {
-  background: rgba(6,95,70,.78) !important;     /* green */
+  background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
-  border-left-color: rgba(16,185,129,.95) !important;
+  border-left-color: rgba(16,185,129,.99) !important;
 }
 /* Done tasks go grey regardless of priority — but stay visible with strikethrough */
 .wcal-event[data-etype="task"].is-done {
@@ -10849,7 +10898,7 @@ async function pollImageJob(jobId, seatName){
       await loadState();
       // Play table activation sound
       try{ wcalPlayActivationSound(); }catch(e){}
-      showModal("Team Assembled", "Full team installed and seated at the Round Table.");
+      showToast("✅ Full team seated at the Round Table");
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
     };
 
@@ -12407,7 +12456,7 @@ const EVENT_COLORS = [
   {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
   {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
 ];
-const TASK_COLOR = {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'};
+const TASK_COLOR = {bg:'rgba(109,40,217,.80)', text:'#ede9fe'};
 const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
 function eventColor(ev){
   const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
@@ -12596,7 +12645,7 @@ function wcalEventHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   // Apply any user-set priority override
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
-  const prioColors={high:{bg:'rgba(185,28,28,.75)',text:'#fee2e2'},medium:{bg:'rgba(99,102,241,.72)',text:'#e0e7ff'},low:{bg:'rgba(6,95,70,.75)',text:'#d1fae5'}};
+  const prioColors={high:{bg:'rgba(109,40,217,.80)',text:'#ede9fe'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
   const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||color;
   let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
@@ -12944,9 +12993,9 @@ window.wcalDetEvPriorityChange = function(val){
   // Apply color live to any matching event block on the grid
   document.querySelectorAll(`.wcal-event[data-eid="${encodeURIComponent(key)}"]`).forEach(el=>{
     const prioColors = {
-      high:   {bg:'rgba(185,28,28,.75)',  text:'#fee2e2'},
-      medium: {bg:'rgba(99,102,241,.72)', text:'#e0e7ff'},
-      low:    {bg:'rgba(6,95,70,.75)',    text:'#d1fae5'},
+      high:   {bg:'rgba(109,40,217,.85)', text:'#ede9fe'},
+      medium: {bg:'rgba(161,98,7,.82)',   text:'#fef9c3'},
+      low:    {bg:'rgba(6,95,70,.82)',    text:'#d1fae5'},
     };
     if(val==='auto'){
       const color=eventColor(ev);
