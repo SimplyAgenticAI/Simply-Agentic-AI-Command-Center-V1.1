@@ -529,7 +529,14 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def save_json(path: Path, payload: Any) -> None:
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # Atomic write: write to a temp file then rename so a crash mid-write never corrupts the target
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        # Fallback to direct write if rename fails (e.g. cross-device)
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
@@ -2206,8 +2213,6 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"Offers: {(_op.get('offers','') or '').strip()}\n"
         f"Audience: {(_op.get('audience','') or '').strip()}\n"
         f"Goals: {(_op.get('goals','') or '').strip()}\n"
-        f"Constraints: {(_op.get('constraints','') or '').strip()}\n"
-        f"Tone rules: {(_op.get('tone_rules','') or '').strip()}\n"
         f"Notes: {(_op.get('notes','') or '').strip()}\n"
     )
 
@@ -2899,7 +2904,7 @@ def api_set_user_settings():
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
         new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
         if new_key:
-            _mark_onboarding_step(uname, "openai_key", True)
+            _mark_onboarding_step(uname, "preferred_ai", True)
     except Exception:
         pass
 
@@ -3718,7 +3723,7 @@ def gmail_callback():
     # onboarding_gmail_connected: mark Gmail step after successful connect
     try:
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        _mark_onboarding_step(uname, "gmail_connected", True)
+        _mark_onboarding_step(uname, "email_connected", True)
     except Exception:
         pass
 
@@ -5054,7 +5059,7 @@ def api_operator_profile_set():
     payload = request.get_json(silent=True) or {}
     prof = _load_operator_profile(uname)
     # only update known keys (additive safety)
-    for k in ["display_name","business","offers","audience","goals","constraints","tone_rules","notes"]:
+    for k in ["display_name","business","offers","audience","goals","notes"]:
         if k in payload:
             prof[k] = (payload.get(k) or "")
     _save_operator_profile(uname, prof)
@@ -5062,7 +5067,7 @@ def api_operator_profile_set():
     try:
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
         op = _load_operator_profile(uname) or {}
-        meaningful = ["business", "offers", "audience", "goals", "constraints", "tone_rules", "notes"]
+        meaningful = ["business", "offers", "audience", "goals", "notes"]
         ok = False
         for k in meaningful:
             if (op.get(k) or "").strip():
@@ -7135,10 +7140,6 @@ label         { font-size: 14px !important; }
   <textarea id="opm_offers" rows="4" placeholder="What you sell"></textarea>
   <label style="margin-top:10px;">Goals</label>
   <textarea id="opm_goals" rows="3" placeholder="Current goals"></textarea>
-  <label style="margin-top:10px;">Constraints</label>
-  <textarea id="opm_constraints" rows="3" placeholder="Rules and boundaries"></textarea>
-  <label style="margin-top:10px;">Tone rules</label>
-  <textarea id="opm_tone_rules" rows="3" placeholder="How teammates should communicate"></textarea>
   <label style="margin-top:10px;">Notes</label>
   <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
   <div class="actions">
@@ -9025,8 +9026,6 @@ window.showModal = function showModal(title, body, imgUrl){
         if($("opm_business")) $("opm_business").value = p.business || '';
         if($("opm_offers")) $("opm_offers").value = p.offers || '';
         if($("opm_goals")) $("opm_goals").value = p.goals || '';
-        if($("opm_constraints")) $("opm_constraints").value = p.constraints || '';
-        if($("opm_tone_rules")) $("opm_tone_rules").value = p.tone_rules || '';
         if($("opm_notes")) $("opm_notes").value = p.notes || '';
         if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Ready';
       }catch(e){
@@ -9043,8 +9042,6 @@ window.showModal = function showModal(title, body, imgUrl){
         business: ($("opm_business")?.value || '').trim(),
         offers: ($("opm_offers")?.value || '').trim(),
         goals: ($("opm_goals")?.value || '').trim(),
-        constraints: ($("opm_constraints")?.value || '').trim(),
-        tone_rules: ($("opm_tone_rules")?.value || '').trim(),
         notes: ($("opm_notes")?.value || '').trim()
       };
       try{
@@ -9578,7 +9575,7 @@ function makeSeat(defn, idx){
       window.selectedSeat = name;  // keep window in sync
       markActiveSeat();
 
-      const defn = state.installed[name];
+      const defn = (state.installed || {})[name];
       $("seatTitle").innerText = defn ? defn.name : name;
       $("seatSub").innerText = defn ? `${defn.job_title}  |  ${defn.version}` : "";
 
@@ -9780,16 +9777,6 @@ function makeSeat(defn, idx){
 
         <div style="height:10px"></div>
 
-        <div class="tiny">Constraints</div>
-        <textarea id="op_constraints" class="followBox" style="min-height:70px" placeholder="Rules, boundaries, what not to do...">${safe(p.constraints||"")}</textarea>
-
-        <div style="height:10px"></div>
-
-        <div class="tiny">Tone rules</div>
-        <textarea id="op_tone_rules" class="followBox" style="min-height:70px" placeholder="How teammates should speak and write...">${safe(p.tone_rules||"")}</textarea>
-
-        <div style="height:10px"></div>
-
         <div class="tiny">Notes</div>
         <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Anything else teammates should know...">${safe(p.notes||"")}</textarea>
 
@@ -9811,8 +9798,6 @@ function makeSeat(defn, idx){
           business: $("op_business").value,
           offers: $("op_offers").value,
           goals: $("op_goals").value,
-          constraints: $("op_constraints").value,
-          tone_rules: $("op_tone_rules").value,
           notes: $("op_notes").value
         };
         const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
@@ -9831,8 +9816,6 @@ function makeSeat(defn, idx){
           business: $("op_business").value,
           offers: $("op_offers").value,
           goals: $("op_goals").value,
-          constraints: $("op_constraints").value,
-          tone_rules: $("op_tone_rules").value,
           notes: $("op_notes").value
         };
         const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
@@ -10210,7 +10193,9 @@ function makeSeat(defn, idx){
         target.value = combined;
       };
 
-      rec.onerror = () => {
+      rec.onerror = (e) => {
+        const errType = (e && e.error) ? e.error : "";
+        if(errType === "no-speech" || errType === "aborted") return;
         status.innerText = "Mic: error";
       };
 
@@ -10540,11 +10525,23 @@ function makeSeat(defn, idx){
       };
 
       rec.onerror = (e) => {
+        const errType = (e && e.error) ? e.error : "";
+        // "no-speech" means the mic was silent too long — not a real error, just restart quietly
+        // "aborted" means the recognizer was stopped programmatically — also not an error
+        if(errType === "no-speech" || errType === "aborted") {
+          return; // onend will fire next and auto-restart if alwaysOn
+        }
+        // Real errors (permission denied, hardware missing, etc.) — stop and inform the user
         const s = currentAlwaysStatusEl();
         if(s) s.innerText = "Mic: error";
-        // In many webviews, errors persist; stop to avoid a dead loop.
         try{ stopAlwaysListening(); }catch(_){ }
-        try{ showModal("Mic error", (e && e.error ? ("Mic error: " + e.error + ". ") : "") + micHelpText()); }catch(_){ }
+        const friendlyMsg = {
+          "not-allowed":          "Microphone access was denied. Please allow microphone access in your browser's site settings and try again.",
+          "audio-capture":        "No microphone was found. Please connect a microphone and try again.",
+          "service-not-allowed":  "Speech recognition is not allowed on this page. Try using HTTPS or a supported browser.",
+          "network":              "A network error interrupted speech recognition. Please check your connection and try again.",
+        }[errType] || ("Speech recognition error: " + (errType || "unknown") + ". Please check your microphone and try again.");
+        try{ showToast("🎤 " + friendlyMsg); }catch(_){ }
       };
 
       rec.onend = () => {
@@ -11126,8 +11123,7 @@ Body: ${body ? "[present]" : "[empty]"}
       }
 
       installedOrder.forEach((name) => {
-        const defn = state.installed[name];
-        if(!defn) return;
+        const defn = (state.installed || {})[name];
 
         const row = document.createElement("div");
         row.style.display = "flex";
@@ -17677,8 +17673,6 @@ def api_passes_run():
         f"Offers: {(profile.get('offers') or '').strip()}\n"
         f"Audience: {(profile.get('audience') or '').strip()}\n"
         f"Goals: {(profile.get('goals') or '').strip()}\n"
-        f"Constraints: {(profile.get('constraints') or '').strip()}\n"
-        f"Tone rules: {(profile.get('tone_rules') or '').strip()}\n"
     ).strip()
 
     base_system = (
@@ -17747,8 +17741,6 @@ def _load_operator_profile(username: str) -> Dict[str, Any]:
             "offers": "",
             "audience": "",
             "goals": "",
-            "constraints": "",
-            "tone_rules": "",
             "notes": "",
             "updated_at": ""
         }
@@ -17761,8 +17753,6 @@ def _load_operator_profile(username: str) -> Dict[str, Any]:
             "offers": "",
             "audience": "",
             "goals": "",
-            "constraints": "",
-            "tone_rules": "",
             "notes": "",
             "updated_at": ""
         }
