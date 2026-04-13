@@ -3901,6 +3901,34 @@ def api_calendar_move_event():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.post("/api/calendar/delete_event")
+def api_calendar_delete_event():
+    """Delete a Google Calendar event by event_id."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    access_token, reason = _calendar_creds_for_user(u)
+    if not access_token:
+        return jsonify({"ok": False, "error": reason}), 400
+    payload  = request.get_json(force=True, silent=True) or {}
+    event_id = (payload.get("event_id") or "").strip()
+    if not event_id:
+        return jsonify({"ok": False, "error": "Missing event_id"}), 400
+    try:
+        import requests as _req
+        r = _req.delete(
+            f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=20,
+        )
+        if r.status_code in (200, 204):
+            append_log("calendar_event_deleted", {"user": u.get("username",""), "event_id": event_id, "at": now_iso()})
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": f"Google API returned {r.status_code}: {r.text[:200]}"}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.get("/api/calendar/events")
 def api_calendar_events():
     u = current_user()
@@ -4024,26 +4052,71 @@ def api_cal_task_complete_action(task_id: str):
     if not teammate_name or not client_email:
         return jsonify({"ok": False, "error": "No teammate or client email configured on this task"}), 400
 
+    # voice: "operator" = written in first person as the operator, "teammate" = teammate introduces themselves
+    voice = (request.get_json(silent=True) or {}).get("voice", "teammate")
+
     reg = load_registry()
     defn = (reg.get("installed") or {}).get(teammate_name)
     if not defn:
         return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found"}), 404
 
-    # Build prompt — use the client's real name if provided, otherwise fall back to email
-    task_title = task.get("title","Untitled task")
-    task_desc  = task.get("description","")
-    task_date  = task.get("date","")
+    # Load operator profile for name
+    try:
+        _op_user = (u.get("username") if isinstance(u, dict) else None) or "anon"
+        _op = _load_operator_profile(_op_user)
+        operator_name = (_op.get("display_name") or "").strip() or "the team"
+        business_name = (_op.get("business") or "").strip()
+    except Exception:
+        operator_name = "the team"
+        business_name = ""
+
+    task_title = task.get("title", "Untitled task")
+    task_desc  = task.get("description", "")
+    task_date  = task.get("date", "")
     client_ref = client_name if client_name else client_email
-    prompt = (
-        f"The task '{task_title}' has just been marked complete"
-        + (f" (scheduled {task_date})" if task_date else "")
-        + ". "
-        + (f"Task notes: {task_desc}. " if task_desc else "")
-        + f"Please draft a professional, warm, concise email to {client_ref} "
-        + f"(email: {client_email}) letting them know this task is complete. "
-        + f"Address them by name as '{client_ref}' in the greeting. "
-        + "Include a subject line on the first line in the format 'Subject: ...' "
-        + "followed by the email body. Keep it brief and friendly."
+
+    if voice == "operator":
+        sender_intro = f"I'm writing as {operator_name}"
+        sign_off_name = operator_name
+        prompt = (
+            f"The task '{task_title}' has just been marked complete"
+            + (f" (scheduled {task_date})" if task_date else "")
+            + ". "
+            + (f"Task notes: {task_desc}. " if task_desc else "")
+            + f"Write a professional, warm, concise email from {operator_name} "
+            + (f"at {business_name} " if business_name else "")
+            + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
+            + f"Write in first person as {operator_name}. Address the client as '{client_ref}'. "
+            + f"Sign off with: {operator_name}. "
+        )
+    else:
+        teammate_display = defn.get("name", teammate_name)
+        sender_intro = f"I'm {teammate_display}"
+        sign_off_name = operator_name if operator_name != "the team" else teammate_display
+        prompt = (
+            f"The task '{task_title}' has just been marked complete"
+            + (f" (scheduled {task_date})" if task_date else "")
+            + ". "
+            + (f"Task notes: {task_desc}. " if task_desc else "")
+            + f"Write a professional, warm, concise email from {teammate_display} "
+            + (f"over at {business_name} " if business_name else "")
+            + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
+            + f"Introduce yourself as {teammate_display} in the opening. Address the client as '{client_ref}'. "
+            + f"Sign off with: {sign_off_name}. "
+        )
+
+    prompt += (
+        "Use EXACTLY this format and nothing else:\n"
+        "```email\n"
+        "To: " + client_email + "\n"
+        "Subject: <subject line here>\n"
+        "Body: <first line of body>\n"
+        "<rest of body>\n"
+        "```\n"
+        "CRITICAL: Do NOT write the word 'email' anywhere in the body. "
+        "Do NOT include 'To:', 'From:', or header labels inside the Body. "
+        "Do NOT end with ``` or any backticks. "
+        "Start the Body directly with the greeting."
     )
 
     try:
@@ -4063,26 +4136,43 @@ def api_cal_task_complete_action(task_id: str):
     except Exception as e:
         return jsonify({"ok": False, "error": f"Teammate AI error: {e}"}), 500
 
-    # Parse subject + body
-    lines = raw.splitlines()
-    subject = f"Task Complete: {task_title}"
-    body_lines = []
-    found_subject = False
-    for ln in lines:
-        if not found_subject and ln.lower().startswith("subject:"):
-            subject = ln[8:].strip()
-            found_subject = True
-        else:
-            body_lines.append(ln)
-    body = "\n".join(body_lines).strip()
-    if not body:
-        body = raw
+    # Try structured extract first (uses the ```email block)
+    draft = extract_email_draft(raw)
+    if draft and draft.get("body"):
+        subject = draft.get("subject") or f"Task Complete: {task_title}"
+        body = draft.get("body", "")
+    else:
+        # Fallback: parse subject + body manually
+        lines = raw.splitlines()
+        subject = f"Task Complete: {task_title}"
+        body_lines = []
+        found_subject = False
+        for ln in lines:
+            stripped = ln.strip()
+            if not found_subject and stripped.lower().startswith("subject:"):
+                subject = stripped[8:].strip()
+                found_subject = True
+            else:
+                body_lines.append(ln)
+        body = "\n".join(body_lines).strip()
+        if not body:
+            body = raw
+
+    # Clean up any stray artifacts the model may have added
+    # Strip leading "email" line (case-insensitive, possibly on its own line)
+    body = re.sub(r'(?i)^\s*email\s*\n', '', body)
+    body = re.sub(r'(?i)^email\s+to:.*\n?', '', body)
+    # Strip trailing ``` or ```email
+    body = re.sub(r'\s*```\s*$', '', body).strip()
+    body = re.sub(r'\s*```email\s*$', '', body).strip()
+    # Strip any stray To:/From: lines that leaked into the body
+    body = re.sub(r'(?im)^(To|From|CC|BCC)\s*:.*(\r?\n|$)', '', body).strip()
 
     # Return draft for user approval — do NOT send automatically
     append_log("task_complete_email_drafted", {
         "task_id": task_id, "task_title": task_title,
         "teammate": teammate_name, "to": client_email,
-        "client_name": client_name, "at": now_iso()
+        "client_name": client_name, "voice": voice, "at": now_iso()
     })
     return jsonify({"ok": True, "draft": True, "subject": subject, "body": body,
                     "to": client_email, "teammate": teammate_name})
@@ -7794,12 +7884,38 @@ label         { font-size: 14px !important; }
 .wcal-event[data-etype="event"] { border-radius:7px; }
 /* Dragging: the original block dims in-place (no ghost clone) */
 .wcal-event[style*="cursor: grabbing"] { outline:2px solid rgba(167,139,250,.7); }
-/* Detail panel: task=indigo header, event=blue header */
-.wcal-detail-header.type-task  { border-bottom-color:rgba(99,102,241,.5); }
-.wcal-detail-header.type-event { border-bottom-color:rgba(59,130,246,.5); }
-.wcal-detail-type.type-task  { color:#a5b4fc; }
-.wcal-detail-type.type-event { color:#93c5fd; }
+/* ── Calendar right-click context menu ── */
+#wcalCtxMenu {
+  position: fixed; z-index: 99998;
+  background: rgba(16,24,44,0.97);
+  border: 1px solid rgba(80,110,200,.4);
+  border-radius: 10px;
+  padding: 5px 0;
+  min-width: 170px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.55);
+  display: none;
+  user-select: none;
+}
+#wcalCtxMenu .ctx-item {
+  padding: 9px 16px;
+  font-size: 13px;
+  color: rgba(226,232,240,.88);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#wcalCtxMenu .ctx-item:hover { background: rgba(124,58,237,.18); color: #c4b5fd; }
+#wcalCtxMenu .ctx-sep { height: 1px; background: rgba(80,110,200,.2); margin: 4px 0; }
+#wcalCtxMenu .ctx-item.danger:hover { background: rgba(239,68,68,.15); color: #fca5a5; }
 </style>
+
+<!-- Calendar right-click context menu -->
+<div id="wcalCtxMenu">
+  <div class="ctx-item" id="ctxOpen">📋 Open details</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ctxRemove">🗑 Remove</div>
+</div>
 
 <div class="wcal-wrap" id="wcalWrap">
 
@@ -12663,7 +12779,7 @@ function wcalEventHtml(ev, extraStyle=''){
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
   const prioColors={high:{bg:'rgba(109,40,217,.80)',text:'#ede9fe'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
   const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||color;
-  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" title="${title}">`;
+  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
@@ -12685,7 +12801,7 @@ function wcalTaskHtml(task, extraStyle=''){
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:20px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
   const durLabel=height>40?` · ${task.duration||30}m`:'';
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
@@ -12729,15 +12845,71 @@ window.wcalToggleTask = async function(e, taskId){
   }catch(err){ showToast('Update failed'); }
 };
 
-// Called when a task with an assigned teammate is marked done — opens draft for approval
+// Called when a task with an assigned teammate is marked done — asks voice choice then opens draft
 async function wcalFireCompleteAction(taskId, task){
   const clientRef = task.on_complete_client_name || task.on_complete_client_email || 'client';
-  showToast('⚡ '+task.on_complete_teammate+' is drafting email for '+clientRef+'…');
+  const teammate  = task.on_complete_teammate || 'teammate';
+
+  // Show a small choice modal: operator voice or teammate voice
+  const voice = await new Promise(resolve => {
+    // Build overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:18px;padding:28px 28px 22px;max-width:420px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.6);';
+
+    const title = document.createElement('div');
+    title.style.cssText = 'font-size:16px;font-weight:800;margin-bottom:6px;color:#e6edff;';
+    title.textContent = 'How should this email be written?';
+
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:13px;color:rgba(180,196,255,.75);margin-bottom:18px;line-height:1.5;';
+    sub.textContent = `A completion email for "${task.title||'this task'}" will be drafted for ${clientRef}. Choose the voice:`;
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;';
+
+    const mkBtn = (label, desc, val, primary) => {
+      const w = document.createElement('div');
+      w.style.cssText = 'flex:1;min-width:150px;border:1px solid '+(primary?'rgba(124,58,237,.6)':'rgba(80,110,200,.3)')+';border-radius:12px;padding:12px 14px;cursor:pointer;transition:background .15s;background:'+(primary?'rgba(124,58,237,.12)':'rgba(14,22,48,.5)')+';';
+      const lbl = document.createElement('div');
+      lbl.style.cssText = 'font-weight:700;font-size:13px;color:#e6edff;margin-bottom:3px;';
+      lbl.textContent = label;
+      const d = document.createElement('div');
+      d.style.cssText = 'font-size:12px;color:rgba(180,196,255,.7);line-height:1.4;';
+      d.textContent = desc;
+      w.appendChild(lbl); w.appendChild(d);
+      w.onmouseenter = () => { w.style.background = primary?'rgba(124,58,237,.22)':'rgba(42,58,106,.35)'; };
+      w.onmouseleave = () => { w.style.background = primary?'rgba(124,58,237,.12)':'rgba(14,22,48,.5)'; };
+      w.onclick = () => { document.body.removeChild(overlay); resolve(val); };
+      return w;
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'margin-top:14px;background:transparent;border:none;color:rgba(180,196,255,.5);font-size:12px;cursor:pointer;';
+    cancelBtn.onclick = () => { document.body.removeChild(overlay); resolve(null); };
+
+    btnRow.appendChild(mkBtn('As ' + teammate, 'The teammate introduces themselves and reports completion.', 'teammate', true));
+    btnRow.appendChild(mkBtn('As Operator', 'Written in first person — as if you sent it directly.', 'operator', false));
+
+    box.appendChild(title); box.appendChild(sub); box.appendChild(btnRow); box.appendChild(cancelBtn);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+
+  if(!voice) return; // user cancelled
+
+  showToast('⚡ Drafting email as ' + (voice==='operator'?'you':teammate) + '…');
   try{
-    const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{method:'POST'});
+    const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({voice})
+    });
     const d = await res.json();
     if(d.ok && d.draft){
-      // Load into Email Console for approval — same flow as regular teammate email drafts
       if(typeof applyEmailDraft === 'function'){
         applyEmailDraft({
           subject: d.subject,
@@ -12746,7 +12918,6 @@ async function wcalFireCompleteAction(taskId, task){
         }, d.teammate || task.on_complete_teammate);
         showToast('📝 Draft ready — review and send from Email Console');
       } else {
-        // Fallback: pre-fill fields directly
         const subEl=document.getElementById('emailSubject');
         const bodyEl=document.getElementById('emailBody');
         const toEl=document.getElementById('emailTo');
@@ -12997,7 +13168,83 @@ window.wcalDetDeleteTask = async function(taskId){
   }catch(e){ showToast('Delete failed'); }
 };
 
-// Event priority — store in session memory keyed by event id, applied on re-render
+// ── Right-click context menu ───────────────────────────────────
+(function(){
+  let _ctxEl = null; // the calendar element that was right-clicked
+
+  window.wcalCtxShow = function(e, el){
+    e.preventDefault();
+    e.stopPropagation();
+    _ctxEl = el;
+    const menu = document.getElementById('wcalCtxMenu');
+    if(!menu) return;
+    // Position near the cursor, clamped to viewport
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let x = e.clientX + 4, y = e.clientY + 4;
+    menu.style.display = 'block';
+    const mw = menu.offsetWidth || 170, mh = menu.offsetHeight || 100;
+    if(x + mw > vw - 8) x = vw - mw - 8;
+    if(y + mh > vh - 8) y = vh - mh - 8;
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+  };
+
+  function closeCtx(){ const m=document.getElementById('wcalCtxMenu'); if(m) m.style.display='none'; _ctxEl=null; }
+
+  document.addEventListener('click', closeCtx, true);
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeCtx(); }, true);
+
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const openBtn   = document.getElementById('ctxOpen');
+    const removeBtn = document.getElementById('ctxRemove');
+
+    if(openBtn) openBtn.onclick = ()=>{
+      if(_ctxEl){ wcalOpenDetail(_ctxEl); } closeCtx();
+    };
+
+    if(removeBtn) removeBtn.onclick = async ()=>{
+      const el = _ctxEl; closeCtx();
+      if(!el) return;
+      const etype = el.dataset.etype;
+      if(etype === 'task'){
+        const tid = decodeURIComponent(el.dataset.tid || '');
+        if(!tid) return;
+        if(!confirm('Remove this task?')) return;
+        try{
+          await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
+          cal.tasks = cal.tasks.filter(t=>t.id!==tid);
+          const panel = document.getElementById('wcalDetail');
+          if(panel && panel._currentTask && panel._currentTask.id===tid) panel.classList.remove('open');
+          wcalRefresh(); wcalRenderUpcoming(); showToast('Task removed');
+        }catch(e){ showToast('Remove failed'); }
+      } else {
+        // Google Calendar event — open details panel with delete option, or try direct API delete
+        const eid = decodeURIComponent(el.dataset.eid || '');
+        if(!eid) return;
+        // Find event object
+        let ev = null;
+        Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
+        if(!ev){ ev = {id: eid, summary: eid}; }
+        if(!confirm('Remove "' + (ev.summary||'this event') + '" from your calendar?')) return;
+        try{
+          const res = await fetch('/api/calendar/delete_event', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({event_id: ev.id || eid})
+          });
+          const d = await res.json();
+          if(d && d.ok){
+            const panel = document.getElementById('wcalDetail');
+            if(panel && panel._currentEvent && (panel._currentEvent.id||panel._currentEvent.summary)===eid) panel.classList.remove('open');
+            await wcalFetchCurrentRange(); wcalRefresh(); showToast('Event removed');
+          } else {
+            showToast('Could not remove: ' + (d&&d.error?d.error:'Check Google Calendar'));
+          }
+        }catch(err){ showToast('Remove failed: '+String(err)); }
+      }
+    };
+  });
+})();
 const _evPriority = {};
 window.wcalDetEvPriorityChange = function(val){
   const panel = document.getElementById('wcalDetail');
@@ -13380,7 +13627,7 @@ function wcalRenderWeek(){
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
     allDay.forEach(ev=>{
       const color=eventColor(ev); const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      html+='<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" title="'+title+'"><div class="wcal-event-title">'+title+'</div></div>';
+      html+='<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="'+title+'"><div class="wcal-event-title">'+title+'</div></div>';
     });
     html+='</div>';
   });
