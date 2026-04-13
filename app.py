@@ -2232,6 +2232,25 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         client_block = ""
 
+    # Session objective — what the operator is trying to accomplish this session
+    session_objective_block = ""
+    try:
+        osd = _os_load(_op_user or "anon")
+        sess_obj = osd.get("session_objective") or {}
+        sess_title = (sess_obj.get("title") or "").strip()
+        sess_context = (sess_obj.get("context") or "").strip()
+        if sess_title:
+            session_objective_block = "\n\nSESSION OBJECTIVE (active right now)\n"
+            session_objective_block += f"Goal: {sess_title}\n"
+            if sess_context:
+                session_objective_block += f"Context: {sess_context}\n"
+            session_objective_block += (
+                "All your responses should help the operator make progress toward this goal. "
+                "Reference it when relevant. If a task connects to this objective, say so.\n"
+            )
+    except Exception:
+        session_objective_block = ""
+
     # Shared team memory — facts extracted from recent group convenes
     shared_memory_block = ""
     try:
@@ -2274,6 +2293,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
         f"{operator_block}"
+        f"{session_objective_block}"
         f"{client_block}"
         f"{shared_memory_block}\n"
         f"{rag_context}"
@@ -5523,7 +5543,7 @@ HTML = r"""
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:14px;font-weight:600;color:#f59e0b;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 12px rgba(245,158,11,0.35);}
+    .saObjectivePill{font-size:14px;font-weight:600;color:#e8c84a;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 14px rgba(212,175,55,0.45);letter-spacing:0.01em;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -6596,7 +6616,7 @@ body { font-size: 15px; }
 .saNavBtn     { font-size: 14px !important; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
 
-.saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #f59e0b !important; }
+.saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #e8c84a !important; letter-spacing: 0.01em !important; text-shadow: 0 0 14px rgba(212,175,55,0.45) !important; }
 .saModelTag   { font-size: 13px !important; }
 
 /* Labels and tiny text */
