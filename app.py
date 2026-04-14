@@ -3954,6 +3954,61 @@ def api_calendar_events():
 
 
 # =========================
+# GOOGLE CALENDAR EVENT METADATA (on_complete fields, stored locally per-user)
+# =========================
+
+def _gcal_event_meta_path(username: str) -> Path:
+    d = DATA / "gcal_event_meta"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{_safe_name(username or 'anon')}.json"
+
+def _load_gcal_event_meta(username: str) -> Dict[str, Any]:
+    return load_json(_gcal_event_meta_path(username), {}) or {}
+
+def _save_gcal_event_meta(username: str, data: Dict[str, Any]) -> None:
+    save_json(_gcal_event_meta_path(username), data)
+
+@app.get("/api/calendar/event_meta")
+def api_gcal_event_meta_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "meta": _load_gcal_event_meta(uname)})
+
+@app.post("/api/calendar/event_meta")
+def api_gcal_event_meta_set():
+    """Save on_complete metadata for a Google Calendar event by event_id."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    event_id = (payload.get("event_id") or "").strip()
+    if not event_id:
+        return jsonify({"ok": False, "error": "Missing event_id"}), 400
+    meta = _load_gcal_event_meta(uname)
+    meta[event_id] = {
+        "on_complete_teammate":    (payload.get("on_complete_teammate") or "").strip(),
+        "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
+        "on_complete_client_email":(payload.get("on_complete_client_email") or "").strip(),
+        "done": bool(payload.get("done", meta.get(event_id, {}).get("done", False))),
+        "updated_at": now_iso(),
+    }
+    _save_gcal_event_meta(uname, meta)
+    # If on_complete fields are set and event is marked done, fire the completion action
+    m = meta[event_id]
+    if m.get("done") and m.get("on_complete_teammate") and m.get("on_complete_client_email"):
+        # Build a synthetic task-like dict so we can reuse the task complete action API
+        append_log("gcal_event_complete_action_queued", {
+            "user": uname, "event_id": event_id,
+            "teammate": m["on_complete_teammate"],
+            "client": m["on_complete_client_email"],
+        })
+    return jsonify({"ok": True, "meta": m})
+
+
+# =========================
 # LOCAL CALENDAR TASKS (stored per-user in DATA)
 # =========================
 
@@ -3993,7 +4048,7 @@ def api_cal_tasks_create():
         "date": (payload.get("date") or "").strip(),
         "start": (payload.get("start") or "09:00").strip(),
         "duration": int(payload.get("duration") or 30),
-        "priority": (payload.get("priority") or "medium").strip(),
+        "priority": (payload.get("priority") or "high").strip(),
         "description": (payload.get("description") or "").strip(),
         "recurring": (payload.get("recurring") or "none").strip(),
         "on_complete_teammate": (payload.get("on_complete_teammate") or "").strip(),
@@ -7987,8 +8042,8 @@ label         { font-size: 14px !important; }
           </select>
         </div>
         <select class="wcal-field" id="wcalTaskPriority">
-          <option value="medium" selected>🟡 Medium</option>
-          <option value="high">🟣 High</option>
+          <option value="high" selected>🟣 High</option>
+          <option value="medium">🟡 Medium</option>
           <option value="low">🟢 Low</option>
         </select>
         <select class="wcal-field" id="wcalTaskRecurring">
@@ -8106,8 +8161,8 @@ label         { font-size: 14px !important; }
   <div id="wcalPopTaskExtras" style="display:none;">
     <div class="wcp-label">Priority</div>
     <select class="wcp-field" id="wcalPopPriority">
-      <option value="medium" selected>🟡 Medium</option>
-      <option value="high">🟣 High</option>
+      <option value="high" selected>🟣 High</option>
+      <option value="medium">🟡 Medium</option>
       <option value="low">🟢 Low</option>
     </select>
   </div>
@@ -12619,6 +12674,7 @@ const cal = {
   selected: null,
   events: {},   // keyed by YYYY-MM-DD, Google Calendar events
   tasks: [],    // local tasks array
+  gcalMeta: {}, // event_id → {on_complete_teammate, on_complete_client_name, on_complete_client_email, done}
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
   view: "week",
   weekStart: null,
@@ -12637,18 +12693,13 @@ function wcalMonday(d){
 
 // ── Event colours ──────────────────────────────────────────────
 const EVENT_COLORS = [
-  {bg:'rgba(124,58,237,.75)',  text:'#f3e8ff'},
-  {bg:'rgba(59,130,246,.75)',  text:'#dbeafe'},
-  {bg:'rgba(16,185,129,.75)',  text:'#d1fae5'},
-  {bg:'rgba(245,158,11,.75)',  text:'#fef3c7'},
-  {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
-  {bg:'rgba(14,165,233,.75)',  text:'#e0f2fe'},
+  {bg:'rgba(109,40,217,.78)',  text:'#ede9fe'},
 ];
 const TASK_COLOR = {bg:'rgba(109,40,217,.80)', text:'#ede9fe'};
 const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
 function eventColor(ev){
-  const h = (ev.summary||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
-  return EVENT_COLORS[h % EVENT_COLORS.length];
+  // All events default to purple; priority overrides (high/medium/low) apply on top via _evPriority
+  return EVENT_COLORS[0];
 }
 
 // ── Fetch Google Calendar events ───────────────────────────────
@@ -12755,11 +12806,15 @@ function wcalCleanDescription(raw){
   if(!raw) return '';
   // Strip HTML tags
   let txt = raw.replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').trim();
-  // Remove known Motion/Google Calendar boilerplate
+  // Remove known Motion/Google Calendar/third-party boilerplate
   const boilerplates=[
     /This event was created by Motion.*$/si,
+    /This task was created by Motion.*$/si,
+    /Created (in|by|via) Motion.*$/si,
     /To edit settings.*$/si,
     /To disconnect Motion.*$/si,
+    /Managed by Motion.*$/si,
+    /Scheduled by Motion.*$/si,
     /https?:\/\/app\.usemotion\.com[^\s]*/gi,
     /https?:\/\/www\.usemotion\.com[^\s]*/gi,
   ];
@@ -12821,7 +12876,6 @@ function wcalEventHtml(ev, extraStyle=''){
   const startMins=startDate.getHours()*60+startDate.getMinutes();
   const durMins=Math.max(30,(endDate-startDate)/60000);
   const top=startMins; const height=Math.max(28,durMins);
-  const color=eventColor(ev);
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const title=(ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const meetLink=ev.hangoutLink||'';
@@ -12831,11 +12885,14 @@ function wcalEventHtml(ev, extraStyle=''){
   const evKey=ev.id||ev.summary||'';
   const isDone=_evDone.has(evKey);
   const doneCls=isDone?' is-done':'';
-  // Apply any user-set priority override
+  // Apply any user-set priority override — default is always purple (same as high-priority task)
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
-  const prioColors={high:{bg:'rgba(109,40,217,.80)',text:'#ede9fe'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
-  const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||color;
-  let h=`<div class="wcal-event${doneCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
+  const prioColors={high:{bg:'rgba(109,40,217,.85)',text:'#ede9fe'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
+  const defaultColor={bg:'rgba(109,40,217,.80)',text:'#ede9fe'};
+  const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||defaultColor;
+  const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
+  // Render with task-style left stripe so events look identical to tasks
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}border-left:3px solid rgba(167,139,250,.95);border-radius:4px 6px 6px 4px;" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
@@ -12848,7 +12905,7 @@ function wcalTaskHtml(task, extraStyle=''){
   const [th,tm]=(task.start||'09:00').split(':').map(Number);
   const startMins=th*60+tm;
   const height=Math.max(28,task.duration||30); // 1px per minute — longer tasks are taller
-  const prio=task.priority||'medium';
+  const prio=task.priority||'high';
   const prioCls=task.done?'':' task-prio-'+prio;
   const doneCls=task.done?' is-done':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
@@ -12889,7 +12946,7 @@ window.wcalToggleTask = async function(e, taskId){
       if(newDone){
         el.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
       } else {
-        const p=task.priority||'medium';
+        const p=task.priority||'high';
         el.classList.add('task-prio-'+p);
       }
     });
@@ -13042,7 +13099,7 @@ function wcalShowTaskDetail(task){
         <div class="wcal-detail-label">Priority</div>
         <select class="wcal-detail-field" id="detPriority">
           <option value="high" ${task.priority==='high'?'selected':''}>🟣 High</option>
-          <option value="medium" ${(task.priority||'medium')==='medium'?'selected':''}>🟡 Medium</option>
+          <option value="medium" ${(task.priority||'high')==='medium'?'selected':''}>🟡 Medium</option>
           <option value="low" ${task.priority==='low'?'selected':''}>🟢 Low</option>
         </select>
       </div>
@@ -13100,10 +13157,21 @@ function wcalShowEventDetail(ev){
   const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
   const meetLink=ev.hangoutLink||ev.conferenceData?.entryPoints?.[0]?.uri||'';
   const htmlLink=ev.htmlLink||'';
+  const evId=ev.id||ev.summary||'';
+  const meta=(cal.gcalMeta||{})[evId]||{};
+  const isDone=!!(meta.done||_evDone.has(evId));
+
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
-    ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:``}
+    ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
+    <div>
+      <div class="wcal-detail-label">Status</div>
+      <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
+        <span id="detEvDoneIcon">${isDone?'✓':'○'}</span>
+        <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
+      </div>
+    </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
@@ -13147,23 +13215,77 @@ function wcalShowEventDetail(ev){
     <div>
       <div class="wcal-detail-label">Priority / color</div>
       <select class="wcal-detail-field" id="detEvPriority" onchange="wcalDetEvPriorityChange(this.value)">
-        <option value="auto" selected>Auto (calendar color)</option>
-        <option value="high">🟣 High</option>
+        <option value="high" selected>🟣 High</option>
         <option value="medium">🟡 Medium</option>
         <option value="low">🟢 Low</option>
       </select>
     </div>
+    <div class="wcal-autocomplete-section" id="detEvAutoSection">
+      <div class="wcal-autocomplete-title">Email on Complete</div>
+      <div class="wcal-detail-label">Assign teammate to draft email</div>
+      <select class="wcal-detail-field" id="detEvAutoTeammate">
+        <option value="">— No email draft —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. David" value="${meta.on_complete_client_name||''}" autocomplete="off" />
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${meta.on_complete_client_email||''}" autocomplete="off" />
+      <div class="wcal-automail-status" id="detEvAutoStatus"></div>
+    </div>
     <div class="wcal-detail-actions">
-      <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(ev.id||'')}')">Save changes</button>
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(evId)}')">Save changes</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
-  const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-event';
+  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
+  // Populate teammate dropdown
+  wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
 }
+
+// Toggle done on a Google Calendar event
+window.wcalDetToggleEvDone = async function(evId){
+  const meta=(cal.gcalMeta||{})[evId]||{};
+  const newDone=!meta.done;
+  const payload={
+    event_id: evId,
+    done: newDone,
+    on_complete_teammate: document.getElementById('detEvAutoTeammate')?.value||meta.on_complete_teammate||'',
+    on_complete_client_name: (document.getElementById('detEvAutoClientName')?.value||meta.on_complete_client_name||'').trim(),
+    on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value||meta.on_complete_client_email||'').trim(),
+  };
+  try{
+    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await res.json();
+    if(!d.ok) throw new Error(d.error||'Failed');
+    if(!cal.gcalMeta) cal.gcalMeta={};
+    cal.gcalMeta[evId]=d.meta;
+    const toggle=document.getElementById('detEvDoneToggle');
+    const icon=document.getElementById('detEvDoneIcon');
+    const lbl=document.getElementById('detEvDoneLabel');
+    if(toggle) toggle.classList.toggle('done',newDone);
+    if(icon) icon.textContent=newDone?'✓':'○';
+    if(lbl) lbl.textContent=newDone?'Completed':'Mark complete';
+    showToast(newDone?'✓ Event marked complete':'Event marked todo');
+    // Fire email draft if on_complete is configured and event is now done
+    if(newDone && payload.on_complete_teammate && payload.on_complete_client_email){
+      const panel=document.getElementById('wcalDetail');
+      const ev=panel&&panel._currentEvent;
+      if(ev){
+        const synthTask={
+          id:evId, title:ev.summary||'Event', on_complete_teammate:payload.on_complete_teammate,
+          on_complete_client_email:payload.on_complete_client_email,
+          on_complete_client_name:payload.on_complete_client_name,
+        };
+        wcalFireCompleteAction(evId, synthTask);
+      }
+    }
+    wcalRefresh();
+  }catch(e){ showToast('Update failed'); }
+};
 
 // ── Detail panel actions ───────────────────────────────────────
 window.wcalDetToggleDone = async function(){
@@ -13326,7 +13448,8 @@ window.wcalDetEvPriorityChange = function(val){
 };
 
 window.wcalDetSaveEvent = async function(encodedId){
-  const st=document.getElementById('detStatus'); if(st) st.innerText='Saving to Google Calendar...';
+  const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
+  const evId=decodeURIComponent(encodedId||'');
   const dateVal=document.getElementById('detDate')?.value||'';
   const startVal=document.getElementById('detStart')?.value||'09:00';
   const endVal=document.getElementById('detEnd')?.value||'10:00';
@@ -13336,19 +13459,47 @@ window.wcalDetSaveEvent = async function(encodedId){
   const attendeesRaw=document.getElementById('detAttendees')?.value||'';
   const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
   const useMeet=document.getElementById('detMeet')?.value==='meet';
-  if(!dateVal||!startVal){ if(st) st.innerText='Date and start time required'; return; }
-  const startDt=new Date(dateVal+'T'+startVal+':00');
-  const endDt=new Date(dateVal+'T'+endVal+':00');
-  const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
-  try{
-    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const d=await res.json();
-    if(!d.ok) throw new Error(d.error||'Failed');
+  // on_complete metadata (new fields)
+  const onCompleteTeammate=document.getElementById('detEvAutoTeammate')?.value||'';
+  const onCompleteClientName=(document.getElementById('detEvAutoClientName')?.value||'').trim();
+  const onCompleteClientEmail=(document.getElementById('detEvAutoEmail')?.value||'').trim();
+
+  // Save on_complete metadata locally (always, even if Google save fails)
+  if(evId){
+    try{
+      const existingMeta=(cal.gcalMeta||{})[evId]||{};
+      const metaPayload={
+        event_id: evId,
+        on_complete_teammate: onCompleteTeammate,
+        on_complete_client_name: onCompleteClientName,
+        on_complete_client_email: onCompleteClientEmail,
+        done: existingMeta.done||false,
+      };
+      const mr=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
+      const md=await mr.json();
+      if(md&&md.ok){ if(!cal.gcalMeta) cal.gcalMeta={}; cal.gcalMeta[evId]=md.meta; }
+    }catch(e){}
+  }
+
+  // Save to Google Calendar if we have date/time
+  if(dateVal && startVal){
+    const startDt=new Date(dateVal+'T'+startVal+':00');
+    const endDt=new Date(dateVal+'T'+(endVal||'10:00')+':00');
+    const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
+    try{
+      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await res.json();
+      if(!d.ok) throw new Error(d.error||'Failed');
+      if(st) st.innerText='Saved ✓';
+      showToast(useMeet?'Event updated with Meet link':'Event saved');
+      await wcalFetchCurrentRange(); wcalRefresh();
+      setTimeout(()=>{ if(st) st.innerText=''; },2500);
+    }catch(e){ if(st) st.innerText=e.message||'Google Calendar save failed'; }
+  } else {
     if(st) st.innerText='Saved ✓';
-    showToast(useMeet?'Event updated with Meet link':'Event updated');
-    await wcalFetchCurrentRange(); wcalRefresh();
-    setTimeout(()=>{ if(st) st.innerText=''; },2500);
-  }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
+    showToast('Event settings saved');
+    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+  }
 };
 
 // ── Activation sound — round table powering up (deep, powerful, no whine) ─
@@ -13710,7 +13861,7 @@ function wcalRenderWeek(){
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
     allDay.forEach(ev=>{
       const color=eventColor(ev); const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      html+='<div class="wcal-event" style="top:4px;height:18px;background:'+color.bg+';color:'+color.text+';font-size:10px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="'+title+'"><div class="wcal-event-title">'+title+'</div></div>';
+      html+='<div class="wcal-event" style="top:4px;height:18px;background:rgba(109,40,217,.80);color:#ede9fe;font-size:10px;border-left:3px solid rgba(167,139,250,.95);border-radius:4px 6px 6px 4px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ '+title+'"><div class="wcal-event-title">'+title+'</div></div>';
     });
     html+='</div>';
   });
@@ -13904,6 +14055,12 @@ async function wcalFetchCurrentRange(){
   const fetchEnd=end>mEnd?end:mEnd;
   await wcalFetchRange(fetchStart,fetchEnd);
   await wcalFetchTasks();
+  // Load persisted on_complete metadata for Google Calendar events
+  try{
+    const mr=await fetch('/api/calendar/event_meta');
+    const md=await mr.json();
+    if(md&&md.ok) cal.gcalMeta=md.meta||{};
+  }catch(e){}
 }
 
 function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); }
