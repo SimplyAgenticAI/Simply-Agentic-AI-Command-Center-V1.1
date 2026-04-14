@@ -3036,6 +3036,33 @@ def api_set_active_order():
     return jsonify({"ok": True, "active_order": final})
 
 
+@app.delete("/api/teammate/<n>")
+def api_delete_teammate(n: str):
+    """Permanently delete a custom teammate. Built-in teammates cannot be deleted (use Dismiss instead)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    reg = load_registry()
+    installed = reg.get("installed", {})
+    if n not in installed:
+        return jsonify({"ok": False, "error": "Teammate not found"}), 404
+    if n in PREBUILT_LOCKED:
+        return jsonify({"ok": False, "error": f"'{n}' is a built-in teammate — use Dismiss to remove them from the table instead."}), 403
+    installed.pop(n, None)
+    reg["installed"] = installed
+    reg["installed_order"] = [x for x in (reg.get("installed_order") or []) if x != n]
+    reg["active_order"]    = [x for x in (reg.get("active_order") or []) if x != n]
+    save_registry(reg)
+    try:
+        tp = thread_path(n)
+        if tp.exists(): tp.unlink()
+    except Exception:
+        pass
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    append_log("teammate_deleted", {"name": n, "deleted_by": uname, "at": now_iso()})
+    return jsonify({"ok": True})
+
+
 @app.post("/api/teammate/create")
 def api_create_teammate():
     data = request.get_json(force=True) or {}
@@ -5915,6 +5942,8 @@ HTML = r"""
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    /* Centered content wrapper — use class="modalInner" inside any modalForm for growth-playbook-style centering */
+    .modalForm .modalInner{ max-width:720px; margin:0 auto; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -6774,7 +6803,7 @@ body { font-size: 15px; }
 /* Buttons */
 .btn          { font-size: 14px !important; }
 .btnMini      { font-size: 13px !important; padding: 8px 11px !important; }
-.btnTiny      { font-size: 12px !important; }
+.btnTiny      { font-size: 13px !important; }
 .passBtn      { font-size: 13px !important; }
 
 /* Input fields */
@@ -6785,8 +6814,8 @@ body { font-size: 15px; }
 
 /* Seat cards */
 .seatName     { font-size: 15px !important; }
-.seatRole     { font-size: 13px !important; }
-.seatStatus   { font-size: 13px !important; }
+.seatRole     { font-size: 14px !important; }
+.seatStatus   { font-size: 14px !important; }
 
 /* Sidebar headers */
 .sideTitle .h1 { font-size: 16px !important; }
@@ -6801,26 +6830,31 @@ body { font-size: 15px; }
 .saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.92; letter-spacing: 0.01em !important; }
 .saModelTag   { font-size: 13px !important; }
 
-/* Labels and tiny text */
-.tiny         { font-size: 13px !important; }
+/* Labels and tiny text — bumped up for readability */
+.tiny         { font-size: 14px !important; }
 label         { font-size: 14px !important; }
 .pill         { font-size: 14px !important; }
 .pillRow .tiny { font-size: 13px !important; }
 
 /* Onboarding Next Step panel */
-.onbTitle     { font-size: 14px !important; }
-.onbMeta      { font-size: 13px !important; }
-#onbSub       { font-size: 13px !important; }
+.onbTitle     { font-size: 15px !important; }
+.onbMeta      { font-size: 14px !important; }
+#onbSub       { font-size: 14px !important; }
 
 /* Modal forms */
 .modalForm label { font-size: 14px !important; }
 .card label      { font-size: 14px !important; }
+.diagCard        { font-size: 14px !important; }
 
 /* Group reply section */
 .groupReplies    { font-size: 15px !important; }
 
 /* Command row primary buttons */
 .commandRow .btn { font-size: 15px !important; }
+
+/* Lead lab cards */
+#leadLabResults .diagCard { font-size: 14px !important; }
+#leadLabResults .tiny { font-size: 13px !important; }
 
 </style>
 </head>
@@ -7082,6 +7116,17 @@ label         { font-size: 14px !important; }
                   <button class="btn btnPrimary" id="saveManageExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
+
+                <!-- Delete custom teammate section -->
+                <div style="margin-top:22px; padding-top:16px; border-top:1px solid rgba(255,255,255,.08);">
+                  <div style="font-size:13px; font-weight:700; color:rgba(248,113,113,.85); margin-bottom:8px;">⚠ Permanently Delete a Custom Teammate</div>
+                  <div class="tiny" style="margin-bottom:10px; opacity:.8;">Only custom teammates you created can be deleted. Built-in teammates (Alex, Willow, etc.) can only be dismissed. Type the teammate's exact name to confirm.</div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                    <input id="deleteTeammateName" class="field" style="flex:1; min-width:160px;" placeholder="Type teammate name to confirm…" />
+                    <button class="btn" id="deleteTeammateBtn" style="border-color:rgba(239,68,68,.5); color:#fca5a5; background:rgba(239,68,68,.08); white-space:nowrap;">🗑 Delete</button>
+                  </div>
+                  <div class="tiny" id="deleteTeammateStatus" style="margin-top:8px; color:#fca5a5;"></div>
+                </div>
               </div>
 
               <div class="modalForm" id="createForm">
@@ -7311,21 +7356,24 @@ label         { font-size: 14px !important; }
 </div>
 
 <div class="modalForm" id="sessionObjectiveForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Set the current session objective so the whole system can align around one goal.</div>
+  <div class="modalInner">
+  <div class="tiny" style="margin-bottom:10px;text-align:center;">Set the current session objective so the whole team can align around one goal.</div>
   <label>Objective</label>
   <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
   <label style="margin-top:10px;">Context</label>
-  <textarea id="sessionObjectiveContext" rows="5" placeholder="What matters most right now, constraints, and what success looks like."></textarea>
-  <div class="actions">
+  <textarea id="sessionObjectiveContext" rows="5" placeholder="What matters most right now and what success looks like."></textarea>
+  <div class="actions" style="justify-content:center;">
     <button class="btn" id="sessionObjectiveCloseBtn">Close</button>
     <button class="btn btnPrimary" id="sessionObjectiveSaveBtn">Save objective</button>
     <button class="btn btnPrimary" id="sessionObjectiveSaveExitBtn">Save &amp; Exit</button>
   </div>
-  <div class="tiny" id="sessionObjectiveStatus" style="margin-top:10px;"></div>
+  <div class="tiny" id="sessionObjectiveStatus" style="margin-top:10px;text-align:center;"></div>
+  </div>
 </div>
 
 <div class="modalForm" id="operatorProfileModalForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Shared operator context that all teammates can reference.</div>
+  <div class="modalInner">
+  <div class="tiny" style="margin-bottom:10px;text-align:center;">Shared operator context that all teammates can reference.</div>
   <div class="grid">
     <div>
       <label>Display name</label>
@@ -7344,12 +7392,13 @@ label         { font-size: 14px !important; }
   <textarea id="opm_goals" rows="3" placeholder="Current goals"></textarea>
   <label style="margin-top:10px;">Notes</label>
   <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
-  <div class="actions">
+  <div class="actions" style="justify-content:center;">
     <button class="btn" id="operatorProfileCloseBtn">Close</button>
     <button class="btn btnPrimary" id="operatorProfileSaveBtn">Save</button>
     <button class="btn btnPrimary" id="operatorProfileSaveExitBtn">Save &amp; Exit</button>
   </div>
-  <div class="tiny" id="operatorProfileStatus" style="margin-top:10px;"></div>
+  <div class="tiny" id="operatorProfileStatus" style="margin-top:10px;text-align:center;"></div>
+  </div>
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
@@ -7646,70 +7695,68 @@ label         { font-size: 14px !important; }
 
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Generate organized public lead lists from the web. Paste optional seed rows as: Name | Company | Domain | Title. If you leave seed rows blank, Lead Lab will discover prospects from scratch.</div>
-    <div class="grid">
-      <div>
-        <label>Target niche</label>
-        <input id="leadLabNiche" placeholder="real estate agents" />
+    <div style="max-width:720px;margin:0 auto;">
+      <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
+      <div class="grid">
+        <div>
+          <label>Target niche</label>
+          <input id="leadLabNiche" placeholder="real estate agents" />
+        </div>
+        <div>
+          <label>Location</label>
+          <input id="leadLabLocation" placeholder="New Jersey" />
+        </div>
+        <div>
+          <label>Lead count</label>
+          <select id="leadLabCount">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div>
+          <label>Search mode</label>
+          <select id="leadLabMode">
+            <option value="balanced" selected>Balanced</option>
+            <option value="broad">Broad</option>
+            <option value="precision">Precision</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label>Location</label>
-        <input id="leadLabLocation" placeholder="New Jersey" />
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Specific areas</label>
+          <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
+        </div>
+        <div>
+          <label>Contact filter</label>
+          <select id="leadLabRequireContact">
+            <option value="phone_or_email" selected>Phone or email preferred</option>
+            <option value="phone">Phone only</option>
+            <option value="email">Email only</option>
+            <option value="any">Any public lead</option>
+          </select>
+        </div>
+        <div>
+          <label>Minimum score</label>
+          <select id="leadLabMinScore">
+            <option value="30">30</option>
+            <option value="40" selected>40</option>
+            <option value="50">50</option>
+            <option value="60">60</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label>Lead count</label>
-        <select id="leadLabCount">
-          <option value="10">10</option>
-          <option value="25" selected>25</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
+      <label style="margin-top:10px;">Seed rows (optional)</label>
+      <textarea id="leadLabInput" style="height:140px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+      <div class="actions" style="justify-content:center;margin-top:12px;">
+        <button class="btn" id="leadLabSampleBtn">Sample</button>
+        <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
       </div>
-      <div>
-        <label>Search mode</label>
-        <select id="leadLabMode">
-          <option value="balanced" selected>Balanced</option>
-          <option value="broad">Broad</option>
-          <option value="precision">Precision</option>
-        </select>
-      </div>
+      <div class="tiny" id="leadLabStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
-    <div class="grid" style="margin-top:10px;">
-      <div>
-        <label>Specific areas</label>
-        <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
-      </div>
-      <div>
-        <label>Contact filter</label>
-        <select id="leadLabRequireContact">
-          <option value="phone_or_email" selected>Phone or email preferred</option>
-          <option value="phone">Phone only</option>
-          <option value="email">Email only</option>
-          <option value="any">Any public lead</option>
-        </select>
-      </div>
-      <div>
-        <label>Minimum score</label>
-        <select id="leadLabMinScore">
-          <option value="30">30</option>
-          <option value="40" selected>40</option>
-          <option value="50">50</option>
-          <option value="60">60</option>
-        </select>
-      </div>
-      <div>
-        <label>Seed rows (optional)</label>
-        <div class="tiny" style="margin-top:8px; opacity:.8;">Lead Lab can search from scratch even if this is blank.</div>
-      </div>
-    </div>
-    <label style="margin-top:10px;">Lead source text (optional)</label>
-    <textarea id="leadLabInput" style="height:180px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="leadLabSampleBtn">Sample</button>
-      <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
-    </div>
-    <div class="tiny" id="leadLabStatus" style="margin-top:8px;"></div>
-    <div id="leadLabResults" style="margin-top:12px;"></div>
+    <div id="leadLabResults" style="margin-top:16px;"></div>
   </div>
 
   <!-- Social Studio -->
@@ -9017,8 +9064,12 @@ window.showModal = function showModal(title, body, imgUrl){
                      || (window.operatorProfileCache && window.operatorProfileCache.display_name)
                      || "";
 
-      // Clean body: strip any stray "To: ..." or "From: ..." lines that leaked into the body
-      let cleanBody = (draft.body || "").replace(/^(To|From|CC|BCC)\s*:.*(\r?\n|$)/gim, "").trimStart();
+      // Clean body: strip any stray "To: ..." or "From: ..." lines, and ```email fences
+      let cleanBody = (draft.body || "")
+        .replace(/^```email\s*/i, "")   // opening fence if it leaked in
+        .replace(/```\s*$/g, "")         // closing fence
+        .replace(/^(To|From|CC|BCC)\s*:.*(\r?\n|$)/gim, "")
+        .trimStart();
 
       // Replace placeholder sign-off names with real operator name
       if(opName){
@@ -9067,7 +9118,7 @@ window.showModal = function showModal(title, body, imgUrl){
     }
 
     function buildLeadOutreachContext(item, channel){
-      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+      const email = item.email || "";
       const phone = item.phone || '';
       const site = item.website || item.domain || '';
       const sourceQuery = item.source_query || '';
@@ -9126,7 +9177,7 @@ window.showModal = function showModal(title, body, imgUrl){
         return;
       }
       if(st) st.innerText = 'Writing draft...';
-      const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+      const email = item.email || "";
       const phone = item.phone || '';
       if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
       if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
@@ -12385,34 +12436,35 @@ async function crmFetchTasks(){
         return;
       }
       box.innerHTML = items.map((item, idx)=>{
-        const topEmail = item.email || (((item.email_candidates||[])[0]||{}).email) || '';
+        // Only show confirmed real email addresses — skip AI-guessed email_candidates
+        const topEmail = item.email || '';
         const topPhone = item.phone || '';
         const site = item.website || item.domain || '';
         const sourceQuery = item.source_query || '';
-        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
+        return `<div class="diagCard" style="padding:14px; margin-bottom:12px; font-size:14px;">
           <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:flex-start;">
-            <div>
-              <div style="font-weight:800;">${escapeHtml(item.name || item.company || '(no name)')}</div>
-              <div class="tiny" style="opacity:.85; margin-top:2px;">${escapeHtml(item.company || '')} ${item.title ? '• ' + escapeHtml(item.title) : ''}</div>
-              <div class="tiny" style="opacity:.85; margin-top:4px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener">${escapeHtml(site)}</a>` : ''}</div>
-              <div class="tiny" style="opacity:.9; margin-top:4px;">${topPhone ? 'Phone: ' + escapeHtml(topPhone) : 'Phone: —'}</div>
-              <div class="tiny" style="opacity:.9; margin-top:2px;">${topEmail ? 'Email: ' + escapeHtml(topEmail) : 'Email: —'}</div>
-              ${sourceQuery ? `<div class="tiny" style="opacity:.65; margin-top:4px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
+            <div style="flex:1; min-width:0;">
+              <div style="font-weight:800; font-size:16px; margin-bottom:4px;">${escapeHtml(item.name || item.company || '(no name)')}</div>
+              <div style="font-size:14px; opacity:.9; margin-top:2px;">${escapeHtml(item.company || '')}${item.title ? ' &bull; ' + escapeHtml(item.title) : ''}</div>
+              <div style="margin-top:6px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#c4b5fd; font-size:13px; font-weight:600; text-decoration:none; word-break:break-all;">${escapeHtml(site)}</a>` : ''}</div>
+              <div style="font-size:14px; margin-top:6px; color:#e2e8f0;">${topPhone ? '📞 ' + escapeHtml(topPhone) : '<span style="opacity:.45;">No phone found</span>'}</div>
+              <div style="font-size:14px; margin-top:4px; color:#e2e8f0;">${topEmail ? '✉ ' + escapeHtml(topEmail) : '<span style="opacity:.45;">No confirmed email</span>'}</div>
+              ${sourceQuery ? `<div style="font-size:12px; opacity:.55; margin-top:6px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
           </div>
-          <div class="actions" style="justify-content:flex-end; margin-top:10px; flex-wrap:wrap;">
-            <button class="btn btnMini" data-lead-copy-email="${idx}">Copy email</button>
-            <button class="btn btnMini" data-lead-copy-phone="${idx}">Copy phone</button>
-            <button class="btn btnMini" data-lead-email="${idx}">Email lead</button>
-            <button class="btn btnMini" data-lead-sms="${idx}">Text lead</button>
-            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">Add to CRM</button>
+          <div class="actions" style="justify-content:flex-end; margin-top:12px; flex-wrap:wrap; gap:6px;">
+            ${topEmail ? `<button class="btn btnMini" data-lead-copy-email="${idx}">📋 Copy email</button>` : ''}
+            ${topPhone ? `<button class="btn btnMini" data-lead-copy-phone="${idx}">📋 Copy phone</button>` : ''}
+            ${topEmail ? `<button class="btn btnMini" data-lead-email="${idx}">✉ Email</button>` : ''}
+            ${topPhone ? `<button class="btn btnMini" data-lead-sms="${idx}">💬 Text</button>` : ''}
+            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">+ Add to CRM</button>
           </div>
         </div>`;
       }).join('');
       box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
-          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+          const email = item.email || "";
           if(!email) return showToast('No email found');
           try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
         };
@@ -12428,7 +12480,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-email]').forEach(btn=>{
         btn.onclick = ()=>{
           const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
-          const email = item.email || (((item.email_candidates||[])[0]||{}).email) || "";
+          const email = item.email || "";
           if(!email) return showToast('No email found');
           openLeadHandoff('email', item);
         };
@@ -12444,7 +12496,7 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-lead-add]').forEach(btn=>{
         btn.onclick = async ()=>{
           const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
-          const top = ((item.email_candidates||[])[0]||{}).email || item.email || '';
+          const top = item.email || '';
           try{
             const res = await fetch('/api/crm/clients', {
               method:'POST',
@@ -14549,6 +14601,39 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // saveManage already calls hideModal(); Save & Exit = same
     if($("saveManageExit")) $("saveManageExit").onclick = async () => { await $("saveManage").onclick(); };
 
+    // Delete teammate button — requires typing the exact name
+    if($("deleteTeammateBtn")) $("deleteTeammateBtn").onclick = async () => {
+      const nameInput = $("deleteTeammateName");
+      const statusEl  = $("deleteTeammateStatus");
+      const name = (nameInput ? nameInput.value : "").trim();
+      if(!name){ if(statusEl) statusEl.innerText = "Type the teammate's name first."; return; }
+      // Check it's actually installed
+      const installed = (state && state.installed) ? state.installed : {};
+      if(!installed[name]){ if(statusEl) statusEl.innerText = `"${name}" is not installed.`; return; }
+      // Block built-ins
+      const builtins = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
+      if(builtins.includes(name)){
+        if(statusEl) statusEl.innerText = `${name} is a built-in teammate — use Dismiss instead.`;
+        return;
+      }
+      if(!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+      if(statusEl) statusEl.innerText = "Deleting…";
+      try{
+        const res = await fetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
+        const d   = await res.json();
+        if(!d.ok){ if(statusEl) statusEl.innerText = d.error || "Delete failed"; return; }
+        if(nameInput) nameInput.value = "";
+        if(statusEl) statusEl.innerText = "";
+        showToast(`🗑 ${name} has been permanently deleted`);
+        await loadState();
+        renderTable();
+        // Re-open the manage panel so the list updates
+        showManageModal();
+      }catch(e){
+        if(statusEl) statusEl.innerText = "Delete failed — check connection";
+      }
+    };
+
     // saveCreate already calls hideModal(); Save & Exit = same
     if($("saveCreateExit")) $("saveCreateExit").onclick = async () => { await $("saveCreate").onclick(); };
 
@@ -16373,9 +16458,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
   border-radius:0 6px 6px 0; color:rgba(196,181,253,.9); line-height:1.5;
 }
 
-</style>
-
-}
 </style>
 
 <style>
