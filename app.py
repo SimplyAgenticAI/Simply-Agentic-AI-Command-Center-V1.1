@@ -5633,7 +5633,7 @@ HTML = r"""
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:14px;font-weight:700;color:#FFD700;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.02em;}
+    .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -6706,7 +6706,7 @@ body { font-size: 15px; }
 .saNavBtn     { font-size: 14px !important; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
 
-.saObjectivePill { font-size: 14px !important; font-weight: 700 !important; color: #FFD700 !important; letter-spacing: 0.02em !important; }
+.saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #ffffff !important; opacity: 0.92; letter-spacing: 0.01em !important; }
 .saModelTag   { font-size: 13px !important; }
 
 /* Labels and tiny text */
@@ -13351,94 +13351,110 @@ window.wcalDetSaveEvent = async function(encodedId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
-// ── Activation sound — futuristic AI command center powering up ─
+// ── Activation sound — round table powering up (deep, powerful, no whine) ─
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
     const t=ctx.currentTime;
 
-    // Master output with smooth fade-out
+    // Master bus
     const master=ctx.createGain();
     master.gain.setValueAtTime(0,t);
-    master.gain.linearRampToValueAtTime(0.78,t+0.06);
-    master.gain.setValueAtTime(0.78,t+2.8);
-    master.gain.linearRampToValueAtTime(0,t+3.6);
+    master.gain.linearRampToValueAtTime(0.82,t+0.07);
+    master.gain.setValueAtTime(0.82,t+2.5);
+    master.gain.linearRampToValueAtTime(0,t+3.2);
     master.connect(ctx.destination);
 
-    // 1. SUB BASS THUD — ignition punch (very short, deep boom at start)
-    const sub=ctx.createOscillator(); const subG=ctx.createGain();
-    sub.type='sine'; sub.frequency.setValueAtTime(55,t); sub.frequency.exponentialRampToValueAtTime(28,t+0.35);
-    subG.gain.setValueAtTime(0,t); subG.gain.linearRampToValueAtTime(1.0,t+0.04);
-    subG.gain.exponentialRampToValueAtTime(0.001,t+0.4);
-    sub.connect(subG); subG.connect(master); sub.start(t); sub.stop(t+0.45);
+    // 1. HEAVY BASS IMPACT — the table slams on (deep sine punch 80→30 Hz)
+    const boom=ctx.createOscillator(); const boomG=ctx.createGain();
+    boom.type='sine';
+    boom.frequency.setValueAtTime(80,t);
+    boom.frequency.exponentialRampToValueAtTime(30,t+0.5);
+    boomG.gain.setValueAtTime(0,t);
+    boomG.gain.linearRampToValueAtTime(1.0,t+0.02);
+    boomG.gain.exponentialRampToValueAtTime(0.001,t+0.55);
+    boom.connect(boomG); boomG.connect(master);
+    boom.start(t); boom.stop(t+0.6);
 
-    // 2. TURBINE SPIN-UP — sawtooth sweeping 60→900 Hz over 1.8s
-    const turb=ctx.createOscillator(); const turbG=ctx.createGain();
-    const turbF=ctx.createBiquadFilter();
-    turb.type='sawtooth';
-    turb.frequency.setValueAtTime(60,t+0.05);
-    turb.frequency.exponentialRampToValueAtTime(900,t+1.9);
-    turb.frequency.setValueAtTime(900,t+1.9);
-    turb.frequency.linearRampToValueAtTime(820,t+2.8);
-    turbF.type='bandpass'; turbF.frequency.value=600; turbF.Q.value=1.2;
-    turbG.gain.setValueAtTime(0,t+0.05);
-    turbG.gain.linearRampToValueAtTime(0.45,t+0.28);
-    turbG.gain.setValueAtTime(0.45,t+2.0);
-    turbG.gain.linearRampToValueAtTime(0.1,t+3.0);
-    turb.connect(turbF); turbF.connect(turbG); turbG.connect(master);
-    turb.start(t+0.05); turb.stop(t+3.2);
+    // 2. SECOND THUD — a slight echo hit at 0.18s for weight
+    const boom2=ctx.createOscillator(); const boom2G=ctx.createGain();
+    boom2.type='sine';
+    boom2.frequency.setValueAtTime(65,t+0.18);
+    boom2.frequency.exponentialRampToValueAtTime(25,t+0.6);
+    boom2G.gain.setValueAtTime(0,t+0.18);
+    boom2G.gain.linearRampToValueAtTime(0.65,t+0.20);
+    boom2G.gain.exponentialRampToValueAtTime(0.001,t+0.65);
+    boom2.connect(boom2G); boom2G.connect(master);
+    boom2.start(t+0.18); boom2.stop(t+0.7);
 
-    // 3. ENERGY WHINE — high sine rising 220→2200 Hz (reactor coming online)
-    const whine=ctx.createOscillator(); const whineG=ctx.createGain();
-    whine.type='sine';
-    whine.frequency.setValueAtTime(220,t+0.1);
-    whine.frequency.exponentialRampToValueAtTime(2200,t+1.7);
-    whine.frequency.setValueAtTime(2200,t+1.7);
-    whine.frequency.linearRampToValueAtTime(1900,t+3.0);
-    whineG.gain.setValueAtTime(0,t+0.1);
-    whineG.gain.linearRampToValueAtTime(0.22,t+0.5);
-    whineG.gain.setValueAtTime(0.22,t+2.0);
-    whineG.gain.exponentialRampToValueAtTime(0.001,t+3.1);
-    whine.connect(whineG); whineG.connect(master); whine.start(t+0.1); whine.stop(t+3.2);
+    // 3. LOW ENGINE RUMBLE — steady power hum rising 40→120 Hz (sawtooth through lowpass)
+    const eng=ctx.createOscillator(); const engG=ctx.createGain();
+    const engF=ctx.createBiquadFilter();
+    eng.type='sawtooth';
+    eng.frequency.setValueAtTime(40,t+0.1);
+    eng.frequency.linearRampToValueAtTime(120,t+1.6);
+    eng.frequency.setValueAtTime(120,t+1.6);
+    eng.frequency.linearRampToValueAtTime(105,t+2.8);
+    engF.type='lowpass'; engF.frequency.value=200; engF.Q.value=0.5;
+    engG.gain.setValueAtTime(0,t+0.1);
+    engG.gain.linearRampToValueAtTime(0.5,t+0.35);
+    engG.gain.setValueAtTime(0.5,t+2.0);
+    engG.gain.linearRampToValueAtTime(0.0,t+3.0);
+    eng.connect(engF); engF.connect(engG); engG.connect(master);
+    eng.start(t+0.1); eng.stop(t+3.1);
 
-    // 4. POWER LOCK — deep thud confirming system engaged at 1.75s
+    // 4. MID POWER TONE — a wide square wave 180→320 Hz (thick, not whiny)
+    const mid=ctx.createOscillator(); const midG=ctx.createGain();
+    const midF=ctx.createBiquadFilter();
+    mid.type='square';
+    mid.frequency.setValueAtTime(180,t+0.3);
+    mid.frequency.linearRampToValueAtTime(320,t+1.8);
+    mid.frequency.setValueAtTime(320,t+1.8);
+    midF.type='lowpass'; midF.frequency.value=500; midF.Q.value=1.0;
+    midG.gain.setValueAtTime(0,t+0.3);
+    midG.gain.linearRampToValueAtTime(0.18,t+0.6);
+    midG.gain.setValueAtTime(0.18,t+1.8);
+    midG.gain.exponentialRampToValueAtTime(0.001,t+2.6);
+    mid.connect(midF); midF.connect(midG); midG.connect(master);
+    mid.start(t+0.3); mid.stop(t+2.7);
+
+    // 5. POWER LOCK THUD — system engaged punch at 1.6s
     const lock=ctx.createOscillator(); const lockG=ctx.createGain();
-    lock.type='sine'; lock.frequency.setValueAtTime(110,t+1.75); lock.frequency.exponentialRampToValueAtTime(45,t+2.1);
-    lockG.gain.setValueAtTime(0,t+1.75); lockG.gain.linearRampToValueAtTime(0.9,t+1.78);
-    lockG.gain.exponentialRampToValueAtTime(0.001,t+2.15);
-    lock.connect(lockG); lockG.connect(master); lock.start(t+1.75); lock.stop(t+2.2);
+    lock.type='sine';
+    lock.frequency.setValueAtTime(95,t+1.6);
+    lock.frequency.exponentialRampToValueAtTime(38,t+1.95);
+    lockG.gain.setValueAtTime(0,t+1.6);
+    lockG.gain.linearRampToValueAtTime(1.0,t+1.63);
+    lockG.gain.exponentialRampToValueAtTime(0.001,t+2.05);
+    lock.connect(lockG); lockG.connect(master);
+    lock.start(t+1.6); lock.stop(t+2.1);
 
-    // 5. SHIMMER LAYER — triangle wave sparkle rising 1800→3400 Hz
-    const shim=ctx.createOscillator(); const shimG=ctx.createGain();
-    shim.type='triangle';
-    shim.frequency.setValueAtTime(1800,t+1.0);
-    shim.frequency.exponentialRampToValueAtTime(3400,t+2.5);
-    shimG.gain.setValueAtTime(0,t+1.0); shimG.gain.linearRampToValueAtTime(0.12,t+1.25);
-    shimG.gain.setValueAtTime(0.12,t+2.2); shimG.gain.exponentialRampToValueAtTime(0.001,t+3.0);
-    shim.connect(shimG); shimG.connect(master); shim.start(t+1.0); shim.stop(t+3.1);
+    // 6. NOISE SWEEP — broadband filtered noise, ground-level rumble texture
+    const bufSize=ctx.sampleRate*1.0;
+    const buf=ctx.createBuffer(1,bufSize,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) d[i]=(Math.random()*2-1);
+    const nSrc=ctx.createBufferSource(); nSrc.buffer=buf;
+    const nF=ctx.createBiquadFilter(); nF.type='lowpass'; nF.frequency.value=180; nF.Q.value=0.6;
+    const nG=ctx.createGain();
+    nG.gain.setValueAtTime(0,t);
+    nG.gain.linearRampToValueAtTime(0.22,t+0.15);
+    nG.gain.setValueAtTime(0.22,t+0.7);
+    nG.gain.exponentialRampToValueAtTime(0.001,t+1.2);
+    nSrc.connect(nF); nF.connect(nG); nG.connect(master);
+    nSrc.start(t); nSrc.stop(t+1.25);
 
-    // 6. CONFIRMATION CHORD — three ascending tones: system online ✓
-    [[1200,2.1,0.18],[1800,2.22,0.16],[2700,2.36,0.13]].forEach(([freq,when,vol])=>{
+    // 7. TWO DEEP CONFIRMATION TONES — low, resonant (NOT high pings)
+    [[320,2.0,0.28],[480,2.18,0.22]].forEach(([freq,when,vol])=>{
       const p=ctx.createOscillator(); const pg=ctx.createGain();
+      const pf=ctx.createBiquadFilter(); pf.type='lowpass'; pf.frequency.value=600;
       p.type='sine'; p.frequency.value=freq;
       pg.gain.setValueAtTime(0,t+when);
-      pg.gain.linearRampToValueAtTime(vol,t+when+0.025);
-      pg.gain.exponentialRampToValueAtTime(0.001,t+when+0.35);
-      p.connect(pg); pg.connect(master); p.start(t+when); p.stop(t+when+0.4);
+      pg.gain.linearRampToValueAtTime(vol,t+when+0.03);
+      pg.gain.exponentialRampToValueAtTime(0.001,t+when+0.55);
+      p.connect(pf); pf.connect(pg); pg.connect(master);
+      p.start(t+when); p.stop(t+when+0.6);
     });
-
-    // 7. NOISE BURST — filtered white noise for texture during spin-up
-    const bufSize=ctx.sampleRate*0.8;
-    const buf=ctx.createBuffer(1,bufSize,ctx.sampleRate);
-    const data=buf.getChannelData(0);
-    for(let i=0;i<bufSize;i++) data[i]=(Math.random()*2-1);
-    const noise=ctx.createBufferSource(); noise.buffer=buf;
-    const noiseF=ctx.createBiquadFilter(); noiseF.type='bandpass'; noiseF.frequency.value=280; noiseF.Q.value=0.8;
-    const noiseG=ctx.createGain();
-    noiseG.gain.setValueAtTime(0,t); noiseG.gain.linearRampToValueAtTime(0.18,t+0.12);
-    noiseG.gain.setValueAtTime(0.18,t+0.55); noiseG.gain.exponentialRampToValueAtTime(0.001,t+0.9);
-    noise.connect(noiseF); noiseF.connect(noiseG); noiseG.connect(master);
-    noise.start(t); noise.stop(t+0.95);
 
   }catch(e){}
 }
@@ -14386,51 +14402,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
     }
 
     async function runFirstRunGuidance(){
-      let me = null;
-      try{
-        const res = await fetch("/api/me");
-        me = await res.json();
-      }catch(e){ return; }
-      if(!me || !me.ok) return;
-
-      const username = (me.user && me.user.username) ? me.user.username : "anon";
-      const needsKey = !me.has_openai_key;
-      const needsEmail = !me.has_smtp;
-
-      if((needsKey || needsEmail) && !isOnboardDone("settings_prompted", username)){
-        // show a coach bubble on the Settings button — do NOT auto-open the modal
-        const b = placeCoach($("settingsBtn"),
-          "Start here: Settings",
-          "Add your OpenAI key + your email (SMTP) so the app runs on your accounts, not the owner's.",
-          "Open settings"
-        );
-        if(b){
-          $("coachSkip").onclick = () => { clearCoach(); markOnboardDone("settings_prompted", username); };
-          $("coachGo").onclick = () => { clearCoach(); showSettingsModal(true); markOnboardDone("settings_prompted", username); };
-        }
-        return;
-      }
-
-      if(!isOnboardDone("install_full_nudged", username)){
-        const installedCount = (state && state.installed_order && state.installed_order.length) ? state.installed_order.length : 0;
-        if(installedCount < 3){
-          const b = placeCoach($("installFullBtn"),
-            "Quick setup: Install full team",
-            "One click installs the full round table so you can start talking to each seat immediately.",
-            "Install"
-          );
-          if(b){
-            $("coachSkip").onclick = () => { clearCoach(); markOnboardDone("install_full_nudged", username); };
-            $("coachGo").onclick = () => {
-              clearCoach();
-              markOnboardDone("install_full_nudged", username);
-              if($("installFullBtn")) $("installFullBtn").click();
-            };
-          }
-        }else{
-          markOnboardDone("install_full_nudged", username);
-        }
-      }
+      // Coach bubbles removed — Next Step panel handles onboarding guidance
     }
 
     async function afterSettingsSaved(){
