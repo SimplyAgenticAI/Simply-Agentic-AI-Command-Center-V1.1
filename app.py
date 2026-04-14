@@ -7927,8 +7927,8 @@ label         { font-size: 14px !important; }
 .wcal-det-btn.primary:hover { background:rgba(124,58,237,.65); }
 .wcal-det-btn.danger { background:rgba(239,68,68,.15); border-color:rgba(239,68,68,.4); color:#fca5a5; }
 .wcal-det-btn.danger:hover { background:rgba(239,68,68,.3); }
-.wcal-meet-badge { display:inline-flex; align-items:center; gap:5px; background:rgba(59,130,246,.15); border:1px solid rgba(59,130,246,.35); border-radius:6px; padding:3px 8px; font-size:11px; color:#93c5fd; font-weight:600; cursor:pointer; text-decoration:none; }
-.wcal-meet-badge:hover { background:rgba(59,130,246,.3); }
+.wcal-meet-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(59,130,246,.22); border:1px solid rgba(59,130,246,.45); border-radius:5px; padding:2px 6px; font-size:10px; color:#93c5fd; font-weight:700; cursor:pointer; text-decoration:none; white-space:nowrap; }
+.wcal-meet-badge:hover { background:rgba(59,130,246,.4); color:#dbeafe; }
 /* Video conference buttons in sidebar + detail panel */
 .wcal-conf-row { display:flex; gap:6px; margin-bottom:5px; }
 .wcal-conf-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:5px; padding:6px 4px; border-radius:7px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); color:rgba(196,181,253,.8); font-size:11px; font-weight:600; cursor:pointer; transition:background .15s,border-color .15s; }
@@ -10368,7 +10368,7 @@ function makeSeat(defn, idx){
 
     async function startDictation(targetId, statusId){
       if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+        showToast("🎤 " + micHelpText());
         return;
       }
 
@@ -10389,7 +10389,7 @@ function makeSeat(defn, idx){
       const okPerm = await ensureMicPermission();
       if(!okPerm){
         status.innerText = "Mic: blocked";
-        showModal("Microphone blocked", micHelpText());
+        showToast("🎤 Microphone blocked — " + micHelpText());
         return;
       }
 
@@ -10647,7 +10647,7 @@ function makeSeat(defn, idx){
     // CHANGE: Always listening in continuous mode + name switching that activates seat glow
     async function startAlwaysListening(mode){
       if(!speechSupported()){
-        showModal("Mic not supported", micHelpText());
+        showToast("🎤 " + micHelpText());
         return;
       }
 
@@ -10660,7 +10660,7 @@ function makeSeat(defn, idx){
       if(!okPerm){
         alwaysOn = false;
         updateAlwaysButtons();
-        showModal("Microphone blocked", micHelpText());
+        showToast("🎤 Microphone blocked — " + micHelpText());
         return;
       }
 
@@ -10798,7 +10798,7 @@ function makeSeat(defn, idx){
         rec.start();
       }catch(e){
         stopAlwaysListening();
-        showModal("Mic error", "Could not start always listening. Check permissions and try again.");
+        showToast("🎤 Could not start mic — check site permissions and try again");
       }
     }
 
@@ -12920,7 +12920,9 @@ function wcalEventHtml(ev, extraStyle=''){
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const title=(ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const meetLink=ev.hangoutLink||'';
-  const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">&#128248;</a>`:'';
+  const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
+  const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
+  const joinBadge=meetBadge||zoomBadge;
   const isRecur=!!(ev.recurringEventId||ev._recurring);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring event">↻</span>':'';
   const evKey=ev.id||ev.summary||'';
@@ -12936,7 +12938,7 @@ function wcalEventHtml(ev, extraStyle=''){
   let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}border-left:3px solid rgba(167,139,250,.95);border-radius:4px 6px 6px 4px;" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${meetBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
   if(height>32) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -13235,7 +13237,10 @@ function wcalShowEventDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Meeting link</div>
-      <input class="wcal-detail-field" id="detLocation" value="${meetLink ? meetLink.replace(/"/g,'&quot;') : (ev.location&&!ev.location.includes('usemotion')&&!ev.location.match(/^\d/))?ev.location.replace(/"/g,'&quot;'):''}" placeholder="Google Meet or Zoom URL" />
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input class="wcal-detail-field" id="detLocation" value="${meetLink ? meetLink.replace(/"/g,'&quot;') : (ev.location&&!ev.location.includes('usemotion')&&!ev.location.match(/^\d/))?ev.location.replace(/"/g,'&quot;'):''}" placeholder="Google Meet or Zoom URL" style="flex:1;" />
+        ${(meetLink||(ev.location&&ev.location.includes('meet.google')||ev.location&&ev.location.includes('zoom.us')))?`<button onclick="(function(){const v=document.getElementById('detLocation')?.value||'';if(v){navigator.clipboard?.writeText(v).then(()=>showToast('📋 Link copied!')).catch(()=>showToast('Copy: '+v));}})()" style="flex-shrink:0;padding:5px 9px;border-radius:7px;border:1px solid rgba(80,110,180,.45);background:rgba(20,30,60,.7);color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap;" title="Copy meeting link">📋 Copy</button>`:''}
+      </div>
     </div>
     <div>
       <div class="wcal-detail-label">Invite attendees</div>
@@ -13390,6 +13395,7 @@ window.wcalDetDeleteTask = async function(taskId){
 // ── Right-click context menu ───────────────────────────────────
 (function(){
   let _ctxEl = null; // the calendar element that was right-clicked
+  let _ctxPendingAction = false; // prevents closeCtx from clearing _ctxEl mid-click
 
   window.wcalCtxShow = function(e, el){
     e.preventDefault();
@@ -13397,7 +13403,6 @@ window.wcalDetDeleteTask = async function(taskId){
     _ctxEl = el;
     const menu = document.getElementById('wcalCtxMenu');
     if(!menu) return;
-    // Position near the cursor, clamped to viewport
     const vw = window.innerWidth, vh = window.innerHeight;
     let x = e.clientX + 4, y = e.clientY + 4;
     menu.style.display = 'block';
@@ -13408,39 +13413,62 @@ window.wcalDetDeleteTask = async function(taskId){
     menu.style.top  = y + 'px';
   };
 
-  function closeCtx(){ const m=document.getElementById('wcalCtxMenu'); if(m) m.style.display='none'; _ctxEl=null; }
+  function closeCtx(){
+    if(_ctxPendingAction) return; // don't clear while an action is being processed
+    const m=document.getElementById('wcalCtxMenu');
+    if(m) m.style.display='none';
+    _ctxEl=null;
+  }
 
-  document.addEventListener('click', closeCtx, true);
-  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeCtx(); }, true);
+  // Use bubbling (not capture) so button onclick fires before closeCtx
+  document.addEventListener('click', (e)=>{
+    const menu = document.getElementById('wcalCtxMenu');
+    if(menu && !menu.contains(e.target)) closeCtx();
+  });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeCtx(); });
 
-  document.addEventListener('DOMContentLoaded', ()=>{
+  // Wire buttons immediately — no DOMContentLoaded needed (IIFE runs after DOM is ready)
+  function wireCtxMenu(){
     const openBtn   = document.getElementById('ctxOpen');
     const removeBtn = document.getElementById('ctxRemove');
+    if(!openBtn || !removeBtn){ setTimeout(wireCtxMenu, 100); return; }
 
-    if(openBtn) openBtn.onclick = ()=>{
-      if(_ctxEl){ wcalOpenDetail(_ctxEl); } closeCtx();
+    openBtn.onclick = (e)=>{
+      e.stopPropagation();
+      const el = _ctxEl;
+      closeCtx();
+      if(el) wcalOpenDetail(el);
     };
 
-    if(removeBtn) removeBtn.onclick = async ()=>{
-      const el = _ctxEl; closeCtx();
-      if(!el) return;
+    removeBtn.onclick = async (e)=>{
+      e.stopPropagation();
+      _ctxPendingAction = true;
+      const el = _ctxEl;
+      const menu = document.getElementById('wcalCtxMenu');
+      if(menu) menu.style.display='none';
+
+      if(!el){ _ctxPendingAction=false; _ctxEl=null; return; }
       const etype = el.dataset.etype;
+
       if(etype === 'task'){
         const tid = decodeURIComponent(el.dataset.tid || '');
+        _ctxPendingAction=false; _ctxEl=null;
         if(!tid) return;
         if(!confirm('Remove this task?')) return;
         try{
-          await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
-          cal.tasks = cal.tasks.filter(t=>t.id!==tid);
-          const panel = document.getElementById('wcalDetail');
-          if(panel && panel._currentTask && panel._currentTask.id===tid) panel.classList.remove('open');
-          wcalRefresh(); wcalRenderUpcoming(); showToast('Task removed');
-        }catch(e){ showToast('Remove failed'); }
+          const res = await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
+          const d = await res.json();
+          if(d && d.ok !== false){
+            cal.tasks = cal.tasks.filter(t=>t.id!==tid);
+            const panel = document.getElementById('wcalDetail');
+            if(panel && panel._currentTask && panel._currentTask.id===tid) panel.classList.remove('open');
+            wcalRefresh(); wcalRenderUpcoming(); showToast('✓ Task removed');
+          } else { showToast('Remove failed: ' + (d&&d.error||'unknown')); }
+        }catch(err){ showToast('Remove failed'); }
       } else {
-        // Google Calendar event — open details panel with delete option, or try direct API delete
         const eid = decodeURIComponent(el.dataset.eid || '');
+        _ctxPendingAction=false; _ctxEl=null;
         if(!eid) return;
-        // Find event object
         let ev = null;
         Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
         if(!ev){ ev = {id: eid, summary: eid}; }
@@ -13455,14 +13483,19 @@ window.wcalDetDeleteTask = async function(taskId){
           if(d && d.ok){
             const panel = document.getElementById('wcalDetail');
             if(panel && panel._currentEvent && (panel._currentEvent.id||panel._currentEvent.summary)===eid) panel.classList.remove('open');
-            await wcalFetchCurrentRange(); wcalRefresh(); showToast('Event removed');
+            // Remove from local cache immediately
+            Object.keys(cal.events||{}).forEach(date=>{
+              cal.events[date]=(cal.events[date]||[]).filter(e=>(e.id||e.summary||'')!==eid);
+            });
+            wcalRefresh(); wcalRenderUpcoming(); showToast('✓ Event removed');
           } else {
-            showToast('Could not remove: ' + (d&&d.error?d.error:'Check Google Calendar'));
+            showToast('Could not remove: ' + (d&&d.error?d.error:'Check Google Calendar permissions'));
           }
         }catch(err){ showToast('Remove failed: '+String(err)); }
       }
     };
-  });
+  }
+  wireCtxMenu();
 })();
 const _evPriority = {};
 window.wcalDetEvPriorityChange = function(val){
@@ -14141,10 +14174,9 @@ async function wcalAddEvent(){
     const _mb=document.getElementById('wcalAddMeetBtn'); if(_mb) _mb.classList.remove('active-meet');
     const _zb=document.getElementById('wcalAddZoomBtn'); if(_zb) _zb.classList.remove('active-zoom');
     const _zi=document.getElementById('wcalAddZoomUrl'); if(_zi) _zi.classList.remove('show');
-    showToast(useMeet?'Event + Meet link created':zoomUrl?'Event + Zoom link created':'Event created');
-    cal.events[date]=cal.events[date]||[];
-    const newEv={summary:title,start:startDt.toISOString(),end:endDt.toISOString(),id:data.event?.id||'',hangoutLink:data.event?.hangoutLink||''};
-    cal.events[date].push(newEv);
+    showToast(useMeet?'✅ Event + Meet link created — invite sent to attendees':zoomUrl?'✅ Event + Zoom link created':'✅ Event created');
+    // Full fetch so the meet link shows up on the calendar block right away
+    await wcalFetchCurrentRange();
     wcalRefresh();
     setTimeout(()=>{ if(st) st.innerText=''; },2500);
   }catch(e){ if(st) st.innerText=(e.message||'Failed')+' (connect Calendar in Settings)'; }
