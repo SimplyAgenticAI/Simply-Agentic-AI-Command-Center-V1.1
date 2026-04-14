@@ -5633,7 +5633,7 @@ HTML = r"""
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:14px;font-weight:600;color:#e8c84a;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 14px rgba(212,175,55,0.45);letter-spacing:0.01em;}
+    .saObjectivePill{font-size:14px;font-weight:700;color:#FFD700;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.02em;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -6706,7 +6706,7 @@ body { font-size: 15px; }
 .saNavBtn     { font-size: 14px !important; }
 .saDropItem   { font-size: 14px !important; padding: 10px 14px !important; }
 
-.saObjectivePill { font-size: 14px !important; font-weight: 600 !important; color: #e8c84a !important; letter-spacing: 0.01em !important; text-shadow: 0 0 14px rgba(212,175,55,0.45) !important; }
+.saObjectivePill { font-size: 14px !important; font-weight: 700 !important; color: #FFD700 !important; letter-spacing: 0.02em !important; }
 .saModelTag   { font-size: 13px !important; }
 
 /* Labels and tiny text */
@@ -7052,7 +7052,7 @@ label         { font-size: 14px !important; }
                 </div>
 
                 <label>Core framework (pillars and rules)</label>
-                <textarea id="frameworkText" style="height:260px" placeholder="Paste the full core framework here"></textarea>
+                <textarea id="frameworkText" style="height:520px;min-height:320px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
 
                 <div class="actions">
                   <button class="btn" id="cancelFramework">Cancel</button>
@@ -7622,85 +7622,91 @@ label         { font-size: 14px !important; }
 
   <!-- Social Studio -->
   <div id="crmViewSocialStudio" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
-    <div class="grid">
-      <div>
-        <label>Platform</label>
-        <select id="socialStudioPlatform">
-          <option value="Facebook">Facebook</option>
-          <option value="LinkedIn">LinkedIn</option>
-          <option value="Instagram">Instagram</option>
-          <option value="X">X</option>
-        </select>
+    <div style="max-width:680px;margin:0 auto;">
+      <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
+      <div class="grid">
+        <div>
+          <label>Platform</label>
+          <select id="socialStudioPlatform">
+            <option value="Facebook">Facebook</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Instagram">Instagram</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+        <div>
+          <label>Asset set</label>
+          <select id="socialStudioAsset">
+            <option value="content_pack">Content pack</option>
+            <option value="dm_pack">DM pack</option>
+            <option value="comment_pack">Comment pack</option>
+            <option value="launch_pack">Launch pack</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label>Asset set</label>
-        <select id="socialStudioAsset">
-          <option value="content_pack">Content pack</option>
-          <option value="dm_pack">DM pack</option>
-          <option value="comment_pack">Comment pack</option>
-          <option value="launch_pack">Launch pack</option>
-        </select>
+      <label style="margin-top:10px;">Audience</label>
+      <input id="socialStudioAudience" placeholder="solo real estate agents" />
+      <label style="margin-top:10px;">Offer / angle</label>
+      <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
+      <div class="actions" style="justify-content:center;margin-top:12px;">
+        <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
       </div>
+      <div class="tiny" id="socialStudioStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
-    <label style="margin-top:10px;">Audience</label>
-    <input id="socialStudioAudience" placeholder="solo real estate agents" />
-    <label style="margin-top:10px;">Offer / angle</label>
-    <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
-    </div>
-    <div class="tiny" id="socialStudioStatus" style="margin-top:8px;"></div>
-    <div id="socialStudioResults" style="margin-top:12px;"></div>
+    <div id="socialStudioResults" style="margin-top:16px;"></div>
   </div>
 
   <!-- Offer Builder -->
   <div id="crmViewOfferBuilder" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
-    <label>Who do you help?</label>
-    <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
-    <label style="margin-top:10px;">What result do you help them get?</label>
-    <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
-    <label style="margin-top:10px;">How do you deliver it?</label>
-    <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
+    <div style="max-width:680px;margin:0 auto;">
+      <div class="tiny" style="margin-bottom:12px;text-align:center;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
+      <label>Who do you help?</label>
+      <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
+      <label style="margin-top:10px;">What result do you help them get?</label>
+      <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
+      <label style="margin-top:10px;">How do you deliver it?</label>
+      <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
+      <div class="actions" style="justify-content:center;margin-top:12px;">
+        <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
+      </div>
+      <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
-    <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;"></div>
-    <div id="offerBuilderResults" style="margin-top:12px;"></div>
+    <div id="offerBuilderResults" style="margin-top:16px;"></div>
   </div>
 
   <!-- Playbooks -->
   <div id="crmViewPlaybooks" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
-    <div class="grid">
-      <div>
-        <label>Goal</label>
-        <select id="playbookGoal">
-          <option value="get_clients">Get clients</option>
-          <option value="grow_audience">Grow audience</option>
-          <option value="launch_offer">Launch an offer</option>
-          <option value="reactivate_leads">Reactivate old leads</option>
-          <option value="book_calls">Book more calls</option>
-        </select>
+    <div style="max-width:680px;margin:0 auto;">
+      <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
+      <div class="grid">
+        <div>
+          <label>Goal</label>
+          <select id="playbookGoal">
+            <option value="get_clients">Get clients</option>
+            <option value="grow_audience">Grow audience</option>
+            <option value="launch_offer">Launch an offer</option>
+            <option value="reactivate_leads">Reactivate old leads</option>
+            <option value="book_calls">Book more calls</option>
+          </select>
+        </div>
+        <div>
+          <label>Timeline</label>
+          <select id="playbookTimeline">
+            <option value="7 days">7 days</option>
+            <option value="14 days">14 days</option>
+            <option value="30 days">30 days</option>
+            <option value="90 days">90 days</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label>Timeline</label>
-        <select id="playbookTimeline">
-          <option value="7 days">7 days</option>
-          <option value="14 days">14 days</option>
-          <option value="30 days">30 days</option>
-          <option value="90 days">90 days</option>
-        </select>
+      <label style="margin-top:10px;">Business context</label>
+      <textarea id="playbookContext" rows="4" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+      <div class="actions" style="justify-content:center;margin-top:12px;">
+        <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
       </div>
+      <div class="tiny" id="playbookStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
-    <label style="margin-top:10px;">Business context</label>
-    <textarea id="playbookContext" rows="4" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
-    </div>
-    <div class="tiny" id="playbookStatus" style="margin-top:8px;"></div>
-    <div id="playbookResults" style="margin-top:12px;"></div>
+    <div id="playbookResults" style="margin-top:16px;"></div>
   </div>
 </div>
 
@@ -8644,6 +8650,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
+      try{ ensureModalMinSize(960, 780); }catch(e){}
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -9270,7 +9277,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("editStatus").innerText = "Saved";
       await loadState();
       hideModal();
-      showModal("Saved", "Teammate framework updated.");
+      showToast("✅ Teammate framework saved");
     };
 
 
@@ -10784,7 +10791,7 @@ function makeSeat(defn, idx){
       const reg = state?.registry || null;
       const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
-        showModal("No active teammates", "Add teammates to the round table first.");
+        showToast("⚠️ Add teammates to the round table first");
         return;
       }
 
@@ -10957,7 +10964,7 @@ async function pollImageJob(jobId, seatName){
 
     window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
-        showModal("No seat selected", "Click a teammate card first.");
+        showToast("⚠️ Click a teammate card first");
         return;
       }
       const msg = $("followMsg").value.trim();
@@ -11098,7 +11105,7 @@ async function pollImageJob(jobId, seatName){
 
 $("draftWithSelected").onclick = async () => {
       if(!selectedSeat){
-        showModal("No seat selected", "Select a teammate first.");
+        showToast("⚠️ Select a teammate first");
         return;
       }
 
@@ -11180,7 +11187,7 @@ $("draftWithSelected").onclick = async () => {
 
     if($("draftSmsWithSelected")) $("draftSmsWithSelected").onclick = async () => {
       if(!selectedSeat){
-        showModal("No seat selected", "Select a teammate first.");
+        showToast("⚠️ Select a teammate first");
         return;
       }
       const toPhone = $("smsTo").value.trim();
@@ -11342,7 +11349,7 @@ Body: ${body ? "[present]" : "[empty]"}
       $("manageStatus").innerText = "Saved";
       await loadState();
       hideModal();
-      showModal("Saved", "Active round table seats updated.");
+      showToast("✅ Round table updated");
     };
 
     // Create teammate
@@ -11378,7 +11385,7 @@ Body: ${body ? "[present]" : "[empty]"}
       $("createStatus").innerText = "Created";
       await loadState();
       hideModal();
-      showModal("Created", "New teammate created and added to the round table.");
+      showToast("✅ Teammate created and added to the round table");
     };
 
     // Core framework
@@ -12436,20 +12443,31 @@ async function crmFetchTasks(){
       const clients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
       box.innerHTML = stages.map(stage=>{
         const cards = clients.filter(c => (c.pipeline_stage||'Lead') === stage);
-        return `<div class="diagCard" data-stage="${escapeHtml(stage)}" style="padding:10px; min-height:180px;">
-          <div style="font-weight:800; margin-bottom:8px; display:flex; justify-content:space-between; gap:8px;">
+        return `<div class="diagCard" data-stage="${escapeHtml(stage)}" style="padding:10px;min-height:180px;">
+          <div style="font-weight:800;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;align-items:center;">
             <span>${escapeHtml(stage)}</span>
-            <span class="pill">${cards.length}</span>
+            <span class="pill" style="font-size:12px;">${cards.length}</span>
           </div>
-          <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px; display:flex; flex-direction:column; gap:8px;">
-            ${cards.map(c=>`<div class="pill" draggable="true" data-client-drag="${escapeHtml(c.id||'')}" style="display:block; cursor:grab;">
-                <div style="font-weight:700;">${escapeHtml(c.name||'')}</div>
-                <div class="tiny" style="opacity:.85;">${escapeHtml(c.company||'')}</div>
-              </div>`).join('')}
+          <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px;display:flex;flex-direction:column;gap:6px;">
+            ${cards.map(c=>{
+              const cid = escapeHtml(c.id||'');
+              const hasEmail = !!(c.email||'').trim();
+              const hasPhone = !!(c.phone||'').trim();
+              return `<div class="pill" draggable="true" data-client-drag="${cid}" style="display:block;cursor:grab;padding:8px 10px;border-radius:10px;position:relative;">
+                <div style="font-weight:700;font-size:13px;margin-bottom:2px;">${escapeHtml(c.name||'')}</div>
+                ${c.company?`<div class="tiny" style="opacity:.8;margin-bottom:4px;">${escapeHtml(c.company)}</div>`:''}
+                <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">
+                  <button onclick="crmPipelineOpenClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">View</button>
+                  ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
+                  ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
+                </div>
+              </div>`;
+            }).join('')}
           </div>
         </div>`;
       }).join('');
 
+      // Wire drag-and-drop
       box.querySelectorAll('[data-client-drag]').forEach(el=>{
         el.addEventListener('dragstart', ev=>{
           ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
@@ -12473,13 +12491,51 @@ async function crmFetchTasks(){
             if(!data.ok) throw new Error(data.error||'Move failed');
             await crmFetchClients();
             crmRenderPipelineBoard();
-            showToast('Pipeline updated');
-          }catch(e){
-            showToast('Move failed');
-          }
+            showToast('📌 Moved to ' + stage);
+          }catch(e){ showToast('Move failed'); }
         });
       });
     }
+
+    // Pipeline quick-actions
+    window.crmPipelineOpenClient = function(clientId){
+      const c = (crmCache.clients||[]).find(x=>x.id===clientId);
+      if(!c) return;
+      crmEditingClientId = clientId;
+      // Pre-fill editor fields and show clients view
+      crmShowView('crmViewClients');
+      setTimeout(()=>{
+        if($("crmName")) $("crmName").value = c.name||'';
+        if($("crmEmail")) $("crmEmail").value = c.email||'';
+        if($("crmPhone")) $("crmPhone").value = c.phone||'';
+        if($("crmStatusSel")) $("crmStatusSel").value = c.status||'lead';
+        if($("crmStage")) $("crmStage").value = c.pipeline_stage||'Lead';
+        if($("crmTags")) $("crmTags").value = (c.tags||[]).join(', ');
+        if($("crmNotes")) $("crmNotes").value = c.notes||'';
+        const ed=$("crmClientEditor"); if(ed) ed.style.display='block';
+        const ttl=$("crmEditTitle"); if(ttl) ttl.innerText='Editing: '+(c.name||'Client');
+      }, 60);
+    };
+
+    window.crmPipelineEmail = function(clientId){
+      const c = (crmCache.clients||[]).find(x=>x.id===clientId);
+      if(!c || !c.email) return;
+      if($("emailTo")) $("emailTo").value = c.email;
+      if($("emailSubject")) $("emailSubject").value = '';
+      if($("emailBody")) $("emailBody").value = '';
+      if(typeof showEmailConsoleModal === 'function') showEmailConsoleModal('Email Console');
+      else if(typeof showModal === 'function') showModal('Email Console','');
+      showToast('✉ Email console opened for ' + (c.name||c.email));
+    };
+
+    window.crmPipelineText = function(clientId){
+      const c = (crmCache.clients||[]).find(x=>x.id===clientId);
+      if(!c || !c.phone) return;
+      if($("smsTo")) $("smsTo").value = c.phone;
+      if($("smsBody")) $("smsBody").value = '';
+      if(typeof showSMSConsoleModal === 'function') showSMSConsoleModal('SMS Console');
+      showToast('💬 SMS console opened for ' + (c.name||c.phone));
+    };
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
@@ -13295,83 +13351,94 @@ window.wcalDetSaveEvent = async function(encodedId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
-// ── Activation sound — futuristic engine startup (Web Audio API) ─
+// ── Activation sound — futuristic AI command center powering up ─
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const t=ctx.currentTime;
+
+    // Master output with smooth fade-out
     const master=ctx.createGain();
-    master.gain.setValueAtTime(0.0,ctx.currentTime);
-    master.gain.linearRampToValueAtTime(0.72,ctx.currentTime+0.08);
-    master.gain.setValueAtTime(0.72,ctx.currentTime+2.6);
-    master.gain.linearRampToValueAtTime(0.0,ctx.currentTime+3.2);
+    master.gain.setValueAtTime(0,t);
+    master.gain.linearRampToValueAtTime(0.78,t+0.06);
+    master.gain.setValueAtTime(0.78,t+2.8);
+    master.gain.linearRampToValueAtTime(0,t+3.6);
     master.connect(ctx.destination);
 
-    // 1. Deep low rumble — engine core igniting (sawtooth sweeping 40→110 Hz)
-    const rumble=ctx.createOscillator();
-    const rumbleGain=ctx.createGain();
-    const rumbleFilter=ctx.createBiquadFilter();
-    rumble.type='sawtooth';
-    rumble.frequency.setValueAtTime(38,ctx.currentTime);
-    rumble.frequency.linearRampToValueAtTime(110,ctx.currentTime+1.1);
-    rumble.frequency.linearRampToValueAtTime(88,ctx.currentTime+2.2);
-    rumbleGain.gain.setValueAtTime(0,ctx.currentTime);
-    rumbleGain.gain.linearRampToValueAtTime(0.55,ctx.currentTime+0.18);
-    rumbleGain.gain.setValueAtTime(0.55,ctx.currentTime+1.8);
-    rumbleGain.gain.linearRampToValueAtTime(0.25,ctx.currentTime+2.8);
-    rumbleFilter.type='lowpass'; rumbleFilter.frequency.value=320;
-    rumble.connect(rumbleFilter); rumbleFilter.connect(rumbleGain); rumbleGain.connect(master);
-    rumble.start(ctx.currentTime); rumble.stop(ctx.currentTime+3.0);
+    // 1. SUB BASS THUD — ignition punch (very short, deep boom at start)
+    const sub=ctx.createOscillator(); const subG=ctx.createGain();
+    sub.type='sine'; sub.frequency.setValueAtTime(55,t); sub.frequency.exponentialRampToValueAtTime(28,t+0.35);
+    subG.gain.setValueAtTime(0,t); subG.gain.linearRampToValueAtTime(1.0,t+0.04);
+    subG.gain.exponentialRampToValueAtTime(0.001,t+0.4);
+    sub.connect(subG); subG.connect(master); sub.start(t); sub.stop(t+0.45);
 
-    // 2. Mid-range harmonic whine — turbine spooling up (sine 180→1400 Hz)
-    const whine=ctx.createOscillator();
-    const whineGain=ctx.createGain();
+    // 2. TURBINE SPIN-UP — sawtooth sweeping 60→900 Hz over 1.8s
+    const turb=ctx.createOscillator(); const turbG=ctx.createGain();
+    const turbF=ctx.createBiquadFilter();
+    turb.type='sawtooth';
+    turb.frequency.setValueAtTime(60,t+0.05);
+    turb.frequency.exponentialRampToValueAtTime(900,t+1.9);
+    turb.frequency.setValueAtTime(900,t+1.9);
+    turb.frequency.linearRampToValueAtTime(820,t+2.8);
+    turbF.type='bandpass'; turbF.frequency.value=600; turbF.Q.value=1.2;
+    turbG.gain.setValueAtTime(0,t+0.05);
+    turbG.gain.linearRampToValueAtTime(0.45,t+0.28);
+    turbG.gain.setValueAtTime(0.45,t+2.0);
+    turbG.gain.linearRampToValueAtTime(0.1,t+3.0);
+    turb.connect(turbF); turbF.connect(turbG); turbG.connect(master);
+    turb.start(t+0.05); turb.stop(t+3.2);
+
+    // 3. ENERGY WHINE — high sine rising 220→2200 Hz (reactor coming online)
+    const whine=ctx.createOscillator(); const whineG=ctx.createGain();
     whine.type='sine';
-    whine.frequency.setValueAtTime(180,ctx.currentTime+0.05);
-    whine.frequency.exponentialRampToValueAtTime(1400,ctx.currentTime+1.6);
-    whine.frequency.setValueAtTime(1400,ctx.currentTime+2.0);
-    whine.frequency.linearRampToValueAtTime(1200,ctx.currentTime+2.8);
-    whineGain.gain.setValueAtTime(0,ctx.currentTime+0.05);
-    whineGain.gain.linearRampToValueAtTime(0.28,ctx.currentTime+0.35);
-    whineGain.gain.setValueAtTime(0.28,ctx.currentTime+2.0);
-    whineGain.gain.linearRampToValueAtTime(0.0,ctx.currentTime+2.9);
-    whine.connect(whineGain); whineGain.connect(master);
-    whine.start(ctx.currentTime+0.05); whine.stop(ctx.currentTime+3.0);
+    whine.frequency.setValueAtTime(220,t+0.1);
+    whine.frequency.exponentialRampToValueAtTime(2200,t+1.7);
+    whine.frequency.setValueAtTime(2200,t+1.7);
+    whine.frequency.linearRampToValueAtTime(1900,t+3.0);
+    whineG.gain.setValueAtTime(0,t+0.1);
+    whineG.gain.linearRampToValueAtTime(0.22,t+0.5);
+    whineG.gain.setValueAtTime(0.22,t+2.0);
+    whineG.gain.exponentialRampToValueAtTime(0.001,t+3.1);
+    whine.connect(whineG); whineG.connect(master); whine.start(t+0.1); whine.stop(t+3.2);
 
-    // 3. High harmonic shimmer — energy field activating (triangle 2200 Hz pulse)
-    const shimmer=ctx.createOscillator();
-    const shimmerGain=ctx.createGain();
-    shimmer.type='triangle';
-    shimmer.frequency.setValueAtTime(2200,ctx.currentTime+0.9);
-    shimmer.frequency.linearRampToValueAtTime(2800,ctx.currentTime+1.7);
-    shimmerGain.gain.setValueAtTime(0,ctx.currentTime+0.9);
-    shimmerGain.gain.linearRampToValueAtTime(0.14,ctx.currentTime+1.1);
-    shimmerGain.gain.setValueAtTime(0.14,ctx.currentTime+1.9);
-    shimmerGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.7);
-    shimmer.connect(shimmerGain); shimmerGain.connect(master);
-    shimmer.start(ctx.currentTime+0.9); shimmer.stop(ctx.currentTime+2.8);
+    // 4. POWER LOCK — deep thud confirming system engaged at 1.75s
+    const lock=ctx.createOscillator(); const lockG=ctx.createGain();
+    lock.type='sine'; lock.frequency.setValueAtTime(110,t+1.75); lock.frequency.exponentialRampToValueAtTime(45,t+2.1);
+    lockG.gain.setValueAtTime(0,t+1.75); lockG.gain.linearRampToValueAtTime(0.9,t+1.78);
+    lockG.gain.exponentialRampToValueAtTime(0.001,t+2.15);
+    lock.connect(lockG); lockG.connect(master); lock.start(t+1.75); lock.stop(t+2.2);
 
-    // 4. Power-lock thud — system engaged confirmation (short low burst at 1.65s)
-    const thud=ctx.createOscillator();
-    const thudGain=ctx.createGain();
-    thud.type='sine';
-    thud.frequency.setValueAtTime(95,ctx.currentTime+1.65);
-    thud.frequency.exponentialRampToValueAtTime(42,ctx.currentTime+1.95);
-    thudGain.gain.setValueAtTime(0,ctx.currentTime+1.65);
-    thudGain.gain.linearRampToValueAtTime(0.8,ctx.currentTime+1.68);
-    thudGain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+2.05);
-    thud.connect(thudGain); thudGain.connect(master);
-    thud.start(ctx.currentTime+1.65); thud.stop(ctx.currentTime+2.1);
+    // 5. SHIMMER LAYER — triangle wave sparkle rising 1800→3400 Hz
+    const shim=ctx.createOscillator(); const shimG=ctx.createGain();
+    shim.type='triangle';
+    shim.frequency.setValueAtTime(1800,t+1.0);
+    shim.frequency.exponentialRampToValueAtTime(3400,t+2.5);
+    shimG.gain.setValueAtTime(0,t+1.0); shimG.gain.linearRampToValueAtTime(0.12,t+1.25);
+    shimG.gain.setValueAtTime(0.12,t+2.2); shimG.gain.exponentialRampToValueAtTime(0.001,t+3.0);
+    shim.connect(shimG); shimG.connect(master); shim.start(t+1.0); shim.stop(t+3.1);
 
-    // 5. Confirmation tone pair — system online (two clean sine pings at end)
-    [[1800,2.05],[2400,2.22]].forEach(([freq,when])=>{
+    // 6. CONFIRMATION CHORD — three ascending tones: system online ✓
+    [[1200,2.1,0.18],[1800,2.22,0.16],[2700,2.36,0.13]].forEach(([freq,when,vol])=>{
       const p=ctx.createOscillator(); const pg=ctx.createGain();
       p.type='sine'; p.frequency.value=freq;
-      pg.gain.setValueAtTime(0,ctx.currentTime+when);
-      pg.gain.linearRampToValueAtTime(0.22,ctx.currentTime+when+0.03);
-      pg.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+when+0.28);
-      p.connect(pg); pg.connect(master);
-      p.start(ctx.currentTime+when); p.stop(ctx.currentTime+when+0.32);
+      pg.gain.setValueAtTime(0,t+when);
+      pg.gain.linearRampToValueAtTime(vol,t+when+0.025);
+      pg.gain.exponentialRampToValueAtTime(0.001,t+when+0.35);
+      p.connect(pg); pg.connect(master); p.start(t+when); p.stop(t+when+0.4);
     });
+
+    // 7. NOISE BURST — filtered white noise for texture during spin-up
+    const bufSize=ctx.sampleRate*0.8;
+    const buf=ctx.createBuffer(1,bufSize,ctx.sampleRate);
+    const data=buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++) data[i]=(Math.random()*2-1);
+    const noise=ctx.createBufferSource(); noise.buffer=buf;
+    const noiseF=ctx.createBiquadFilter(); noiseF.type='bandpass'; noiseF.frequency.value=280; noiseF.Q.value=0.8;
+    const noiseG=ctx.createGain();
+    noiseG.gain.setValueAtTime(0,t); noiseG.gain.linearRampToValueAtTime(0.18,t+0.12);
+    noiseG.gain.setValueAtTime(0.18,t+0.55); noiseG.gain.exponentialRampToValueAtTime(0.001,t+0.9);
+    noise.connect(noiseF); noiseF.connect(noiseG); noiseG.connect(master);
+    noise.start(t); noise.stop(t+0.95);
 
   }catch(e){}
 }
@@ -14079,7 +14146,11 @@ async function showImageLibraryModal(){
     if(!body) return;
 
     if(imgs.length === 0){
-      body.innerText = "No images yet. Ask a teammate for a graphic to generate one.";
+      body.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;">
+        <div style="font-size:48px;opacity:0.4;">🖼️</div>
+        <div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div>
+        <div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style="color:#c4b5fd;">"Create a logo for my business"</em> and the image will appear here.</div>
+      </div>`;
       return;
     }
 
@@ -14397,7 +14468,7 @@ $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saved";
       await loadState();
       hideModal();
-      showModal("Saved", "Core framework updated. It will be applied to all teammate prompts immediately.");
+      showToast("✅ Core framework saved — applied to all teammates immediately");
     };
 
     $("resetFramework").onclick = async () => {
@@ -16656,7 +16727,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   /* ─── STREAMING SEND ──────────────────────────────────────────────────────── */
   async function sendFollowStream(){
     const seat = window.selectedSeat;
-    if(!seat){ if(typeof showModal==="function") showModal("No seat selected","Click a teammate card first."); return; }
+    if(!seat){ if(typeof showToast==="function") showToast("⚠️ Click a teammate card first"); return; }
     const msgEl = document.getElementById("followMsg");
     const msg = (msgEl ? msgEl.value : "").trim();
     if(!msg){ if(typeof showModal==="function") showModal("Missing message","Type a message."); return; }
