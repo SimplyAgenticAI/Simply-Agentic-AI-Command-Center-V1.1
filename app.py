@@ -4157,7 +4157,6 @@ def api_cal_task_complete_action(task_id: str):
     client_ref = client_name if client_name else client_email
 
     if voice == "operator":
-        sender_intro = f"I'm writing as {operator_name}"
         sign_off_name = operator_name
         prompt = (
             f"The task '{task_title}' has just been marked complete"
@@ -4168,22 +4167,33 @@ def api_cal_task_complete_action(task_id: str):
             + (f"at {business_name} " if business_name else "")
             + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
             + f"Write in first person as {operator_name}. Address the client as '{client_ref}'. "
-            + f"Sign off with: {operator_name}. "
+            + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
     else:
         teammate_display = defn.get("name", teammate_name)
-        sender_intro = f"I'm {teammate_display}"
-        sign_off_name = operator_name if operator_name != "the team" else teammate_display
+        # Teammate signs off with their own name, not the operator's
+        sign_off_name = teammate_display
+        # Variety in how the teammate mentions Simply Agentic AI
+        brand_phrases = [
+            f"from Simply Agentic AI",
+            f"here at Simply Agentic AI",
+            f"with Simply Agentic AI",
+            f"over at Simply Agentic AI",
+            f"at Simply Agentic AI",
+        ]
+        import hashlib as _hsh
+        _phrase = brand_phrases[int(_hsh.md5((task_title + teammate_display).encode()).hexdigest(), 16) % len(brand_phrases)]
         prompt = (
             f"The task '{task_title}' has just been marked complete"
             + (f" (scheduled {task_date})" if task_date else "")
             + ". "
             + (f"Task notes: {task_desc}. " if task_desc else "")
-            + f"Write a professional, warm, concise email from {teammate_display} "
-            + (f"over at {business_name} " if business_name else "")
+            + f"Write a professional, warm, concise email from {teammate_display} ({_phrase}) "
             + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
-            + f"Introduce yourself as {teammate_display} in the opening. Address the client as '{client_ref}'. "
-            + f"Sign off with: {sign_off_name}. "
+            + f"In the opening, introduce yourself naturally — for example: 'I'm {teammate_display} {_phrase}.' "
+            + f"Address the client as '{client_ref}'. "
+            + f"Mention Simply Agentic AI naturally in the opening (you can vary the phrasing — 'from', 'here at', 'with', 'over at', etc.). "
+            + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
 
     prompt += (
@@ -4197,6 +4207,7 @@ def api_cal_task_complete_action(task_id: str):
         "CRITICAL: Do NOT write the word 'email' anywhere in the body. "
         "Do NOT include 'To:', 'From:', or header labels inside the Body. "
         "Do NOT end with ``` or any backticks. "
+        "Do NOT change the sign-off — use the exact name provided, no placeholder text like '[Name]' or 'Your Name'. "
         "Start the Body directly with the greeting."
     )
 
