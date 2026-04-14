@@ -1988,6 +1988,32 @@ def _calendar_move_event(access_token: str, event_id: str, new_start_iso: str, n
     return data
 
 
+def _strip_motion_boilerplate(text: str) -> str:
+    """Strip Motion/third-party auto-generated boilerplate from event/task descriptions."""
+    if not text:
+        return ""
+    import html as _html
+    # Decode HTML entities and strip tags
+    txt = re.sub(r"<[^>]*>", " ", text)
+    txt = _html.unescape(txt).strip()
+    # Remove Motion patterns
+    patterns = [
+        r"This event was created by Motion.*",
+        r"This task was created by Motion.*",
+        r"Created (in|by|via) Motion.*",
+        r"Managed by Motion.*",
+        r"Scheduled by Motion.*",
+        r"To edit settings.*",
+        r"To disconnect Motion.*",
+        r"https?://app\.usemotion\.com\S*",
+        r"https?://www\.usemotion\.com\S*",
+    ]
+    for pat in patterns:
+        txt = re.sub(pat, "", txt, flags=re.IGNORECASE | re.DOTALL)
+    txt = re.sub(r"\n{3,}", "\n\n", txt).strip()
+    return txt
+
+
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
@@ -2018,7 +2044,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             "htmlLink": it.get("htmlLink",""),
             "hangoutLink": it.get("hangoutLink",""),
             "recurringEventId": it.get("recurringEventId",""),
-            "description": it.get("description",""),
+            "description": _strip_motion_boilerplate(it.get("description","") or ""),
             "location": it.get("location",""),
             "attendees": attendee_emails,
         })
@@ -7863,6 +7889,10 @@ label         { font-size: 14px !important; }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
+.wcal-detail-type.type-task { color:#a5b4fc; }
+.wcal-detail-type.type-event { color:#67e8f9; }
+.wcal-detail-header.type-task { border-bottom-color:rgba(109,40,217,.45); }
+.wcal-detail-header.type-event { border-bottom-color:rgba(14,165,233,.45); }
 .wcal-detail-close { background:transparent; border:none; color:rgba(148,163,184,.6); font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px; }
 .wcal-detail-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
 .wcal-detail-body { flex:1; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
@@ -13116,7 +13146,7 @@ function wcalShowTaskDetail(task){
     </div>
     <div>
       <div class="wcal-detail-label">Description / Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${task.description||''}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(task.description||'')}</textarea>
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
@@ -13190,11 +13220,11 @@ function wcalShowEventDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes…">${wcalCleanDescription(ev.description||'')}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes…"></textarea>
     </div>
     <div>
-      <div class="wcal-detail-label">Location / Meeting link</div>
-      <input class="wcal-detail-field" id="detLocation" value="${(ev.location||'').replace(/"/g,'&quot;')}" placeholder="Address, Zoom URL, or other link" />
+      <div class="wcal-detail-label">Meeting link</div>
+      <input class="wcal-detail-field" id="detLocation" value="${meetLink ? meetLink.replace(/"/g,'&quot;') : (ev.location&&!ev.location.includes('usemotion')&&!ev.location.match(/^\d/))?ev.location.replace(/"/g,'&quot;'):''}" placeholder="Google Meet or Zoom URL" />
     </div>
     <div>
       <div class="wcal-detail-label">Invite attendees</div>
@@ -13213,7 +13243,7 @@ function wcalShowEventDetail(ev){
     </div>
     <input type="hidden" id="detMeet" value="${meetLink?'meet':''}" />
     <div>
-      <div class="wcal-detail-label">Priority / color</div>
+      <div class="wcal-detail-label">Priority</div>
       <select class="wcal-detail-field" id="detEvPriority" onchange="wcalDetEvPriorityChange(this.value)">
         <option value="high" selected>🟣 High</option>
         <option value="medium">🟡 Medium</option>
@@ -13221,14 +13251,14 @@ function wcalShowEventDetail(ev){
       </select>
     </div>
     <div class="wcal-autocomplete-section" id="detEvAutoSection">
-      <div class="wcal-autocomplete-title">Email on Complete</div>
-      <div class="wcal-detail-label">Assign teammate to draft email</div>
+      <div class="wcal-autocomplete-title">📧 Email on Complete</div>
+      <div class="wcal-detail-label">Teammate to draft email</div>
       <select class="wcal-detail-field" id="detEvAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
       <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
       <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. David" value="${meta.on_complete_client_name||''}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email</div>
       <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${meta.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detEvAutoStatus"></div>
     </div>
@@ -13238,8 +13268,8 @@ function wcalShowEventDetail(ev){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
-  const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-task';
+  if(typeLbl){ typeLbl.innerText='📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
+  const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-event';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
   // Populate teammate dropdown
