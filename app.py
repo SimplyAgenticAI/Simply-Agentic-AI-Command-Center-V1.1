@@ -7987,9 +7987,9 @@ label         { font-size: 14px !important; }
           </select>
         </div>
         <select class="wcal-field" id="wcalTaskPriority">
-          <option value="medium" selected>Medium priority</option>
-          <option value="high">High priority</option>
-          <option value="low">Low priority</option>
+          <option value="medium" selected>🟡 Medium</option>
+          <option value="high">🟣 High</option>
+          <option value="low">🟢 Low</option>
         </select>
         <select class="wcal-field" id="wcalTaskRecurring">
           <option value="none" selected>Does not repeat</option>
@@ -8106,9 +8106,9 @@ label         { font-size: 14px !important; }
   <div id="wcalPopTaskExtras" style="display:none;">
     <div class="wcp-label">Priority</div>
     <select class="wcp-field" id="wcalPopPriority">
-      <option value="medium" selected>Medium</option>
-      <option value="high">High</option>
-      <option value="low">Low</option>
+      <option value="medium" selected>🟡 Medium</option>
+      <option value="high">🟣 High</option>
+      <option value="low">🟢 Low</option>
     </select>
   </div>
   <div class="wcp-row">
@@ -12641,8 +12641,8 @@ const EVENT_COLORS = [
   {bg:'rgba(59,130,246,.75)',  text:'#dbeafe'},
   {bg:'rgba(16,185,129,.75)',  text:'#d1fae5'},
   {bg:'rgba(245,158,11,.75)',  text:'#fef3c7'},
-  {bg:'rgba(239,68,68,.75)',   text:'#fee2e2'},
   {bg:'rgba(236,72,153,.75)',  text:'#fce7f3'},
+  {bg:'rgba(14,165,233,.75)',  text:'#e0f2fe'},
 ];
 const TASK_COLOR = {bg:'rgba(109,40,217,.80)', text:'#ede9fe'};
 const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
@@ -13041,9 +13041,9 @@ function wcalShowTaskDetail(task){
       <div style="flex:1;">
         <div class="wcal-detail-label">Priority</div>
         <select class="wcal-detail-field" id="detPriority">
-          <option value="high" ${task.priority==='high'?'selected':''}>High</option>
-          <option value="medium" ${(task.priority||'medium')==='medium'?'selected':''}>Medium</option>
-          <option value="low" ${task.priority==='low'?'selected':''}>Low</option>
+          <option value="high" ${task.priority==='high'?'selected':''}>🟣 High</option>
+          <option value="medium" ${(task.priority||'medium')==='medium'?'selected':''}>🟡 Medium</option>
+          <option value="low" ${task.priority==='low'?'selected':''}>🟢 Low</option>
         </select>
       </div>
     </div>
@@ -13148,7 +13148,7 @@ function wcalShowEventDetail(ev){
       <div class="wcal-detail-label">Priority / color</div>
       <select class="wcal-detail-field" id="detEvPriority" onchange="wcalDetEvPriorityChange(this.value)">
         <option value="auto" selected>Auto (calendar color)</option>
-        <option value="high">🔴 High</option>
+        <option value="high">🟣 High</option>
         <option value="medium">🟡 Medium</option>
         <option value="low">🟢 Low</option>
       </select>
