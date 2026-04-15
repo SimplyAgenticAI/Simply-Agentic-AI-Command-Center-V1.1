@@ -5943,7 +5943,7 @@ HTML = r"""
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
     /* Centered content wrapper — use class="modalInner" inside any modalForm for growth-playbook-style centering */
-    .modalForm .modalInner{ max-width:720px; margin:0 auto; }
+    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -7695,7 +7695,7 @@ label         { font-size: 14px !important; }
 
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div style="max-width:720px;margin:0 auto;">
+    <div style="max-width:860px;margin:0 auto;">
       <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
       <div class="grid">
         <div>
@@ -7761,7 +7761,7 @@ label         { font-size: 14px !important; }
 
   <!-- Social Studio -->
   <div id="crmViewSocialStudio" style="display:none;">
-    <div style="max-width:680px;margin:0 auto;">
+    <div style="max-width:860px;margin:0 auto;">
       <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
       <div class="grid">
         <div>
@@ -7783,39 +7783,39 @@ label         { font-size: 14px !important; }
           </select>
         </div>
       </div>
-      <label style="margin-top:10px;">Audience</label>
+      <label style="margin-top:14px;">Audience</label>
       <input id="socialStudioAudience" placeholder="solo real estate agents" />
-      <label style="margin-top:10px;">Offer / angle</label>
-      <textarea id="socialStudioOffer" rows="4" placeholder="What do you sell and why should people care?"></textarea>
-      <div class="actions" style="justify-content:center;margin-top:12px;">
+      <label style="margin-top:14px;">Offer / angle</label>
+      <textarea id="socialStudioOffer" rows="6" placeholder="What do you sell and why should people care?"></textarea>
+      <div class="actions" style="justify-content:center;margin-top:16px;">
         <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
       </div>
-      <div class="tiny" id="socialStudioStatus" style="margin-top:8px;text-align:center;"></div>
+      <div class="tiny" id="socialStudioStatus" style="margin-top:10px;text-align:center;"></div>
     </div>
-    <div id="socialStudioResults" style="margin-top:16px;"></div>
+    <div id="socialStudioResults" style="margin-top:20px;"></div>
   </div>
 
   <!-- Offer Builder -->
   <div id="crmViewOfferBuilder" style="display:none;">
-    <div style="max-width:680px;margin:0 auto;">
+    <div style="max-width:860px;margin:0 auto;">
       <div class="tiny" style="margin-bottom:12px;text-align:center;">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
       <label>Who do you help?</label>
       <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
-      <label style="margin-top:10px;">What result do you help them get?</label>
+      <label style="margin-top:14px;">What result do you help them get?</label>
       <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
-      <label style="margin-top:10px;">How do you deliver it?</label>
-      <textarea id="offerBuilderMethod" rows="4" placeholder="Describe your process, service, or product."></textarea>
-      <div class="actions" style="justify-content:center;margin-top:12px;">
+      <label style="margin-top:14px;">How do you deliver it?</label>
+      <textarea id="offerBuilderMethod" rows="6" placeholder="Describe your process, service, or product."></textarea>
+      <div class="actions" style="justify-content:center;margin-top:16px;">
         <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
       </div>
-      <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;text-align:center;"></div>
+      <div class="tiny" id="offerBuilderStatus" style="margin-top:10px;text-align:center;"></div>
     </div>
-    <div id="offerBuilderResults" style="margin-top:16px;"></div>
+    <div id="offerBuilderResults" style="margin-top:20px;"></div>
   </div>
 
   <!-- Playbooks -->
   <div id="crmViewPlaybooks" style="display:none;">
-    <div style="max-width:680px;margin:0 auto;">
+    <div style="max-width:860px;margin:0 auto;">
       <div class="tiny" style="margin-bottom:12px;text-align:center;">Generate step-by-step action plans for growth goals without leaving the command center.</div>
       <div class="grid">
         <div>
@@ -7838,14 +7838,14 @@ label         { font-size: 14px !important; }
           </select>
         </div>
       </div>
-      <label style="margin-top:10px;">Business context</label>
-      <textarea id="playbookContext" rows="4" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
-      <div class="actions" style="justify-content:center;margin-top:12px;">
+      <label style="margin-top:14px;">Business context</label>
+      <textarea id="playbookContext" rows="6" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+      <div class="actions" style="justify-content:center;margin-top:16px;">
         <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
       </div>
-      <div class="tiny" id="playbookStatus" style="margin-top:8px;text-align:center;"></div>
+      <div class="tiny" id="playbookStatus" style="margin-top:10px;text-align:center;"></div>
     </div>
-    <div id="playbookResults" style="margin-top:16px;"></div>
+    <div id="playbookResults" style="margin-top:20px;"></div>
   </div>
 </div>
 
@@ -7949,7 +7949,7 @@ label         { font-size: 14px !important; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
 .wcal-detail-type.type-task { color:#a5b4fc; }
 .wcal-detail-type.type-event { color:#67e8f9; }
-.wcal-detail-header.type-task { border-bottom-color:rgba(109,40,217,.45); }
+.wcal-detail-header.type-task { border-bottom-color:rgba(139,92,246,.5); }
 .wcal-detail-header.type-event { border-bottom-color:rgba(14,165,233,.45); }
 .wcal-detail-close { background:transparent; border:none; color:rgba(148,163,184,.6); font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px; }
 .wcal-detail-close:hover { background:rgba(255,255,255,.08); color:#e2e8f0; }
@@ -7994,22 +7994,22 @@ label         { font-size: 14px !important; }
 .wcal-autocomplete-title::before { content:'⚡'; font-size:12px; }
 .wcal-automail-status { font-size:11px; color:rgba(110,231,183,.8); margin-top:6px; min-height:16px; font-style:italic; }
 .wcal-priority-pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; letter-spacing:.04em; }
-.wcal-priority-pill.high   { background:rgba(109,40,217,.22);  color:#c4b5fd; border:1px solid rgba(109,40,217,.45); }
+.wcal-priority-pill.high   { background:rgba(139,92,246,.22);  color:#ddd6fe; border:1px solid rgba(139,92,246,.45); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
 .wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
 /* Tasks: solid left stripe + diamond shape to distinguish from events */
-/* Tasks: default = purple */
+/* Tasks: default = lavender */
 .wcal-event[data-etype="task"] {
-  background: rgba(109,40,217,.75) !important;  /* purple — default/high */
-  color: #ede9fe !important;
-  border-left: 3px solid rgba(167,139,250,.95) !important;
+  background: rgba(139,92,246,.65) !important;  /* lavender — default/high */
+  color: #f5f3ff !important;
+  border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
 }
-/* HIGH priority = purple (bright) */
+/* HIGH priority = lavender (bright) */
 .wcal-event[data-etype="task"].task-prio-high {
-  background: rgba(109,40,217,.85) !important;
-  color: #ede9fe !important;
-  border-left-color: rgba(192,160,255,.99) !important;
+  background: rgba(139,92,246,.75) !important;
+  color: #f5f3ff !important;
+  border-left-color: rgba(216,180,254,.99) !important;
 }
 /* MEDIUM priority = yellow/amber */
 .wcal-event[data-etype="task"].task-prio-medium {
@@ -12786,9 +12786,9 @@ function wcalMonday(d){
 
 // ── Event colours ──────────────────────────────────────────────
 const EVENT_COLORS = [
-  {bg:'rgba(109,40,217,.78)',  text:'#ede9fe'},
+  {bg:'rgba(139,92,246,.68)',  text:'#f5f3ff'},
 ];
-const TASK_COLOR = {bg:'rgba(109,40,217,.80)', text:'#ede9fe'};
+const TASK_COLOR = {bg:'rgba(139,92,246,.72)', text:'#f5f3ff'};
 const TASK_DONE_COLOR = {bg:'rgba(30,40,60,.65)', text:'rgba(148,163,184,.6)'};
 function eventColor(ev){
   // All events default to purple; priority overrides (high/medium/low) apply on top via _evPriority
@@ -12982,8 +12982,8 @@ function wcalEventHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   // Apply any user-set priority override — default is always purple (same as high-priority task)
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
-  const prioColors={high:{bg:'rgba(109,40,217,.85)',text:'#ede9fe'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
-  const defaultColor={bg:'rgba(109,40,217,.80)',text:'#ede9fe'};
+  const prioColors={high:{bg:'rgba(139,92,246,.75)',text:'#f5f3ff'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
+  const defaultColor={bg:'rgba(139,92,246,.68)',text:'#f5f3ff'};
   const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||defaultColor;
   const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
   // Render with task-style left stripe so events look identical to tasks
@@ -13560,7 +13560,7 @@ window.wcalDetEvPriorityChange = function(val){
   // Apply color live to any matching event block on the grid
   document.querySelectorAll(`.wcal-event[data-eid="${encodeURIComponent(key)}"]`).forEach(el=>{
     const prioColors = {
-      high:   {bg:'rgba(109,40,217,.85)', text:'#ede9fe'},
+      high:   {bg:'rgba(139,92,246,.75)', text:'#f5f3ff'},
       medium: {bg:'rgba(161,98,7,.82)',   text:'#fef9c3'},
       low:    {bg:'rgba(6,95,70,.82)',    text:'#d1fae5'},
     };
@@ -13987,7 +13987,7 @@ function wcalRenderWeek(){
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
     allDay.forEach(ev=>{
       const color=eventColor(ev); const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      html+='<div class="wcal-event" style="top:4px;height:18px;background:rgba(109,40,217,.80);color:#ede9fe;font-size:10px;border-left:3px solid rgba(167,139,250,.95);border-radius:4px 6px 6px 4px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ '+title+'"><div class="wcal-event-title">'+title+'</div></div>';
+      html+='<div class="wcal-event" style="top:4px;height:18px;background:rgba(139,92,246,.72);color:#f5f3ff;font-size:10px;border-left:3px solid rgba(196,181,253,.95);border-radius:4px 6px 6px 4px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ '+title+'"><div class="wcal-event-title">'+title+'</div></div>';
     });
     html+='</div>';
   });
