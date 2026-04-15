@@ -354,6 +354,96 @@ def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mod
 
 USERS_PATH = DATA / "users.json"
 SECRET_PATH = DATA / "session_secret.key"
+SEATS_PATH  = DATA / "seats.json"
+
+# =========================
+# SEAT LICENSING SYSTEM
+# =========================
+# Each paying user gets a unique access code tied to one seat.
+# The first registered user becomes the admin and has no seat restriction.
+# All subsequent users must enter a valid, unclaimed seat code to register.
+
+DEFAULT_SEAT_COUNT = int(os.getenv("SEAT_COUNT", "25"))
+
+def _load_seats() -> Dict[str, Any]:
+    if not SEATS_PATH.exists():
+        return {"seats": {}, "updated_at": None}
+    try:
+        d = json.loads(SEATS_PATH.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {"seats": {}, "updated_at": None}
+    except Exception:
+        return {"seats": {}, "updated_at": None}
+
+def _save_seats(data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    SEATS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def _ensure_seats_initialized() -> None:
+    """Auto-generate seats on first run if none exist."""
+    data = _load_seats()
+    if data.get("seats"):
+        return
+    seats = {}
+    for i in range(1, DEFAULT_SEAT_COUNT + 1):
+        code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
+        seats[code] = {
+            "seat_num": i,
+            "label": f"Seat #{i}",
+            "status": "active",       # active | inactive | used
+            "claimed_by": None,
+            "created_at": now_iso(),
+            "claimed_at": None,
+            "notes": "",
+        }
+    data["seats"] = seats
+    _save_seats(data)
+
+def _is_valid_seat_code(code: str) -> Tuple[bool, str]:
+    """Returns (ok, error_message). Code must exist, be active, and unclaimed."""
+    if not code:
+        return False, "Access code is required."
+    data = _load_seats()
+    seat = data.get("seats", {}).get(code)
+    if not seat:
+        return False, "Invalid access code. Contact Simply Agentic AI to get your code."
+    if seat.get("status") == "inactive":
+        return False, "This access code has been deactivated."
+    if seat.get("status") == "used" or seat.get("claimed_by"):
+        return False, "This access code has already been used. Each code is for one account only."
+    return True, ""
+
+def _claim_seat_code(code: str, username: str) -> None:
+    """Mark a seat code as used by the given username."""
+    data = _load_seats()
+    seats = data.get("seats", {})
+    if code in seats:
+        seats[code]["status"] = "used"
+        seats[code]["claimed_by"] = username
+        seats[code]["claimed_at"] = now_iso()
+        data["seats"] = seats
+        _save_seats(data)
+
+def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
+    """First registered user is the admin."""
+    if not u:
+        return False
+    uname = u.get("username") if isinstance(u, dict) else u
+    data = load_users() if callable(load_users) else {"users": {}}
+    users = data.get("users") or {}
+    if not users:
+        return False
+    # Admin = first created user (lowest created_at)
+    try:
+        first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
+        return first.get("username") == uname
+    except Exception:
+        return False
+
+# Initialize seats on import
+try:
+    _ensure_seats_initialized()
+except Exception:
+    pass
 
 def _load_or_create_secret() -> str:
     try:
@@ -2869,6 +2959,145 @@ def api_action_stack_schedules_tick():
 
 
 
+
+# =========================
+# ADMIN SEAT MANAGEMENT API
+# =========================
+
+@app.get("/api/admin/seats")
+def api_admin_seats_get():
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    data = _load_seats()
+    seats = data.get("seats") or {}
+    seat_list = sorted(seats.items(), key=lambda x: x[1].get("seat_num", 999))
+    return jsonify({"ok": True, "seats": [{"code": k, **v} for k, v in seat_list]})
+
+@app.post("/api/admin/seats/generate")
+def api_admin_seats_generate():
+    """Generate N new seat codes."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    payload = request.get_json(silent=True) or {}
+    count = max(1, min(int(payload.get("count", 1)), 50))
+    data = _load_seats()
+    seats = data.get("seats") or {}
+    existing_nums = [v.get("seat_num", 0) for v in seats.values()]
+    next_num = max(existing_nums, default=0) + 1
+    new_codes = []
+    for i in range(count):
+        code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
+        while code in seats:
+            code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
+        seats[code] = {
+            "seat_num": next_num + i,
+            "label": f"Seat #{next_num + i}",
+            "status": "active",
+            "claimed_by": None,
+            "created_at": now_iso(),
+            "claimed_at": None,
+            "notes": payload.get("notes", ""),
+        }
+        new_codes.append(code)
+    data["seats"] = seats
+    _save_seats(data)
+    return jsonify({"ok": True, "generated": new_codes})
+
+@app.post("/api/admin/seats/<code>/update")
+def api_admin_seat_update(code: str):
+    """Update a seat's label, status, or notes."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    data = _load_seats()
+    seats = data.get("seats") or {}
+    if code not in seats:
+        return jsonify({"ok": False, "error": "Seat not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    if "label" in payload:
+        seats[code]["label"] = (payload["label"] or "").strip()[:80]
+    if "status" in payload and payload["status"] in ("active", "inactive"):
+        seats[code]["status"] = payload["status"]
+    if "notes" in payload:
+        seats[code]["notes"] = (payload["notes"] or "").strip()[:200]
+    data["seats"] = seats
+    _save_seats(data)
+    return jsonify({"ok": True, "seat": {"code": code, **seats[code]}})
+
+@app.get("/admin/seats")
+def admin_seats_page():
+    u = current_user()
+    if not u:
+        return redirect(url_for("login"))
+    if not _is_admin_user(u):
+        return redirect(url_for("index"))
+    data = _load_seats()
+    seats = sorted((data.get("seats") or {}).items(), key=lambda x: x[1].get("seat_num", 999))
+    total = len(seats)
+    used  = sum(1 for _, s in seats if s.get("status") == "used")
+    avail = sum(1 for _, s in seats if s.get("status") == "active" and not s.get("claimed_by"))
+    rows  = "".join(
+        f"<tr style='border-bottom:1px solid rgba(255,255,255,.07);'>"
+        f"<td style='padding:8px 10px;font-family:monospace;font-size:13px;color:#c4b5fd;'>{k}</td>"
+        f"<td style='padding:8px 10px;font-size:13px;'>{s.get('label','')}</td>"
+        f"<td style='padding:8px 10px;font-size:13px;'>"
+        f"<span style='color:{'#6ee7b7' if s.get('status')=='active' and not s.get('claimed_by') else '#fca5a5' if s.get('status')=='inactive' else '#fcd34d'};font-weight:700;'>"
+        f"{'✓ Available' if s.get('status')=='active' and not s.get('claimed_by') else '✗ Inactive' if s.get('status')=='inactive' else '⊙ Used'}"
+        f"</span></td>"
+        f"<td style='padding:8px 10px;font-size:13px;color:#94a3b8;'>{s.get('claimed_by') or '—'}</td>"
+        f"<td style='padding:8px 10px;'>"
+        f"<button onclick=\"toggleSeat('{k}','{s.get('status','active')}')\" "
+        f"style='font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#e2e8f0;'>"
+        f"{'Deactivate' if s.get('status')=='active' else 'Reactivate'}</button>"
+        f"</td>"
+        f"</tr>"
+        for k, s in seats
+    )
+    page = f"""<!doctype html><html><head><meta charset='utf-8'/>
+<title>Seat Manager — Simply Agentic AI</title>
+<style>body{{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:32px;}}
+h1{{color:#c4b5fd;}}table{{width:100%;border-collapse:collapse;margin-top:20px;}}
+th{{text-align:left;padding:8px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;border-bottom:1px solid rgba(255,255,255,.12);}}
+.stat{{display:inline-block;background:rgba(255,255,255,.06);border-radius:10px;padding:12px 20px;margin:8px 8px 8px 0;font-size:15px;}}
+.stat b{{display:block;font-size:24px;color:#c4b5fd;}}
+.gen-btn{{background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#f3e8ff;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;margin-top:16px;}}
+</style></head><body>
+<a href='/' style='color:#94a3b8;font-size:13px;text-decoration:none;'>← Back to app</a>
+<h1>🔑 Seat Manager</h1>
+<div class='stat'><b>{total}</b>Total seats</div>
+<div class='stat'><b>{used}</b>Used</div>
+<div class='stat'><b>{avail}</b>Available</div>
+<div style='margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>
+<button class='gen-btn' onclick='genSeats(1)'>+ Generate 1 seat</button>
+<button class='gen-btn' onclick='genSeats(5)'>+ Generate 5 seats</button>
+<button class='gen-btn' onclick='genSeats(10)'>+ Generate 10 seats</button>
+</div>
+<table><tr><th>Code</th><th>Label</th><th>Status</th><th>Claimed by</th><th>Action</th></tr>
+{rows}
+</table>
+<script>
+async function toggleSeat(code, currentStatus) {{
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{status: newStatus}})
+  }});
+  if ((await res.json()).ok) location.reload();
+}}
+async function genSeats(n) {{
+  const res = await fetch('/api/admin/seats/generate', {{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{count: n}})
+  }});
+  const d = await res.json();
+  if (d.ok) {{ alert('Generated codes:\\n' + d.generated.join('\\n')); location.reload(); }}
+}}
+</script></body></html>"""
+    return page
+
+
 @app.get("/api/me")
 def api_me():
     u = current_user()
@@ -2884,7 +3113,8 @@ def api_me():
         },
         "has_openai_key": bool((settings.get("openai_key") or "").strip()),
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
-        "has_gmail_oauth": bool((settings.get("gmail_oauth") or {}))
+        "has_gmail_oauth": bool((settings.get("gmail_oauth") or {})),
+        "is_admin": _is_admin_user(u),
     })
 
 
@@ -4144,29 +4374,44 @@ def api_cal_tasks_update(task_id: str):
 
 @app.post("/api/cal/tasks/<task_id>/complete_action")
 def api_cal_task_complete_action(task_id: str):
-    """When a task is marked done, have the assigned teammate draft a completion email — returned for user approval, never auto-sent."""
+    """Have the assigned teammate draft a completion email — returned for user approval, never auto-sent.
+    Works for both local tasks (looked up by task_id) and Google Calendar events (fields passed inline)."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
+    payload = request.get_json(silent=True) or {}
+
+    # Try to load from local task store first; fall back to inline fields from the request
     tasks = _load_cal_tasks(u.get("username", ""))
     task = next((t for t in tasks if t.get("id") == task_id), None)
-    if not task:
-        return jsonify({"ok": False, "error": "Task not found"}), 404
 
-    teammate_name = (task.get("on_complete_teammate") or "").strip()
-    client_email  = (task.get("on_complete_client_email") or "").strip()
-    client_name   = (task.get("on_complete_client_name") or "").strip()
+    if task:
+        teammate_name = (task.get("on_complete_teammate") or "").strip()
+        client_email  = (task.get("on_complete_client_email") or "").strip()
+        client_name   = (task.get("on_complete_client_name") or "").strip()
+        task_title    = task.get("title", "Untitled task")
+        task_desc     = task.get("description", "")
+        task_date     = task.get("date", "")
+    else:
+        # Google Calendar event — use inline fields sent from frontend
+        teammate_name = (payload.get("on_complete_teammate") or "").strip()
+        client_email  = (payload.get("on_complete_client_email") or "").strip()
+        client_name   = (payload.get("on_complete_client_name") or "").strip()
+        task_title    = (payload.get("task_title") or "Untitled event").strip()
+        task_desc     = (payload.get("task_description") or "").strip()
+        task_date     = (payload.get("task_date") or "").strip()
+
     if not teammate_name or not client_email:
-        return jsonify({"ok": False, "error": "No teammate or client email configured on this task"}), 400
+        return jsonify({"ok": False, "error": "No teammate or client email configured — open the task/event panel and fill in the Email on Complete section."}), 400
 
     # voice: "operator" = written in first person as the operator, "teammate" = teammate introduces themselves
-    voice = (request.get_json(silent=True) or {}).get("voice", "teammate")
+    voice = payload.get("voice", "teammate")
 
     reg = load_registry()
     defn = (reg.get("installed") or {}).get(teammate_name)
     if not defn:
-        return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found"}), 404
+        return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found. Make sure they are installed at the round table."}), 404
 
     # Load operator profile for name
     try:
@@ -4178,9 +4423,6 @@ def api_cal_task_complete_action(task_id: str):
         operator_name = "the team"
         business_name = ""
 
-    task_title = task.get("title", "Untitled task")
-    task_desc  = task.get("description", "")
-    task_date  = task.get("date", "")
     client_ref = client_name if client_name else client_email
 
     if voice == "operator":
@@ -4957,9 +5199,9 @@ REGISTER_HTML = r"""
       <label>Confirm password</label>
       <input name="password2" type="password" autocomplete="new-password" required/>
       {% if require_code %}
-        <label>Invite code</label>
-        <input name="invite_code" autocomplete="one-time-code" required/>
-        <div class="tiny">Ask the owner for an invite code.</div>
+        <label>Access code</label>
+        <input name="invite_code" autocomplete="one-time-code" placeholder="SA-XXXXXXXX" style="text-transform:uppercase;letter-spacing:0.05em;" required/>
+        <div class="tiny" style="margin-top:4px;opacity:.75;">Your unique access code — provided when you subscribe to Simply Agentic AI.</div>
       {% endif %}
       <div class="row">
         <button class="btn btnPrimary" type="submit">Create account</button>
@@ -5167,7 +5409,7 @@ def register_get():
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
-    resp = make_response(render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=_require_invite_code()))
+    resp = make_response(render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=has_any_user()))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -5183,28 +5425,35 @@ def register_post():
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=_require_invite_code())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True)
     if len(pw) < 8:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=_require_invite_code())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True)
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=_require_invite_code())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True)
 
-    if _require_invite_code():
-        got = (request.form.get("invite_code") or "").strip()
-        want = _invite_code_value()
-        if not want:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invite code is not configured on the server.", ok=None, require_code=True)
-        if got != want:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Invalid invite code.", ok=None, require_code=True)
+    # First user = admin, no code needed. All others need a valid seat code.
+    is_first_user = not has_any_user()
+    if not is_first_user:
+        seat_code = (request.form.get("invite_code") or "").strip().upper()
+        ok, err = _is_valid_seat_code(seat_code)
+        if not ok:
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True)
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=_require_invite_code())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True)
 
     users[username] = _new_user(username, pw, email=email)
     data["users"] = users
     save_users(data)
+
+    # Claim the seat code for this user
+    if not is_first_user:
+        try:
+            _claim_seat_code(seat_code, username)
+        except Exception:
+            pass
 
     session["user"] = username
     session.permanent = True
@@ -6913,6 +7162,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
+            <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
@@ -13111,10 +13361,19 @@ async function wcalFireCompleteAction(taskId, task){
 
   showToast('⚡ Drafting email as ' + (voice==='operator'?'you':teammate) + '…');
   try{
+    // Pass on_complete fields inline so this works for both local tasks AND Google Calendar events
     const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({voice})
+      body: JSON.stringify({
+        voice,
+        on_complete_teammate:    task.on_complete_teammate    || '',
+        on_complete_client_email:task.on_complete_client_email|| '',
+        on_complete_client_name: task.on_complete_client_name || '',
+        task_title:              task.title || '',
+        task_description:        task.description || '',
+        task_date:               task.date || '',
+      })
     });
     const d = await res.json();
     if(d.ok && d.draft){
@@ -13215,8 +13474,12 @@ function wcalShowTaskDetail(task){
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
-      <div class="wcal-autocomplete-title">Email on Complete</div>
-      <div class="wcal-detail-label">Assign teammate to draft email</div>
+      <div class="wcal-autocomplete-title">📧 Email on Complete</div>
+      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+        <option value="">— Select from CRM (optional) —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Assign teammate to draft email</div>
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
@@ -13238,6 +13501,7 @@ function wcalShowTaskDetail(task){
   panel._currentTask=task; panel._currentEvent=null;
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
+  wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
 }
 
 function wcalShowEventDetail(ev){
@@ -14264,7 +14528,6 @@ async function wcalPopulateTeammateDropdown(selectId, selectedValue){
     const res = await fetch('/api/state');
     const d = await res.json();
     const names = d.installed_order || Object.keys(d.installed||{});
-    // Keep the first "no auto-email" option, add teammates
     while(sel.options.length > 1) sel.remove(1);
     names.forEach(name=>{
       const opt = document.createElement('option');
@@ -14276,6 +14539,37 @@ async function wcalPopulateTeammateDropdown(selectId, selectedValue){
     console.warn('wcalPopulateTeammateDropdown failed', e);
   }
 }
+
+// Populate the CRM client picker in the task detail panel
+async function wcalPopulateCrmClientDropdown(selectId, selectedEmail){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  try{
+    const res = await fetch('/api/crm/clients');
+    const d = await res.json();
+    const clients = (d.clients||[]).filter(c=>c.name||c.email);
+    while(sel.options.length > 1) sel.remove(1);
+    clients.forEach(c=>{
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({name: c.name||'', email: c.email||''});
+      opt.textContent = [c.name, c.company].filter(Boolean).join(' — ') + (c.email ? ` <${c.email}>` : '');
+      if(c.email && c.email === selectedEmail) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }catch(e){}
+}
+
+// Auto-fill client name + email when a CRM client is selected
+window.wcalDetFillClientFromCRM = function(val){
+  if(!val) return;
+  try{
+    const c = JSON.parse(val);
+    const nameEl  = document.getElementById('detAutoClientName');
+    const emailEl = document.getElementById('detAutoEmail');
+    if(nameEl  && c.name)  nameEl.value  = c.name;
+    if(emailEl && c.email) emailEl.value = c.email;
+  }catch(e){}
+};
 
 // ── Popover state ─────────────────────────────────────────────
 let _wcalPopType='event', _wcalPopDate='';
@@ -14717,7 +15011,15 @@ $("settingsBtn").onclick = () => showSettingsModal();
     }
 
     async function runFirstRunGuidance(){
-      // Coach bubbles removed — Next Step panel handles onboarding guidance
+      // Show Seat Manager link for admin users
+      try{
+        const res = await fetch("/api/me");
+        const me = await res.json();
+        if(me && me.ok && me.is_admin){
+          const lnk = document.getElementById("seatManagerLink");
+          if(lnk) lnk.style.display = "";
+        }
+      }catch(e){}
     }
 
     async function afterSettingsSaved(){
