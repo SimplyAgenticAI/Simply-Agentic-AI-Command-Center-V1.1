@@ -75,6 +75,15 @@ CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
 # =========================
+# STRIPE BILLING
+# =========================
+STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")       # sk_live_... or sk_test_...
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")   # whsec_...
+STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")         # price_xxxxxxxxxxxxxxxx
+# Set to "payment" for one-time purchase, "subscription" for recurring
+STRIPE_MODE           = os.getenv("STRIPE_MODE", "subscription")
+
+# =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
 # =========================
 
@@ -352,9 +361,10 @@ def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mod
 # AUTH + PER-USER SETTINGS
 # =========================
 
-USERS_PATH = DATA / "users.json"
-SECRET_PATH = DATA / "session_secret.key"
-SEATS_PATH  = DATA / "seats.json"
+USERS_PATH           = DATA / "users.json"
+SECRET_PATH          = DATA / "session_secret.key"
+SEATS_PATH           = DATA / "seats.json"
+STRIPE_SESSIONS_PATH = DATA / "stripe_sessions.json"
 
 # =========================
 # SEAT LICENSING SYSTEM
@@ -444,6 +454,119 @@ try:
     _ensure_seats_initialized()
 except Exception:
     pass
+
+# =========================
+# STRIPE HELPERS
+# =========================
+
+def _stripe_ready() -> bool:
+    return bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
+
+def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
+    """Minimal Stripe REST wrapper — no stripe-python dep required."""
+    import requests as _req
+    url = f"https://api.stripe.com/v1{path}"
+    headers = {"Authorization": f"Bearer {STRIPE_SECRET_KEY}"}
+    try:
+        if method.upper() == "GET":
+            r = _req.get(url, headers=headers, params=data or {}, timeout=20)
+        else:
+            r = _req.post(url, headers=headers, data=data or {}, timeout=20)
+        return r.status_code, (r.json() if r.content else {})
+    except Exception as e:
+        return 0, {"error": {"message": str(e)}}
+
+def _stripe_verify_webhook(payload: bytes, sig_header: str) -> Tuple[bool, Dict[str, Any]]:
+    """Verify Stripe-Signature header and return (ok, event_dict)."""
+    if not STRIPE_WEBHOOK_SECRET:
+        try:
+            return True, json.loads(payload.decode("utf-8"))
+        except Exception:
+            return False, {}
+    try:
+        parts: Dict[str, str] = {}
+        for chunk in sig_header.split(","):
+            if "=" in chunk:
+                k, v = chunk.split("=", 1)
+                parts[k.strip()] = v.strip()
+        ts   = parts.get("t", "")
+        v1   = parts.get("v1", "")
+        if not ts or not v1:
+            return False, {}
+        signed = ts.encode("utf-8") + b"." + payload
+        expected = hmac.new(
+            STRIPE_WEBHOOK_SECRET.encode("utf-8"), signed, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, v1):
+            return False, {}
+        return True, json.loads(payload.decode("utf-8"))
+    except Exception:
+        return False, {}
+
+def _load_stripe_sessions() -> Dict[str, Any]:
+    return load_json(STRIPE_SESSIONS_PATH, {})
+
+def _save_stripe_sessions(data: Dict[str, Any]) -> None:
+    save_json(STRIPE_SESSIONS_PATH, data)
+
+def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str) -> str:
+    """Create a fresh seat code tied to a completed Stripe checkout and return it."""
+    # Idempotent: if we already made one for this session, return it
+    sess_data = _load_stripe_sessions()
+    if session_id in sess_data:
+        return sess_data[session_id].get("code", "")
+
+    data  = _load_seats()
+    seats = data.get("seats") or {}
+    nums  = [v.get("seat_num", 0) for v in seats.values()]
+    next_num = (max(nums) if nums else 0) + 1
+    code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
+    while code in seats:
+        code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
+
+    seats[code] = {
+        "seat_num":          next_num,
+        "label":             f"Stripe Seat #{next_num}",
+        "status":            "active",
+        "claimed_by":        None,
+        "created_at":        now_iso(),
+        "claimed_at":        None,
+        "notes":             f"stripe_customer={customer_id} | email={email}",
+        "stripe_customer_id": customer_id,
+        "stripe_session_id":  session_id,
+        "stripe_email":       email,
+    }
+    data["seats"] = seats
+    _save_seats(data)
+
+    sess_data[session_id] = {"code": code, "email": email, "created_at": now_iso()}
+    _save_stripe_sessions(sess_data)
+    return code
+
+def _stripe_session_code(stripe_session_id: str) -> Tuple[str, str]:
+    """
+    Given a Stripe checkout session_id, return (seat_code, email).
+    Checks local cache first; falls back to Stripe API.
+    Returns ("", "") on failure.
+    """
+    if not STRIPE_SECRET_KEY:
+        return "", ""
+    sess_data = _load_stripe_sessions()
+    if stripe_session_id in sess_data:
+        rec = sess_data[stripe_session_id]
+        return rec.get("code", ""), rec.get("email", "")
+    # Fetch from Stripe
+    status, data = _stripe_api("GET", f"/checkout/sessions/{stripe_session_id}")
+    if status != 200:
+        return "", ""
+    pstatus = data.get("payment_status", "")
+    if pstatus not in ("paid", "no_payment_needed"):
+        return "", ""
+    customer_id = data.get("customer") or ""
+    email = ((data.get("customer_details") or {}).get("email") or
+             data.get("customer_email") or "")
+    code = _generate_seat_for_stripe(email, customer_id, stripe_session_id)
+    return code, email
 
 def _load_or_create_secret() -> str:
     try:
@@ -559,6 +682,8 @@ def _auth_guard():
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static"):
         return None
     if request.path.startswith("/static/"):
+        return None
+    if request.path.startswith("/stripe/"):
         return None
 
     # allow setup if no users exist
@@ -5185,23 +5310,93 @@ REGISTER_HTML = r"""
   animation: wingBeat 0.18s linear infinite;
   transform-origin: center center;
 }
+
+/* ===== STRIPE BLOCK ===== */
+.stripeBlock{
+  margin: 18px 0 4px 0;
+  padding: 16px 18px 14px;
+  background: rgba(99,91,255,0.07);
+  border: 1px solid rgba(99,91,255,0.22);
+  border-radius: 12px;
+}
+.stripeLogo{
+  display:flex; align-items:center; gap:8px;
+  font-size:.82rem; font-weight:600; color:#635bff; margin-bottom:10px;
+  letter-spacing:.02em;
+}
+.stripeLogo svg{ flex-shrink:0; }
+.stripeBtn{
+  display:flex; align-items:center; justify-content:center; gap:9px;
+  width:100%; padding:11px 0; border-radius:8px;
+  background:#635bff; color:#fff; border:none;
+  font-size:.92rem; font-weight:600; cursor:pointer;
+  transition: background .15s, transform .1s;
+  text-decoration:none;
+}
+.stripeBtn:hover{ background:#5046e5; transform:translateY(-1px); }
+.stripeBtn:active{ transform:translateY(0); }
+.stripeBtn svg{ flex-shrink:0; }
+.orDivider{
+  display:flex; align-items:center; gap:10px;
+  margin: 18px 0 14px;
+  font-size:.78rem; color:rgba(255,255,255,.38);
+}
+.orDivider::before,.orDivider::after{
+  content:''; flex:1; height:1px;
+  background:rgba(255,255,255,.12);
+}
+#stripeSpinner{ display:none; }
 </style>
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Create your account to get started.</div>
 
+    {% if stripe_enabled and require_code and not stripe_code %}
+    <!-- ===== STRIPE PAYMENT BLOCK ===== -->
+    <div class="stripeBlock">
+      <div class="stripeLogo">
+        <svg width="18" height="18" viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#635bff"/><path d="M22.5 18.5c0-1.38 1.12-2 2.8-2 2.5 0 5.6.75 7.7 2.1V11.6C30.7 10.6 27.9 10 25.3 10c-5.5 0-9.3 2.9-9.3 7.8 0 7.5 10.3 6.3 10.3 9.6 0 1.63-1.4 2.15-3.2 2.15-2.76 0-6.3-1.13-9.1-2.65v7.1c3.1 1.3 6.2 1.9 9.1 1.9 5.7 0 9.6-2.8 9.6-7.7-.03-8.1-10.3-6.65-10.3-9.7z" fill="#fff"/></svg>
+        Subscribe to get access
+      </div>
+      <button class="stripeBtn" id="stripePayBtn" onclick="startStripeCheckout()">
+        <svg id="stripeSpinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" id="stripeCardIcon"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Pay &amp; Subscribe
+      </button>
+    </div>
+
+    <div class="orDivider">or enter your access code below</div>
+    {% endif %}
+
     <form method="post" action="/register">
       <label>Username</label>
       <input name="username" placeholder="Choose a username" autocomplete="username" required/>
+      {% if stripe_email %}
+      <label>Email (pre-filled from payment)</label>
+      <input name="email" value="{{stripe_email}}" autocomplete="email"/>
+      {% endif %}
       <label>Password</label>
       <input name="password" type="password" autocomplete="new-password" required/>
       <label>Confirm password</label>
       <input name="password2" type="password" autocomplete="new-password" required/>
       {% if require_code %}
         <label>Access code</label>
-        <input name="invite_code" autocomplete="one-time-code" placeholder="SA-XXXXXXXX" style="text-transform:uppercase;letter-spacing:0.05em;" required/>
-        <div class="tiny" style="margin-top:4px;opacity:.75;">Your unique access code — provided when you subscribe to Simply Agentic AI.</div>
+        <input name="invite_code" id="accessCodeInput"
+               autocomplete="one-time-code"
+               placeholder="SA-XXXXXXXX"
+               style="text-transform:uppercase;letter-spacing:0.05em;"
+               value="{{stripe_code or ''}}"
+               required/>
+        <div class="tiny" style="margin-top:4px;opacity:.75;">
+          {% if stripe_code %}
+            ✓ Access code issued from your Stripe payment — ready to go!
+          {% elif stripe_enabled %}
+            Subscribe above to get your code automatically, or enter one you already have.
+          {% else %}
+            Your unique access code — provided when you subscribe to Simply Agentic AI.
+          {% endif %}
+        </div>
       {% endif %}
       <div class="row">
         <button class="btn btnPrimary" type="submit">Create account</button>
@@ -5249,6 +5444,37 @@ REGISTER_HTML = r"""
     <!-- ===== END SCENE ===== -->
 
   </div>
+
+<script>
+function startStripeCheckout() {
+  const btn = document.getElementById('stripePayBtn');
+  const spinner = document.getElementById('stripeSpinner');
+  const cardIcon = document.getElementById('stripeCardIcon');
+  btn.disabled = true;
+  spinner.style.display = 'inline';
+  cardIcon.style.display = 'none';
+
+  fetch('/stripe/create_checkout', { method: 'POST' })
+    .then(r => {
+      // The server returns a redirect, but fetch follows it.
+      // We navigate via the final URL.
+      if (r.redirected) { window.location.href = r.url; return; }
+      return r.json().then(d => {
+        if (d && d.error) { alert('Stripe error: ' + d.error); resetBtn(); }
+      });
+    })
+    .catch(e => { alert('Could not reach Stripe: ' + e); resetBtn(); });
+
+  function resetBtn() {
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    cardIcon.style.display = 'inline';
+  }
+}
+// Auto-uppercase the access code as the user types
+const codeInput = document.getElementById('accessCodeInput');
+if (codeInput) codeInput.addEventListener('input', () => { codeInput.value = codeInput.value.toUpperCase(); });
+</script>
 </body></html>
 """
 
@@ -5409,7 +5635,29 @@ def register_get():
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
-    resp = make_response(render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=None, ok=None, require_code=has_any_user()))
+
+    stripe_code  = None
+    stripe_email = None
+    stripe_err   = None
+    stripe_session = (request.args.get("stripe_session") or "").strip()
+    if stripe_session:
+        code, email = _stripe_session_code(stripe_session)
+        if code:
+            stripe_code  = code
+            stripe_email = email
+        else:
+            stripe_err = "We couldn't verify your payment. Please contact support or try again."
+
+    resp = make_response(render_template_string(
+        REGISTER_HTML,
+        app_title=APP_TITLE,
+        error=stripe_err,
+        ok=("Payment verified! Your access code has been pre-filled below." if stripe_code else None),
+        require_code=has_any_user(),
+        stripe_code=stripe_code,
+        stripe_email=stripe_email,
+        stripe_enabled=_stripe_ready(),
+    ))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -5462,6 +5710,67 @@ def register_post():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+# =========================
+# STRIPE ROUTES
+# =========================
+
+@app.post("/stripe/create_checkout")
+def stripe_create_checkout():
+    """Redirect the visitor to a Stripe Checkout session for seat purchase."""
+    if not _stripe_ready():
+        return jsonify({"ok": False, "error": "Stripe is not configured on this server."}), 400
+
+    base = (PUBLIC_BASE_URL or request.host_url.rstrip("/"))
+    # {CHECKOUT_SESSION_ID} is a Stripe template variable — Stripe fills it in automatically.
+    success_url = f"{base}/register?stripe_session={{CHECKOUT_SESSION_ID}}"
+    cancel_url  = f"{base}/register"
+
+    status, data = _stripe_api("POST", "/checkout/sessions", {
+        "payment_method_types[]": "card",
+        "line_items[0][price]":    STRIPE_PRICE_ID,
+        "line_items[0][quantity]": "1",
+        "mode":                    STRIPE_MODE,
+        "allow_promotion_codes":   "true",
+        "success_url":             success_url,
+        "cancel_url":              cancel_url,
+    })
+    if status >= 400:
+        err = (data.get("error") or {}).get("message") or "Stripe error"
+        return jsonify({"ok": False, "error": err}), 400
+
+    checkout_url = data.get("url")
+    if not checkout_url:
+        return jsonify({"ok": False, "error": "No checkout URL returned by Stripe."}), 500
+
+    return redirect(checkout_url, 303)
+
+
+@app.post("/stripe/webhook")
+def stripe_webhook():
+    """
+    Stripe sends POST events here.
+    Set your webhook endpoint in the Stripe dashboard to:
+      https://your-app.com/stripe/webhook
+    and subscribe to: checkout.session.completed
+    """
+    payload    = request.get_data()
+    sig_header = request.headers.get("Stripe-Signature", "")
+
+    ok, event = _stripe_verify_webhook(payload, sig_header)
+    if not ok:
+        return jsonify({"error": "Invalid signature"}), 400
+
+    if event.get("type") == "checkout.session.completed":
+        obj         = (event.get("data") or {}).get("object") or {}
+        session_id  = obj.get("id") or ""
+        customer_id = obj.get("customer") or ""
+        email       = ((obj.get("customer_details") or {}).get("email")
+                       or obj.get("customer_email") or "")
+        if session_id:
+            _generate_seat_for_stripe(email, customer_id, session_id)
+
+    return jsonify({"ok": True})
 
 @app.get("/reset")
 def reset():
