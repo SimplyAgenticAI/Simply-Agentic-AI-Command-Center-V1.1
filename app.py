@@ -5772,6 +5772,24 @@ def stripe_webhook():
 
     return jsonify({"ok": True})
 
+
+@app.get("/stripe/status")
+def stripe_status():
+    """Admin-only debug endpoint — shows what Stripe env vars the server has loaded."""
+    u = current_user()
+    if not _is_admin_user(u):
+        return jsonify({"error": "Admin only"}), 403
+    return jsonify({
+        "stripe_ready":            _stripe_ready(),
+        "STRIPE_SECRET_KEY_set":   bool(STRIPE_SECRET_KEY),
+        "STRIPE_SECRET_KEY_prefix": STRIPE_SECRET_KEY[:7] + "..." if STRIPE_SECRET_KEY else "(not set)",
+        "STRIPE_PRICE_ID_set":     bool(STRIPE_PRICE_ID),
+        "STRIPE_PRICE_ID":         STRIPE_PRICE_ID or "(not set)",
+        "STRIPE_WEBHOOK_SECRET_set": bool(STRIPE_WEBHOOK_SECRET),
+        "STRIPE_MODE":             STRIPE_MODE,
+        "PUBLIC_BASE_URL":         PUBLIC_BASE_URL or "(not set)",
+    })
+
 @app.get("/reset")
 def reset():
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=None)
