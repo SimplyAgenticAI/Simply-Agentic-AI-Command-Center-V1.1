@@ -13325,7 +13325,7 @@ async function crmFetchTasks(){
                   <button onclick="crmPipelineOpenClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">View</button>
                   ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
-                  ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft(\'${cid}\')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">⚡ Draft</button>`:\'\'}'
+                  ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">⚡ Draft</button>`:''}
                 </div>
               </div>`;
             }).join('')}
