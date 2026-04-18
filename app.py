@@ -1360,7 +1360,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
     },
     "Willow": {
         "name": "Willow",
-        "job_title": "Language Specialist & NLP Master",
+        "job_title": "Language Specialist",
         "version": "v1.2",
         "mission": "Architect, refine, and safeguard language with clarity, ethics, and meaning preservation.",
         "responsibilities": [
@@ -1415,7 +1415,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
     },
     "Luna": {
         "name": "Luna",
-        "job_title": "Graphic Designer & Creative Engineer",
+        "job_title": "Creative Engineer",
         "version": "v1.0",
         "mission": "Architect cinematic, consistent, emotionally resonant visual systems.",
         "responsibilities": [
@@ -1469,7 +1469,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
     },
     "Sunshine": {
         "name": "Sunshine",
-        "job_title": "Sales Specialist & Relationship Strategist",
+        "job_title": "Sales Specialist",
         "version": "v1.0",
         "mission": "Ethical, high trust sales conversations and long term relationship strategy.",
         "responsibilities": [
@@ -8938,7 +8938,7 @@ label         { font-size: 14px !important; }
     </div>
 
     <div class="side">
-      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;">
+      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100svh - 80px);overflow:hidden;">
         <!-- Header -->
         <div class="sideHead" style="flex-shrink:0;">
           <div class="sideTitle">
@@ -17011,22 +17011,22 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </style>
 
 <style>
-/* ===== MOBILE BOTTOM CLIP FIX v1 =====
+/* ===== MOBILE BOTTOM CLIP FIX v2 =====
    100vh on mobile browsers includes the collapsible address bar, causing the
    bottom input row (Stream button etc.) to be hidden behind browser chrome.
    100svh = "small viewport height" — the smallest stable vh, safe on all modern iOS/Android.
    We also add safe-area-inset-bottom so nothing hides behind the home indicator.
 */
 @media (max-width: 900px) {
-  /* Switch the side panel from 100vh to 100svh so it never overflows */
+  /* Switch the side panel from 100vh to 100svh with a larger offset for nav */
   .sideCard {
-    height: calc(100svh - 80px) !important;
-    max-height: calc(100svh - 80px) !important;
+    height: calc(100svh - 120px) !important;
+    max-height: calc(100svh - 120px) !important;
   }
 
   /* Give the bottom input area breathing room above the home indicator */
   .sideCard > div:last-child {
-    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    padding-bottom: max(16px, env(safe-area-inset-bottom)) !important;
   }
 
   /* Ensure the pill row with Stream button wraps instead of clipping */
@@ -17037,7 +17037,13 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
   /* Extra bottom padding on the page so scrolling past last element works */
   .container {
-    padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Also fix .side height which also uses 100vh */
+  .side {
+    height: calc(100svh - 20px) !important;
+    overflow-y: auto !important;
   }
 }
 
@@ -17045,8 +17051,11 @@ if(typeof maybeAutoShowOnboarding === "function"){
 @supports not (height: 100svh) {
   @media (max-width: 900px) {
     .sideCard {
-      height: calc(100vh - 140px) !important;
-      max-height: calc(100vh - 140px) !important;
+      height: calc(100vh - 160px) !important;
+      max-height: calc(100vh - 160px) !important;
+    }
+    .side {
+      height: calc(100vh - 60px) !important;
     }
   }
 }
