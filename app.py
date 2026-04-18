@@ -457,41 +457,6 @@ except Exception:
 
 # =========================
 # STARTUP MIGRATION: Fix saved teammate job titles
-# =========================
-# Teammate definitions in code are the source of truth, but installed copies
-# are persisted to teammates.json. This migration patches stale titles on every
-# startup so deploys with title changes take effect immediately.
-_JOB_TITLE_FIXES = {
-    "Willow":   "Language Specialist",
-    "Luna":     "Creative Engineer",
-    "Sunshine": "Sales Specialist",
-}
-
-def _migrate_teammate_job_titles() -> None:
-    try:
-        if not REGISTRY_PATH.exists():
-            return
-        reg = load_json(REGISTRY_PATH, {})
-        installed = reg.get("installed")
-        if not isinstance(installed, dict):
-            return
-        changed = False
-        for name, correct_title in _JOB_TITLE_FIXES.items():
-            tm = installed.get(name)
-            if isinstance(tm, dict) and tm.get("job_title") != correct_title:
-                tm["job_title"] = correct_title
-                installed[name] = tm
-                changed = True
-        if changed:
-            reg["installed"] = installed
-            save_json(REGISTRY_PATH, reg)
-    except Exception:
-        pass
-
-try:
-    _migrate_teammate_job_titles()
-except Exception:
-    pass
 
 def _stripe_ready() -> bool:
     return bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
@@ -792,6 +757,45 @@ def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
+
+# =========================
+# STARTUP MIGRATION: Fix saved teammate job titles
+# =========================
+# load_json / save_json are now defined above — safe to run.
+_JOB_TITLE_FIXES = {
+    "Willow":   "Language Specialist",
+    "Luna":     "Creative Engineer",
+    "Sunshine": "Sales Specialist",
+}
+
+def _migrate_teammate_job_titles() -> None:
+    try:
+        if not REGISTRY_PATH.exists():
+            return
+        raw = REGISTRY_PATH.read_text(encoding="utf-8")
+        reg = json.loads(raw)
+        installed = reg.get("installed")
+        if not isinstance(installed, dict):
+            return
+        changed = False
+        for name, correct_title in _JOB_TITLE_FIXES.items():
+            tm = installed.get(name)
+            if isinstance(tm, dict) and tm.get("job_title") != correct_title:
+                tm["job_title"] = correct_title
+                installed[name] = tm
+                changed = True
+        if changed:
+            reg["installed"] = installed
+            tmp = REGISTRY_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(reg, indent=2), encoding="utf-8")
+            tmp.replace(REGISTRY_PATH)
+    except Exception:
+        pass
+
+try:
+    _migrate_teammate_job_titles()
+except Exception:
+    pass
 
 # =========================
 # TASK LOG (APPEND-ONLY)
