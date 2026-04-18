@@ -11038,6 +11038,10 @@ function makeSeat(defn, idx){
         return;
       }
 
+      // FIX: If always-listen is active, stop it before starting a one-shot dictation
+      // so two recognizers don't compete for the mic simultaneously.
+      if(alwaysOn){ stopAlwaysListening(); }
+
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       const rec = new SR();
       rec.lang = "en-US";
@@ -11049,6 +11053,7 @@ function makeSeat(defn, idx){
 
       const baseText = (target.value || "").trim();
       let finalText = "";
+      let _dictSent = false; // FIX: prevent double auto-send if user manually sends first
 
       status.innerText = "Mic: requesting permission";
 
@@ -11111,16 +11116,18 @@ function makeSeat(defn, idx){
           .trim();
         target.value = combined;
 
-        // AUTO SEND AFTER TALKING STOPS (ADD v1)
-        // Sends 2 seconds after speech ends, but only if the user hasn't edited the text.
+        // AUTO SEND AFTER TALKING STOPS
+        // Sends 2 seconds after speech ends, but only if the user hasn't already sent or edited.
         try{
           const snapshot = (combined || "").trim();
           if(snapshot){
             setTimeout(() => {
               try{
+                if(_dictSent) return; // FIX: already sent manually — skip
                 const t = $(targetId);
                 const current = ((t && t.value) ? t.value : "").trim();
                 if(current !== snapshot) return; // user edited; do not auto send
+                _dictSent = true;
                 if(targetId === "opPrompt"){
                   conveneAll();
                 }else if(targetId === "followMsg"){
@@ -11262,17 +11269,33 @@ function makeSeat(defn, idx){
     // Accumulates only NEW final results — never replays old ones
     let _alwaysAccumFinals = "";
     let _alwaysLastProcIdx  = 0;   // FIX: track highest processed resultIndex to prevent replaying
+    let _alwaysNewSession   = false; // FIX: set true on onend restart to guard against iOS replay
+    let _alwaysIgnoreUntil  = 0;    // FIX: timestamp — skip finals before this (iOS replays arrive fast)
 
     function getCanonicalSpeech(event){
       let newFinals = "";
       let interim   = "";
+
+      // On iOS, a new recognition session resets resultIndex to 0 and replays
+      // previously finalised results. Detect this by checking _alwaysNewSession
+      // and resetting the watermark so the new session starts clean.
+      if(_alwaysNewSession){
+        _alwaysNewSession  = false;
+        _alwaysLastProcIdx = 0;
+        _alwaysAccumFinals = "";
+        // Ignore any finals that arrive within 900ms of restart — those are iOS replays
+        _alwaysIgnoreUntil = Date.now() + 900;
+      }
 
       // Only process results we haven't seen yet (start from resultIndex, but never below our watermark)
       const startIdx = Math.max(event.resultIndex, _alwaysLastProcIdx);
       for(let i = startIdx; i < event.results.length; i++){
         const txt = (event.results[i][0].transcript || "");
         if(event.results[i].isFinal){
-          newFinals += txt + " ";
+          // Skip finals during the iOS-replay ignore window
+          if(Date.now() >= _alwaysIgnoreUntil){
+            newFinals += txt + " ";
+          }
           _alwaysLastProcIdx = i + 1;   // advance watermark past this final result
         } else {
           interim += txt;
@@ -11291,7 +11314,9 @@ function makeSeat(defn, idx){
 
     function _resetCanonicalSpeech(){
       _alwaysAccumFinals   = "";
-      _alwaysLastProcIdx   = 0;   // FIX: also reset watermark on name switch
+      _alwaysLastProcIdx   = 0;   // FIX: also reset watermark on name switch / auto-send
+      _alwaysNewSession    = false;
+      _alwaysIgnoreUntil   = 0;
     }
 
     function subtractBaseline(allFinal){
@@ -11454,6 +11479,12 @@ function makeSeat(defn, idx){
         try{
           const s = currentAlwaysStatusEl();
           if(s) s.innerText = "Mic: always listening";
+          // FIX: snapshot textarea and mark new session so iOS replay is ignored
+          const t = currentAlwaysTarget();
+          alwaysBaseText    = (t && t.value ? t.value : "").trim();
+          alwaysFinalText   = "";
+          alwaysInterimText = "";
+          _alwaysNewSession = true;   // getCanonicalSpeech will reset accum + set ignore window
           rec.start();
         }catch(e){
           stopAlwaysListening();
@@ -11765,8 +11796,6 @@ async function pollImageJob(jobId, seatName){
         $("followMsg").value = "";
         await refreshThread();
       }
-      $("followMsg").value = "";
-      await refreshThread();
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
       dmFileIds = [];
