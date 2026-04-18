@@ -8535,15 +8535,15 @@ label         { font-size: 14px !important; }
   position:absolute; top:4px; left:5px;
   display:flex; align-items:center; justify-content:center;
   width:13px; height:13px; border-radius:50%;
-  border:1.5px dashed rgba(255,255,255,.45);
+  border:1.5px solid currentColor;
   cursor:pointer; z-index:4;
-  transition:background .15s, border-color .15s, transform .12s;
+  transition:background .15s;
   font-size:9px; font-weight:900; line-height:1;
-  opacity:.7; flex-shrink:0;
+  opacity:.9; flex-shrink:0;
 }
-.wcal-event-check:hover { opacity:1; transform:scale(1.2); border-style:solid; border-color:rgba(255,255,255,.9); }
-.wcal-event-check.checked { background:rgba(255,255,255,.92); border-style:solid; border-color:rgba(255,255,255,.92); opacity:1; }
-.wcal-event-check.checked::after { content:'✓'; color:#1a0a3a; font-size:8px; font-weight:900; }
+.wcal-event-check:hover { opacity:1; transform:scale(1.15); }
+.wcal-event-check.checked { background:currentColor; }
+.wcal-event-check.checked::after { content:'✓'; color:#080c1a; }
 /* Recurring badge — pinned top-right, always visible pill */
 .wcal-recur-badge {
   position:absolute; top:3px; right:4px;
@@ -8719,23 +8719,6 @@ label         { font-size: 14px !important; }
   cursor:pointer; transition:background .15s, border-color .15s;
 }
 .wcal-type-toggle-btn:hover { background:rgba(99,102,241,.25); border-color:rgba(99,102,241,.7); }
-/* ── Client-for picker at top of detail panel ── */
-.wcal-client-for-row {
-  display:flex; align-items:center; gap:8px;
-  padding:6px 8px; margin-bottom:2px;
-  background:rgba(124,58,237,.1); border:1px solid rgba(124,58,237,.3);
-  border-radius:9px;
-}
-.wcal-client-for-label {
-  font-size:10px; font-weight:700; color:rgba(196,181,253,.9);
-  text-transform:uppercase; letter-spacing:.06em; white-space:nowrap;
-  flex-shrink:0;
-}
-.wcal-client-for-select {
-  flex:1; background:transparent; border:none; color:#e2e8f0;
-  font-size:12px; font-weight:600; outline:none; cursor:pointer;
-  min-width:0;
-}
 /* Dragging: the original block dims in-place (no ghost clone) */
 .wcal-event[style*="cursor: grabbing"] { outline:2px solid rgba(167,139,250,.7); }
 /* ── Calendar right-click context menu ── */
@@ -13342,6 +13325,7 @@ async function crmFetchTasks(){
                   <button onclick="crmPipelineOpenClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">View</button>
                   ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
+                  ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft(\'${cid}\')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">⚡ Draft</button>`:\'\'}'
                 </div>
               </div>`;
             }).join('')}
@@ -13417,6 +13401,59 @@ async function crmFetchTasks(){
       if($("smsBody")) $("smsBody").value = '';
       if(typeof showSMSConsoleModal === 'function') showSMSConsoleModal('SMS Console');
       showToast('💬 SMS console opened for ' + (c.name||c.phone));
+    };
+
+    // ── One-click AI outreach draft ────────────────────────────
+    window.crmPipelineDraft = async function(clientId){
+      const c = (crmCache.clients||[]).find(x=>x.id===clientId);
+      if(!c){ showToast('Client not found'); return; }
+
+      const hasEmail = !!(c.email||'').trim();
+      const hasPhone = !!(c.phone||'').trim();
+      const channel  = hasEmail ? 'email' : 'sms';
+
+      // Spinner on the button
+      const btn = document.getElementById('draftBtn-'+clientId);
+      const origText = btn ? btn.innerText : '';
+      if(btn){ btn.innerText = '⏳'; btn.disabled = true; }
+
+      showToast('⚡ Drafting outreach for ' + (c.name||'client') + '…');
+
+      try{
+        const res = await fetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({channel})
+        });
+        const d = await res.json();
+
+        if(!d.ok){
+          showToast('Draft failed: ' + (d.error||'unknown error'));
+          return;
+        }
+
+        if(d.channel === 'sms' && d.sms_draft){
+          const sd = d.sms_draft;
+          if($("smsTo"))   $("smsTo").value   = sd.to   || c.phone || '';
+          if($("smsBody")) $("smsBody").value = sd.body || '';
+          if(typeof showSMSConsoleModal === 'function') showSMSConsoleModal('SMS Console');
+          showToast('📝 SMS draft ready for ' + (c.name||'client'));
+        } else if(d.email_draft){
+          if(typeof applyEmailDraft === 'function'){
+            applyEmailDraft(d.email_draft, d.teammate || 'Sunshine');
+          } else {
+            if($("emailTo"))      $("emailTo").value      = d.email_draft.to      || '';
+            if($("emailSubject")) $("emailSubject").value = d.email_draft.subject  || '';
+            if($("emailBody"))    $("emailBody").value    = d.email_draft.body     || '';
+            if(typeof showEmailConsoleModal === 'function') showEmailConsoleModal('Email Console');
+          }
+          showToast('📝 Email draft ready for ' + (c.name||'client') + ' — review and send!');
+        }
+      } catch(e){
+        showToast('Draft error: ' + String(e));
+      } finally {
+        if(btn){ btn.innerText = origText; btn.disabled = false; }
+      }
     };
 
     function bindCRM(){
@@ -13752,10 +13789,10 @@ function wcalTaskHtml(task, extraStyle=''){
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:20px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
   const durLabel=height>40?` · ${task.duration||30}m`:'';
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
   if(height>36) h+=`<div class="wcal-event-time">${task.start||''}${durLabel}</div>`;
   h+=autoEmailBadge;
   h+='</div>';
@@ -13785,10 +13822,10 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">📹</a>`:'';
   const zoomBadge=(ev.location&&ev.location.includes('zoom.us'))?` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵</a>`:'';
   const joinBadge=meetBadge||zoomBadge;
-  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
+  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -13956,12 +13993,6 @@ function wcalShowTaskDetail(task){
   const prioColors={high:'high',medium:'medium',low:'low'};
   const prioLabel={high:'High',medium:'Medium',low:'Low'};
   body.innerHTML=`
-    <div class="wcal-client-for-row">
-      <span class="wcal-client-for-label">👤 Client</span>
-      <select class="wcal-client-for-select" id="detClientForPicker">
-        <option value="">— No client assigned —</option>
-      </select>
-    </div>
     <input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" />
     <div>
       <div class="wcal-detail-label">Status</div>
@@ -14011,7 +14042,11 @@ function wcalShowTaskDetail(task){
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Assign teammate to draft email</div>
+      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+        <option value="">— Select from CRM (optional) —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Assign teammate to draft email</div>
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
@@ -14033,16 +14068,7 @@ function wcalShowTaskDetail(task){
   panel._currentTask=task; panel._currentEvent=null;
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
-  // Client-for picker at top — selecting auto-fills email-on-complete name/email
-  wcalPopulateClientForPicker('detClientForPicker', task.on_complete_client_email||'', (val)=>{
-    try{
-      const c=JSON.parse(val);
-      const nameEl=document.getElementById('detAutoClientName');
-      const emailEl=document.getElementById('detAutoEmail');
-      if(nameEl&&c.name)  nameEl.value=c.name;
-      if(emailEl&&c.email) emailEl.value=c.email;
-    }catch(e){}
-  });
+  wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
 }
 
 // ── Toggle a gcal event between event/task display type ────────
@@ -14091,13 +14117,7 @@ function wcalShowGcalTaskDetail(ev){
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <div class="wcal-client-for-row">
-      <span class="wcal-client-for-label">👤 Client</span>
-      <select class="wcal-client-for-select" id="detGcalClientForPicker">
-        <option value="">— No client assigned —</option>
-      </select>
-    </div>
-    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:6px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
+    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
 
@@ -14136,7 +14156,11 @@ function wcalShowGcalTaskDetail(ev){
 
     <div class="wcal-autocomplete-section" id="detEvAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Teammate to draft email</div>
+      <div class="wcal-detail-label">Pick a client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detGcalCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+        <option value="">— Select from CRM (optional) —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Teammate to draft email</div>
       <select class="wcal-detail-field" id="detEvAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
@@ -14167,16 +14191,7 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   // Populate dropdowns
   wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
-  // Client-for picker — selecting auto-fills email-on-complete name/email
-  wcalPopulateClientForPicker('detGcalClientForPicker', meta.on_complete_client_email||'', (val)=>{
-    try{
-      const c=JSON.parse(val);
-      const nameEl=document.getElementById('detEvAutoClientName');
-      const emailEl=document.getElementById('detEvAutoEmail');
-      if(nameEl&&c.name)  nameEl.value=c.name;
-      if(emailEl&&c.email) emailEl.value=c.email;
-    }catch(e){}
-  });
+  wcalPopulateCrmClientDropdown('detGcalCrmClient', meta.on_complete_client_email||'');
 }
 
 function wcalShowEventDetail(ev){
@@ -14196,12 +14211,6 @@ function wcalShowEventDetail(ev){
   const isDone=!!(meta.done||_evDone.has(evId));
 
   body.innerHTML=`
-    <div class="wcal-client-for-row">
-      <span class="wcal-client-for-label">👤 Client</span>
-      <select class="wcal-client-for-select" id="detEvClientForPicker">
-        <option value="">— No client assigned —</option>
-      </select>
-    </div>
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
@@ -14292,16 +14301,6 @@ function wcalShowEventDetail(ev){
   panel._currentEvent=ev; panel._currentTask=null;
   // Populate teammate dropdown
   wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
-  // Client-for picker at top — selecting auto-fills email-on-complete name/email
-  wcalPopulateClientForPicker('detEvClientForPicker', meta.on_complete_client_email||'', (val)=>{
-    try{
-      const c=JSON.parse(val);
-      const nameEl=document.getElementById('detEvAutoClientName');
-      const emailEl=document.getElementById('detEvAutoEmail');
-      if(nameEl&&c.name)  nameEl.value=c.name;
-      if(emailEl&&c.email) emailEl.value=c.email;
-    }catch(e){}
-  });
 }
 
 // Toggle done on a Google Calendar event
@@ -15325,26 +15324,6 @@ async function wcalPopulateTeammateDropdown(selectId, selectedValue){
 }
 
 // Populate the CRM client picker in the task detail panel
-// ── Populate the "Client for" picker at top of detail panels ──
-async function wcalPopulateClientForPicker(selectId, selectedEmail, onChangeFn){
-  const sel = document.getElementById(selectId);
-  if(!sel) return;
-  try{
-    const res = await fetch('/api/crm/clients');
-    const d = await res.json();
-    const clients = (d.clients||[]).filter(c=>c.name||c.email);
-    sel.innerHTML = '<option value="">— No client assigned —</option>';
-    clients.forEach(c=>{
-      const opt = document.createElement('option');
-      opt.value = JSON.stringify({name:c.name||'', email:c.email||''});
-      opt.textContent = [c.name, c.company].filter(Boolean).join(' · ');
-      if(c.email && c.email === selectedEmail) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    if(onChangeFn) sel.addEventListener('change', ()=> onChangeFn(sel.value));
-  }catch(e){}
-}
-
 async function wcalPopulateCrmClientDropdown(selectId, selectedEmail){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -19073,6 +19052,126 @@ def api_crm_pipeline_set():
     crm["pipeline"] = {"stages": stages}
     _crm_save(uname, crm)
     return jsonify({"ok": True, "pipeline": crm["pipeline"]})
+
+
+@app.post("/api/crm/clients/<client_id>/draft_outreach")
+def api_crm_draft_outreach(client_id: str):
+    """
+    One-click AI outreach draft for a pipeline client.
+    Calls Sunshine with full client context + operator profile.
+    Returns email_draft {subject, body, to} for the email console,
+    or sms_draft {body, to} for SMS fallback.
+    """
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+
+    payload = request.get_json(silent=True) or {}
+    channel = (payload.get("channel") or "email").strip().lower()
+
+    crm    = _crm_load(uname)
+    client = (crm.get("clients") or {}).get(client_id)
+    if not client:
+        return jsonify({"ok": False, "error": "Client not found"}), 404
+
+    op       = _load_operator_profile(uname)
+    op_name  = (op.get("display_name") or "Operator").strip()
+    business = (op.get("business")     or "").strip()
+    offers   = (op.get("offers")       or "").strip()
+
+    name    = (client.get("name")           or "").strip()
+    email   = (client.get("email")          or "").strip()
+    phone   = (client.get("phone")          or "").strip()
+    stage   = (client.get("pipeline_stage") or "Lead").strip()
+    notes   = (client.get("notes")          or "").strip()
+    company = (client.get("company")        or "").strip()
+    tags    = ", ".join(client.get("tags") or [])
+    first   = name.split()[0] if name else "there"
+
+    context_lines = [
+        f"Client name: {name}"                                         if name    else None,
+        f"Company: {company}"                                          if company else None,
+        f"Pipeline stage: {stage}",
+        f"Tags: {tags}"                                                if tags    else None,
+        f"Notes about this client: {notes}"                            if notes   else None,
+        f"Operator: {op_name}" + (f" at {business}" if business else ""),
+        f"Our offer / service: {offers}"                               if offers  else None,
+    ]
+    context = "\n".join(l for l in context_lines if l)
+
+    if channel == "sms":
+        prompt = (
+            f"Draft a short, warm, conversational SMS outreach for the following client. "
+            f"Under 160 characters. No subject line. Sound like a real person checking in. "
+            f"Sign off as {op_name}.\n\nClient context:\n{context}\n\n"
+            f"Write ONLY the SMS body, nothing else."
+        )
+    else:
+        prompt = (
+            f"Draft a warm, professional, concise outreach email for the following client. "
+            f"Match the tone and next step appropriate for their pipeline stage: \'{stage}\'. "
+            f"Lead with value — do NOT be pushy. Keep the body to 3-5 sentences max. "
+            f"Sign off as {op_name}{(' at ' + business) if business else ''}. "
+            f"Address the client as {first}.\n\n"
+            f"Client context:\n{context}\n\n"
+            f"Respond using EXACTLY this format and nothing else:\n"
+            f"```email\n"
+            f"to: {email}\n"
+            f"subject: <write subject here>\n"
+            f"body: <write email body here>\n"
+            f"```"
+        )
+
+    reg       = load_registry()
+    installed = reg.get("installed") or {}
+    teammate  = "Sunshine" if "Sunshine" in installed else (list(installed.keys())[0] if installed else None)
+    if not teammate:
+        return jsonify({"ok": False, "error": "No teammates installed"}), 400
+
+    try:
+        msg2, _, vision_images = build_prompt_with_attachments(prompt, [])
+        user_content = _build_user_content(msg2, vision_images)
+        defn       = installed[teammate]
+        sys_prompt = teammate_system_prompt(defn)
+        oai        = get_openai_client()
+        resp = oai.chat.completions.create(
+            model=(defn.get("preferred_model") or "").strip() or MODEL,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user",   "content": user_content},
+            ],
+            temperature=0.65,
+            timeout=60,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
+    if channel == "sms":
+        return jsonify({
+            "ok":          True,
+            "channel":     "sms",
+            "sms_draft":   {"body": raw[:500], "to": phone},
+            "teammate":    teammate,
+            "client_name": name,
+        })
+
+    draft = extract_email_draft(raw)
+    if not draft:
+        draft = {"to": email, "subject": f"Following up — {name}", "body": raw}
+    if not draft.get("to"):
+        draft["to"] = email
+
+    return jsonify({
+        "ok":          True,
+        "channel":     "email",
+        "email_draft": draft,
+        "teammate":    teammate,
+        "client_name": name,
+    })
+
 
 @app.post("/api/crm/broadcast/email")
 def api_crm_broadcast_email():
