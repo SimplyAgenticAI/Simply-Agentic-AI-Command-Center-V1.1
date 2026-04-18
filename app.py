@@ -4447,6 +4447,8 @@ def api_gcal_event_meta_set():
         "on_complete_client_email":(payload.get("on_complete_client_email") or "").strip(),
         "done": bool(payload.get("done", meta.get(event_id, {}).get("done", False))),
         "gcal_item_type": (payload.get("gcal_item_type") or meta.get(event_id, {}).get("gcal_item_type") or "").strip(),
+        "priority": (payload.get("priority") or meta.get(event_id, {}).get("priority") or "").strip(),
+        "notes":    (payload.get("notes")    if payload.get("notes") is not None else meta.get(event_id, {}).get("notes") or ""),
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -13525,9 +13527,13 @@ async function wcalFetchRange(start, end){
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
       if(metaType){
-        ev._gcalType = metaType;                  // user explicitly set it
+        ev._gcalType = metaType;
       } else {
-        ev._gcalType = 'task';                    // default: all gcal items show as tasks
+        ev._gcalType = 'task';
+      }
+      // Apply stored priority from meta into _evPriority so colors render correctly
+      if(metaEntry.priority){
+        _evPriority[evId] = metaEntry.priority;
       }
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
@@ -14044,17 +14050,23 @@ function wcalShowGcalTaskDetail(ev){
   if(!panel||!body) return;
   const evId=ev.id||ev.summary||'';
   const startD=new Date(ev.start||'');
+  const endD=new Date(ev.end||ev.start||'');
   const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
   const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
+  const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
   const isDone=_evDone.has(evId)||(!!((cal.gcalMeta||{})[evId]||{}).done);
   const htmlLink=ev.htmlLink||'';
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
+  const storedPrio=meta.priority||(_evPriority[evId])||'high';
+  // Notes: show stored local notes; if none, pre-fill with Google description as a starting point
+  const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Task title" readonly />
+    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
+
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
@@ -14062,20 +14074,35 @@ function wcalShowGcalTaskDetail(ev){
         <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
       </div>
     </div>
+
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
-        <div class="wcal-detail-value">${dateVal}</div>
+        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${dateVal||'—'}</div>
       </div>
       <div style="flex:1;">
-        <div class="wcal-detail-label">Start</div>
-        <div class="wcal-detail-value">${startVal}</div>
+        <div class="wcal-detail-label">Time</div>
+        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${startVal?startVal+(endVal?' – '+endVal:''):'—'}</div>
       </div>
     </div>
-    ${ev.description?`<div><div class="wcal-detail-label">Notes</div><div class="wcal-detail-value" style="white-space:pre-wrap;font-size:12px;opacity:.85;">${ev.description.replace(/</g,'&lt;').slice(0,400)}</div></div>`:''}
+
+    <div>
+      <div class="wcal-detail-label">Priority</div>
+      <select class="wcal-detail-field" id="detGcalTaskPriority" onchange="wcalDetGcalTaskPriorityChange(this.value)">
+        <option value="high"   ${storedPrio==='high'   ?'selected':''}>🟣 High</option>
+        <option value="medium" ${storedPrio==='medium' ?'selected':''}>🟡 Medium</option>
+        <option value="low"    ${storedPrio==='low'    ?'selected':''}>🟢 Low</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="wcal-detail-label">Notes</div>
+      <textarea class="wcal-detail-textarea" id="detGcalTaskNotes" placeholder="Add notes about this task…" style="min-height:80px;">${storedNotes.replace(/</g,'&lt;')}</textarea>
+    </div>
+
     <div class="wcal-autocomplete-section" id="detEvAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <div class="wcal-detail-label">Pick a client (auto-fills name &amp; email)</div>
       <select class="wcal-detail-field" id="detGcalCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
         <option value="">— Select from CRM (optional) —</option>
       </select>
@@ -14084,11 +14111,12 @@ function wcalShowGcalTaskDetail(ev){
         <option value="">— No email draft —</option>
       </select>
       <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. Stacy" value="${meta.on_complete_client_name||''}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
-      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${meta.on_complete_client_email||''}" autocomplete="off" />
+      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. Stacy" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email</div>
+      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detEvAutoStatus"></div>
     </div>
+
     <div>
       <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','task')">
         ⇄ Switch to Event
@@ -14105,6 +14133,8 @@ function wcalShowGcalTaskDetail(ev){
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
+  // Set current priority in _evPriority so live changes work
+  _evPriority[evId]=storedPrio;
   // Populate dropdowns
   wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detGcalCrmClient', meta.on_complete_client_email||'');
@@ -14336,8 +14366,12 @@ window.wcalDetDeleteTask = async function(taskId){
 // Save email-on-complete fields for a Google Calendar item shown as task
 window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
+  const priority = document.getElementById('detGcalTaskPriority')?.value || 'high';
+  const notes    = document.getElementById('detGcalTaskNotes')?.value    || '';
   const payload={
     event_id: evId,
+    priority,
+    notes,
     on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
     on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
@@ -14349,15 +14383,31 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
     cal.gcalMeta[evId]=d.meta;
+    // Apply priority live on the grid
+    _evPriority[evId] = priority;
+    wcalRefresh();
     if(st) st.innerText='Saved ✓';
     showToast('Task saved');
     setTimeout(()=>{ if(st) st.innerText=''; },2000);
-    // Show ✉ badge on the calendar block if email-on-complete is configured
-    wcalRefresh();
   }catch(e){
     if(st) st.innerText=e.message||'Save failed';
     showToast('Save failed');
   }
+};
+
+// Live priority change for gcal task panel — updates calendar color immediately
+window.wcalDetGcalTaskPriorityChange = function(val){
+  const panel=document.getElementById('wcalDetail');
+  if(!panel||!panel._currentEvent) return;
+  const ev=panel._currentEvent;
+  const key=ev.id||ev.summary||'';
+  _evPriority[key]=val;
+  // Apply color live to the matching calendar block
+  const prioClasses=['task-prio-high','task-prio-medium','task-prio-low'];
+  document.querySelectorAll(`.wcal-event[data-eid="${encodeURIComponent(key)}"]`).forEach(el=>{
+    el.classList.remove(...prioClasses);
+    if(!el.classList.contains('is-done')) el.classList.add('task-prio-'+val);
+  });
 };
 
 // ── Right-click context menu ───────────────────────────────────
