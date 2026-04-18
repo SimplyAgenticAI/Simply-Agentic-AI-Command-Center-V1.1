@@ -8535,15 +8535,15 @@ label         { font-size: 14px !important; }
   position:absolute; top:4px; left:5px;
   display:flex; align-items:center; justify-content:center;
   width:13px; height:13px; border-radius:50%;
-  border:1.5px solid currentColor;
+  border:1.5px dashed rgba(255,255,255,.45);
   cursor:pointer; z-index:4;
-  transition:background .15s;
+  transition:background .15s, border-color .15s, transform .12s;
   font-size:9px; font-weight:900; line-height:1;
-  opacity:.9; flex-shrink:0;
+  opacity:.7; flex-shrink:0;
 }
-.wcal-event-check:hover { opacity:1; transform:scale(1.15); }
-.wcal-event-check.checked { background:currentColor; }
-.wcal-event-check.checked::after { content:'✓'; color:#080c1a; }
+.wcal-event-check:hover { opacity:1; transform:scale(1.2); border-style:solid; border-color:rgba(255,255,255,.9); }
+.wcal-event-check.checked { background:rgba(255,255,255,.92); border-style:solid; border-color:rgba(255,255,255,.92); opacity:1; }
+.wcal-event-check.checked::after { content:'✓'; color:#1a0a3a; font-size:8px; font-weight:900; }
 /* Recurring badge — pinned top-right, always visible pill */
 .wcal-recur-badge {
   position:absolute; top:3px; right:4px;
@@ -8719,6 +8719,23 @@ label         { font-size: 14px !important; }
   cursor:pointer; transition:background .15s, border-color .15s;
 }
 .wcal-type-toggle-btn:hover { background:rgba(99,102,241,.25); border-color:rgba(99,102,241,.7); }
+/* ── Client-for picker at top of detail panel ── */
+.wcal-client-for-row {
+  display:flex; align-items:center; gap:8px;
+  padding:6px 8px; margin-bottom:2px;
+  background:rgba(124,58,237,.1); border:1px solid rgba(124,58,237,.3);
+  border-radius:9px;
+}
+.wcal-client-for-label {
+  font-size:10px; font-weight:700; color:rgba(196,181,253,.9);
+  text-transform:uppercase; letter-spacing:.06em; white-space:nowrap;
+  flex-shrink:0;
+}
+.wcal-client-for-select {
+  flex:1; background:transparent; border:none; color:#e2e8f0;
+  font-size:12px; font-weight:600; outline:none; cursor:pointer;
+  min-width:0;
+}
 /* Dragging: the original block dims in-place (no ghost clone) */
 .wcal-event[style*="cursor: grabbing"] { outline:2px solid rgba(167,139,250,.7); }
 /* ── Calendar right-click context menu ── */
@@ -13735,10 +13752,10 @@ function wcalTaskHtml(task, extraStyle=''){
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:20px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
   const durLabel=height>40?` · ${task.duration||30}m`:'';
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   if(height>36) h+=`<div class="wcal-event-time">${task.start||''}${durLabel}</div>`;
   h+=autoEmailBadge;
   h+='</div>';
@@ -13768,10 +13785,10 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">📹</a>`:'';
   const zoomBadge=(ev.location&&ev.location.includes('zoom.us'))?` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵</a>`:'';
   const joinBadge=meetBadge||zoomBadge;
-  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span>${joinBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -13939,6 +13956,12 @@ function wcalShowTaskDetail(task){
   const prioColors={high:'high',medium:'medium',low:'low'};
   const prioLabel={high:'High',medium:'Medium',low:'Low'};
   body.innerHTML=`
+    <div class="wcal-client-for-row">
+      <span class="wcal-client-for-label">👤 Client</span>
+      <select class="wcal-client-for-select" id="detClientForPicker">
+        <option value="">— No client assigned —</option>
+      </select>
+    </div>
     <input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" />
     <div>
       <div class="wcal-detail-label">Status</div>
@@ -13988,11 +14011,7 @@ function wcalShowTaskDetail(task){
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
-      <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
-        <option value="">— Select from CRM (optional) —</option>
-      </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Assign teammate to draft email</div>
+      <div class="wcal-detail-label">Assign teammate to draft email</div>
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
@@ -14014,7 +14033,16 @@ function wcalShowTaskDetail(task){
   panel._currentTask=task; panel._currentEvent=null;
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
-  wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
+  // Client-for picker at top — selecting auto-fills email-on-complete name/email
+  wcalPopulateClientForPicker('detClientForPicker', task.on_complete_client_email||'', (val)=>{
+    try{
+      const c=JSON.parse(val);
+      const nameEl=document.getElementById('detAutoClientName');
+      const emailEl=document.getElementById('detAutoEmail');
+      if(nameEl&&c.name)  nameEl.value=c.name;
+      if(emailEl&&c.email) emailEl.value=c.email;
+    }catch(e){}
+  });
 }
 
 // ── Toggle a gcal event between event/task display type ────────
@@ -14063,7 +14091,13 @@ function wcalShowGcalTaskDetail(ev){
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
+    <div class="wcal-client-for-row">
+      <span class="wcal-client-for-label">👤 Client</span>
+      <select class="wcal-client-for-select" id="detGcalClientForPicker">
+        <option value="">— No client assigned —</option>
+      </select>
+    </div>
+    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:6px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
 
@@ -14102,11 +14136,7 @@ function wcalShowGcalTaskDetail(ev){
 
     <div class="wcal-autocomplete-section" id="detEvAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a client (auto-fills name &amp; email)</div>
-      <select class="wcal-detail-field" id="detGcalCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
-        <option value="">— Select from CRM (optional) —</option>
-      </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Teammate to draft email</div>
+      <div class="wcal-detail-label">Teammate to draft email</div>
       <select class="wcal-detail-field" id="detEvAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
@@ -14137,7 +14167,16 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   // Populate dropdowns
   wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
-  wcalPopulateCrmClientDropdown('detGcalCrmClient', meta.on_complete_client_email||'');
+  // Client-for picker — selecting auto-fills email-on-complete name/email
+  wcalPopulateClientForPicker('detGcalClientForPicker', meta.on_complete_client_email||'', (val)=>{
+    try{
+      const c=JSON.parse(val);
+      const nameEl=document.getElementById('detEvAutoClientName');
+      const emailEl=document.getElementById('detEvAutoEmail');
+      if(nameEl&&c.name)  nameEl.value=c.name;
+      if(emailEl&&c.email) emailEl.value=c.email;
+    }catch(e){}
+  });
 }
 
 function wcalShowEventDetail(ev){
@@ -14157,6 +14196,12 @@ function wcalShowEventDetail(ev){
   const isDone=!!(meta.done||_evDone.has(evId));
 
   body.innerHTML=`
+    <div class="wcal-client-for-row">
+      <span class="wcal-client-for-label">👤 Client</span>
+      <select class="wcal-client-for-select" id="detEvClientForPicker">
+        <option value="">— No client assigned —</option>
+      </select>
+    </div>
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
@@ -14247,6 +14292,16 @@ function wcalShowEventDetail(ev){
   panel._currentEvent=ev; panel._currentTask=null;
   // Populate teammate dropdown
   wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
+  // Client-for picker at top — selecting auto-fills email-on-complete name/email
+  wcalPopulateClientForPicker('detEvClientForPicker', meta.on_complete_client_email||'', (val)=>{
+    try{
+      const c=JSON.parse(val);
+      const nameEl=document.getElementById('detEvAutoClientName');
+      const emailEl=document.getElementById('detEvAutoEmail');
+      if(nameEl&&c.name)  nameEl.value=c.name;
+      if(emailEl&&c.email) emailEl.value=c.email;
+    }catch(e){}
+  });
 }
 
 // Toggle done on a Google Calendar event
@@ -15270,6 +15325,26 @@ async function wcalPopulateTeammateDropdown(selectId, selectedValue){
 }
 
 // Populate the CRM client picker in the task detail panel
+// ── Populate the "Client for" picker at top of detail panels ──
+async function wcalPopulateClientForPicker(selectId, selectedEmail, onChangeFn){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  try{
+    const res = await fetch('/api/crm/clients');
+    const d = await res.json();
+    const clients = (d.clients||[]).filter(c=>c.name||c.email);
+    sel.innerHTML = '<option value="">— No client assigned —</option>';
+    clients.forEach(c=>{
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({name:c.name||'', email:c.email||''});
+      opt.textContent = [c.name, c.company].filter(Boolean).join(' · ');
+      if(c.email && c.email === selectedEmail) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if(onChangeFn) sel.addEventListener('change', ()=> onChangeFn(sel.value));
+  }catch(e){}
+}
+
 async function wcalPopulateCrmClientDropdown(selectId, selectedEmail){
   const sel = document.getElementById(selectId);
   if(!sel) return;
