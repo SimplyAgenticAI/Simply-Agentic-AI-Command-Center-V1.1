@@ -8134,6 +8134,16 @@ label         { font-size: 14px !important; }
           <input id="crmTags" placeholder="realtor, vip" />
         </div>
       </div>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Last contacted</label>
+          <input id="crmLastContact" type="date" />
+        </div>
+        <div>
+          <label>Follow-up date</label>
+          <input id="crmNextFollowup" type="date" />
+        </div>
+      </div>
       <div style="margin-top:10px;">
         <label>Notes</label>
         <textarea id="crmNotes" rows="3" placeholder="Notes..."></textarea>
@@ -12497,14 +12507,29 @@ Challenge weak assumptions. Surface risks.`;
         const email = escapeHtml(c.email||'');
         const stage = escapeHtml(c.pipeline_stage||'');
         const status = escapeHtml(c.status||'');
+        const today = new Date().toISOString().slice(0,10);
+        const lastContact = c.last_contact || '';
+        const nextFollowup = c.next_followup || '';
+        const isOverdue = nextFollowup && nextFollowup < today;
+        const isDueToday = nextFollowup && nextFollowup === today;
+        const followupLabel = nextFollowup
+          ? (isOverdue
+              ? `<span style="color:#f87171;font-weight:700;">⚠ Follow-up overdue (${nextFollowup})</span>`
+              : isDueToday
+                ? `<span style="color:#fbbf24;font-weight:700;">📅 Follow-up today</span>`
+                : `<span style="opacity:.75;">📅 Follow-up ${nextFollowup}</span>`)
+          : '';
+        const lastContactLabel = lastContact
+          ? `<span style="opacity:.6;">Last contact: ${lastContact}</span>`
+          : '';
         return `
-          <div class="diagCard" style="padding:10px;">
+          <div class="diagCard" style="padding:10px;${isOverdue?'border-left:3px solid #f87171;':''}${isDueToday?'border-left:3px solid #fbbf24;':''}">
             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
               <div>
                 <div style="font-weight:700;">${name || '(no name)'} <span style="opacity:.75; font-weight:500;">${status ? '• '+status : ''}</span></div>
                 <div class="tiny" style="opacity:.9;">${email} ${stage ? '• ' + stage : ''}</div>
+                ${(lastContactLabel||followupLabel)?`<div class="tiny" style="margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;">${lastContactLabel}${followupLabel}</div>`:''}
                 <div style="margin-top:6px;">${tags}</div>
-                <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-start;">
                 <button class="btn btnTiny" data-crm-edit="${id}">Edit</button>
@@ -12540,6 +12565,8 @@ Challenge weak assumptions. Surface risks.`;
       $("crmStage").value = c.pipeline_stage || '';
       $("crmTags").value = (c.tags||[]).join(', ');
       $("crmNotes").value = c.notes || '';
+      $("crmLastContact").value = c.last_contact || '';
+      $("crmNextFollowup").value = c.next_followup || '';
       $("crmEditStatus").innerText = '';
     }
 
@@ -12570,6 +12597,8 @@ Challenge weak assumptions. Surface risks.`;
         pipeline_stage: ($("crmStage").value||'').trim(),
         tags: (($("crmTags").value||'').split(',').map(x=>x.trim()).filter(Boolean)),
         notes: ($("crmNotes").value||'').trim(),
+        last_contact: ($("crmLastContact").value||'').trim(),
+        next_followup: ($("crmNextFollowup").value||'').trim(),
       };
       try{
         let url = '/api/crm/clients';
@@ -13318,10 +13347,26 @@ async function crmFetchTasks(){
               const cid = escapeHtml(c.id||'');
               const hasEmail = !!(c.email||'').trim();
               const hasPhone = !!(c.phone||'').trim();
-              return `<div class="pill" draggable="true" data-client-drag="${cid}" style="display:block;cursor:grab;padding:8px 10px;border-radius:10px;position:relative;">
+              const today = new Date().toISOString().slice(0,10);
+              const nf = c.next_followup || '';
+              const lc = c.last_contact || '';
+              const isOverdue = nf && nf < today;
+              const isDueToday = nf && nf === today;
+              const followupBadge = nf
+                ? (isOverdue
+                    ? `<div style="font-size:10px;color:#f87171;font-weight:700;margin-top:4px;">⚠ Overdue: ${nf}</div>`
+                    : isDueToday
+                      ? `<div style="font-size:10px;color:#fbbf24;font-weight:700;margin-top:4px;">📅 Follow up today</div>`
+                      : `<div style="font-size:10px;opacity:.6;margin-top:4px;">📅 ${nf}</div>`)
+                : '';
+              const lastBadge = lc && !nf
+                ? `<div style="font-size:10px;opacity:.5;margin-top:3px;">Last: ${lc}</div>`
+                : '';
+              return `<div class="pill" draggable="true" data-client-drag="${cid}" style="display:block;cursor:grab;padding:8px 10px;border-radius:10px;position:relative;${isOverdue?'border:1px solid rgba(248,113,113,.5);':''}${isDueToday?'border:1px solid rgba(251,191,36,.5);':''}">
                 <div style="font-weight:700;font-size:13px;margin-bottom:2px;">${escapeHtml(c.name||'')}</div>
-                ${c.company?`<div class="tiny" style="opacity:.8;margin-bottom:4px;">${escapeHtml(c.company)}</div>`:''}
-                <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">
+                ${c.company?`<div class="tiny" style="opacity:.8;margin-bottom:2px;">${escapeHtml(c.company)}</div>`:''}
+                ${followupBadge}${lastBadge}
+                <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">
                   <button onclick="crmPipelineOpenClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">View</button>
                   ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
@@ -19088,15 +19133,19 @@ def api_crm_draft_outreach(client_id: str):
     company = (client.get("company")        or "").strip()
     tags    = ", ".join(client.get("tags") or [])
     first   = name.split()[0] if name else "there"
+    last_contact   = (client.get("last_contact")   or "").strip()
+    next_followup  = (client.get("next_followup")  or "").strip()
+    today_str      = datetime.utcnow().strftime("%Y-%m-%d")
 
     context_lines = [
-        f"Client name: {name}"                                         if name    else None,
-        f"Company: {company}"                                          if company else None,
+        f"Client name: {name}"                                         if name         else None,
+        f"Company: {company}"                                          if company      else None,
         f"Pipeline stage: {stage}",
-        f"Tags: {tags}"                                                if tags    else None,
-        f"Notes about this client: {notes}"                            if notes   else None,
+        f"Tags: {tags}"                                                if tags         else None,
+        f"Last contacted: {last_contact}"                              if last_contact else "Last contacted: unknown",
+        f"Notes about this client: {notes}"                            if notes        else None,
         f"Operator: {op_name}" + (f" at {business}" if business else ""),
-        f"Our offer / service: {offers}"                               if offers  else None,
+        f"Our offer / service: {offers}"                               if offers       else None,
     ]
     context = "\n".join(l for l in context_lines if l)
 
@@ -19148,6 +19197,15 @@ def api_crm_draft_outreach(client_id: str):
     except Exception as e:
         _, msg = _classify_openai_error(e)
         return jsonify({"ok": False, "error": msg}), 500
+
+    # Auto-set last_contact = today so the CRM stays current
+    try:
+        crm2 = _crm_load(uname)
+        if client_id in (crm2.get("clients") or {}):
+            crm2["clients"][client_id]["last_contact"] = today_str
+            _crm_save(uname, crm2)
+    except Exception:
+        pass
 
     if channel == "sms":
         return jsonify({
@@ -21951,7 +22009,25 @@ def api_os_next_actions():
     if objective:
         suggestions.append({"type": "objective", "title": "Advance the session objective", "detail": objective})
     if clients:
-        hottest = sorted(clients, key=lambda x: int(x.get("lead_score") or 0), reverse=True)[:3]
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        # Overdue follow-ups come first — most urgent
+        overdue = [c for c in clients if (c.get("next_followup") or "") and c.get("next_followup") <= today_str]
+        overdue.sort(key=lambda x: x.get("next_followup") or "")
+        for c in overdue[:3]:
+            days = (datetime.utcnow().date() - datetime.strptime(c["next_followup"], "%Y-%m-%d").date()).days
+            label = "today" if days == 0 else f"{days}d overdue"
+            suggestions.append({
+                "type": "client",
+                "client_id": c.get("id"),
+                "title": f"{'📅' if days == 0 else '⚠'} Follow up with {c.get('name') or 'client'} ({label})",
+                "detail": _next_followup_suggestion(c),
+                "score": int(c.get("lead_score") or 0),
+                "overdue": True,
+            })
+        # Then top leads by score who don't have an overdue follow-up
+        overdue_ids = {c.get("id") for c in overdue}
+        hottest = sorted([c for c in clients if c.get("id") not in overdue_ids],
+                         key=lambda x: int(x.get("lead_score") or 0), reverse=True)[:3]
         for c in hottest:
             suggestions.append({
                 "type": "client",
