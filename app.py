@@ -8641,40 +8641,72 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.high   { background:rgba(139,92,246,.22);  color:#ddd6fe; border:1px solid rgba(139,92,246,.45); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
 .wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
-/* Tasks: solid left stripe + diamond shape to distinguish from events */
-/* Tasks: default = lavender */
+/* ── TASKS (local app tasks) — purple ── */
 .wcal-event[data-etype="task"] {
-  background: rgba(139,92,246,.65) !important;  /* lavender — default/high */
+  background: rgba(139,92,246,.65) !important;
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
 }
-/* HIGH priority = lavender (bright) */
 .wcal-event[data-etype="task"].task-prio-high {
   background: rgba(139,92,246,.75) !important;
   color: #f5f3ff !important;
   border-left-color: rgba(216,180,254,.99) !important;
 }
-/* MEDIUM priority = yellow/amber */
 .wcal-event[data-etype="task"].task-prio-medium {
   background: rgba(161,98,7,.82) !important;
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.99) !important;
 }
-/* LOW priority = green */
 .wcal-event[data-etype="task"].task-prio-low {
   background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.99) !important;
 }
-/* Done tasks go grey regardless of priority — but stay visible with strikethrough */
 .wcal-event[data-etype="task"].is-done {
   background: rgba(30,40,70,.75) !important;
   color: rgba(160,180,220,.75) !important;
   border-left-color: rgba(100,120,180,.4) !important;
 }
-/* Events: rounded pill corners, no left stripe */
-.wcal-event[data-etype="event"] { border-radius:7px; }
+/* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
+.wcal-event[data-etype="gcal-task"] {
+  background: rgba(139,92,246,.65) !important;
+  color: #f5f3ff !important;
+  border-left: 3px solid rgba(196,181,253,.95) !important;
+  border-radius: 4px 6px 6px 4px;
+}
+.wcal-event[data-etype="gcal-task"].task-prio-high {
+  background: rgba(139,92,246,.75) !important;
+  color: #f5f3ff !important;
+  border-left-color: rgba(216,180,254,.99) !important;
+}
+.wcal-event[data-etype="gcal-task"].task-prio-medium {
+  background: rgba(161,98,7,.82) !important;
+  color: #fef9c3 !important;
+  border-left-color: rgba(234,179,8,.99) !important;
+}
+.wcal-event[data-etype="gcal-task"].task-prio-low {
+  background: rgba(6,95,70,.82) !important;
+  color: #d1fae5 !important;
+  border-left-color: rgba(16,185,129,.99) !important;
+}
+.wcal-event[data-etype="gcal-task"].is-done {
+  background: rgba(30,40,70,.75) !important;
+  color: rgba(160,180,220,.75) !important;
+  border-left-color: rgba(100,120,180,.4) !important;
+}
+/* ── EVENTS (gcal items manually switched to Event) — blue/teal, distinct ── */
+.wcal-event[data-etype="event"] {
+  background: rgba(14,116,144,.72) !important;
+  color: #e0f2fe !important;
+  border-left: 3px solid rgba(56,189,248,.85) !important;
+  border-radius: 4px 6px 6px 4px;
+}
+.wcal-event[data-etype="event"].is-done {
+  background: rgba(20,40,60,.75) !important;
+  color: rgba(148,180,220,.7) !important;
+  border-left-color: rgba(56,130,180,.35) !important;
+}
 /* ── Type toggle button in detail panel ── */
 .wcal-type-toggle-btn {
   display:flex; align-items:center; justify-content:center; gap:6px;
@@ -13494,10 +13526,8 @@ async function wcalFetchRange(start, end){
       const metaType = metaEntry.gcal_item_type||'';
       if(metaType){
         ev._gcalType = metaType;                  // user explicitly set it
-      } else if(ev.is_motion_task){
-        ev._gcalType = 'task';                    // auto-detected Motion task
       } else {
-        ev._gcalType = 'event';                   // normal Google Calendar event
+        ev._gcalType = 'task';                    // default: all gcal items show as tasks
       }
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
@@ -13674,17 +13704,13 @@ function wcalEventHtml(ev, extraStyle=''){
   const evKey=ev.id||ev.summary||'';
   const isDone=_evDone.has(evKey);
   const doneCls=isDone?' is-done':'';
-  // Apply any user-set priority override — default is always purple (same as high-priority task)
+  // Events (manually switched to Event type) use blue/teal styling
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
-  const prioColors={high:{bg:'rgba(139,92,246,.75)',text:'#f5f3ff'},medium:{bg:'rgba(161,98,7,.82)',text:'#fef9c3'},low:{bg:'rgba(6,95,70,.82)',text:'#d1fae5'}};
-  const defaultColor={bg:'rgba(139,92,246,.68)',text:'#f5f3ff'};
-  const finalColor=(evPrioOverride&&prioColors[evPrioOverride])||defaultColor;
   const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
-  // Render with task-style left stripe so events look identical to tasks
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;background:${finalColor.bg};color:${finalColor.text};${extraStyle}border-left:3px solid rgba(167,139,250,.95);border-radius:4px 6px 6px 4px;" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="📅 ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">📅 ${title}</span>${joinBadge}</div>`;
   if(height>32) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -13716,7 +13742,7 @@ function wcalTaskHtml(task, extraStyle=''){
 // ── Render a Google Calendar event styled as a task ───────────
 function wcalGcalTaskHtml(ev, extraStyle=''){
   const startDate=new Date(ev.start);
-  if(isNaN(startDate)) return wcalEventHtml(ev, extraStyle); // fallback
+  if(isNaN(startDate)) return '';
   const startMins=startDate.getHours()*60+startDate.getMinutes();
   const endDate=new Date(ev.end||ev.start);
   const durMins=Math.max(30,(endDate-startDate)/60000);
@@ -13726,10 +13752,20 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  // Render with task styling (purple stripe, ☑ prefix)
-  let h=`<div class="wcal-event task-prio-high${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  const isRecur=!!(ev.recurringEventId||ev._recurring);
+  const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">↻</span>':'';
+  // Priority from user-set override
+  const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||'high';
+  const prioCls=isDone?'':' task-prio-'+prio;
+  // Meet/Zoom join badges (gcal tasks can still have video links)
+  const meetLink=ev.hangoutLink||'';
+  const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">📹</a>`:'';
+  const zoomBadge=(ev.location&&ev.location.includes('zoom.us'))?` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵</a>`:'';
+  const joinBadge=meetBadge||zoomBadge;
+  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
+  if(isRecur) h+=recurBadge;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -14334,13 +14370,15 @@ window.wcalDetDeleteTask = async function(taskId){
           } else { showToast('Remove failed: ' + (d&&d.error||'unknown')); }
         }catch(err){ showToast('Remove failed'); }
       } else {
+        // Both 'event' and 'gcal-task' are Google Calendar items — delete via gcal API
         const eid = decodeURIComponent(el.dataset.eid || '');
         _ctxPendingAction=false; _ctxEl=null;
         if(!eid) return;
         let ev = null;
         Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
         if(!ev){ ev = {id: eid, summary: eid}; }
-        if(!confirm('Remove "' + (ev.summary||'this event') + '" from your calendar?')) return;
+        const itemLabel = etype==='gcal-task' ? 'task' : 'event';
+        if(!confirm('Remove "' + (ev.summary||'this '+itemLabel) + '" from your calendar?')) return;
         try{
           const res = await fetch('/api/calendar/delete_event', {
             method: 'POST',
@@ -14351,11 +14389,10 @@ window.wcalDetDeleteTask = async function(taskId){
           if(d && d.ok){
             const panel = document.getElementById('wcalDetail');
             if(panel && panel._currentEvent && (panel._currentEvent.id||panel._currentEvent.summary)===eid) panel.classList.remove('open');
-            // Remove from local cache immediately
             Object.keys(cal.events||{}).forEach(date=>{
               cal.events[date]=(cal.events[date]||[]).filter(e=>(e.id||e.summary||'')!==eid);
             });
-            wcalRefresh(); wcalRenderUpcoming(); showToast('✓ Event removed');
+            wcalRefresh(); wcalRenderUpcoming(); showToast('✓ Removed from calendar');
           } else {
             showToast('Could not remove: ' + (d&&d.error?d.error:'Check Google Calendar permissions'));
           }
@@ -14809,8 +14846,13 @@ function wcalRenderWeek(){
     // All-day events
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
     allDay.forEach(ev=>{
-      const color=eventColor(ev); const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      html+='<div class="wcal-event" style="top:4px;height:18px;background:rgba(139,92,246,.72);color:#f5f3ff;font-size:10px;border-left:3px solid rgba(196,181,253,.95);border-radius:4px 6px 6px 4px;" data-eid="'+encodeURIComponent(ev.id||ev.summary||'')+'" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ '+title+'"><div class="wcal-event-title">'+title+'</div></div>';
+      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const evKey=ev.id||ev.summary||'';
+      const isTask=(ev._gcalType||'task')==='task';
+      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
+      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
+      const prefix=isTask?'☑ ':'📅 ';
+      html+=`<div class="wcal-event" style="top:4px;height:18px;background:${bg};color:#f5f3ff;font-size:10px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${prefix}${title}"><div class="wcal-event-title">${prefix}${title}</div></div>`;
     });
     html+='</div>';
   });
@@ -14874,7 +14916,10 @@ function wcalRenderDay(){
   html+='</div>';
   html+='<div style="flex:1;position:relative;">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-  evs.forEach(ev=>{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); });
+  evs.forEach(ev=>{
+    if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
+    else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
+  });
   dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
   if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
   html+='</div></div>';
@@ -14940,27 +14985,38 @@ function wcalRenderUpcoming(){
   const items=[];
   Object.keys(cal.events).sort().forEach(dt=>{
     if(dt<todayStr) return;
-    (cal.events[dt]||[]).forEach(ev=>{ if(ev.start) items.push({type:'event',dt,ev}); });
+    (cal.events[dt]||[]).forEach(ev=>{ if(ev.start) items.push({type: ev._gcalType||'task', dt, ev}); });
   });
-  cal.tasks.filter(t=>t.date>=todayStr).forEach(t=>items.push({type:'task',dt:t.date,task:t}));
+  cal.tasks.filter(t=>t.date>=todayStr).forEach(t=>items.push({type:'local-task',dt:t.date,task:t}));
   items.sort((a,b)=>{
-    const aStr=a.type==='event'?a.ev.start:a.task.date+'T'+(a.task.start||'09:00');
-    const bStr=b.type==='event'?b.ev.start:b.task.date+'T'+(b.task.start||'09:00');
+    const aStr=a.type==='local-task'?a.task.date+'T'+(a.task.start||'09:00'):a.ev.start;
+    const bStr=b.type==='local-task'?b.task.date+'T'+(b.task.start||'09:00'):b.ev.start;
     return aStr.localeCompare(bStr);
   });
   if(!items.length){ box.innerHTML='<div class="wcal-upcoming-time">No upcoming</div>'; return; }
-  box.innerHTML=items.slice(0,10).map(item=>{
-    if(item.type==='event'){
-      const ev=item.ev;
-      const sd=new Date(ev.start); const dateStr=isNaN(sd)?ev.start:sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-      const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-      const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      return '<div class="wcal-upcoming-item"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
-    } else {
+  box.innerHTML=items.slice(0,12).map(item=>{
+    if(item.type==='local-task'){
       const t=item.task;
       const doneMark=t.done?'✓ ':'';
       const title=(t.title||'Task').replace(/</g,'&lt;');
       return '<div class="wcal-upcoming-item" onclick="wcalSelectDate(&quot;'+t.date+'&quot;)"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+t.date+' · '+(t.start||'')+'</div></div>';
+    } else if(item.type==='task'){
+      // gcal item shown as task
+      const ev=item.ev;
+      const sd=new Date(ev.start);
+      const dateStr=isNaN(sd)?ev.start.slice(0,10):sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const isDone=_evDone.has(ev.id||ev.summary||'');
+      return '<div class="wcal-upcoming-item" onclick="(function(){const d=&quot;'+item.dt+'&quot;;wcalSelectDate(d);})()"><div class="wcal-upcoming-title">'+(isDone?'✓ ':'☑ ')+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+    } else {
+      // gcal item shown as event (blue)
+      const ev=item.ev;
+      const sd=new Date(ev.start);
+      const dateStr=isNaN(sd)?ev.start.slice(0,10):sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+      const title=(ev.summary||'Event').replace(/</g,'&lt;');
+      return '<div class="wcal-upcoming-item" style="color:#7dd3fc;" onclick="wcalSelectDate(&quot;'+item.dt+'&quot;)"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
     }
   }).join('');
 }
