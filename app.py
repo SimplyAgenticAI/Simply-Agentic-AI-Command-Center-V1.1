@@ -17010,6 +17010,48 @@ if(typeof maybeAutoShowOnboarding === "function"){
 }
 </style>
 
+<style>
+/* ===== MOBILE BOTTOM CLIP FIX v1 =====
+   100vh on mobile browsers includes the collapsible address bar, causing the
+   bottom input row (Stream button etc.) to be hidden behind browser chrome.
+   100svh = "small viewport height" — the smallest stable vh, safe on all modern iOS/Android.
+   We also add safe-area-inset-bottom so nothing hides behind the home indicator.
+*/
+@media (max-width: 900px) {
+  /* Switch the side panel from 100vh to 100svh so it never overflows */
+  .sideCard {
+    height: calc(100svh - 80px) !important;
+    max-height: calc(100svh - 80px) !important;
+  }
+
+  /* Give the bottom input area breathing room above the home indicator */
+  .sideCard > div:last-child {
+    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Ensure the pill row with Stream button wraps instead of clipping */
+  .pillRow {
+    flex-wrap: wrap !important;
+    row-gap: 6px !important;
+  }
+
+  /* Extra bottom padding on the page so scrolling past last element works */
+  .container {
+    padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+/* Fallback for very old mobile browsers that don't support svh units */
+@supports not (height: 100svh) {
+  @media (max-width: 900px) {
+    .sideCard {
+      height: calc(100vh - 140px) !important;
+      max-height: calc(100vh - 140px) !important;
+    }
+  }
+}
+</style>
+
 <!-- ═══════════════════════════════════════════════════════════════════════
      SESSION 3 HTML — DASHBOARD · SHARE · RAG
      ═══════════════════════════════════════════════════════════════════════ -->
