@@ -2289,6 +2289,12 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
         raw_attendees = it.get("attendees") or []
         attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
+        raw_desc = it.get("description", "") or ""
+        # Detect Motion tasks BEFORE stripping boilerplate — Motion adds "task" patterns to description
+        is_motion_task = bool(re.search(
+            r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
+            raw_desc, re.IGNORECASE
+        ))
         out.append({
             "id": it.get("id",""),
             "summary": it.get("summary",""),
@@ -2297,9 +2303,10 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             "htmlLink": it.get("htmlLink",""),
             "hangoutLink": it.get("hangoutLink",""),
             "recurringEventId": it.get("recurringEventId",""),
-            "description": _strip_motion_boilerplate(it.get("description","") or ""),
+            "description": _strip_motion_boilerplate(raw_desc),
             "location": it.get("location",""),
             "attendees": attendee_emails,
+            "is_motion_task": is_motion_task,
         })
     return out
 
@@ -4439,6 +4446,7 @@ def api_gcal_event_meta_set():
         "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
         "on_complete_client_email":(payload.get("on_complete_client_email") or "").strip(),
         "done": bool(payload.get("done", meta.get(event_id, {}).get("done", False))),
+        "gcal_item_type": (payload.get("gcal_item_type") or meta.get(event_id, {}).get("gcal_item_type") or "").strip(),
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -4452,6 +4460,27 @@ def api_gcal_event_meta_set():
             "client": m["on_complete_client_email"],
         })
     return jsonify({"ok": True, "meta": m})
+
+
+@app.post("/api/calendar/event_type_toggle")
+def api_gcal_event_type_toggle():
+    """Toggle a Google Calendar event between 'event' and 'task' display type."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    event_id = (payload.get("event_id") or "").strip()
+    new_type  = (payload.get("gcal_item_type") or "").strip()  # "event" or "task"
+    if not event_id or new_type not in ("event", "task"):
+        return jsonify({"ok": False, "error": "Missing event_id or invalid type"}), 400
+    meta = _load_gcal_event_meta(uname)
+    entry = meta.get(event_id) or {}
+    entry["gcal_item_type"] = new_type
+    entry["updated_at"] = now_iso()
+    meta[event_id] = entry
+    _save_gcal_event_meta(uname, meta)
+    return jsonify({"ok": True, "event_id": event_id, "gcal_item_type": new_type})
 
 
 # =========================
@@ -8646,6 +8675,16 @@ label         { font-size: 14px !important; }
 }
 /* Events: rounded pill corners, no left stripe */
 .wcal-event[data-etype="event"] { border-radius:7px; }
+/* ── Type toggle button in detail panel ── */
+.wcal-type-toggle-btn {
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  width:100%; padding:6px 10px; border-radius:8px;
+  border:1px solid rgba(99,102,241,.45);
+  background:rgba(99,102,241,.1); color:#c4b5fd;
+  font-size:11px; font-weight:700; letter-spacing:.04em;
+  cursor:pointer; transition:background .15s, border-color .15s;
+}
+.wcal-type-toggle-btn:hover { background:rgba(99,102,241,.25); border-color:rgba(99,102,241,.7); }
 /* Dragging: the original block dims in-place (no ghost clone) */
 .wcal-event[style*="cursor: grabbing"] { outline:2px solid rgba(167,139,250,.7); }
 /* ── Calendar right-click context menu ── */
@@ -13449,6 +13488,17 @@ async function wcalFetchRange(start, end){
     if(!data.ok){ if(st) st.innerText = data.error||'Calendar not connected — connect in Settings'; return; }
     const map = {};
     (data.events||[]).forEach(ev=>{
+      // Determine effective display type: user override in meta > Motion task detection > default event
+      const evId = ev.id||ev.summary||'';
+      const metaEntry = (cal.gcalMeta||{})[evId]||{};
+      const metaType = metaEntry.gcal_item_type||'';
+      if(metaType){
+        ev._gcalType = metaType;                  // user explicitly set it
+      } else if(ev.is_motion_task){
+        ev._gcalType = 'task';                    // auto-detected Motion task
+      } else {
+        ev._gcalType = 'event';                   // normal Google Calendar event
+      }
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
     });
@@ -13663,7 +13713,27 @@ function wcalTaskHtml(task, extraStyle=''){
   return h;
 }
 
-// ── Toggle task done ───────────────────────────────────────────
+// ── Render a Google Calendar event styled as a task ───────────
+function wcalGcalTaskHtml(ev, extraStyle=''){
+  const startDate=new Date(ev.start);
+  if(isNaN(startDate)) return wcalEventHtml(ev, extraStyle); // fallback
+  const startMins=startDate.getHours()*60+startDate.getMinutes();
+  const endDate=new Date(ev.end||ev.start);
+  const durMins=Math.max(30,(endDate-startDate)/60000);
+  const height=Math.max(28,durMins);
+  const evKey=ev.id||ev.summary||'';
+  const isDone=_evDone.has(evKey);
+  const doneCls=isDone?' is-done':'';
+  const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+  // Render with task styling (purple stripe, ☑ prefix)
+  let h=`<div class="wcal-event task-prio-high${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
+  if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+  h+='</div>';
+  return h;
+}
 window.wcalToggleTask = async function(e, taskId){
   e.stopPropagation();
   const task=cal.tasks.find(t=>t.id===taskId); if(!task) return;
@@ -13802,6 +13872,13 @@ window.wcalOpenDetail = function(el){
     const tid=decodeURIComponent(el.dataset.tid||'');
     const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
     wcalShowTaskDetail(task);
+  } else if(etype==='gcal-task'){
+    // Google Calendar event displayed as a task — open gcal task detail
+    const eid=decodeURIComponent(el.dataset.eid||'');
+    let ev=null;
+    Object.values(cal.events).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
+    if(!ev){ ev={summary:eid}; }
+    wcalShowGcalTaskDetail(ev);
   } else {
     // Find event from cal.events by matching id or summary
     const eid=decodeURIComponent(el.dataset.eid||'');
@@ -13898,6 +13975,82 @@ function wcalShowTaskDetail(task){
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
 }
 
+// ── Toggle a gcal event between event/task display type ────────
+window.wcalToggleGcalItemType = async function(evId, currentType){
+  const newType = currentType === 'task' ? 'event' : 'task';
+  try{
+    const res = await fetch('/api/calendar/event_type_toggle',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({event_id: evId, gcal_item_type: newType})
+    });
+    const d = await res.json();
+    if(!d.ok) throw new Error(d.error||'Failed');
+    // Update in-memory meta
+    if(!cal.gcalMeta) cal.gcalMeta={};
+    cal.gcalMeta[evId] = Object.assign(cal.gcalMeta[evId]||{}, {gcal_item_type: newType});
+    // Update the event's _gcalType in memory
+    Object.values(cal.events).forEach(arr=>arr.forEach(e=>{
+      if((e.id||e.summary||'')===evId) e._gcalType = newType;
+    }));
+    showToast(newType==='task' ? '☑ Switched to Task' : '📅 Switched to Event');
+    // Close detail panel and re-render
+    const panel=document.getElementById('wcalDetail');
+    if(panel) panel.classList.remove('open');
+    wcalRefresh(); wcalRenderUpcoming();
+  }catch(e){ showToast('Could not switch type: '+(e.message||'error')); }
+};
+
+// ── Detail panel for a Google Calendar event shown as a task ──
+function wcalShowGcalTaskDetail(ev){
+  const panel=document.getElementById('wcalDetail');
+  const body=document.getElementById('wcalDetBody');
+  const typeLbl=document.getElementById('wcalDetType');
+  if(!panel||!body) return;
+  const evId=ev.id||ev.summary||'';
+  const startD=new Date(ev.start||'');
+  const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
+  const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
+  const isDone=_evDone.has(evId);
+  const htmlLink=ev.htmlLink||'';
+  const metaEntry=(cal.gcalMeta||{})[evId]||{};
+
+  body.innerHTML=`
+    <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Task title" readonly />
+    <div>
+      <div class="wcal-detail-label">Status</div>
+      <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
+        <span>${isDone?'✓':'○'}</span>
+        <span>${isDone?'Completed':'Mark complete'}</span>
+      </div>
+    </div>
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Date</div>
+        <div class="wcal-detail-value">${dateVal}</div>
+      </div>
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Start</div>
+        <div class="wcal-detail-value">${startVal}</div>
+      </div>
+    </div>
+    ${ev.description?`<div><div class="wcal-detail-label">Notes</div><div class="wcal-detail-value" style="white-space:pre-wrap;font-size:12px;opacity:.85;">${ev.description.replace(/</g,'&lt;').slice(0,400)}</div></div>`:''}
+    <div>
+      <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','task')">
+        ⇄ Switch to Event
+      </button>
+    </div>
+    <div class="wcal-detail-actions">
+      ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
+    </div>
+    <div class="wcal-status" id="detStatus"></div>
+  `;
+  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  const detHdr=document.querySelector('.wcal-detail-header');
+  if(detHdr) detHdr.className='wcal-detail-header type-task';
+  panel.classList.add('open');
+  panel._currentEvent=ev; panel._currentTask=null;
+}
+
 function wcalShowEventDetail(ev){
   const panel=document.getElementById('wcalDetail');
   const body=document.getElementById('wcalDetBody');
@@ -13991,6 +14144,11 @@ function wcalShowEventDetail(ev){
     <div class="wcal-detail-actions">
       <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(evId)}')">Save changes</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
+    </div>
+    <div>
+      <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','event')">
+        ⇄ Switch to Task
+      </button>
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
@@ -14639,7 +14797,14 @@ function wcalRenderWeek(){
     const dayTasks=cal.tasks.filter(t=>t.date===dt);
     html+='<div class="wcal-day-col" style="flex:1;position:relative;min-width:0;" data-date="'+dt+'">';
     for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-    evs.forEach(ev=>{ html+=wcalEventHtml(ev); });
+    evs.forEach(ev=>{
+      // Route to task rendering if the event is typed as a task (Motion or user override)
+      if(ev._gcalType === 'task'){
+        html += wcalGcalTaskHtml(ev);
+      } else {
+        html += wcalEventHtml(ev);
+      }
+    });
     dayTasks.forEach(t=>{ html+=wcalTaskHtml(t); });
     // All-day events
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
@@ -14837,14 +15002,14 @@ async function wcalFetchCurrentRange(){
   const mEnd=new Date(last); mEnd.setDate(last.getDate()+(6-last.getDay())+1);
   const fetchStart=start<mStart?start:mStart;
   const fetchEnd=end>mEnd?end:mEnd;
-  await wcalFetchRange(fetchStart,fetchEnd);
-  await wcalFetchTasks();
-  // Load persisted on_complete metadata for Google Calendar events
+  // Load persisted event metadata FIRST so type overrides apply during wcalFetchRange
   try{
     const mr=await fetch('/api/calendar/event_meta');
     const md=await mr.json();
     if(md&&md.ok) cal.gcalMeta=md.meta||{};
   }catch(e){}
+  await wcalFetchRange(fetchStart,fetchEnd);
+  await wcalFetchTasks();
 }
 
 function wcalRefresh(){ if(cal.view==='week') wcalRenderWeek(); else wcalRenderDay(); }
