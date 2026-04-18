@@ -14046,17 +14046,20 @@ function wcalShowGcalTaskDetail(ev){
   const startD=new Date(ev.start||'');
   const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
   const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
-  const isDone=_evDone.has(evId);
+  const isDone=_evDone.has(evId)||(!!((cal.gcalMeta||{})[evId]||{}).done);
   const htmlLink=ev.htmlLink||'';
-  const metaEntry=(cal.gcalMeta||{})[evId]||{};
+  const meta=(cal.gcalMeta||{})[evId]||{};
+  const meetLink=ev.hangoutLink||'';
 
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Task title" readonly />
+    ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
+    ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
-        <span>${isDone?'✓':'○'}</span>
-        <span>${isDone?'Completed':'Mark complete'}</span>
+        <span id="detEvDoneIcon">${isDone?'✓':'○'}</span>
+        <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
       </div>
     </div>
     <div class="wcal-detail-row">
@@ -14070,12 +14073,29 @@ function wcalShowGcalTaskDetail(ev){
       </div>
     </div>
     ${ev.description?`<div><div class="wcal-detail-label">Notes</div><div class="wcal-detail-value" style="white-space:pre-wrap;font-size:12px;opacity:.85;">${ev.description.replace(/</g,'&lt;').slice(0,400)}</div></div>`:''}
+    <div class="wcal-autocomplete-section" id="detEvAutoSection">
+      <div class="wcal-autocomplete-title">📧 Email on Complete</div>
+      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detGcalCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+        <option value="">— Select from CRM (optional) —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Teammate to draft email</div>
+      <select class="wcal-detail-field" id="detEvAutoTeammate">
+        <option value="">— No email draft —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. Stacy" value="${meta.on_complete_client_name||''}" autocomplete="off" />
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${meta.on_complete_client_email||''}" autocomplete="off" />
+      <div class="wcal-automail-status" id="detEvAutoStatus"></div>
+    </div>
     <div>
       <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','task')">
         ⇄ Switch to Event
       </button>
     </div>
     <div class="wcal-detail-actions">
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveGcalTaskMeta('${evId.replace(/'/g,"\\'")}')">Save</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
@@ -14085,6 +14105,9 @@ function wcalShowGcalTaskDetail(ev){
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
+  // Populate dropdowns
+  wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
+  wcalPopulateCrmClientDropdown('detGcalCrmClient', meta.on_complete_client_email||'');
 }
 
 function wcalShowEventDetail(ev){
@@ -14242,14 +14265,28 @@ window.wcalDetToggleDone = async function(){
   const panel=document.getElementById('wcalDetail');
   if(!panel||!panel._currentTask) return;
   const task=panel._currentTask;
-  await wcalToggleTaskById(task.id,!task.done);
-  task.done=!task.done; task.completed_at=task.done?new Date().toISOString():null;
+  const newDone = !task.done;
+  await wcalToggleTaskById(task.id, newDone);
+  task.done = newDone;
+  task.completed_at = newDone ? new Date().toISOString() : null;
   const toggle=document.getElementById('detDoneToggle');
   const icon=document.getElementById('detDoneIcon');
   const lbl=document.getElementById('detDoneLabel');
-  if(toggle){ toggle.classList.toggle('done',task.done); }
-  if(icon) icon.textContent=task.done?'✓':'○';
-  if(lbl) lbl.textContent=task.done?'Completed':'Mark complete';
+  if(toggle){ toggle.classList.toggle('done', newDone); }
+  if(icon) icon.textContent = newDone ? '✓' : '○';
+  if(lbl)  lbl.textContent  = newDone ? 'Completed' : 'Mark complete';
+  // Read on_complete fields from the live form (may be newer than task object)
+  const teammate    = (document.getElementById('detAutoTeammate')?.value    || task.on_complete_teammate    || '').trim();
+  const clientEmail = (document.getElementById('detAutoEmail')?.value        || task.on_complete_client_email|| '').trim();
+  const clientName  = (document.getElementById('detAutoClientName')?.value   || task.on_complete_client_name || '').trim();
+  if(newDone && teammate && clientEmail){
+    const synthTask = Object.assign({}, task, {
+      on_complete_teammate:     teammate,
+      on_complete_client_email: clientEmail,
+      on_complete_client_name:  clientName,
+    });
+    wcalFireCompleteAction(task.id, synthTask);
+  }
 };
 
 async function wcalToggleTaskById(id,done){
@@ -14294,6 +14331,33 @@ window.wcalDetDeleteTask = async function(taskId){
     document.getElementById('wcalDetail')?.classList.remove('open');
     wcalRefresh(); wcalRenderUpcoming(); showToast('Task deleted');
   }catch(e){ showToast('Delete failed'); }
+};
+
+// Save email-on-complete fields for a Google Calendar item shown as task
+window.wcalDetSaveGcalTaskMeta = async function(evId){
+  const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
+  const payload={
+    event_id: evId,
+    on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
+    on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
+    on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
+    done: !!((cal.gcalMeta||{})[evId]||{}).done,
+  };
+  try{
+    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await res.json();
+    if(!d.ok) throw new Error(d.error||'Failed');
+    if(!cal.gcalMeta) cal.gcalMeta={};
+    cal.gcalMeta[evId]=d.meta;
+    if(st) st.innerText='Saved ✓';
+    showToast('Task saved');
+    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+    // Show ✉ badge on the calendar block if email-on-complete is configured
+    wcalRefresh();
+  }catch(e){
+    if(st) st.innerText=e.message||'Save failed';
+    showToast('Save failed');
+  }
 };
 
 // ── Right-click context menu ───────────────────────────────────
@@ -15179,8 +15243,10 @@ window.wcalDetFillClientFromCRM = function(val){
   if(!val) return;
   try{
     const c = JSON.parse(val);
-    const nameEl  = document.getElementById('detAutoClientName');
-    const emailEl = document.getElementById('detAutoEmail');
+    // Support both local task IDs (detAutoClientName/detAutoEmail)
+    // and gcal task IDs (detEvAutoClientName/detEvAutoEmail)
+    const nameEl  = document.getElementById('detAutoClientName')  || document.getElementById('detEvAutoClientName');
+    const emailEl = document.getElementById('detAutoEmail')        || document.getElementById('detEvAutoEmail');
     if(nameEl  && c.name)  nameEl.value  = c.name;
     if(emailEl && c.email) emailEl.value = c.email;
   }catch(e){}
