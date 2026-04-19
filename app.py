@@ -92,14 +92,14 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 # ── Central plan definitions — edit here, nowhere else ──────────────────────
 PLANS: Dict[str, Any] = {
     "starter": {
-        "name":         "Starter Operator",
-        "price":        47,
-        "price_id":     STRIPE_PRICE_ID_STARTER,
-        "badge":        None,
-        "tagline":      "Everything you need to launch your AI team.",
-        "teammates":    4,
+        "name":             "Starter Operator",
+        "price":            47,
+        "price_id":         STRIPE_PRICE_ID_STARTER,
+        "badge":            None,
+        "tagline":          "Everything you need to launch your AI team.",
+        "custom_teammates": 0,      # can't create custom teammates
         "features": [
-            "4 AI teammates",
+            "All 7 built-in AI teammates",
             "All core features",
             "CRM & pipeline",
             "Calendar & tasks",
@@ -111,14 +111,15 @@ PLANS: Dict[str, Any] = {
         ],
     },
     "growth": {
-        "name":         "Growth System",
-        "price":        97,
-        "price_id":     STRIPE_PRICE_ID_GROWTH,
-        "badge":        "Most Popular",
-        "tagline":      "Scale your operations with your full AI crew.",
-        "teammates":    10,
+        "name":             "Growth System",
+        "price":            97,
+        "price_id":         STRIPE_PRICE_ID_GROWTH,
+        "badge":            "Most Popular",
+        "tagline":          "Scale your operations with your full AI crew.",
+        "custom_teammates": 3,      # up to 3 custom teammates
         "features": [
-            "10 AI teammates",
+            "All 7 built-in AI teammates",
+            "Create up to 3 custom teammates",
             "Everything in Starter",
             "Lead Lab — 20×/week",
             "⚡ Outreach drafts — 40/day",
@@ -129,14 +130,15 @@ PLANS: Dict[str, Any] = {
         ],
     },
     "pro": {
-        "name":         "Operator Pro",
-        "price":        197,
-        "price_id":     STRIPE_PRICE_ID_PRO,
-        "badge":        "Unlimited",
-        "tagline":      "No limits. Full power. Early access to everything.",
-        "teammates":    None,   # None = unlimited
+        "name":             "Operator Pro",
+        "price":            197,
+        "price_id":         STRIPE_PRICE_ID_PRO,
+        "badge":            "Unlimited",
+        "tagline":          "No limits. Full power. Early access to everything.",
+        "custom_teammates": None,   # unlimited custom teammates
         "features": [
-            "Unlimited AI teammates",
+            "All 7 built-in AI teammates",
+            "Unlimited custom teammates",
             "Everything in Growth",
             "Lead Lab — Unlimited",
             "⚡ Outreach drafts — Unlimited",
@@ -152,6 +154,28 @@ def _plan_price_id(plan_key: str) -> str:
     """Return the Stripe price ID for a plan key, falling back to Starter."""
     p = PLANS.get(plan_key) or PLANS.get("starter") or {}
     return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+
+
+def _get_user_plan(username: str) -> str:
+    """Return the plan key ('starter'/'growth'/'pro') for a given username.
+    Looks up their seat record. Admins (first user) get 'pro' automatically.
+    Falls back to 'starter' if no seat found.
+    """
+    try:
+        # Admin always gets pro access
+        data = load_users()
+        users = data.get("users") or {}
+        if users:
+            first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
+            if first.get("username") == username:
+                return "pro"
+        seats = (_load_seats().get("seats") or {})
+        for seat in seats.values():
+            if seat.get("claimed_by") == username:
+                return (seat.get("plan") or "starter").strip().lower()
+    except Exception:
+        pass
+    return "starter"
 
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
@@ -4034,6 +4058,39 @@ def api_set_user_settings():
     return jsonify({"ok": True})
 
 
+@app.get("/api/user/pinned_features")
+def api_get_pinned_features():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    pinned = (u.get("settings") or {}).get("pinned_features") or []
+    return jsonify({"ok": True, "pinned_features": pinned})
+
+
+@app.post("/api/user/pinned_features")
+def api_set_pinned_features():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    pinned  = payload.get("pinned_features")
+    if not isinstance(pinned, list):
+        return jsonify({"ok": False, "error": "pinned_features must be a list"}), 400
+    # Validate against known feature keys
+    VALID_FEATURES = {"calendar","crm","lead_lab","social_studio","offer_builder",
+                      "growth_playbook","image_lib","email_console","dashboard"}
+    pinned = [str(f) for f in pinned if str(f) in VALID_FEATURES][:8]
+    users = load_users()
+    uname = u.get("username") if isinstance(u, dict) else _get_session_username()
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    rec["settings"]["pinned_features"] = pinned
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+    return jsonify({"ok": True, "pinned_features": pinned})
+
+
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -4102,6 +4159,29 @@ def api_delete_teammate(n: str):
 def api_create_teammate():
     uname = _get_session_username()
     data = request.get_json(force=True) or {}
+
+    # Enforce plan-based custom teammate limit
+    plan_key  = _get_user_plan(uname)
+    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    max_custom = plan_info.get("custom_teammates")  # None = unlimited, 0 = not allowed
+
+    if max_custom is not None:  # None means unlimited — skip check
+        reg = load_registry(uname)
+        installed = reg.get("installed") or {}
+        current_custom = sum(1 for t in installed.values() if t.get("custom") or t.get("created_by"))
+        if current_custom >= max_custom:
+            plan_name = plan_info.get("name", "your plan")
+            if max_custom == 0:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 3 custom teammates, or Operator Pro for unlimited."
+                }), 403
+            else:
+                return jsonify({
+                    "ok": False,
+                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to Operator Pro for unlimited custom teammates."
+                }), 403
+
     try:
         t = create_teammate(data, uname)
     except Exception as e:
@@ -7504,6 +7584,7 @@ HTML = r"""
     .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
     .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
+    #saPinnedBar:empty{ display:none; }
     .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
@@ -8688,8 +8769,9 @@ label         { font-size: 14px !important; }
 
       </div>
 
-      <!-- Center: Session objective pill only -->
+      <!-- Center: pinned shortcuts + session objective pill -->
       <div class="saNavCenter">
+        <div id="saPinnedBar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;"></div>
         <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
       </div>
 
@@ -12955,6 +13037,134 @@ async function pollImageJob(jobId, seatName){
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
     (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
+
+    // ===== PINNED FEATURE SHORTCUTS =====
+    (function(){
+      // Map feature key → { label, icon, open function name }
+      const FEATURE_MAP = {
+        calendar:       { icon:'📅', label:'Calendar',       fn:'showCalendarModal' },
+        crm:            { icon:'👥', label:'CRM',            fn:'showCRMModal' },
+        lead_lab:       { icon:'🔬', label:'Lead Lab',       fn:'showLeadLabModal' },
+        social_studio:  { icon:'📣', label:'Social Studio',  fn:'showSocialStudioModal' },
+        offer_builder:  { icon:'💡', label:'Offer Builder',  fn:'showOfferBuilderModal' },
+        growth_playbook:{ icon:'📈', label:'Playbook',       fn:'showGrowthPlaybookModal' },
+        image_lib:      { icon:'🖼', label:'Image Lib',      fn:'showImageLibraryModal' },
+        email_console:  { icon:'✉️', label:'Email',          fn:'showEmailConsoleModal' },
+        dashboard:      { icon:'📊', label:'Dashboard',      fn:'saOpenDashboard' },
+      };
+
+      let _pinned = [];
+
+      // Load from API then render
+      async function _loadPinned(){
+        try{
+          const r = await fetch('/api/user/pinned_features');
+          const d = await r.json();
+          if(d.ok){ _pinned = d.pinned_features || []; }
+        }catch(e){}
+        _renderPinnedBar();
+      }
+
+      async function _savePinned(){
+        try{
+          await fetch('/api/user/pinned_features',{
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({pinned_features: _pinned})
+          });
+        }catch(e){}
+      }
+
+      function _renderPinnedBar(){
+        const bar = document.getElementById('saPinnedBar');
+        if(!bar) return;
+        bar.innerHTML = '';
+        _pinned.forEach(key=>{
+          const f = FEATURE_MAP[key]; if(!f) return;
+          const btn = document.createElement('button');
+          btn.title   = f.label;
+          btn.style.cssText = 'background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#c4b5fd;border-radius:8px;padding:4px 9px;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .15s;';
+          btn.innerHTML = `${f.icon}<span style="font-size:11px;font-weight:600;">${f.label}</span>`;
+          btn.onmouseenter = ()=>{ btn.style.background='rgba(124,58,237,.35)'; };
+          btn.onmouseleave = ()=>{ btn.style.background='rgba(124,58,237,.18)'; };
+          btn.onclick = ()=>{ const fn=window[f.fn]; if(typeof fn==='function') fn(); };
+          bar.appendChild(btn);
+        });
+        // Update all open ⭐ pin buttons to reflect current state
+        document.querySelectorAll('[data-pin-key]').forEach(el=>{
+          const key = el.getAttribute('data-pin-key');
+          const isPinned = _pinned.includes(key);
+          el.textContent = isPinned ? '📌 Pinned' : '⭐ Pin to bar';
+          el.style.background = isPinned ? 'rgba(251,191,36,.2)' : 'rgba(124,58,237,.15)';
+          el.style.borderColor = isPinned ? 'rgba(251,191,36,.45)' : 'rgba(124,58,237,.35)';
+          el.style.color       = isPinned ? '#fcd34d' : '#c4b5fd';
+        });
+      }
+
+      // Toggle pin for a feature key
+      window.saTogglePin = function(key){
+        const idx = _pinned.indexOf(key);
+        if(idx >= 0) _pinned.splice(idx,1);
+        else _pinned.push(key);
+        _renderPinnedBar();
+        _savePinned();
+        if(typeof showToast==='function') showToast(idx>=0 ? '📌 Unpinned' : '📌 Pinned to bar!');
+      };
+
+      // Create a standard pin button element for any feature modal
+      window.saCreatePinBtn = function(key){
+        const f = FEATURE_MAP[key]; if(!f) return null;
+        const btn = document.createElement('button');
+        btn.setAttribute('data-pin-key', key);
+        const isPinned = _pinned.includes(key);
+        btn.textContent = isPinned ? '📌 Pinned' : '⭐ Pin to bar';
+        btn.style.cssText = [
+          'padding:4px 11px','border-radius:7px','font-size:12px','font-weight:600',
+          'cursor:pointer','border:1px solid','transition:background .15s',
+          `background:${isPinned?'rgba(251,191,36,.2)':'rgba(124,58,237,.15)'}`,
+          `border-color:${isPinned?'rgba(251,191,36,.45)':'rgba(124,58,237,.35)'}`,
+          `color:${isPinned?'#fcd34d':'#c4b5fd'}`
+        ].join(';');
+        btn.onclick = ()=> saTogglePin(key);
+        return btn;
+      };
+
+      // Inject pin buttons into each tool modal header on load
+      function _injectPinButtons(){
+        const targets = [
+          {modalId:'calendarForm',          key:'calendar'},
+          {modalId:'crmModal',              key:'crm'},
+          {modalId:'leadLabForm',           key:'lead_lab'},
+          {modalId:'socialStudioForm',      key:'social_studio'},
+          {modalId:'offerBuilderForm',      key:'offer_builder'},
+          {modalId:'growthPlaybookForm',    key:'growth_playbook'},
+          {modalId:'imageLibraryModal',     key:'image_lib'},
+          {modalId:'emailConsoleForm',      key:'email_console'},
+        ];
+        targets.forEach(({modalId, key})=>{
+          const modal = document.getElementById(modalId);
+          if(!modal) return;
+          if(modal.querySelector('[data-pin-key]')) return; // already injected
+          // Find the title/header row — inject pin button there
+          const header = modal.querySelector('h2,h3,.modalTitle,.modal-title,.t1') || modal.firstElementChild;
+          if(!header) return;
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;';
+          // Wrap existing header content
+          const clone = header.cloneNode(true);
+          wrap.appendChild(clone);
+          wrap.appendChild(saCreatePinBtn(key));
+          header.replaceWith(wrap);
+        });
+      }
+
+      // Init
+      _loadPinned().then(()=>{ setTimeout(_injectPinButtons, 800); });
+
+      // Re-inject when modals open (they may render lazily)
+      const _origShow = window.showModal;
+      window.showModal = function(){ if(_origShow) _origShow.apply(this,arguments); setTimeout(_injectPinButtons,200); };
+    })();
+    // ===== END PINNED FEATURE SHORTCUTS =====
     // ===== END EXPAND MODAL =====
 
     // ===== IMPERSONATION BANNER =====
