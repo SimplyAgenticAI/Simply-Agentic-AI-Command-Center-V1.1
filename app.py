@@ -471,9 +471,10 @@ def _image_job_get(job_id: str) -> Dict[str, Any]:
     with IMAGE_JOBS_LOCK:
         return dict(IMAGE_JOBS.get(job_id) or {})
 
-def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str) -> None:
+def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str, username: str = "") -> None:
     try:
-        thread = load_thread(teammate)
+        uname = username or _get_session_username()
+        thread = load_thread(teammate, uname)
         replaced = False
         for i in range(len(thread)-1, -1, -1):
             msg = thread[i] or {}
@@ -483,7 +484,7 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
                 break
         if not replaced:
             thread.append({"role": "assistant", "content": final_note})
-        save_thread(teammate, thread)
+        save_thread(teammate, thread, uname)
     except Exception:
         pass
 
@@ -495,13 +496,13 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
             rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
         if err or not url:
             _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
-            _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}")
+            _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}", username=username)
             return
         _image_job_set(job_id, {"status": "done", "url": url, "image": rec})
-        _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}")
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}", username=username)
     except Exception as e:
         _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
-        _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}")
+        _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}", username=username)
 
 def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
     job_id = uuid.uuid4().hex
@@ -2108,8 +2109,8 @@ def image_state_path(teammate_name: str, username: str = "") -> Path:
     safe  = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
     return _user_img_state_dir(uname) / f"{safe}.json"
 
-def load_image_state(teammate_name: str) -> Dict[str, Any]:
-    data = load_json(image_state_path(teammate_name), {
+def load_image_state(teammate_name: str, username: str = "") -> Dict[str, Any]:
+    data = load_json(image_state_path(teammate_name, username), {
         "current_image_id": "",
         "current_image_url": "",
         "approved_image_id": "",
@@ -2134,10 +2135,10 @@ def load_image_state(teammate_name: str) -> Dict[str, Any]:
     data.setdefault("history", [])
     return data
 
-def save_image_state(teammate_name: str, payload: Dict[str, Any]) -> None:
+def save_image_state(teammate_name: str, payload: Dict[str, Any], username: str = "") -> None:
     payload = dict(payload or {})
     payload["updated_at"] = now_iso()
-    save_json(image_state_path(teammate_name), payload)
+    save_json(image_state_path(teammate_name, username), payload)
 
 def _image_url_for_record(rec: Optional[Dict[str, Any]]) -> str:
     if not rec:
@@ -2172,8 +2173,9 @@ def _append_image_history(state: Dict[str, Any], rec: Dict[str, Any], mode: str,
     state["history"] = hist[:50]
     return state
 
-def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], source: str = "generated", prompt: str = "", mode: str = "") -> Dict[str, Any]:
-    state = load_image_state(teammate_name)
+def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], source: str = "generated", prompt: str = "", mode: str = "", username: str = "") -> Dict[str, Any]:
+    uname = username or _get_session_username()
+    state = load_image_state(teammate_name, uname)
     url = _image_url_for_record(rec)
     state["current_image_id"] = rec.get("id", "")
     state["current_image_url"] = url
@@ -2185,28 +2187,30 @@ def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], sour
     if mode:
         state["last_mode"] = mode
     state = _append_image_history(state, rec, mode=mode, prompt=prompt, source=source)
-    save_image_state(teammate_name, state)
+    save_image_state(teammate_name, state, uname)
     return state
 
-def approve_current_image_for_teammate(teammate_name: str) -> Dict[str, Any]:
-    state = load_image_state(teammate_name)
+def approve_current_image_for_teammate(teammate_name: str, username: str = "") -> Dict[str, Any]:
+    uname = username or _get_session_username()
+    state = load_image_state(teammate_name, uname)
     state["approved_image_id"] = state.get("current_image_id", "")
     state["approved_image_url"] = state.get("current_image_url", "")
-    save_image_state(teammate_name, state)
+    save_image_state(teammate_name, state, uname)
     return state
 
-def _latest_image_record_from_state(teammate_name: str) -> Optional[Dict[str, Any]]:
-    state = load_image_state(teammate_name)
+def _latest_image_record_from_state(teammate_name: str, username: str = "") -> Optional[Dict[str, Any]]:
+    state = load_image_state(teammate_name, username or _get_session_username())
     fid = (state.get("current_image_id") or state.get("approved_image_id") or state.get("last_uploaded_image_id") or "").strip()
     return get_upload_record(fid) if fid else None
 
-def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str]) -> Optional[Dict[str, Any]]:
+def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str], username: str = "") -> Optional[Dict[str, Any]]:
+    uname = username or _get_session_username()
     latest = None
     for fid in file_ids or []:
         rec = get_upload_record(fid)
         if _is_image_record(rec):
             latest = rec
-            set_current_image_for_teammate(teammate_name, rec, source="uploaded", prompt="", mode="reference")
+            set_current_image_for_teammate(teammate_name, rec, source="uploaded", prompt="", mode="reference", username=uname)
     return latest
 
 _EDIT_HINTS = [
@@ -2223,9 +2227,9 @@ _START_OVER_HINTS = [
     "start over", "from scratch", "completely different", "brand new", "new graphic", "new image"
 ]
 
-def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False) -> str:
+def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False, username: str = "") -> str:
     p = (prompt or "").strip().lower()
-    state = load_image_state(teammate_name)
+    state = load_image_state(teammate_name, username or _get_session_username())
     has_current = bool((state.get("current_image_id") or "").strip())
     has_context = has_reference_image or has_current
     if any(x in p for x in _START_OVER_HINTS):
@@ -2240,8 +2244,8 @@ def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_i
         return "edit"
     return "new"
 
-def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, source_rec: Optional[Dict[str, Any]] = None) -> str:
-    state = load_image_state(teammate_name)
+def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, source_rec: Optional[Dict[str, Any]] = None, username: str = "") -> str:
+    state = load_image_state(teammate_name, username or _get_session_username())
     current_url = (state.get("current_image_url") or "").strip()
     approved_url = (state.get("approved_image_url") or "").strip()
     base = (raw_prompt or "").strip()
@@ -3107,7 +3111,7 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             image_bytes = base64.b64decode(b64)
             rec = _save_generated_image_bytes(image_bytes, teammate=teammate, username=username)
             url = f"/uploads/{rec['relpath']}"
-            set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode)
+            set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode, username=username)
             return rec, url, None
         except Exception as e:
             last_err = str(e) or "Image generation failed"
@@ -4267,6 +4271,11 @@ def _api_convene_impl(data):
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
 
+    try:
+        uname = _get_session_username()
+    except Exception:
+        uname = "anon"
+
     for name in order:
         defn = installed.get(name)
         if not defn:
@@ -4274,7 +4283,7 @@ def _api_convene_impl(data):
 
         sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
-        thread = load_thread(name)
+        thread = load_thread(name, uname)
         thread = thread[-12:] if len(thread) > 12 else thread
 
         msgs: List[Dict[str, Any]] = []
@@ -4289,7 +4298,7 @@ def _api_convene_impl(data):
             return jsonify({"ok": False, "error": msg}), status
 
         new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
-        save_thread(name, new_thread)
+        save_thread(name, new_thread, uname)
 
         outputs[name] = text
 
@@ -4376,15 +4385,15 @@ def _api_followup_impl(data):
 
     defn = installed[name]
 
-    thread = load_thread(name)
-    thread = thread[-14:] if len(thread) > 14 else thread
-
-    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids)
-
     try:
         uname = _get_session_username()
     except Exception:
         uname = "anon"
+
+    thread = load_thread(name, uname)
+    thread = thread[-14:] if len(thread) > 14 else thread
+
+    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids, uname)
 
     # RAG: retrieve relevant chunks from indexed knowledge base (non-blocking, safe)
     rag_context = ""
@@ -4396,28 +4405,28 @@ def _api_followup_impl(data):
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
     if is_image_request(msg2):
-        source_rec = latest_uploaded_image or _latest_image_record_from_state(name)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec))
+        source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
-        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec)
+        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
         job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
 
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
         placeholder = f"[{mode_label}] job:{job_id}"
-        thread2 = load_thread(name)
+        thread2 = load_thread(name, uname)
         thread2 = thread2[-14:] if len(thread2) > 14 else thread2
         new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
-        save_thread(name, new_thread)
+        save_thread(name, new_thread, uname)
 
-        st0 = load_image_state(name)
+        st0 = load_image_state(name, uname)
         st0["last_prompt"] = msg
         st0["last_mode"] = mode
-        save_image_state(name, st0)
+        save_image_state(name, st0, uname)
 
         append_log("followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id})
         append_task_log("teammate_followup_image_job", {"name": name, "prompt": msg2, "job_prompt": job_prompt, "job_id": job_id, "mode": mode, "source_file_id": source_file_id}, teammate=name, status="queued")
 
-        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name)})
+        return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name, uname)})
 
 
 
@@ -4443,7 +4452,7 @@ def _api_followup_impl(data):
         text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
-    save_thread(name, new_thread)
+    save_thread(name, new_thread, uname)
 
     draft = extract_email_draft(text)
 
@@ -4492,7 +4501,7 @@ def api_thread(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "thread": load_thread(name), "image_state": load_image_state(name)})
+    return jsonify({"ok": True, "thread": load_thread(name, uname), "image_state": load_image_state(name, uname)})
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
@@ -4500,7 +4509,7 @@ def api_teammate_image_state(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "image_state": load_image_state(name)})
+    return jsonify({"ok": True, "image_state": load_image_state(name, uname)})
 
 @app.post("/api/teammates/<name>/current_image")
 def api_teammate_set_current_image(name: str):
@@ -4516,9 +4525,9 @@ def api_teammate_set_current_image(name: str):
     rec = get_upload_record(file_id)
     if not _is_image_record(rec):
         return jsonify({"ok": False, "error": "Image not found"}), 404
-    st = set_current_image_for_teammate(name, rec, source="selected", prompt="", mode="selected")
+    st = set_current_image_for_teammate(name, rec, source="selected", prompt="", mode="selected", username=_get_session_username())
     if approve:
-        st = approve_current_image_for_teammate(name)
+        st = approve_current_image_for_teammate(name, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
 
 @app.post("/api/teammates/<name>/approve_current_image")
@@ -4527,7 +4536,7 @@ def api_teammate_approve_current_image(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    st = approve_current_image_for_teammate(name)
+    st = approve_current_image_for_teammate(name, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st})
 
 
@@ -6622,13 +6631,13 @@ def register_post():
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     if len(pw) < 8:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     if not request.form.get("tos_accepted"):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
@@ -6636,12 +6645,12 @@ def register_post():
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
         if not ok:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
 
     users[username] = _new_user(username, pw, email=email)
     data["users"] = users
@@ -23338,7 +23347,8 @@ def api_thread_snapshot(n: str):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     payload   = request.get_json(silent=True) or {}
     label     = (payload.get("label") or "").strip()[:60] or now_iso()[:16].replace("T", " ")
-    thread    = load_thread(n)
+    uname     = _get_session_username()
+    thread    = load_thread(n, uname)
     if not thread:
         return jsonify({"ok": False, "error": "No messages to snapshot"}), 400
     branch_id = uuid.uuid4().hex[:12]
@@ -23378,7 +23388,7 @@ def api_thread_restore(n: str, branch_id: str):
     branch = (data.get("branches") or {}).get(branch_id)
     if not branch:
         return jsonify({"ok": False, "error": "Branch not found"}), 404
-    save_thread(n, branch["thread"])
+    save_thread(n, branch["thread"], _get_session_username())
     return jsonify({"ok": True, "msg_count": len(branch["thread"]), "label": branch["label"]})
 
 
@@ -23430,7 +23440,7 @@ def api_export_thread(n: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    thread = load_thread(n)
+    thread = load_thread(n, _get_session_username())
     if not thread:
         return jsonify({"ok": False, "error": "No messages to export"}), 400
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", n)[:40]
@@ -23448,7 +23458,7 @@ def api_share_create():
     teammate = (payload.get("teammate") or "").strip()
     if not teammate:
         return jsonify({"ok": False, "error": "teammate required"}), 400
-    thread = load_thread(teammate)
+    thread = load_thread(teammate, _get_session_username())
     if not thread:
         return jsonify({"ok": False, "error": "No messages to share"}), 400
     token = secrets.token_urlsafe(20)
@@ -24015,10 +24025,10 @@ def api_followup_stream():
     msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
     user_content = _build_user_content(msg2, vision_images)
 
-    # Set image context for this teammate (mirrors non-streaming followup)
-    bind_uploaded_images_to_teammate(name, file_ids)
-
     uname = _get_session_username()
+
+    # Set image context for this teammate (mirrors non-streaming followup)
+    bind_uploaded_images_to_teammate(name, file_ids, uname)
 
     # RAG: retrieve relevant chunks from knowledge base
     rag_context = ""
@@ -24029,7 +24039,7 @@ def api_followup_stream():
 
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
-    thread = load_thread(name)
+    thread = load_thread(name, uname)
     thread = thread[-14:] if len(thread) > 14 else thread
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
@@ -24065,7 +24075,7 @@ def api_followup_stream():
                 {"role": "user",      "content": msg2},
                 {"role": "assistant", "content": complete_text},
             ]
-            save_thread(name, new_thread)
+            save_thread(name, new_thread, uname)
 
             draft = extract_email_draft(complete_text)
 
