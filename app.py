@@ -3446,9 +3446,14 @@ def api_admin_seats_generate():
     if not u or not _is_admin_user(u):
         return jsonify({"ok": False, "error": "Admin only"}), 403
     payload = request.get_json(silent=True) or {}
-    count = max(1, min(int(payload.get("count", 1)), 50))
+    count        = max(1, min(int(payload.get("count", 1)), 50))
     holder_name  = (payload.get("holder_name")  or "").strip()[:120]
     holder_email = (payload.get("holder_email") or "").strip()[:200]
+    plan_key     = (payload.get("plan") or "starter").strip().lower()
+    if plan_key not in PLANS:
+        plan_key = "starter"
+    plan_info    = PLANS.get(plan_key) or PLANS["starter"]
+    plan_name    = plan_info.get("name", "Starter Operator")
     data = _load_seats()
     seats = data.get("seats") or {}
     existing_nums = [v.get("seat_num", 0) for v in seats.values()]
@@ -3469,6 +3474,8 @@ def api_admin_seats_generate():
             "holder_name":  holder_name,
             "holder_email": holder_email,
             "source":       "manual",
+            "plan":         plan_key,
+            "plan_name":    plan_name,
         }
         new_codes.append(code)
     data["seats"] = seats
@@ -3496,6 +3503,12 @@ def api_admin_seat_update(code: str):
         seats[code]["holder_name"] = (payload["holder_name"] or "").strip()[:120]
     if "holder_email" in payload:
         seats[code]["holder_email"] = (payload["holder_email"] or "").strip()[:200]
+    if "plan" in payload:
+        plan_key = (payload["plan"] or "starter").strip().lower()
+        if plan_key not in PLANS:
+            plan_key = "starter"
+        seats[code]["plan"]      = plan_key
+        seats[code]["plan_name"] = (PLANS.get(plan_key) or PLANS["starter"]).get("name", "Starter Operator")
     data["seats"] = seats
     _save_seats(data)
     return jsonify({"ok": True, "seat": {"code": code, **seats[code]}})
@@ -3588,6 +3601,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <option value='stripe'>Stripe</option>
     <option value='manual'>Manual</option>
   </select>
+  <select id='filterPlan' onchange='filterTable()'>
+    <option value=''>All plans</option>
+    <option value='starter'>Starter</option>
+    <option value='growth'>Growth</option>
+    <option value='pro'>Pro</option>
+  </select>
   <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
 </div>
 
@@ -3596,6 +3615,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
   <th>Code</th>
   <th>Name</th>
   <th>Email</th>
+  <th>Plan</th>
   <th>Source</th>
   <th>Status</th>
   <th>Claimed by</th>
@@ -3612,6 +3632,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
   <input id='editName' type='text' placeholder='e.g. Jane Smith'/>
   <label>Holder email</label>
   <input id='editEmail' type='email' placeholder='jane@example.com'/>
+  <label>Plan</label>
+  <select id='editPlan'>
+    <option value='starter'>Starter Operator — $47/mo</option>
+    <option value='growth'>Growth System — $97/mo</option>
+    <option value='pro'>Operator Pro — $197/mo</option>
+  </select>
   <label>Notes</label>
   <textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
   <label>Status</label>
@@ -3630,6 +3656,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
 <div id='genModal'>
   <div id='genBox'>
     <h3>Generate Access Code</h3>
+    <label>Plan</label>
+    <select id='genPlan'>
+      <option value='starter'>Starter Operator — $47/mo</option>
+      <option value='growth'>Growth System — $97/mo</option>
+      <option value='pro'>Operator Pro — $197/mo</option>
+    </select>
     <label>Number of codes</label>
     <select id='genCount'>
       <option value='1'>1 code</option>
@@ -3671,6 +3703,14 @@ function renderStats() {
   ].map(([l,v]) => `<div class='stat'><b>${v}</b><span>${l}</span></div>`).join('');
 }
 
+function planBadge(s) {
+  const p = (s.plan || '').toLowerCase();
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Starter Operator');
+  if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
+  if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
+  return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
+}
+
 function statusBadge(s) {
   if (s.status === 'inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
   if (s.claimed_by || s.status === 'used') return "<span class='badge badge-used'>⊙ Used</span>";
@@ -3695,14 +3735,15 @@ function escH(s) {
 function renderTable(seats) {
   const tbody = document.getElementById('seatBody');
   if (!seats.length) {
-    tbody.innerHTML = `<tr><td colspan='8' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
     return;
   }
   tbody.innerHTML = seats.map(s => `
-    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}'>
+    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}' data-plan='${s.plan||''}'>
       <td><span class='code' title='Click to copy' onclick='copyCode("${escH(s.code)}")'>${escH(s.code)}</span></td>
       <td>${s.holder_name ? `<span class='name-cell'>${escH(s.holder_name)}</span>` : `<span class='empty-cell'>—</span>`}</td>
       <td>${(s.holder_email||s.stripe_email) ? `<span class='email-cell'>${escH(s.holder_email||s.stripe_email||'')}</span>` : `<span class='empty-cell'>—</span>`}</td>
+      <td>${planBadge(s)}</td>
       <td>${sourceBadge(s)}</td>
       <td>${statusBadge(s)}</td>
       <td style='color:#94a3b8;font-size:12px;'>${escH(s.claimed_by||'—')}</td>
@@ -3719,14 +3760,16 @@ function renderTable(seats) {
 
 function filterTable() {
   const q = document.getElementById('searchBox').value.toLowerCase();
-  const fs = document.getElementById('filterStatus').value;
+  const fs   = document.getElementById('filterStatus').value;
   const fsrc = document.getElementById('filterSource').value;
+  const fpln = document.getElementById('filterPlan').value;
   const filtered = allSeats.filter(s => {
-    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes].join(' ').toLowerCase();
-    const matchQ  = !q || hay.includes(q);
-    const matchSt = !fs  || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
+    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes, s.plan, s.plan_name].join(' ').toLowerCase();
+    const matchQ   = !q    || hay.includes(q);
+    const matchSt  = !fs   || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
     const matchSrc = !fsrc || (s.source||'manual') === fsrc;
-    return matchQ && matchSt && matchSrc;
+    const matchPln = !fpln || (s.plan||'starter') === fpln;
+    return matchQ && matchSt && matchSrc && matchPln;
   });
   renderTable(filtered);
 }
@@ -3749,9 +3792,10 @@ function openEdit(code) {
   const s = allSeats.find(x => x.code === code);
   if (!s) return;
   editingCode = code;
-  document.getElementById('editName').value  = s.holder_name  || '';
-  document.getElementById('editEmail').value = s.holder_email || s.stripe_email || '';
-  document.getElementById('editNotes').value = s.notes || '';
+  document.getElementById('editName').value   = s.holder_name  || '';
+  document.getElementById('editEmail').value  = s.holder_email || s.stripe_email || '';
+  document.getElementById('editPlan').value   = s.plan || 'starter';
+  document.getElementById('editNotes').value  = s.notes || '';
   document.getElementById('editStatus').value = s.status || 'active';
   document.getElementById('editMsg').innerText = '';
   // Position near the clicked row
@@ -3783,6 +3827,7 @@ async function saveEdit() {
     const payload = {
       holder_name:  document.getElementById('editName').value.trim(),
       holder_email: document.getElementById('editEmail').value.trim(),
+      plan:         document.getElementById('editPlan').value,
       notes:        document.getElementById('editNotes').value.trim(),
       status:       document.getElementById('editStatus').value,
     };
@@ -3817,9 +3862,10 @@ async function toggleSeat(code, currentStatus) {
 
 function openGenModal() {
   document.getElementById('genResult').innerText = '';
-  document.getElementById('genName').value = '';
+  document.getElementById('genName').value  = '';
   document.getElementById('genEmail').value = '';
   document.getElementById('genCount').value = '1';
+  document.getElementById('genPlan').value  = 'starter';
   document.getElementById('genModal').classList.add('open');
 }
 
@@ -3831,9 +3877,10 @@ async function doGenerate() {
   const count = parseInt(document.getElementById('genCount').value) || 1;
   const name  = document.getElementById('genName').value.trim();
   const email = document.getElementById('genEmail').value.trim();
+  const plan  = document.getElementById('genPlan').value || 'starter';
   const res = await fetch('/api/admin/seats/generate', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({count, holder_name: name, holder_email: email})
+    body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
   });
   const d = await res.json();
   if (d.ok) {
