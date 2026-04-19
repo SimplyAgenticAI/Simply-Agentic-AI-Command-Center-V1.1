@@ -96,18 +96,24 @@ PLANS: Dict[str, Any] = {
         "price":            47,
         "price_id":         STRIPE_PRICE_ID_STARTER,
         "badge":            None,
-        "tagline":          "Everything you need to launch your AI team.",
-        "custom_teammates": 0,      # can't create custom teammates
+        "tagline":          "The full AI command center for operators just getting started.",
+        "custom_teammates": 0,
+        "crm_contacts":     500,
+        "broadcast_recipients": 250,
         "features": [
             "All 7 built-in AI teammates",
-            "All core features",
-            "CRM & pipeline",
-            "Calendar & tasks",
-            "Email & SMS tools",
-            "Lead Lab — 5×/week",
-            "⚡ Outreach drafts — 10/day",
-            "Social Studio — 5×/week",
-            "Community access",
+            "Powered by GPT-4o + Claude",
+            "Round table group convene",
+            "Lead Lab — unlimited runs",
+            "Social Studio — unlimited runs",
+            "Offer Builder — unlimited runs",
+            "Growth Playbooks — unlimited runs",
+            "⚡ AI outreach drafts",
+            "CRM + pipeline (up to 500 contacts)",
+            "Email & SMS broadcast (up to 250 recipients)",
+            "Calendar, tasks & Gmail sync",
+            "Nurture sequences",
+            "Dashboard & analytics",
         ],
     },
     "growth": {
@@ -115,18 +121,19 @@ PLANS: Dict[str, Any] = {
         "price":            97,
         "price_id":         STRIPE_PRICE_ID_GROWTH,
         "badge":            "Most Popular",
-        "tagline":          "Scale your operations with your full AI crew.",
-        "custom_teammates": 3,      # up to 3 custom teammates
+        "tagline":          "For operators scaling their pipeline and building their AI team.",
+        "custom_teammates": 3,
+        "crm_contacts":     2500,
+        "broadcast_recipients": 1000,
         "features": [
-            "All 7 built-in AI teammates",
-            "Create up to 3 custom teammates",
             "Everything in Starter",
-            "Lead Lab — 20×/week",
-            "⚡ Outreach drafts — 40/day",
-            "Social Studio — 20×/week",
-            "Broadcast to 2,000 contacts",
+            "Powered by GPT-4o + Claude",
+            "Create up to 3 custom AI teammates",
+            "CRM + pipeline (up to 2,500 contacts)",
+            "Email & SMS broadcast (up to 1,000 recipients)",
+            "Advanced pipeline automation rules",
+            "Client conversation history",
             "Priority support",
-            "Advanced templates",
         ],
     },
     "pro": {
@@ -134,16 +141,16 @@ PLANS: Dict[str, Any] = {
         "price":            197,
         "price_id":         STRIPE_PRICE_ID_PRO,
         "badge":            "Unlimited",
-        "tagline":          "No limits. Full power. Early access to everything.",
-        "custom_teammates": None,   # unlimited custom teammates
+        "tagline":          "No limits. For operators running at full scale.",
+        "custom_teammates": None,
+        "crm_contacts":     None,
+        "broadcast_recipients": None,
         "features": [
-            "All 7 built-in AI teammates",
-            "Unlimited custom teammates",
             "Everything in Growth",
-            "Lead Lab — Unlimited",
-            "⚡ Outreach drafts — Unlimited",
-            "Social Studio — Unlimited",
-            "Broadcast to unlimited contacts",
+            "Powered by GPT-4o + Claude",
+            "Unlimited custom AI teammates",
+            "Unlimited CRM contacts",
+            "Unlimited broadcast recipients",
             "Early access to new features",
             "Priority support",
         ],
@@ -6480,20 +6487,18 @@ def _hash_token(token: str) -> str:
 @app.get("/pricing")
 def pricing_page():
     stripe_on = _stripe_ready()
-    # Build plan cards server-side so prices always match PLANS config
     cards_html = ""
     for key, p in PLANS.items():
-        badge = p.get("badge")
-        is_growth = key == "growth"
+        badge        = p.get("badge")
+        is_growth    = key == "growth"
+        badge_html   = f"<div class='plan-badge'>{badge}</div>" if badge else ""
+        rec_cls      = " plan-card-featured" if is_growth else ""
         features_html = "".join(
             f"<li><span class='pf-check'>✓</span>{f}</li>"
             for f in p.get("features", [])
         )
-        badge_html = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        recommended_cls = " plan-card-featured" if is_growth else ""
-        btn_label = "Get Started"
         cards_html += f"""
-        <div class='plan-card{recommended_cls}'>
+        <div class='plan-card{rec_cls}'>
           {badge_html}
           <div class='plan-name'>{p['name']}</div>
           <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
@@ -6503,7 +6508,7 @@ def pricing_page():
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
             </span>
-            {btn_label}
+            Get Started
           </button>
         </div>"""
 
@@ -6522,21 +6527,21 @@ body{{
     linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
   color:#e2e8f0;
   min-height:100vh;
-  padding:48px 20px 64px;
+  padding:48px 20px 80px;
 }}
 .pg-header{{text-align:center;margin-bottom:48px;}}
-.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:10px;}}
-.pg-header p{{color:#94a3b8;font-size:16px;max-width:520px;margin:0 auto;line-height:1.6;}}
+.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:12px;}}
+.pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
 .brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
 .dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
-.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1060px;margin:0 auto;}}
+.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
 .plan-card{{
-  flex:1;min-width:280px;max-width:320px;
+  flex:1;min-width:290px;max-width:330px;
   background:rgba(14,20,46,.92);
   border:1px solid rgba(80,100,180,.3);
   border-radius:20px;
   padding:32px 28px 28px;
-  display:flex;flex-direction:column;gap:0;
+  display:flex;flex-direction:column;
   position:relative;
   transition:transform .2s,box-shadow .2s;
 }}
@@ -6558,25 +6563,34 @@ body{{
 .plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
 .plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
 .plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
-.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:24px;line-height:1.5;}}
+.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:24px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:18px;}}
 .plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:28px;flex:1;}}
 .plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
-.pf-check{{color:#a78bfa;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px;}}
+.pf-check{{color:#a78bfa;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;}}
 .plan-btn{{
   width:100%;padding:13px;border-radius:10px;
   font-size:14px;font-weight:700;cursor:pointer;
-  border:1px solid rgba(124,58,237,.45);
-  background:rgba(124,58,237,.2);color:#c4b5fd;
-  transition:background .15s,transform .1s;
+  border:none;
+  background:linear-gradient(135deg,#7c3aed,#6d28d9);
+  color:#fff;
+  box-shadow:0 4px 20px rgba(124,58,237,.4);
+  transition:opacity .15s,transform .1s;
   display:flex;align-items:center;justify-content:center;gap:8px;
   margin-top:auto;
 }}
-.plan-btn:hover{{background:rgba(124,58,237,.4);transform:translateY(-1px);}}
+.plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
 .plan-btn:active{{transform:translateY(0);}}
-.plan-btn-featured{{background:linear-gradient(135deg,#7c3aed,#6d28d9)!important;border-color:transparent!important;color:#fff!important;box-shadow:0 4px 20px rgba(124,58,237,.4);}}
-.plan-btn-featured:hover{{background:linear-gradient(135deg,#8b5cf6,#7c3aed)!important;}}
-.btn-spinner svg{{animation:none;}}
-.pg-footer{{text-align:center;margin-top:48px;color:#475569;font-size:13px;}}
+.api-note{{
+  max-width:640px;margin:40px auto 0;
+  background:rgba(124,58,237,.08);
+  border:1px solid rgba(124,58,237,.25);
+  border-radius:14px;padding:18px 22px;
+  display:flex;gap:14px;align-items:flex-start;
+}}
+.api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
+.api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
+.api-note-text strong{{color:#c4b5fd;}}
+.pg-footer{{text-align:center;margin-top:32px;color:#475569;font-size:13px;}}
 .pg-footer a{{color:#7c3aed;text-decoration:none;}}
 .already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
 .already a{{color:#a78bfa;text-decoration:none;}}
@@ -6585,13 +6599,21 @@ body{{
 </head><body>
 <div class='brand'><div class='dot'></div>{APP_TITLE}</div>
 <div class='pg-header'>
-  <h1>Simple, transparent pricing</h1>
-  <p>Every plan includes all features. The difference is how much you can use them and how many teammates you can build.</p>
+  <h1>Every feature. Every AI teammate.</h1>
+  <p>You get the full platform on every plan. You scale, we scale with you.</p>
 </div>
 <div class='plans'>{cards_html}</div>
+
+<div class='api-note'>
+  <div class='api-note-icon'>🔑</div>
+  <div class='api-note-text'>
+    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth with other users. Your key, your data, your AI. Simply Agentic AI is the operating system — you plug in the engine.
+  </div>
+</div>
+
 <div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
-<div class='pg-footer'>
-  All plans are billed monthly. Cancel anytime. &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+<div class='pg-footer' style='margin-top:24px;'>
+  All plans billed monthly. Cancel anytime. &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
 <script>
 async function startCheckout(plan) {{
@@ -6599,9 +6621,6 @@ async function startCheckout(plan) {{
   const spin = document.getElementById('spin-' + plan);
   if (btn)  btn.disabled = true;
   if (spin) spin.style.display = 'inline-flex';
-
-  // Use a hidden form POST so the browser follows the redirect to Stripe directly.
-  // fetch() cannot navigate the page on a cross-origin redirect to Stripe.
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = '/stripe/create_checkout';
@@ -6611,10 +6630,6 @@ async function startCheckout(plan) {{
   input.name  = 'plan';
   input.value = plan;
   form.appendChild(input);
-  const csrfInput = document.createElement('input');
-  csrfInput.type  = 'hidden';
-  csrfInput.name  = 'content_type';
-  csrfInput.value = 'application/x-www-form-urlencoded';
   document.body.appendChild(form);
   form.submit();
 }}
@@ -20273,6 +20288,18 @@ def api_crm_clients_create():
     if not name:
         return jsonify({"ok": False, "error": "Name is required"}), 400
     crm = _crm_load(uname)
+
+    # Plan-based contact limit
+    plan_key  = _get_user_plan(uname)
+    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    max_contacts = plan_info.get("crm_contacts")  # None = unlimited
+    if max_contacts is not None:
+        current_count = len(crm.get("clients") or {})
+        if current_count >= max_contacts:
+            plan_name = plan_info.get("name", "your plan")
+            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts."}), 403
+
     cid = _crm_new_id("c")
     now = now_iso()
     tags_in = payload.get("tags") or []
@@ -20382,6 +20409,12 @@ def api_crm_clients_import_csv():
     crm = _crm_load(uname)
     stages = crm.get("pipeline", {}).get("stages") or ["Lead"]
     default_stage = stages[0] if stages else "Lead"
+
+    # Plan-based contact limit
+    plan_key  = _get_user_plan(uname)
+    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    max_contacts = plan_info.get("crm_contacts")  # None = unlimited
+
     imported = 0
     skipped = 0
 
@@ -20414,6 +20447,10 @@ def api_crm_clients_import_csv():
                 continue
             if not name:
                 name = email or phone or "Imported prospect"
+            # Check contact limit before adding each row
+            if max_contacts is not None and len(crm.get("clients") or {}) >= max_contacts:
+                skipped += 1
+                continue
             now = now_iso()
             cid = _crm_new_id("c")
             crm.setdefault("clients", {})[cid] = {
@@ -20640,9 +20677,14 @@ def api_crm_broadcast_email():
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
 
-        # safety cap
-        if len(recipients) > 250:
-            return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
+        # Plan-based broadcast recipient limit
+        plan_key  = _get_user_plan(uname)
+        plan_info = PLANS.get(plan_key) or PLANS["starter"]
+        max_recipients = plan_info.get("broadcast_recipients")  # None = unlimited
+        if max_recipients is not None and len(recipients) > max_recipients:
+            plan_name   = plan_info.get("name", "your plan")
+            upgrade_to  = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
             return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
@@ -20716,8 +20758,14 @@ def api_crm_broadcast_sms():
         clients = list((crm.get("clients") or {}).values())
         recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
 
-        if len(recipients) > 250:
-            return jsonify({"ok": False, "error": "Too many recipients (cap 250). Narrow your filter."}), 400
+        # Plan-based broadcast recipient limit
+        plan_key  = _get_user_plan(uname)
+        plan_info = PLANS.get(plan_key) or PLANS["starter"]
+        max_recipients = plan_info.get("broadcast_recipients")
+        if max_recipients is not None and len(recipients) > max_recipients:
+            plan_name  = plan_info.get("name", "your plan")
+            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
             return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
