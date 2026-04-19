@@ -14763,8 +14763,7 @@ function wcalTaskHtml(task, extraStyle=''){
   let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span></div>`;
-  if(height>36) h+=`<div class="wcal-event-time">${task.start||''}${durLabel}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
   h+='</div>';
   return h;
@@ -14796,7 +14795,7 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">☑ ${title}</span>${joinBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
