@@ -79,9 +79,82 @@ GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 # =========================
 STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")       # sk_live_... or sk_test_...
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")   # whsec_...
-STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")         # price_xxxxxxxxxxxxxxxx
-# Set to "payment" for one-time purchase, "subscription" for recurring
 STRIPE_MODE           = os.getenv("STRIPE_MODE", "subscription")
+
+# ── Plan price IDs (set these in Render → Environment) ──────────────────────
+# Legacy single-price fallback: if only STRIPE_PRICE_ID is set, it maps to Starter.
+STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
+
+STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "") or STRIPE_PRICE_ID or "price_1TNLaBKAWBo2NxJsK5bMQr4x"
+STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")
+STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWBo2NxJsur0jGGwR")
+
+# ── Central plan definitions — edit here, nowhere else ──────────────────────
+PLANS: Dict[str, Any] = {
+    "starter": {
+        "name":         "Starter Operator",
+        "price":        47,
+        "price_id":     STRIPE_PRICE_ID_STARTER,
+        "badge":        None,
+        "tagline":      "Everything you need to launch your AI team.",
+        "teammates":    3,
+        "features": [
+            "3 AI teammates",
+            "All core features",
+            "CRM & pipeline",
+            "Calendar & tasks",
+            "Email & SMS tools",
+            "Lead Lab — 5×/week",
+            "⚡ Outreach drafts — 10/day",
+            "Social Studio — 5×/week",
+            "Action stacks — 10×/week",
+            "Community access",
+        ],
+    },
+    "growth": {
+        "name":         "Growth System",
+        "price":        97,
+        "price_id":     STRIPE_PRICE_ID_GROWTH,
+        "badge":        "Most Popular",
+        "tagline":      "Scale your operations with your full AI crew.",
+        "teammates":    10,
+        "features": [
+            "10 AI teammates",
+            "Everything in Starter",
+            "Lead Lab — 20×/week",
+            "⚡ Outreach drafts — 40/day",
+            "Social Studio — 20×/week",
+            "Action stacks — 50×/week",
+            "Broadcast to 2,000 contacts",
+            "Priority support",
+            "Advanced templates",
+        ],
+    },
+    "pro": {
+        "name":         "Operator Pro",
+        "price":        197,
+        "price_id":     STRIPE_PRICE_ID_PRO,
+        "badge":        "Unlimited",
+        "tagline":      "No limits. Full power. Early access to everything.",
+        "teammates":    None,   # None = unlimited
+        "features": [
+            "Unlimited AI teammates",
+            "Everything in Growth",
+            "Lead Lab — Unlimited",
+            "⚡ Outreach drafts — Unlimited",
+            "Social Studio — Unlimited",
+            "Action stacks — Unlimited",
+            "Broadcast to unlimited contacts",
+            "Early access to new features",
+            "White-label ready",
+        ],
+    },
+}
+
+def _plan_price_id(plan_key: str) -> str:
+    """Return the Stripe price ID for a plan key, falling back to Starter."""
+    p = PLANS.get(plan_key) or PLANS.get("starter") or {}
+    return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
 
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
@@ -286,19 +359,99 @@ except Exception:
     pass
 
 DATA_DIR = str(DATA)
-REGISTRY_PATH = DATA / "teammates.json"
-THREADS_DIR = DATA / "threads"
+REGISTRY_PATH = DATA / "teammates.json"   # legacy global — kept for migration only
+THREADS_DIR = DATA / "threads"            # legacy global threads
 LOGS_DIR = DATA / "logs"
 UPLOADS_DIR = DATA / "uploads"
 UPLOAD_INDEX_PATH = UPLOADS_DIR / "_index.json"
-IMAGE_STATE_DIR = DATA / "image_state"
+IMAGE_STATE_DIR = DATA / "image_state"   # legacy global image state
 FRAMEWORK_PATH = DATA / "core_framework.txt"
+
+# Per-user teammate storage (new)
+USER_TEAMMATES_DIR  = DATA / "user_teammates"   # {username}.json  per user registry
+USER_THREADS_DIR    = DATA / "user_threads"     # {username}/{teammate}.json
+USER_IMG_STATE_DIR  = DATA / "user_image_state" # {username}/{teammate}.json
 
 DATA.mkdir(exist_ok=True)
 THREADS_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 IMAGE_STATE_DIR.mkdir(exist_ok=True)
+USER_TEAMMATES_DIR.mkdir(exist_ok=True)
+USER_THREADS_DIR.mkdir(exist_ok=True)
+USER_IMG_STATE_DIR.mkdir(exist_ok=True)
+
+
+def _user_registry_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return USER_TEAMMATES_DIR / f"{safe}.json"
+
+
+def _user_threads_dir(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    d = USER_THREADS_DIR / safe
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _user_img_state_dir(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    d = USER_IMG_STATE_DIR / safe
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _migrate_global_registry_once() -> None:
+    """
+    One-time migration: if the old global teammates.json has custom teammates
+    (anything not in PREBUILT_LOCKED / DEFAULT_ORDER), copy them into the
+    admin user's per-user registry. Runs at startup, safe to call repeatedly.
+    """
+    if not REGISTRY_PATH.exists():
+        return
+    try:
+        old = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    old_installed = old.get("installed") or {}
+    # Find custom teammates (not built-in)
+    custom = {k: v for k, v in old_installed.items() if k not in DEFAULT_ORDER}
+    if not custom:
+        return  # nothing to migrate
+
+    # Find the admin username (first created user)
+    try:
+        users_data = load_json(USERS_PATH, {})
+        users = users_data.get("users") or {}
+        if not users:
+            return
+        admin = min(users.items(), key=lambda kv: kv[1].get("created_at") or "")[0]
+    except Exception:
+        return
+
+    admin_path = _user_registry_path(admin)
+    if admin_path.exists():
+        try:
+            existing = json.loads(admin_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {"installed": {}, "installed_order": [], "active_order": []}
+    else:
+        existing = {"installed": {}, "installed_order": [], "active_order": []}
+
+    changed = False
+    for name, defn in custom.items():
+        if name not in existing["installed"]:
+            existing["installed"][name] = defn
+            if name not in existing.get("installed_order", []):
+                existing.setdefault("installed_order", []).append(name)
+            if name not in existing.get("active_order", []):
+                existing.setdefault("active_order", []).append(name)
+            changed = True
+
+    if changed:
+        existing["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        admin_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
 # =========================
 # IMAGE JOBS (non-blocking)
@@ -459,7 +612,8 @@ except Exception:
 # STARTUP MIGRATION: Fix saved teammate job titles
 
 def _stripe_ready() -> bool:
-    return bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
+    # Ready if secret key + at least one plan price ID is configured
+    return bool(STRIPE_SECRET_KEY and (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID))
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Minimal Stripe REST wrapper — no stripe-python dep required."""
@@ -508,7 +662,7 @@ def _load_stripe_sessions() -> Dict[str, Any]:
 def _save_stripe_sessions(data: Dict[str, Any]) -> None:
     save_json(STRIPE_SESSIONS_PATH, data)
 
-def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "") -> str:
+def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "", plan: str = "starter") -> str:
     """Create a fresh seat code tied to a completed Stripe checkout and return it."""
     # Idempotent: if we already made one for this session, return it
     sess_data = _load_stripe_sessions()
@@ -523,6 +677,7 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
     while code in seats:
         code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
 
+    plan_info = PLANS.get(plan) or PLANS.get("starter") or {}
     seats[code] = {
         "seat_num":          next_num,
         "label":             name.strip() if name.strip() else f"Stripe Seat #{next_num}",
@@ -537,11 +692,13 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
         "holder_name":        name.strip(),
         "holder_email":       email.strip(),
         "source":             "stripe",
+        "plan":               plan,
+        "plan_name":          plan_info.get("name", "Starter Operator"),
     }
     data["seats"] = seats
     _save_seats(data)
 
-    sess_data[session_id] = {"code": code, "email": email, "name": name, "created_at": now_iso()}
+    sess_data[session_id] = {"code": code, "email": email, "name": name, "plan": plan, "created_at": now_iso()}
     _save_stripe_sessions(sess_data)
     return code
 
@@ -779,7 +936,7 @@ def _error_500(e):
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -895,6 +1052,12 @@ def _migrate_teammate_job_titles() -> None:
 
 try:
     _migrate_teammate_job_titles()
+except Exception:
+    pass
+
+# Migrate any custom teammates from global registry into admin's per-user registry
+try:
+    _migrate_global_registry_once()
 except Exception:
     pass
 
@@ -1104,7 +1267,7 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
 
     # Step 2: Full team installed
     try:
-        reg = load_registry()
+        reg = load_registry(_get_session_username())
         installed = reg.get("installed") or {}
         if isinstance(installed, dict):
             all_present = True
@@ -1260,7 +1423,7 @@ def _call_teammate_prompt_for_user(u: str, teammate: str, prompt: str, file_ids:
     except Exception:
         pass
 
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     defn = (reg.get("installed") or {}).get(teammate)
     if not defn:
         return ""
@@ -1671,8 +1834,11 @@ def _registry_defaults() -> Dict[str, Any]:
     return {"installed": {}, "installed_order": [], "active_order": [], "updated_at": None}
 
 
-def load_registry() -> Dict[str, Any]:
-    reg = load_json(REGISTRY_PATH, _registry_defaults())
+def load_registry(username: str = "") -> Dict[str, Any]:
+    """Load per-user teammate registry. Built-ins always present; custom ones are per-user."""
+    uname = username or _get_session_username()
+    path  = _user_registry_path(uname)
+    reg   = load_json(path, _registry_defaults()) if path.exists() else _registry_defaults()
     if not isinstance(reg, dict):
         reg = _registry_defaults()
 
@@ -1680,43 +1846,48 @@ def load_registry() -> Dict[str, Any]:
     reg.setdefault("installed_order", [])
     reg.setdefault("active_order", [])
 
-    if (not isinstance(reg.get("active_order"), list)) or (len(reg.get("active_order") or []) == 0):
-        reg["active_order"] = list(reg.get("installed_order") or [])
-
     installed = reg.get("installed") or {}
 
-    # NEW: Registry self-heal for older/corrupted states where teammates exist but ordering lists are empty.
-    # This is additive and prevents "No active teammates" when installed entries are present.
+    # Always inject all built-ins — they can never be missing
+    for name in DEFAULT_ORDER:
+        if name not in installed:
+            installed[name] = PREBUILT_LOCKED[name]
+            if name not in reg["installed_order"]:
+                reg["installed_order"].append(name)
+
+    reg["installed"] = installed
+
+    # Self-heal ordering
     installed_order = reg.get("installed_order") or []
     if installed and (not isinstance(installed_order, list) or len(installed_order) == 0):
-        # Prefer DEFAULT_ORDER for stable UX, then include any additional installed keys.
         rebuilt: List[str] = []
-        try:
-            for n in DEFAULT_ORDER:
-                if n in installed and n not in rebuilt:
-                    rebuilt.append(n)
-        except Exception:
-            pass
+        for n in DEFAULT_ORDER:
+            if n in installed and n not in rebuilt:
+                rebuilt.append(n)
         for n in installed.keys():
             if n not in rebuilt:
                 rebuilt.append(n)
         reg["installed_order"] = rebuilt
 
-    # If active_order is empty after filtering, default to installed_order.
-    if not (reg.get("active_order") or []):
+    if (not isinstance(reg.get("active_order"), list)) or (len(reg.get("active_order") or []) == 0):
         reg["active_order"] = list(reg.get("installed_order") or [])
+
     reg["active_order"] = [n for n in (reg.get("active_order") or []) if n in installed]
 
     return reg
 
 
-def save_registry(reg: Dict[str, Any]) -> None:
+def save_registry(reg: Dict[str, Any], username: str = "") -> None:
+    """Save per-user teammate registry."""
+    uname = username or _get_session_username()
+    path  = _user_registry_path(uname)
     reg["updated_at"] = now_iso()
-    save_json(REGISTRY_PATH, reg)
+    save_json(path, reg)
 
 
-def install_full_team() -> Dict[str, Any]:
-    reg = load_registry()
+def install_full_team(username: str = "") -> Dict[str, Any]:
+    uname = username or _get_session_username()
+    reg = load_registry(uname)
     installed = reg["installed"]
     order = reg["installed_order"]
 
@@ -1734,21 +1905,22 @@ def install_full_team() -> Dict[str, Any]:
             active.append(name)
     reg["active_order"] = active
 
-    save_registry(reg)
+    save_registry(reg, uname)
     return reg
 
 
-def thread_path(teammate_name: str) -> Path:
-    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
-    return THREADS_DIR / f"{safe}.json"
+def thread_path(teammate_name: str, username: str = "") -> Path:
+    uname = username or _get_session_username()
+    safe  = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
+    return _user_threads_dir(uname) / f"{safe}.json"
 
 
-def load_thread(teammate_name: str) -> List[Dict[str, str]]:
-    return load_json(thread_path(teammate_name), [])
+def load_thread(teammate_name: str, username: str = "") -> List[Dict[str, str]]:
+    return load_json(thread_path(teammate_name, username), [])
 
 
-def save_thread(teammate_name: str, msgs: List[Dict[str, str]]) -> None:
-    save_json(thread_path(teammate_name), msgs)
+def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = "") -> None:
+    save_json(thread_path(teammate_name, username), msgs)
 
 
 def _normalize_lines_to_list(val: Any) -> List[str]:
@@ -1825,7 +1997,7 @@ def _make_avatar_for(name: str) -> Dict[str, str]:
     return {"bg": bg, "fg": fg, "sigil": sigil}
 
 
-def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
+def create_teammate(payload: Dict[str, Any], username: str = "") -> Dict[str, Any]:
     name = _clean_teammate_name(payload.get("name", ""))
     if not name:
         raise ValueError("Missing teammate name")
@@ -1833,7 +2005,8 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     if len(name) > 32:
         raise ValueError("Teammate name must be 32 characters or less")
 
-    reg = load_registry()
+    uname = username or _get_session_username()
+    reg = load_registry(uname)
     installed = reg.get("installed") or {}
 
     if name in installed:
@@ -1857,6 +2030,8 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
         "will_not_do": will_not_do,
         "goal": goal,
         "avatar": _make_avatar_for(name),
+        "custom": True,
+        "created_by": uname,
     }
 
     installed[name] = t
@@ -1870,12 +2045,13 @@ def create_teammate(payload: Dict[str, Any]) -> Dict[str, Any]:
     active.append(name)
     reg["active_order"] = active
 
-    save_registry(reg)
+    save_registry(reg, uname)
     return t
 
 
-def set_active_order(active_order: List[str]) -> List[str]:
-    reg = load_registry()
+def set_active_order(active_order: List[str], username: str = "") -> List[str]:
+    uname = username or _get_session_username()
+    reg = load_registry(uname)
     installed = reg.get("installed") or {}
     installed_order = reg.get("installed_order") or []
 
@@ -1897,7 +2073,7 @@ def set_active_order(active_order: List[str]) -> List[str]:
     final = [n for n in installed_order if n in cleaned]
 
     reg["active_order"] = final
-    save_registry(reg)
+    save_registry(reg, uname)
     return final
 
 
@@ -1927,9 +2103,10 @@ def get_upload_record(file_id: str) -> Optional[Dict[str, Any]]:
     return rec if isinstance(rec, dict) else None
 
 
-def image_state_path(teammate_name: str) -> Path:
-    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
-    return IMAGE_STATE_DIR / f"{safe}.json"
+def image_state_path(teammate_name: str, username: str = "") -> Path:
+    uname = username or _get_session_username()
+    safe  = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
+    return _user_img_state_dir(uname) / f"{safe}.json"
 
 def load_image_state(teammate_name: str) -> Dict[str, Any]:
     data = load_json(image_state_path(teammate_name), {
@@ -2967,7 +3144,7 @@ def build_prompt_with_attachments(user_prompt: str, file_ids: List[str]) -> Tupl
 
 @app.get("/api/state")
 def api_state():
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     installed_order = reg["installed_order"]
     active_order = reg.get("active_order") or []
@@ -3016,7 +3193,7 @@ def api_diagnostics():
     """Lightweight, read-only diagnostics for debugging UI state.
     Additive endpoint: does not change behavior of any existing flows.
     """
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     u = current_user()
     # Email capability
     email_cap = _email_capability_for_user(u) if u else {"gmail_connected": False, "smtp_ready": False}
@@ -3806,128 +3983,106 @@ def api_set_framework():
 
 @app.post("/api/install/full")
 def api_install_full():
-    reg = install_full_team()
-    # onboarding_full_team: mark Full Team step after successful install
+    uname = _get_session_username()
+    reg = install_full_team(uname)
     try:
-        uname = _get_session_username()
         _mark_onboarding_step(uname, "full_team", True)
     except Exception:
         pass
-
-
     return jsonify({"ok": True, "installed_order": reg["installed_order"], "active_order": reg.get("active_order") or []})
 
 
 @app.post("/api/active_order")
 def api_set_active_order():
+    uname = _get_session_username()
     data = request.get_json(force=True) or {}
     order = data.get("active_order")
     if not isinstance(order, list):
         return jsonify({"ok": False, "error": "active_order must be a list"}), 400
-    final = set_active_order(order)
+    final = set_active_order(order, uname)
     append_log("active_order_set", {"active_order": final, "updated_at": now_iso()})
     return jsonify({"ok": True, "active_order": final})
 
 
 @app.delete("/api/teammate/<n>")
 def api_delete_teammate(n: str):
-    """Permanently delete a custom teammate. Built-in teammates cannot be deleted (use Dismiss instead)."""
+    """Permanently delete a custom teammate. Built-in teammates cannot be deleted."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    reg = load_registry()
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    reg = load_registry(uname)
     installed = reg.get("installed", {})
     if n not in installed:
         return jsonify({"ok": False, "error": "Teammate not found"}), 404
     if n in PREBUILT_LOCKED:
-        return jsonify({"ok": False, "error": f"'{n}' is a built-in teammate — use Dismiss to remove them from the table instead."}), 403
+        return jsonify({"ok": False, "error": f"\'{n}\' is a built-in teammate — use Dismiss to remove them from the table instead."}), 403
     installed.pop(n, None)
     reg["installed"] = installed
     reg["installed_order"] = [x for x in (reg.get("installed_order") or []) if x != n]
     reg["active_order"]    = [x for x in (reg.get("active_order") or []) if x != n]
-    save_registry(reg)
+    save_registry(reg, uname)
     try:
-        tp = thread_path(n)
+        tp = thread_path(n, uname)
         if tp.exists(): tp.unlink()
     except Exception:
         pass
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     append_log("teammate_deleted", {"name": n, "deleted_by": uname, "at": now_iso()})
     return jsonify({"ok": True})
 
 
 @app.post("/api/teammate/create")
 def api_create_teammate():
+    uname = _get_session_username()
     data = request.get_json(force=True) or {}
     try:
-        t = create_teammate(data)
+        t = create_teammate(data, uname)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
-
-    append_log("teammate_created", {
-        "name": t.get("name"),
-        "job_title": t.get("job_title"),
-        "version": t.get("version"),
-        "created_at": now_iso()
-    })
+    append_log("teammate_created", {"name": t.get("name"), "job_title": t.get("job_title"), "version": t.get("version"), "created_at": now_iso()})
     return jsonify({"ok": True, "teammate": t})
 
 
-@app.get("/api/teammate/<name>")
+@app.get("/api/teammate/<n>")
 def api_get_teammate(name: str):
-    reg = load_registry()
+    uname = _get_session_username()
+    reg = load_registry(uname)
     installed = reg.get("installed", {})
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
     t = installed[name]
-    return jsonify({
-        "ok": True,
-        "teammate": {
-            "name": t.get("name", name),
-            "job_title": t.get("job_title", ""),
-            "version": t.get("version", ""),
-            "mission": t.get("mission", ""),
-            "responsibilities": t.get("responsibilities", []),
-            "thinking_style": t.get("thinking_style", ""),
-            "will_not_do": t.get("will_not_do", []),
-            "goal": t.get("goal", ""),
-            "preferred_model": t.get("preferred_model", ""),
-            "tts_voice": t.get("tts_voice", "alloy"),
-        }
-    })
+    return jsonify({"ok": True, "teammate": {
+        "name": t.get("name", name), "job_title": t.get("job_title", ""),
+        "version": t.get("version", ""), "mission": t.get("mission", ""),
+        "responsibilities": t.get("responsibilities", []), "thinking_style": t.get("thinking_style", ""),
+        "will_not_do": t.get("will_not_do", []), "goal": t.get("goal", ""),
+        "preferred_model": t.get("preferred_model", ""), "tts_voice": t.get("tts_voice", "alloy"),
+    }})
 
 
-@app.post("/api/teammate/<name>")
+@app.post("/api/teammate/<n>")
 def api_update_teammate(name: str):
-    reg = load_registry()
+    uname = _get_session_username()
+    reg = load_registry(uname)
     installed = reg.get("installed", {})
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
-
     payload = request.get_json(force=True) or {}
     current = installed[name]
     updated = _sanitize_teammate_update(payload, current)
-
     installed[name] = updated
     reg["installed"] = installed
-    save_registry(reg)
-
+    save_registry(reg, uname)
     append_log("teammate_updated", {
-        "name": name,
-        "updated_at": now_iso(),
-        "updated_fields": list(payload.keys()),
-        "snapshot": {
-            "name": updated.get("name", ""),
-            "job_title": updated.get("job_title", ""),
-            "version": updated.get("version", ""),
-            "mission": updated.get("mission", ""),
-            "responsibilities_count": len(updated.get("responsibilities", []) or []),
-            "will_not_do_count": len(updated.get("will_not_do", []) or []),
-            "goal": updated.get("goal", ""),
-        }
+        "name": name, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
+        "snapshot": {"name": updated.get("name",""), "job_title": updated.get("job_title",""),
+                     "version": updated.get("version",""), "mission": updated.get("mission",""),
+                     "responsibilities_count": len(updated.get("responsibilities",[]) or []),
+                     "will_not_do_count": len(updated.get("will_not_do",[]) or []),
+                     "goal": updated.get("goal","")}
     })
-
     return jsonify({"ok": True})
+
 
 
 @app.post("/api/upload")
@@ -4052,7 +4207,7 @@ def _api_convene_impl(data):
     if not prompt:
         return jsonify({"ok": False, "error": "Missing prompt"}), 400
 
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     order = reg.get("active_order") or reg.get("installed_order") or []
 
@@ -4211,7 +4366,7 @@ def _api_followup_impl(data):
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
 
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4333,7 +4488,7 @@ def _api_followup_impl(data):
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4341,7 +4496,7 @@ def api_thread(name: str):
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4349,7 +4504,7 @@ def api_teammate_image_state(name: str):
 
 @app.post("/api/teammates/<name>/current_image")
 def api_teammate_set_current_image(name: str):
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4368,7 +4523,7 @@ def api_teammate_set_current_image(name: str):
 
 @app.post("/api/teammates/<name>/approve_current_image")
 def api_teammate_approve_current_image(name: str):
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4995,7 +5150,7 @@ def api_cal_task_complete_action(task_id: str):
     # voice: "operator" = written in first person as the operator, "teammate" = teammate introduces themselves
     voice = payload.get("voice", "teammate")
 
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     defn = (reg.get("installed") or {}).get(teammate_name)
     if not defn:
         return jsonify({"ok": False, "error": f"Teammate '{teammate_name}' not found. Make sure they are installed at the round table."}), 404
@@ -5647,6 +5802,7 @@ LOGIN_HTML = r"""
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
       {% if allow_signup %}
+        <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
       {% endif %}
       {% if allow_setup %}
@@ -5820,13 +5976,16 @@ REGISTER_HTML = r"""
     <div class="stripeBlock">
       <div class="stripeLogo">
         <svg width="18" height="18" viewBox="0 0 50 50" fill="none"><rect width="50" height="50" rx="8" fill="#635bff"/><path d="M22.5 18.5c0-1.38 1.12-2 2.8-2 2.5 0 5.6.75 7.7 2.1V11.6C30.7 10.6 27.9 10 25.3 10c-5.5 0-9.3 2.9-9.3 7.8 0 7.5 10.3 6.3 10.3 9.6 0 1.63-1.4 2.15-3.2 2.15-2.76 0-6.3-1.13-9.1-2.65v7.1c3.1 1.3 6.2 1.9 9.1 1.9 5.7 0 9.6-2.8 9.6-7.7-.03-8.1-10.3-6.65-10.3-9.7z" fill="#fff"/></svg>
-        Subscribe to get access
+        {% if plan_name %}Subscribe — {{ plan_name }}{% else %}Subscribe to get access{% endif %}
       </div>
       <button class="stripeBtn" id="stripePayBtn" onclick="startStripeCheckout()">
         <svg id="stripeSpinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-opacity=".3"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path></svg>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" id="stripeCardIcon"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         Pay &amp; Subscribe
       </button>
+      <div style="text-align:center;margin-top:10px;">
+        <a href="/pricing" style="font-size:12px;color:rgba(99,91,255,.8);text-decoration:none;">← View all plans &amp; pricing</a>
+      </div>
     </div>
 
     <div class="orDivider">or enter your access code below</div>
@@ -5928,10 +6087,14 @@ function startStripeCheckout() {
   spinner.style.display = 'inline';
   cardIcon.style.display = 'none';
 
-  fetch('/stripe/create_checkout', { method: 'POST' })
+  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter';
+
+  fetch('/stripe/create_checkout', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ plan })
+  })
     .then(r => {
-      // The server returns a redirect, but fetch follows it.
-      // We navigate via the final URL.
       if (r.redirected) { window.location.href = r.url; return; }
       return r.json().then(d => {
         if (d && d.error) { alert('Stripe error: ' + d.error); resetBtn(); }
@@ -6162,6 +6325,152 @@ def _hash_token(token: str) -> str:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+@app.get("/pricing")
+def pricing_page():
+    stripe_on = _stripe_ready()
+    # Build plan cards server-side so prices always match PLANS config
+    cards_html = ""
+    for key, p in PLANS.items():
+        badge = p.get("badge")
+        is_growth = key == "growth"
+        features_html = "".join(
+            f"<li><span class='pf-check'>✓</span>{f}</li>"
+            for f in p.get("features", [])
+        )
+        badge_html = f"<div class='plan-badge'>{badge}</div>" if badge else ""
+        recommended_cls = " plan-card-featured" if is_growth else ""
+        btn_label = "Get Started" if not is_growth else "Start Growing"
+        cards_html += f"""
+        <div class='plan-card{recommended_cls}'>
+          {badge_html}
+          <div class='plan-name'>{p['name']}</div>
+          <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
+          <div class='plan-tagline'>{p['tagline']}</div>
+          <ul class='plan-features'>{features_html}</ul>
+          <button class='plan-btn{"plan-btn-featured" if is_growth else ""}' onclick="startCheckout('{key}')" id='planBtn-{key}'>
+            <span class='btn-spinner' id='spin-{key}' style='display:none'>
+              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+            </span>
+            {btn_label}
+          </button>
+        </div>"""
+
+    page = f"""<!doctype html>
+<html><head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Pricing — {APP_TITLE}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{
+  font-family:system-ui,Arial,sans-serif;
+  background:
+    radial-gradient(1200px 820px at 50% 22%, rgba(247,211,106,.13), transparent 56%),
+    radial-gradient(1200px 900px at 50% 38%, rgba(124,58,237,.22), transparent 58%),
+    linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
+  color:#e2e8f0;
+  min-height:100vh;
+  padding:48px 20px 64px;
+}}
+.pg-header{{text-align:center;margin-bottom:48px;}}
+.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:10px;}}
+.pg-header p{{color:#94a3b8;font-size:16px;max-width:520px;margin:0 auto;line-height:1.6;}}
+.brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
+.dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
+.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1060px;margin:0 auto;}}
+.plan-card{{
+  flex:1;min-width:280px;max-width:320px;
+  background:rgba(14,20,46,.92);
+  border:1px solid rgba(80,100,180,.3);
+  border-radius:20px;
+  padding:32px 28px 28px;
+  display:flex;flex-direction:column;gap:0;
+  position:relative;
+  transition:transform .2s,box-shadow .2s;
+}}
+.plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
+.plan-card-featured{{
+  border-color:rgba(124,58,237,.7);
+  background:rgba(20,16,54,.96);
+  box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);
+}}
+.plan-badge{{
+  position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+  background:linear-gradient(90deg,#7c3aed,#6d28d9);
+  color:#f3e8ff;font-size:11px;font-weight:800;
+  padding:4px 16px;border-radius:999px;white-space:nowrap;
+  letter-spacing:.06em;text-transform:uppercase;
+  box-shadow:0 4px 16px rgba(124,58,237,.4);
+}}
+.plan-name{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
+.plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
+.plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
+.plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
+.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:24px;line-height:1.5;}}
+.plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:28px;flex:1;}}
+.plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
+.pf-check{{color:#a78bfa;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px;}}
+.plan-btn{{
+  width:100%;padding:13px;border-radius:10px;
+  font-size:14px;font-weight:700;cursor:pointer;
+  border:1px solid rgba(124,58,237,.45);
+  background:rgba(124,58,237,.2);color:#c4b5fd;
+  transition:background .15s,transform .1s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-top:auto;
+}}
+.plan-btn:hover{{background:rgba(124,58,237,.4);transform:translateY(-1px);}}
+.plan-btn:active{{transform:translateY(0);}}
+.plan-btn-featured{{background:linear-gradient(135deg,#7c3aed,#6d28d9)!important;border-color:transparent!important;color:#fff!important;box-shadow:0 4px 20px rgba(124,58,237,.4);}}
+.plan-btn-featured:hover{{background:linear-gradient(135deg,#8b5cf6,#7c3aed)!important;}}
+.btn-spinner svg{{animation:none;}}
+.pg-footer{{text-align:center;margin-top:48px;color:#475569;font-size:13px;}}
+.pg-footer a{{color:#7c3aed;text-decoration:none;}}
+.already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
+.already a{{color:#a78bfa;text-decoration:none;}}
+.already a:hover{{text-decoration:underline;}}
+</style>
+</head><body>
+<div class='brand'><div class='dot'></div>{APP_TITLE}</div>
+<div class='pg-header'>
+  <h1>Simple, transparent pricing</h1>
+  <p>Every plan includes all features. The difference is how much you can use them and how many teammates you can build.</p>
+</div>
+<div class='plans'>{cards_html}</div>
+<div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
+<div class='pg-footer'>
+  All plans are billed monthly. Cancel anytime. &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+</div>
+<script>
+async function startCheckout(plan) {{
+  const btn  = document.getElementById('planBtn-' + plan);
+  const spin = document.getElementById('spin-' + plan);
+  if (btn)  btn.disabled = true;
+  if (spin) spin.style.display = 'inline-flex';
+
+  try {{
+    const res = await fetch('/stripe/create_checkout', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{ plan }})
+    }});
+    if (res.redirected) {{ window.location.href = res.url; return; }}
+    const d = await res.json().catch(()=>({{}}));
+    if (d && d.error) {{ alert('Error: ' + d.error); }}
+  }} catch(e) {{
+    alert('Could not connect to Stripe. Please try again.');
+  }} finally {{
+    if (btn)  btn.disabled = false;
+    if (spin) spin.style.display = 'none';
+  }}
+}}
+</script>
+</body></html>"""
+    resp = make_response(page)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.get("/terms")
 def terms():
     resp = make_response(render_template_string(TERMS_HTML, app_title=APP_TITLE))
@@ -6274,6 +6583,10 @@ def register_get():
     stripe_email = None
     stripe_err   = None
     stripe_session = (request.args.get("stripe_session") or "").strip()
+    selected_plan  = (request.args.get("plan") or "starter").strip().lower()
+    if selected_plan not in PLANS:
+        selected_plan = "starter"
+
     if stripe_session:
         code, email = _stripe_session_code(stripe_session)
         if code:
@@ -6291,6 +6604,8 @@ def register_get():
         stripe_code=stripe_code,
         stripe_email=stripe_email,
         stripe_enabled=_stripe_ready(),
+        selected_plan=selected_plan,
+        plan_name=(PLANS.get(selected_plan) or {}).get("name", ""),
     ))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
@@ -6353,18 +6668,27 @@ def logout():
 
 @app.post("/stripe/create_checkout")
 def stripe_create_checkout():
-    """Redirect the visitor to a Stripe Checkout session for seat purchase."""
+    """Redirect the visitor to a Stripe Checkout session for the selected plan."""
     if not _stripe_ready():
         return jsonify({"ok": False, "error": "Stripe is not configured on this server."}), 400
 
+    payload  = request.get_json(silent=True) or {}
+    plan_key = (payload.get("plan") or request.form.get("plan") or "starter").strip().lower()
+    if plan_key not in PLANS:
+        plan_key = "starter"
+
+    price_id = _plan_price_id(plan_key)
+    if not price_id:
+        return jsonify({"ok": False, "error": f"No price ID configured for plan '{plan_key}'."}), 400
+
     base = (PUBLIC_BASE_URL or request.host_url.rstrip("/"))
     # {CHECKOUT_SESSION_ID} is a Stripe template variable — Stripe fills it in automatically.
-    success_url = f"{base}/register?stripe_session={{CHECKOUT_SESSION_ID}}"
-    cancel_url  = f"{base}/register"
+    success_url = f"{base}/register?stripe_session={{CHECKOUT_SESSION_ID}}&plan={plan_key}"
+    cancel_url  = f"{base}/pricing"
 
     status, data = _stripe_api("POST", "/checkout/sessions", {
         "payment_method_types[]": "card",
-        "line_items[0][price]":    STRIPE_PRICE_ID,
+        "line_items[0][price]":    price_id,
         "line_items[0][quantity]": "1",
         "mode":                    STRIPE_MODE,
         "allow_promotion_codes":   "true",
@@ -6404,8 +6728,19 @@ def stripe_webhook():
         details     = obj.get("customer_details") or {}
         email       = (details.get("email") or obj.get("customer_email") or "")
         name        = (details.get("name") or "").strip()
+        # Detect plan from the price ID on the line items
+        plan = "starter"
+        try:
+            paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
+        except Exception:
+            paid_price = ""
+        if paid_price:
+            for pk, pv in PLANS.items():
+                if pv.get("price_id") == paid_price:
+                    plan = pk
+                    break
         if session_id:
-            _generate_seat_for_stripe(email, customer_id, session_id, name=name)
+            _generate_seat_for_stripe(email, customer_id, session_id, name=name, plan=plan)
 
     return jsonify({"ok": True})
 
@@ -19754,7 +20089,7 @@ def api_crm_draft_outreach(client_id: str):
             f"```"
         )
 
-    reg       = load_registry()
+    reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
     teammate  = "Sunshine" if "Sunshine" in installed else (list(installed.keys())[0] if installed else None)
     if not teammate:
@@ -22547,7 +22882,7 @@ def api_os_collaborate():
     teammates = payload.get("teammates") or ["Alex", "Willow", "Sunshine"]
     if not prompt:
         return jsonify({"ok": False, "error": "Missing prompt"}), 400
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
     selected = [t for t in teammates if t in installed][:6]
     if not selected:
@@ -22676,7 +23011,7 @@ def api_os_error_explain():
 
 @app.get("/api/os/integrity_audit")
 def api_os_integrity_audit():
-    reg = load_registry()
+    reg = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
     issues = []
     for name, t in installed.items():
@@ -23671,7 +24006,7 @@ def api_followup_stream():
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
 
-    reg       = load_registry()
+    reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
