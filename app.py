@@ -592,6 +592,50 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE_URL.startswith("https://")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
+# =========================
+# LOGIN BRUTE-FORCE PROTECTION
+# =========================
+# In-memory store: { ip_or_user -> {"count": int, "locked_until": datetime|None} }
+# Resets on server restart — intentional, keeps it simple and stateless.
+_LOGIN_ATTEMPTS: Dict[str, Any] = {}
+_LOGIN_ATTEMPTS_LOCK = __import__("threading").Lock()
+_MAX_LOGIN_ATTEMPTS = 5
+_LOCKOUT_MINUTES    = 15
+
+def _login_key(username: str) -> str:
+    """Key by username so lockout is per-account, not per-IP (harder to spoof)."""
+    return f"login:{username.lower().strip()}"
+
+def _check_login_allowed(username: str) -> Tuple[bool, str]:
+    """Returns (allowed, error_message)."""
+    key = _login_key(username)
+    with _LOGIN_ATTEMPTS_LOCK:
+        rec = _LOGIN_ATTEMPTS.get(key)
+        if not rec:
+            return True, ""
+        locked_until = rec.get("locked_until")
+        if locked_until and datetime.utcnow() < locked_until:
+            remaining = int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+            return False, f"Too many failed attempts. Account locked for {remaining} more minute(s). Try again later."
+        return True, ""
+
+def _record_login_failure(username: str) -> None:
+    key = _login_key(username)
+    with _LOGIN_ATTEMPTS_LOCK:
+        rec = _LOGIN_ATTEMPTS.get(key) or {"count": 0, "locked_until": None}
+        # Reset if previous lockout has expired
+        if rec.get("locked_until") and datetime.utcnow() >= rec["locked_until"]:
+            rec = {"count": 0, "locked_until": None}
+        rec["count"] = rec.get("count", 0) + 1
+        if rec["count"] >= _MAX_LOGIN_ATTEMPTS:
+            rec["locked_until"] = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
+        _LOGIN_ATTEMPTS[key] = rec
+
+def _clear_login_failures(username: str) -> None:
+    key = _login_key(username)
+    with _LOGIN_ATTEMPTS_LOCK:
+        _LOGIN_ATTEMPTS.pop(key, None)
+
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
     if not isinstance(data, dict):
@@ -679,6 +723,59 @@ def login_required_api() -> bool:
     if p.startswith("/api/") and p not in ("/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"):
         return True
     return False
+
+
+# =========================
+# SECURITY RESPONSE HEADERS + ERROR PAGES
+# =========================
+_ERROR_PAGE_CSS = (
+    "body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;"
+    "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}"
+    ".box{text-align:center;padding:40px;max-width:480px;}"
+    "h1{font-size:64px;font-weight:900;color:#c4b5fd;margin:0 0 8px;}"
+    "h2{font-size:20px;font-weight:700;margin:0 0 12px;}"
+    "p{color:#94a3b8;font-size:14px;margin:0 0 24px;}"
+    "a{color:#c4b5fd;text-decoration:none;font-size:14px;border:1px solid rgba(124,58,237,.4);"
+    "padding:9px 20px;border-radius:8px;background:rgba(124,58,237,.12);}"
+    "a:hover{background:rgba(124,58,237,.25);}"
+)
+
+@app.after_request
+def _add_security_headers(response):
+    response.headers["X-Frame-Options"]        = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"]     = "geolocation=(), camera=(), microphone=(self)"
+    if PUBLIC_BASE_URL.startswith("https://"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+@app.errorhandler(404)
+def _error_404(e):
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>404 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>404</h1><h2>Page not found</h2>"
+        f"<p>The page you're looking for doesn't exist or has moved.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 404
+
+@app.errorhandler(500)
+def _error_500(e):
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>500 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>500</h1><h2>Something went wrong</h2>"
+        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 500
+
 
 @app.before_request
 def _auth_guard():
@@ -6116,14 +6213,25 @@ def login_post():
     password = (request.form.get("password") or "").strip()
     remember = (request.form.get("remember") or "").strip()
 
+    # Check lockout before touching the password hash
+    allowed, lock_msg = _check_login_allowed(username)
+    if not allowed:
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=lock_msg, allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u or not check_password_hash(u.get("password_hash",""), password):
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Invalid username or password.", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        _record_login_failure(username)
+        # Give a hint about lockout on the 4th failure
+        attempts_rec = _LOGIN_ATTEMPTS.get(_login_key(username)) or {}
+        count = attempts_rec.get("count", 0)
+        hint = f" ({_MAX_LOGIN_ATTEMPTS - count} attempt(s) remaining before lockout)" if 0 < count < _MAX_LOGIN_ATTEMPTS else ""
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=f"Invalid username or password.{hint}", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
+    # Successful login — clear any failure record
+    _clear_login_failures(username)
     session["user"] = username
     session.permanent = bool(remember)
-    # if remember is checked, keep for 30 days
     if remember:
         app.permanent_session_lifetime = timedelta(days=30)
 
@@ -6133,13 +6241,21 @@ def login_post():
 
 # ===== NEW: Account registration (additive) =====
 def _signup_enabled() -> bool:
-    # Allow signups if explicitly enabled, or if there are no users yet (first run).
+    # Explicit env override always wins
     v = (os.getenv("ALLOW_SIGNUP") or "").strip().lower()
     if v in ("1","true","yes","y","on"):
         return True
     if v in ("0","false","no","n","off"):
         return False
-    return (not has_any_user())
+    # First-run: no users yet → allow setup
+    if not has_any_user():
+        return True
+    # Stripe is configured → signup is always open because payment IS the gate.
+    # The access code (seat code) is what controls who actually gets in.
+    if _stripe_ready():
+        return True
+    # No Stripe, users already exist, no explicit flag → closed by default
+    return False
 
 def _require_invite_code() -> bool:
     v = (os.getenv("REQUIRE_INVITE_CODE") or "").strip().lower()
@@ -6205,12 +6321,12 @@ def register_post():
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
         if not ok:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True)
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True)
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
 
     users[username] = _new_user(username, pw, email=email)
     data["users"] = users
@@ -6351,7 +6467,21 @@ def reset_password_post():
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
     if not th or _hash_token(token) != th:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token", token=None, ok=None)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token.", token=None, ok=None)
+
+    # Token expires after 1 hour
+    token_created = ((u.get("reset") or {}).get("created_at")) or ""
+    if token_created:
+        try:
+            created_dt = datetime.fromisoformat(token_created.replace("Z", "+00:00").replace("+00:00", ""))
+            if datetime.utcnow() > created_dt + timedelta(hours=1):
+                u["reset"]["token_hash"] = ""
+                u["reset"]["created_at"] = None
+                data["users"][username] = u
+                save_users(data)
+                return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Reset token has expired. Please request a new one.", token=None, ok=None)
+        except Exception:
+            pass
 
     u["password_hash"] = generate_password_hash(new_password)
     u["reset"]["token_hash"] = ""
