@@ -508,7 +508,7 @@ def _load_stripe_sessions() -> Dict[str, Any]:
 def _save_stripe_sessions(data: Dict[str, Any]) -> None:
     save_json(STRIPE_SESSIONS_PATH, data)
 
-def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str) -> str:
+def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "") -> str:
     """Create a fresh seat code tied to a completed Stripe checkout and return it."""
     # Idempotent: if we already made one for this session, return it
     sess_data = _load_stripe_sessions()
@@ -525,20 +525,23 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str) -> 
 
     seats[code] = {
         "seat_num":          next_num,
-        "label":             f"Stripe Seat #{next_num}",
+        "label":             name.strip() if name.strip() else f"Stripe Seat #{next_num}",
         "status":            "active",
         "claimed_by":        None,
         "created_at":        now_iso(),
         "claimed_at":        None,
-        "notes":             f"stripe_customer={customer_id} | email={email}",
+        "notes":             f"stripe_customer={customer_id}",
         "stripe_customer_id": customer_id,
         "stripe_session_id":  session_id,
         "stripe_email":       email,
+        "holder_name":        name.strip(),
+        "holder_email":       email.strip(),
+        "source":             "stripe",
     }
     data["seats"] = seats
     _save_seats(data)
 
-    sess_data[session_id] = {"code": code, "email": email, "created_at": now_iso()}
+    sess_data[session_id] = {"code": code, "email": email, "name": name, "created_at": now_iso()}
     _save_stripe_sessions(sess_data)
     return code
 
@@ -3153,6 +3156,8 @@ def api_admin_seats_generate():
         return jsonify({"ok": False, "error": "Admin only"}), 403
     payload = request.get_json(silent=True) or {}
     count = max(1, min(int(payload.get("count", 1)), 50))
+    holder_name  = (payload.get("holder_name")  or "").strip()[:120]
+    holder_email = (payload.get("holder_email") or "").strip()[:200]
     data = _load_seats()
     seats = data.get("seats") or {}
     existing_nums = [v.get("seat_num", 0) for v in seats.values()]
@@ -3163,13 +3168,16 @@ def api_admin_seats_generate():
         while code in seats:
             code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
         seats[code] = {
-            "seat_num": next_num + i,
-            "label": f"Seat #{next_num + i}",
-            "status": "active",
-            "claimed_by": None,
-            "created_at": now_iso(),
-            "claimed_at": None,
-            "notes": payload.get("notes", ""),
+            "seat_num":    next_num + i,
+            "label":       holder_name if (count == 1 and holder_name) else f"Seat #{next_num + i}",
+            "status":      "active",
+            "claimed_by":  None,
+            "created_at":  now_iso(),
+            "claimed_at":  None,
+            "notes":       payload.get("notes", ""),
+            "holder_name":  holder_name,
+            "holder_email": holder_email,
+            "source":       "manual",
         }
         new_codes.append(code)
     data["seats"] = seats
@@ -3178,7 +3186,7 @@ def api_admin_seats_generate():
 
 @app.post("/api/admin/seats/<code>/update")
 def api_admin_seat_update(code: str):
-    """Update a seat's label, status, or notes."""
+    """Update a seat's label, status, notes, holder_name, or holder_email."""
     u = current_user()
     if not u or not _is_admin_user(u):
         return jsonify({"ok": False, "error": "Admin only"}), 403
@@ -3192,7 +3200,11 @@ def api_admin_seat_update(code: str):
     if "status" in payload and payload["status"] in ("active", "inactive"):
         seats[code]["status"] = payload["status"]
     if "notes" in payload:
-        seats[code]["notes"] = (payload["notes"] or "").strip()[:200]
+        seats[code]["notes"] = (payload["notes"] or "").strip()[:300]
+    if "holder_name" in payload:
+        seats[code]["holder_name"] = (payload["holder_name"] or "").strip()[:120]
+    if "holder_email" in payload:
+        seats[code]["holder_email"] = (payload["holder_email"] or "").strip()[:200]
     data["seats"] = seats
     _save_seats(data)
     return jsonify({"ok": True, "seat": {"code": code, **seats[code]}})
@@ -3204,67 +3216,350 @@ def admin_seats_page():
         return redirect(url_for("login"))
     if not _is_admin_user(u):
         return redirect(url_for("index"))
-    data = _load_seats()
-    seats = sorted((data.get("seats") or {}).items(), key=lambda x: x[1].get("seat_num", 999))
-    total = len(seats)
-    used  = sum(1 for _, s in seats if s.get("status") == "used")
-    avail = sum(1 for _, s in seats if s.get("status") == "active" and not s.get("claimed_by"))
-    rows  = "".join(
-        f"<tr style='border-bottom:1px solid rgba(255,255,255,.07);'>"
-        f"<td style='padding:8px 10px;font-family:monospace;font-size:13px;color:#c4b5fd;'>{k}</td>"
-        f"<td style='padding:8px 10px;font-size:13px;'>{s.get('label','')}</td>"
-        f"<td style='padding:8px 10px;font-size:13px;'>"
-        f"<span style='color:{'#6ee7b7' if s.get('status')=='active' and not s.get('claimed_by') else '#fca5a5' if s.get('status')=='inactive' else '#fcd34d'};font-weight:700;'>"
-        f"{'✓ Available' if s.get('status')=='active' and not s.get('claimed_by') else '✗ Inactive' if s.get('status')=='inactive' else '⊙ Used'}"
-        f"</span></td>"
-        f"<td style='padding:8px 10px;font-size:13px;color:#94a3b8;'>{s.get('claimed_by') or '—'}</td>"
-        f"<td style='padding:8px 10px;'>"
-        f"<button onclick=\"toggleSeat('{k}','{s.get('status','active')}')\" "
-        f"style='font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#e2e8f0;'>"
-        f"{'Deactivate' if s.get('status')=='active' else 'Reactivate'}</button>"
-        f"</td>"
-        f"</tr>"
-        for k, s in seats
-    )
-    page = f"""<!doctype html><html><head><meta charset='utf-8'/>
+    page = """<!doctype html><html><head><meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
 <title>Seat Manager — Simply Agentic AI</title>
-<style>body{{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:32px;}}
-h1{{color:#c4b5fd;}}table{{width:100%;border-collapse:collapse;margin-top:20px;}}
-th{{text-align:left;padding:8px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;border-bottom:1px solid rgba(255,255,255,.12);}}
-.stat{{display:inline-block;background:rgba(255,255,255,.06);border-radius:10px;padding:12px 20px;margin:8px 8px 8px 0;font-size:15px;}}
-.stat b{{display:block;font-size:24px;color:#c4b5fd;}}
-.gen-btn{{background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#f3e8ff;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;margin-top:16px;}}
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;padding:24px;min-height:100vh;}
+h1{color:#c4b5fd;font-size:22px;font-weight:800;margin-bottom:4px;}
+.sub{color:#64748b;font-size:13px;margin-bottom:20px;}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+.stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px 20px;min-width:110px;}
+.stat b{display:block;font-size:26px;font-weight:800;color:#c4b5fd;}
+.stat span{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+input[type=text]{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 12px;font-size:13px;outline:none;width:240px;}
+input[type=text]:focus{border-color:#7c3aed;}
+select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+.btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:background .15s;}
+.btn-primary{background:rgba(124,58,237,.5);border:1px solid rgba(124,58,237,.7);color:#f3e8ff;}
+.btn-primary:hover{background:rgba(124,58,237,.75);}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e2e8f0;}
+.btn-sm:hover{background:rgba(255,255,255,.12);}
+.btn-danger{border-color:rgba(239,68,68,.4);color:#fca5a5;}
+.btn-danger:hover{background:rgba(239,68,68,.15);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap;}
+td{padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.code{font-family:monospace;color:#c4b5fd;font-size:13px;letter-spacing:.04em;cursor:pointer;}
+.code:hover{color:#e9d5ff;}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;}
+.badge-avail{background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);}
+.badge-used{background:rgba(251,191,36,.12);color:#fcd34d;border:1px solid rgba(251,191,36,.3);}
+.badge-inactive{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.badge-stripe{background:rgba(99,91,255,.15);color:#a5b4fc;border:1px solid rgba(99,91,255,.3);}
+.badge-manual{background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);}
+.name-cell{color:#e2e8f0;font-weight:500;}
+.email-cell{color:#94a3b8;font-size:12px;}
+.empty-cell{color:#475569;font-style:italic;font-size:12px;}
+
+/* Edit popover */
+#editPop{display:none;position:fixed;z-index:999;background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:14px;padding:18px 20px;width:340px;box-shadow:0 16px 48px rgba(0,0,0,.7);}
+#editPop h3{font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:14px;}
+#editPop label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#editPop input,#editPop textarea,#editPop select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:7px 10px;font-size:13px;outline:none;}
+#editPop input:focus,#editPop textarea:focus{border-color:#7c3aed;}
+#editPop .actions{display:flex;gap:8px;margin-top:14px;}
+#editPop .status-msg{font-size:12px;color:#6ee7b7;margin-top:8px;min-height:14px;}
+
+/* Generate modal */
+#genModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:998;align-items:center;justify-content:center;}
+#genModal.open{display:flex;}
+#genBox{background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:16px;padding:24px;width:min(400px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.7);}
+#genBox h3{font-size:16px;font-weight:800;color:#c4b5fd;margin-bottom:16px;}
+#genBox label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#genBox input,#genBox select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+#genBox input:focus{border-color:#7c3aed;}
+#genBox .actions{display:flex;gap:8px;margin-top:16px;}
+#genResult{margin-top:12px;font-family:monospace;font-size:13px;color:#6ee7b7;word-break:break-all;}
 </style></head><body>
-<a href='/' style='color:#94a3b8;font-size:13px;text-decoration:none;'>← Back to app</a>
-<h1>🔑 Seat Manager</h1>
-<div class='stat'><b>{total}</b>Total seats</div>
-<div class='stat'><b>{used}</b>Used</div>
-<div class='stat'><b>{avail}</b>Available</div>
-<div style='margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;'>
-<button class='gen-btn' onclick='genSeats(1)'>+ Generate 1 seat</button>
-<button class='gen-btn' onclick='genSeats(5)'>+ Generate 5 seats</button>
-<button class='gen-btn' onclick='genSeats(10)'>+ Generate 10 seats</button>
+<a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
+<h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
+<div class='sub'>Manage access codes for Simply Agentic AI. Stripe purchases appear automatically.</div>
+
+<div class='stats' id='statsBar'></div>
+
+<div class='toolbar'>
+  <input type='text' id='searchBox' placeholder='Search name, email, code…' oninput='filterTable()'/>
+  <select id='filterStatus' onchange='filterTable()'>
+    <option value=''>All statuses</option>
+    <option value='active'>Available</option>
+    <option value='used'>Used</option>
+    <option value='inactive'>Inactive</option>
+  </select>
+  <select id='filterSource' onchange='filterTable()'>
+    <option value=''>All sources</option>
+    <option value='stripe'>Stripe</option>
+    <option value='manual'>Manual</option>
+  </select>
+  <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
 </div>
-<table><tr><th>Code</th><th>Label</th><th>Status</th><th>Claimed by</th><th>Action</th></tr>
-{rows}
+
+<table id='seatTable'>
+<thead><tr>
+  <th>Code</th>
+  <th>Name</th>
+  <th>Email</th>
+  <th>Source</th>
+  <th>Status</th>
+  <th>Claimed by</th>
+  <th>Created</th>
+  <th>Actions</th>
+</tr></thead>
+<tbody id='seatBody'></tbody>
 </table>
+
+<!-- Edit popover -->
+<div id='editPop'>
+  <h3>✏️ Edit Seat</h3>
+  <label>Holder name</label>
+  <input id='editName' type='text' placeholder='e.g. Jane Smith'/>
+  <label>Holder email</label>
+  <input id='editEmail' type='email' placeholder='jane@example.com'/>
+  <label>Notes</label>
+  <textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
+  <label>Status</label>
+  <select id='editStatus'>
+    <option value='active'>Active (available)</option>
+    <option value='inactive'>Inactive (deactivated)</option>
+  </select>
+  <div class='actions'>
+    <button class='btn btn-primary' onclick='saveEdit()'>Save</button>
+    <button class='btn btn-sm' onclick='closeEdit()'>Cancel</button>
+  </div>
+  <div class='status-msg' id='editMsg'></div>
+</div>
+
+<!-- Generate modal -->
+<div id='genModal'>
+  <div id='genBox'>
+    <h3>Generate Access Code</h3>
+    <label>Number of codes</label>
+    <select id='genCount'>
+      <option value='1'>1 code</option>
+      <option value='5'>5 codes</option>
+      <option value='10'>10 codes</option>
+    </select>
+    <label>Holder name <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <input id='genName' type='text' placeholder='e.g. Jane Smith'/>
+    <label>Holder email <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <input id='genEmail' type='email' placeholder='jane@example.com'/>
+    <div class='actions'>
+      <button class='btn btn-primary' onclick='doGenerate()'>Generate</button>
+      <button class='btn btn-sm' onclick='closeGenModal()'>Cancel</button>
+    </div>
+    <div id='genResult'></div>
+  </div>
+</div>
+
 <script>
-async function toggleSeat(code, currentStatus) {{
-  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{status: newStatus}})
-  }});
-  if ((await res.json()).ok) location.reload();
-}}
-async function genSeats(n) {{
-  const res = await fetch('/api/admin/seats/generate', {{
-    method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{count: n}})
-  }});
+let allSeats = [];
+let editingCode = null;
+
+async function loadSeats() {
+  const res = await fetch('/api/admin/seats');
   const d = await res.json();
-  if (d.ok) {{ alert('Generated codes:\\n' + d.generated.join('\\n')); location.reload(); }}
-}}
+  if (!d.ok) return;
+  allSeats = d.seats || [];
+  renderStats();
+  renderTable(allSeats);
+}
+
+function renderStats() {
+  const total  = allSeats.length;
+  const used   = allSeats.filter(s => s.status === 'used').length;
+  const avail  = allSeats.filter(s => s.status === 'active' && !s.claimed_by).length;
+  const stripe = allSeats.filter(s => s.source === 'stripe').length;
+  document.getElementById('statsBar').innerHTML = [
+    ['Total', total], ['Available', avail], ['Used', used], ['Stripe', stripe]
+  ].map(([l,v]) => `<div class='stat'><b>${v}</b><span>${l}</span></div>`).join('');
+}
+
+function statusBadge(s) {
+  if (s.status === 'inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
+  if (s.claimed_by || s.status === 'used') return "<span class='badge badge-used'>⊙ Used</span>";
+  return "<span class='badge badge-avail'>✓ Available</span>";
+}
+
+function sourceBadge(s) {
+  if (s.source === 'stripe') return "<span class='badge badge-stripe'>💳 Stripe</span>";
+  return "<span class='badge badge-manual'>✎ Manual</span>";
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+  catch(e) { return iso.slice(0,10); }
+}
+
+function escH(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderTable(seats) {
+  const tbody = document.getElementById('seatBody');
+  if (!seats.length) {
+    tbody.innerHTML = `<tr><td colspan='8' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = seats.map(s => `
+    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}'>
+      <td><span class='code' title='Click to copy' onclick='copyCode("${escH(s.code)}")'>${escH(s.code)}</span></td>
+      <td>${s.holder_name ? `<span class='name-cell'>${escH(s.holder_name)}</span>` : `<span class='empty-cell'>—</span>`}</td>
+      <td>${(s.holder_email||s.stripe_email) ? `<span class='email-cell'>${escH(s.holder_email||s.stripe_email||'')}</span>` : `<span class='empty-cell'>—</span>`}</td>
+      <td>${sourceBadge(s)}</td>
+      <td>${statusBadge(s)}</td>
+      <td style='color:#94a3b8;font-size:12px;'>${escH(s.claimed_by||'—')}</td>
+      <td style='color:#64748b;font-size:12px;'>${fmtDate(s.created_at)}</td>
+      <td>
+        <div style='display:flex;gap:6px;'>
+          <button class='btn btn-sm' onclick='openEdit("${escH(s.code)}")'>Edit</button>
+          <button class='btn btn-sm btn-danger' onclick='toggleSeat("${escH(s.code)}","${s.status||'active'}")'>${s.status==='inactive'?'Activate':'Deactivate'}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const fs = document.getElementById('filterStatus').value;
+  const fsrc = document.getElementById('filterSource').value;
+  const filtered = allSeats.filter(s => {
+    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes].join(' ').toLowerCase();
+    const matchQ  = !q || hay.includes(q);
+    const matchSt = !fs  || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
+    const matchSrc = !fsrc || (s.source||'manual') === fsrc;
+    return matchQ && matchSt && matchSrc;
+  });
+  renderTable(filtered);
+}
+
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => {
+    showToast('📋 Copied: ' + code);
+  }).catch(() => { prompt('Copy this code:', code); });
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:10px 18px;border-radius:10px;font-size:13px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2500);
+}
+
+function openEdit(code) {
+  const s = allSeats.find(x => x.code === code);
+  if (!s) return;
+  editingCode = code;
+  document.getElementById('editName').value  = s.holder_name  || '';
+  document.getElementById('editEmail').value = s.holder_email || s.stripe_email || '';
+  document.getElementById('editNotes').value = s.notes || '';
+  document.getElementById('editStatus').value = s.status || 'active';
+  document.getElementById('editMsg').innerText = '';
+  // Position near the clicked row
+  const row = document.querySelector(`tr[data-code="${code}"]`);
+  const pop = document.getElementById('editPop');
+  pop.style.display = 'block';
+  if (row) {
+    const rect = row.getBoundingClientRect();
+    const ph = 320, pw = 340;
+    let top = rect.top + window.scrollY - 20;
+    let left = rect.right - pw - 20;
+    if (left < 8) left = 8;
+    if (top + ph > document.body.scrollHeight) top = document.body.scrollHeight - ph - 20;
+    pop.style.top  = top  + 'px';
+    pop.style.left = left + 'px';
+  }
+}
+
+function closeEdit() {
+  document.getElementById('editPop').style.display = 'none';
+  editingCode = null;
+}
+
+async function saveEdit() {
+  if (!editingCode) return;
+  const msg = document.getElementById('editMsg');
+  msg.innerText = 'Saving…';
+  try {
+    const payload = {
+      holder_name:  document.getElementById('editName').value.trim(),
+      holder_email: document.getElementById('editEmail').value.trim(),
+      notes:        document.getElementById('editNotes').value.trim(),
+      status:       document.getElementById('editStatus').value,
+    };
+    const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Save failed');
+    // Update local cache
+    const idx = allSeats.findIndex(x => x.code === editingCode);
+    if (idx >= 0) allSeats[idx] = {...allSeats[idx], ...payload};
+    msg.innerText = '✓ Saved!';
+    setTimeout(()=>{ closeEdit(); filterTable(); renderStats(); }, 700);
+  } catch(e) {
+    msg.innerText = e.message || 'Save failed';
+  }
+}
+
+async function toggleSeat(code, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    const idx = allSeats.findIndex(x => x.code === code);
+    if (idx >= 0) allSeats[idx].status = newStatus;
+    filterTable(); renderStats();
+    showToast(newStatus === 'active' ? '✓ Seat activated' : '✗ Seat deactivated');
+  }
+}
+
+function openGenModal() {
+  document.getElementById('genResult').innerText = '';
+  document.getElementById('genName').value = '';
+  document.getElementById('genEmail').value = '';
+  document.getElementById('genCount').value = '1';
+  document.getElementById('genModal').classList.add('open');
+}
+
+function closeGenModal() {
+  document.getElementById('genModal').classList.remove('open');
+}
+
+async function doGenerate() {
+  const count = parseInt(document.getElementById('genCount').value) || 1;
+  const name  = document.getElementById('genName').value.trim();
+  const email = document.getElementById('genEmail').value.trim();
+  const res = await fetch('/api/admin/seats/generate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({count, holder_name: name, holder_email: email})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    document.getElementById('genResult').innerText = 'Generated:\\n' + d.generated.join('\\n');
+    await loadSeats();
+  }
+}
+
+// Close popover on outside click
+document.addEventListener('click', function(e) {
+  const pop = document.getElementById('editPop');
+  if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('button[onclick^="openEdit"]')) {
+    closeEdit();
+  }
+  if (document.getElementById('genModal').classList.contains('open') && e.target === document.getElementById('genModal')) {
+    closeGenModal();
+  }
+});
+
+loadSeats();
 </script></body></html>"""
     return page
 
@@ -5990,10 +6285,11 @@ def stripe_webhook():
         obj         = (event.get("data") or {}).get("object") or {}
         session_id  = obj.get("id") or ""
         customer_id = obj.get("customer") or ""
-        email       = ((obj.get("customer_details") or {}).get("email")
-                       or obj.get("customer_email") or "")
+        details     = obj.get("customer_details") or {}
+        email       = (details.get("email") or obj.get("customer_email") or "")
+        name        = (details.get("name") or "").strip()
         if session_id:
-            _generate_seat_for_stripe(email, customer_id, session_id)
+            _generate_seat_for_stripe(email, customer_id, session_id, name=name)
 
     return jsonify({"ok": True})
 
