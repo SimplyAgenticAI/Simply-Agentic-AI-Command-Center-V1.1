@@ -97,9 +97,9 @@ PLANS: Dict[str, Any] = {
         "price_id":     STRIPE_PRICE_ID_STARTER,
         "badge":        None,
         "tagline":      "Everything you need to launch your AI team.",
-        "teammates":    3,
+        "teammates":    4,
         "features": [
-            "3 AI teammates",
+            "4 AI teammates",
             "All core features",
             "CRM & pipeline",
             "Calendar & tasks",
@@ -847,6 +847,11 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
     }
 
 def current_user() -> Optional[Dict[str, Any]]:
+    # Admin impersonation: if active, return the impersonated user's record
+    impersonating = session.get("_impersonating_as")
+    if impersonating:
+        data = load_users()
+        return (data.get("users") or {}).get(impersonating)
     uname = session.get("user")
     # Historically we stored the username string in session["user"].
     # Some earlier builds accidentally stored a dict here; support both.
@@ -940,6 +945,8 @@ def _auth_guard():
         return None
     if request.path.startswith("/stripe/"):
         return None
+    if request.path.startswith("/admin/"):
+        return None  # Admin routes do their own auth checks
 
     # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
@@ -1110,6 +1117,10 @@ def _get_active_client(username: str) -> Dict[str, Any]:
     return {}
 
 def _get_session_username() -> str:
+    # Admin impersonation takes priority
+    impersonating = session.get("_impersonating_as")
+    if impersonating:
+        return str(impersonating)
     u = session.get("user")
     return (u.get("username") if isinstance(u, dict) else None) or (u if isinstance(u, str) else None) or "anon"
 
@@ -3184,6 +3195,11 @@ def api_state():
         "framework": {
             "has_custom": FRAMEWORK_PATH.exists(),
             "length": len(load_core_framework() or "")
+        },
+        "impersonation": {
+            "active":    bool(session.get("_impersonating_as")),
+            "as_user":   session.get("_impersonating_as") or "",
+            "exit_url":  "/admin/exit_impersonation",
         }
     })
 
@@ -3552,6 +3568,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
 </style></head><body>
 <a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
 <h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
+<div style='margin-bottom:16px;display:flex;gap:16px;'>
+  <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users & Impersonation</a>
+</div>
 <div class='sub'>Manage access codes for Simply Agentic AI. Stripe purchases appear automatically.</div>
 
 <div class='stats' id='statsBar'></div>
@@ -6345,7 +6364,7 @@ def pricing_page():
         )
         badge_html = f"<div class='plan-badge'>{badge}</div>" if badge else ""
         recommended_cls = " plan-card-featured" if is_growth else ""
-        btn_label = "Get Started" if not is_growth else "Start Growing"
+        btn_label = "Get Started"
         cards_html += f"""
         <div class='plan-card{recommended_cls}'>
           {badge_html}
@@ -6353,7 +6372,7 @@ def pricing_page():
           <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
           <div class='plan-tagline'>{p['tagline']}</div>
           <ul class='plan-features'>{features_html}</ul>
-          <button class='plan-btn{"plan-btn-featured" if is_growth else ""}' onclick="startCheckout('{key}')" id='planBtn-{key}'>
+          <button class='plan-btn plan-btn-featured' onclick="startCheckout('{key}')" id='planBtn-{key}'>
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
             </span>
@@ -6669,6 +6688,134 @@ def register_post():
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
+# =========================
+# ADMIN: USER IMPERSONATION
+# =========================
+
+@app.get("/admin/users")
+def admin_users_page():
+    """Admin-only page listing all users with impersonation controls."""
+    # Must be the real admin (not impersonating) to access this
+    real_uname = session.get("user")
+    if isinstance(real_uname, dict):
+        real_uname = real_uname.get("username")
+    real_u = (load_users().get("users") or {}).get(real_uname or "") if real_uname else None
+    if not real_u or not _is_admin_user(real_u):
+        return redirect(url_for("login"))
+
+    data = load_users()
+    users = data.get("users") or {}
+    currently_impersonating = session.get("_impersonating_as") or ""
+
+    rows = ""
+    for uname, rec in sorted(users.items(), key=lambda kv: kv[1].get("created_at") or ""):
+        is_you  = (uname == real_uname)
+        is_imp  = (uname == currently_impersonating)
+        plan_badge = ""
+        try:
+            seats_data = _load_seats()
+            for code, seat in (seats_data.get("seats") or {}).items():
+                if seat.get("claimed_by") == uname:
+                    pname = seat.get("plan_name") or seat.get("plan") or "Unknown"
+                    plan_badge = f"<span style=\"background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:2px 8px;border-radius:999px;font-size:11px;\">{pname}</span>"
+                    break
+            if not plan_badge and is_you:
+                plan_badge = "<span style=\"background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:#fcd34d;padding:2px 8px;border-radius:999px;font-size:11px;\">Admin</span>"
+        except Exception:
+            pass
+
+        if is_you:
+            action = "<span style=\"color:#64748b;font-size:12px;\">You (Admin)</span>"
+        elif is_imp:
+            action = "<span style=\"color:#6ee7b7;font-size:12px;font-weight:700;\">● Active</span>"
+        else:
+            action = f"<a href=\"/admin/impersonate/{uname}\" style=\"display:inline-block;padding:5px 14px;border-radius:7px;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;font-size:12px;font-weight:600;text-decoration:none;\">👁 View as {uname}</a>"
+
+        rows += (
+            f"<tr style=\"border-bottom:1px solid rgba(255,255,255,.06);\">"
+            f"<td style=\"padding:10px 12px;font-size:13px;font-weight:600;color:#e2e8f0;\">{uname}</td>"
+            f"<td style=\"padding:10px 12px;font-size:12px;color:#94a3b8;\">{rec.get('email') or '—'}</td>"
+            f"<td style=\"padding:10px 12px;\">{plan_badge}</td>"
+            f"<td style=\"padding:10px 12px;font-size:12px;color:#64748b;\">{(rec.get('created_at') or '')[:10]}</td>"
+            f"<td style=\"padding:10px 12px;\">{action}</td>"
+            f"</tr>"
+        )
+
+    exit_banner = ""
+    if currently_impersonating:
+        exit_banner = (
+            f"<div style=\"background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:10px;"
+            f"padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;\">"
+            f"<span style=\"color:#fca5a5;font-size:13px;font-weight:700;\">⚠ Viewing as: <strong>{currently_impersonating}</strong></span>"
+            f"<a href=\"/admin/exit_impersonation\" style=\"padding:5px 14px;background:rgba(239,68,68,.3);"
+            f"border:1px solid rgba(239,68,68,.5);color:#fca5a5;border-radius:7px;font-size:12px;font-weight:700;text-decoration:none;\">Exit → Back to Admin</a>"
+            f"</div>"
+        )
+
+    page = f"""<!doctype html><html><head><meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Admin — Users</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;padding:28px;min-height:100vh;}}
+h1{{color:#c4b5fd;font-size:20px;font-weight:800;margin-bottom:4px;}}
+.sub{{color:#64748b;font-size:13px;margin-bottom:22px;}}
+.nav{{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;}}
+.nav a{{color:#a5b4fc;font-size:13px;text-decoration:none;opacity:.8;}}
+.nav a:hover{{opacity:1;text-decoration:underline;}}
+table{{width:100%;border-collapse:collapse;background:rgba(14,20,46,.8);border:1px solid rgba(255,255,255,.08);border-radius:12px;overflow:hidden;}}
+th{{text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,.08);}}
+tr:last-child td{{border-bottom:none;}}
+</style></head><body>
+<div class='nav'>
+  <a href='/'>← Back to app</a>
+  <a href='/admin/seats'>Seat Manager</a>
+  <a href='/admin/users'>Users</a>
+</div>
+<h1>👥 Users</h1>
+<div class='sub'>Click "View as" to see the app exactly as that user does. A red banner will appear — click Exit to return to your admin session.</div>
+{exit_banner}
+<table>
+<thead><tr>
+  <th>Username</th><th>Email</th><th>Plan</th><th>Joined</th><th>Action</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table>
+</body></html>"""
+    return page
+
+
+@app.get("/admin/impersonate/<username>")
+def admin_impersonate(username: str):
+    """Start impersonating a user. Admin-only, verified against real session."""
+    real_uname = session.get("user")
+    if isinstance(real_uname, dict):
+        real_uname = real_uname.get("username")
+    real_u = (load_users().get("users") or {}).get(real_uname or "") if real_uname else None
+    if not real_u or not _is_admin_user(real_u):
+        return redirect(url_for("login"))
+    data = load_users()
+    if username not in (data.get("users") or {}):
+        return redirect(url_for("admin_users_page"))
+    session["_admin_user"]       = real_uname
+    session["_impersonating_as"] = username
+    return redirect(url_for("index"))
+
+
+@app.get("/admin/exit_impersonation")
+def admin_exit_impersonation():
+    """Stop impersonating and return the admin to their own session."""
+    admin_uname = session.get("_admin_user") or session.get("user")
+    if isinstance(admin_uname, dict):
+        admin_uname = admin_uname.get("username")
+    session.pop("_impersonating_as", None)
+    session.pop("_admin_user", None)
+    if admin_uname:
+        session["user"] = admin_uname
+    return redirect(url_for("admin_users_page"))
+
 
 # =========================
 # STRIPE ROUTES
@@ -12762,6 +12909,40 @@ async function pollImageJob(jobId, seatName){
     (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
     // ===== END EXPAND MODAL =====
+
+    // ===== IMPERSONATION BANNER =====
+    (function(){
+      function _checkImpersonation(data){
+        const imp = (data || {}).impersonation || {};
+        if(!imp.active) return;
+        // Don't add twice
+        if(document.getElementById('impersonationBanner')) return;
+        const bar = document.createElement('div');
+        bar.id = 'impersonationBanner';
+        bar.style.cssText = [
+          'position:fixed','bottom:0','left:0','right:0','z-index:999999',
+          'background:rgba(220,38,38,.92)','backdrop-filter:blur(8px)',
+          'display:flex','align-items:center','justify-content:space-between',
+          'padding:10px 20px','box-shadow:0 -4px 24px rgba(0,0,0,.4)',
+          'border-top:1px solid rgba(239,68,68,.7)'
+        ].join(';');
+        bar.innerHTML = `
+          <span style="color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;">
+            <span style="background:rgba(255,255,255,.2);border-radius:999px;padding:2px 10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;">Admin View</span>
+            Viewing app as <strong style="color:#fecaca;">${imp.as_user}</strong> — this is their exact experience
+          </span>
+          <a href="${imp.exit_url}" style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:8px;padding:6px 16px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;flex-shrink:0;">
+            ✕ Exit &amp; Return to Admin
+          </a>`;
+        document.body.appendChild(bar);
+        // Push body content up so banner doesn't cover UI
+        document.body.style.paddingBottom = '52px';
+      }
+
+      // Check on page load via api/state
+      fetch('/api/state').then(r=>r.json()).then(d=>_checkImpersonation(d)).catch(()=>{});
+    })();
+    // ===== END IMPERSONATION BANNER =====
 
     window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
