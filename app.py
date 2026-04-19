@@ -630,6 +630,7 @@ def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
         "email": (email or "").strip(),
         "created_at": now_iso(),
         "updated_at": now_iso(),
+        "tos_accepted_at": now_iso(),
         "settings": {
             "openai_key": "",
             "smtp": {
@@ -678,7 +679,7 @@ def login_required_api() -> bool:
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -5259,6 +5260,7 @@ LOGIN_HTML = r"""
       {% if allow_setup %}
         <div class="muted"><a href="/setup">First time setup</a></div>
       {% endif %}
+      <div class="muted"><a href="/terms">Terms of Service</a></div>
     </div>
 
     {% if error %}<div class="err">{{error}}</div>{% endif %}
@@ -5467,6 +5469,17 @@ REGISTER_HTML = r"""
           {% endif %}
         </div>
       {% endif %}
+      <div style="margin-top:14px;padding:12px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:10px;">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0;">
+          <input type="checkbox" name="tos_accepted" value="1" required
+                 style="width:16px;height:16px;margin-top:2px;flex-shrink:0;cursor:pointer;accent-color:#7c3aed;"/>
+          <span style="font-size:13px;color:rgba(226,232,240,.85);line-height:1.5;">
+            I have read and agree to the
+            <a href="/terms" target="_blank" style="color:#c4b5fd;text-decoration:underline;">Terms of Service</a>.
+            By creating an account I confirm I am at least 18 years old and accept these terms.
+          </span>
+        </label>
+      </div>
       <div class="row">
         <button class="btn btnPrimary" type="submit">Create account</button>
         <a class="muted" href="/login">Back to login</a>
@@ -5547,6 +5560,141 @@ if (codeInput) codeInput.addEventListener('input', () => { codeInput.value = cod
 </body></html>
 """
 
+TERMS_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5"/>
+<title>{{app_title}} | Terms of Service</title>
+""" + AUTH_BASE_CSS + r"""
+<style>
+.tos-card {
+  max-width: 760px;
+  margin: 32px auto;
+  background: rgba(14,22,48,.92);
+  border: 1px solid rgba(42,58,106,.7);
+  border-radius: 20px;
+  padding: 40px 44px;
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.75;
+}
+@media(max-width:600px){ .tos-card{ padding:24px 18px; margin:16px; } }
+.tos-card h1 { font-size:22px; font-weight:800; color:#c4b5fd; margin-bottom:6px; }
+.tos-card .subtitle { font-size:12px; color:rgba(148,163,184,.7); margin-bottom:28px; }
+.tos-card h2 { font-size:15px; font-weight:700; color:#a5b4fc; margin:24px 0 6px; }
+.tos-card p  { margin:0 0 10px; color:rgba(226,232,240,.85); }
+.tos-card ul { margin:0 0 10px 18px; color:rgba(226,232,240,.85); }
+.tos-card li { margin-bottom:4px; }
+.tos-back { display:inline-block; margin-top:28px; color:#c4b5fd; font-size:13px; text-decoration:none; }
+.tos-back:hover { text-decoration:underline; }
+</style>
+</head><body style="background:rgba(7,11,24,1);min-height:100vh;padding:0;">
+<div class="tos-card">
+  <div class="brand" style="margin-bottom:20px;"><div class="dot"></div><div>{{app_title}}</div></div>
+  <h1>Terms of Service</h1>
+  <div class="subtitle">Last updated: January 1, 2025 &nbsp;·&nbsp; Please read these terms carefully before creating an account.</div>
+
+  <h2>1. Acceptance of Terms</h2>
+  <p>By creating an account and accessing Simply Agentic AI (the "Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not create an account or use the Service. These Terms constitute a legally binding agreement between you ("User") and Simply Agentic AI ("Company," "we," "us," or "our").</p>
+
+  <h2>2. Description of Service</h2>
+  <p>Simply Agentic AI is an AI-powered command center that provides access to AI teammates, CRM tools, calendar integrations, email automation, and related productivity features. The Service is provided "as is" and features may change, be added, or removed at any time.</p>
+
+  <h2>3. Eligibility</h2>
+  <p>You must be at least 18 years of age to use the Service. By using the Service, you represent that you are 18 or older and have the legal capacity to enter into this agreement. The Service is intended for business and professional use only.</p>
+
+  <h2>4. Account Responsibilities</h2>
+  <ul>
+    <li>You are responsible for maintaining the confidentiality of your login credentials.</li>
+    <li>You are responsible for all activity that occurs under your account.</li>
+    <li>Each access code is valid for one account only and may not be transferred or shared.</li>
+    <li>You must provide accurate information when creating your account.</li>
+    <li>You must notify us immediately of any unauthorized use of your account.</li>
+  </ul>
+
+  <h2>5. Acceptable Use</h2>
+  <p>You agree not to use the Service to:</p>
+  <ul>
+    <li>Violate any applicable law, regulation, or third-party rights.</li>
+    <li>Send spam, unsolicited communications, or deceptive messages.</li>
+    <li>Harass, abuse, or harm any individual or group.</li>
+    <li>Attempt to gain unauthorized access to any system or data.</li>
+    <li>Reverse engineer, decompile, or otherwise attempt to extract source code from the Service.</li>
+    <li>Use the Service to develop a competing product or service.</li>
+    <li>Upload or transmit malware, viruses, or any malicious code.</li>
+    <li>Generate content that is illegal, defamatory, obscene, or that infringes on third-party intellectual property rights.</li>
+    <li>Impersonate any person or entity or misrepresent your affiliation with any person or entity.</li>
+  </ul>
+
+  <h2>6. AI-Generated Content</h2>
+  <p>The Service uses artificial intelligence to generate content, suggestions, and communications. You acknowledge that:</p>
+  <ul>
+    <li>AI-generated content may be inaccurate, incomplete, or inappropriate for your specific situation.</li>
+    <li>You are solely responsible for reviewing, editing, and approving all AI-generated content before use.</li>
+    <li>AI-generated content does not constitute legal, financial, medical, or professional advice.</li>
+    <li>You assume all risk and liability for any actions taken based on AI-generated content.</li>
+    <li>We do not guarantee the accuracy, reliability, or fitness of AI-generated output for any particular purpose.</li>
+  </ul>
+
+  <h2>7. Email, SMS, and Communication Features</h2>
+  <p>When using email or SMS features within the Service:</p>
+  <ul>
+    <li>You are solely responsible for complying with all applicable laws including CAN-SPAM, TCPA, GDPR, and any other applicable regulations governing electronic communications.</li>
+    <li>You must have proper consent from recipients before sending any communications.</li>
+    <li>You may not use the Service for unsolicited bulk messaging of any kind.</li>
+    <li>We are not responsible for any communications you send through the Service.</li>
+  </ul>
+
+  <h2>8. Data and Privacy</h2>
+  <p>By using the Service, you acknowledge that:</p>
+  <ul>
+    <li>Data you enter into the Service, including client information and business data, is stored on your account's persistent storage.</li>
+    <li>You are responsible for ensuring you have the right to store any personal data you input about third parties.</li>
+    <li>You are responsible for compliance with all applicable data protection laws (including GDPR, CCPA, etc.) regarding data you collect and store using the Service.</li>
+    <li>We implement reasonable security measures but cannot guarantee absolute security of your data.</li>
+    <li>You should maintain your own backups of critical data.</li>
+  </ul>
+
+  <h2>9. Third-Party Integrations</h2>
+  <p>The Service integrates with third-party services including OpenAI, Google Calendar, Gmail, Stripe, and others. Your use of these integrations is subject to the respective third-party terms of service and privacy policies. We are not responsible for the actions, content, or policies of any third-party service.</p>
+
+  <h2>10. Subscription and Payments</h2>
+  <p>Access to the Service requires a valid subscription. By subscribing:</p>
+  <ul>
+    <li>You authorize us to charge your payment method on a recurring basis.</li>
+    <li>Subscription fees are non-refundable except where required by applicable law.</li>
+    <li>We reserve the right to change pricing with reasonable notice.</li>
+    <li>Your access may be suspended or terminated for non-payment.</li>
+    <li>All payments are processed by Stripe. Your payment information is subject to Stripe's privacy policy.</li>
+  </ul>
+
+  <h2>11. Intellectual Property</h2>
+  <p>The Service, including its design, features, and underlying technology, is owned by Simply Agentic AI and protected by intellectual property laws. You retain ownership of content you create using the Service, but grant us a limited license to store and process it to provide the Service. You may not copy, reproduce, or distribute any part of the Service without our express written permission.</p>
+
+  <h2>12. Disclaimers and Limitation of Liability</h2>
+  <p>THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.</p>
+  <p>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, SIMPLY AGENTIC AI SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA, BUSINESS, OR GOODWILL, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.</p>
+  <p>OUR TOTAL LIABILITY TO YOU FOR ANY CLAIMS ARISING FROM THESE TERMS OR YOUR USE OF THE SERVICE SHALL NOT EXCEED THE AMOUNT YOU PAID US IN THE THREE MONTHS PRECEDING THE CLAIM.</p>
+
+  <h2>13. Indemnification</h2>
+  <p>You agree to indemnify, defend, and hold harmless Simply Agentic AI and its officers, directors, employees, and agents from and against any claims, liabilities, damages, losses, and expenses, including reasonable attorney's fees, arising out of or in any way connected with your use of the Service, your violation of these Terms, or your violation of any rights of another.</p>
+
+  <h2>14. Termination</h2>
+  <p>We reserve the right to suspend or terminate your account at any time, with or without notice, for violation of these Terms or for any other reason at our sole discretion. You may cancel your account at any time. Upon termination, your right to access the Service ceases immediately.</p>
+
+  <h2>15. Changes to Terms</h2>
+  <p>We may update these Terms at any time. Continued use of the Service after changes constitutes acceptance of the updated Terms. We will make reasonable efforts to notify users of material changes.</p>
+
+  <h2>16. Governing Law</h2>
+  <p>These Terms shall be governed by and construed in accordance with the laws of the United States, without regard to conflict of law principles. Any disputes arising from these Terms shall be resolved through binding arbitration rather than in court, except where prohibited by law.</p>
+
+  <h2>17. Contact</h2>
+  <p>If you have questions about these Terms, please contact us through the Simply Agentic AI platform.</p>
+
+  <a class="tos-back" href="/register">&larr; Back to registration</a>
+</div>
+</body></html>
+"""
+
 SETUP_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -5621,6 +5769,12 @@ def _hash_token(token: str) -> str:
     if not token:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+@app.get("/terms")
+def terms():
+    resp = make_response(render_template_string(TERMS_HTML, app_title=APP_TITLE))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 @app.get("/setup")
 def setup():
@@ -5742,11 +5896,13 @@ def register_post():
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True)
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
     if len(pw) < 8:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True)
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True)
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
+    if not request.form.get("tos_accepted"):
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready())
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
