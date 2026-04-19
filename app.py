@@ -107,7 +107,6 @@ PLANS: Dict[str, Any] = {
             "Lead Lab — 5×/week",
             "⚡ Outreach drafts — 10/day",
             "Social Studio — 5×/week",
-            "Action stacks — 10×/week",
             "Community access",
         ],
     },
@@ -124,7 +123,6 @@ PLANS: Dict[str, Any] = {
             "Lead Lab — 20×/week",
             "⚡ Outreach drafts — 40/day",
             "Social Studio — 20×/week",
-            "Action stacks — 50×/week",
             "Broadcast to 2,000 contacts",
             "Priority support",
             "Advanced templates",
@@ -143,10 +141,9 @@ PLANS: Dict[str, Any] = {
             "Lead Lab — Unlimited",
             "⚡ Outreach drafts — Unlimited",
             "Social Studio — Unlimited",
-            "Action stacks — Unlimited",
             "Broadcast to unlimited contacts",
             "Early access to new features",
-            "White-label ready",
+            "Priority support",
         ],
     },
 }
@@ -6457,21 +6454,23 @@ async function startCheckout(plan) {{
   if (btn)  btn.disabled = true;
   if (spin) spin.style.display = 'inline-flex';
 
-  try {{
-    const res = await fetch('/stripe/create_checkout', {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{ plan }})
-    }});
-    if (res.redirected) {{ window.location.href = res.url; return; }}
-    const d = await res.json().catch(()=>({{}}));
-    if (d && d.error) {{ alert('Error: ' + d.error); }}
-  }} catch(e) {{
-    alert('Could not connect to Stripe. Please try again.');
-  }} finally {{
-    if (btn)  btn.disabled = false;
-    if (spin) spin.style.display = 'none';
-  }}
+  // Use a hidden form POST so the browser follows the redirect to Stripe directly.
+  // fetch() cannot navigate the page on a cross-origin redirect to Stripe.
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/stripe/create_checkout';
+  form.style.display = 'none';
+  const input = document.createElement('input');
+  input.type  = 'hidden';
+  input.name  = 'plan';
+  input.value = plan;
+  form.appendChild(input);
+  const csrfInput = document.createElement('input');
+  csrfInput.type  = 'hidden';
+  csrfInput.name  = 'content_type';
+  csrfInput.value = 'application/x-www-form-urlencoded';
+  document.body.appendChild(form);
+  form.submit();
 }}
 </script>
 </body></html>"""
