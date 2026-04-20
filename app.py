@@ -5310,8 +5310,8 @@ def api_cal_task_complete_action(task_id: str):
         task_desc     = (payload.get("task_description") or "").strip()
         task_date     = (payload.get("task_date") or "").strip()
 
-    if not teammate_name or not client_email:
-        return jsonify({"ok": False, "error": "No teammate or client email configured — open the task/event panel and fill in the Email on Complete section."}), 400
+    if not teammate_name:
+        return jsonify({"ok": False, "error": "No teammate configured — open the task panel and assign a teammate in the Email on Complete section."}), 400
 
     # voice: "operator" = written in first person as the operator, "teammate" = teammate introduces themselves
     voice = payload.get("voice", "teammate")
@@ -5331,7 +5331,8 @@ def api_cal_task_complete_action(task_id: str):
         operator_name = "the team"
         business_name = ""
 
-    client_ref = client_name if client_name else client_email
+    client_ref = client_name if client_name else (client_email if client_email else "the client")
+    to_line = f"to {client_ref} (email: {client_email})" if client_email else f"to {client_ref}"
 
     if voice == "operator":
         sign_off_name = operator_name
@@ -5342,7 +5343,7 @@ def api_cal_task_complete_action(task_id: str):
             + (f"Task notes: {task_desc}. " if task_desc else "")
             + f"Write a professional, warm, concise email from {operator_name} "
             + (f"at {business_name} " if business_name else "")
-            + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
+            + f"{to_line} letting them know this task is complete. "
             + f"Write in first person as {operator_name}. Address the client as '{client_ref}'. "
             + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
@@ -5366,7 +5367,7 @@ def api_cal_task_complete_action(task_id: str):
             + ". "
             + (f"Task notes: {task_desc}. " if task_desc else "")
             + f"Write a professional, warm, concise email from {teammate_display} ({_phrase}) "
-            + f"to {client_ref} (email: {client_email}) letting them know this task is complete. "
+            + f"{to_line} letting them know this task is complete. "
             + f"In the opening, introduce yourself naturally — for example: 'I'm {teammate_display} {_phrase}.' "
             + f"Address the client as '{client_ref}'. "
             + f"Mention Simply Agentic AI naturally in the opening (you can vary the phrasing — 'from', 'here at', 'with', 'over at', etc.). "
@@ -5376,7 +5377,7 @@ def api_cal_task_complete_action(task_id: str):
     prompt += (
         "Use EXACTLY this format and nothing else:\n"
         "```email\n"
-        "To: " + client_email + "\n"
+        "To: " + (client_email or "[client email]") + "\n"
         "Subject: <subject line here>\n"
         "Body: <first line of body>\n"
         "<rest of body>\n"
@@ -11048,6 +11049,8 @@ window.showModal = function showModal(title, body, imgUrl){
       showEmailConsoleModal("Email Console");
       showToast(`Email draft loaded${lastEmailDraftBy ? ' by ' + lastEmailDraftBy : ''}`);
     }
+    // Expose globally so calendar and other features can call it without the email console being open first
+    window.applyEmailDraft = applyEmailDraft;
 
     function setSmsFrom(teammate){
       if($("smsFrom")) $("smsFrom").value = teammate ? `${teammate} via Twilio/CRM` : 'Twilio/CRM';
@@ -15324,7 +15327,7 @@ window.wcalToggleTask = async function(e, taskId){
     });
     wcalRenderUpcoming();
     showToast(newDone?'✓ Task complete':'Task marked todo');
-    if(newDone && task.on_complete_teammate && task.on_complete_client_email){
+    if(newDone && task.on_complete_teammate){
       wcalFireCompleteAction(taskId, task);
     }
   }catch(err){ showToast('Update failed'); }
@@ -15404,21 +15407,29 @@ async function wcalFireCompleteAction(taskId, task){
     });
     const d = await res.json();
     if(d.ok && d.draft){
-      if(typeof applyEmailDraft === 'function'){
-        applyEmailDraft({
-          subject: d.subject,
-          body:    d.body,
-          to:      d.to,
-        }, d.teammate || task.on_complete_teammate);
+      const draftObj = { subject: d.subject, body: d.body, to: d.to || task.on_complete_client_email || '' };
+      const drafterName = d.teammate || task.on_complete_teammate;
+      if(typeof window.applyEmailDraft === 'function'){
+        window.applyEmailDraft(draftObj, drafterName);
         showToast('📝 Draft ready — review and send from Email Console');
+      } else if(typeof showEmailConsoleModal === 'function'){
+        // Email console not yet initialized — open it first, then apply
+        showEmailConsoleModal('Email Console');
+        setTimeout(()=>{
+          if(typeof window.applyEmailDraft === 'function'){
+            window.applyEmailDraft(draftObj, drafterName);
+          } else {
+            const subEl=document.getElementById('emailSubject');
+            const bodyEl=document.getElementById('emailBody');
+            const toEl=document.getElementById('emailTo');
+            if(subEl) subEl.value=d.subject||'';
+            if(bodyEl) bodyEl.value=d.body||'';
+            if(toEl)   toEl.value=draftObj.to;
+          }
+          showToast('📝 Draft ready — review and send from Email Console');
+        }, 350);
       } else {
-        const subEl=document.getElementById('emailSubject');
-        const bodyEl=document.getElementById('emailBody');
-        const toEl=document.getElementById('emailTo');
-        if(subEl) subEl.value=d.subject||'';
-        if(bodyEl) bodyEl.value=d.body||'';
-        if(toEl)   toEl.value=d.to||task.on_complete_client_email||'';
-        showToast('📝 Draft ready in Email Console — review before sending');
+        showToast('📝 Draft generated — open Email Console to review');
       }
     } else {
       showToast('⚠️ Draft error: '+(d.error||'unknown'));
@@ -15832,10 +15843,11 @@ window.wcalDetToggleDone = async function(){
   if(icon) icon.textContent = newDone ? '✓' : '○';
   if(lbl)  lbl.textContent  = newDone ? 'Completed' : 'Mark complete';
   // Read on_complete fields from the live form (may be newer than task object)
+  // detForClient is the new prominent "For" field; detAutoClientName is the legacy field
   const teammate    = (document.getElementById('detAutoTeammate')?.value    || task.on_complete_teammate    || '').trim();
   const clientEmail = (document.getElementById('detAutoEmail')?.value        || task.on_complete_client_email|| '').trim();
-  const clientName  = (document.getElementById('detAutoClientName')?.value   || task.on_complete_client_name || '').trim();
-  if(newDone && teammate && clientEmail){
+  const clientName  = (document.getElementById('detForClient')?.value || document.getElementById('detAutoClientName')?.value || task.on_complete_client_name || '').trim();
+  if(newDone && teammate){
     const synthTask = Object.assign({}, task, {
       on_complete_teammate:     teammate,
       on_complete_client_email: clientEmail,
