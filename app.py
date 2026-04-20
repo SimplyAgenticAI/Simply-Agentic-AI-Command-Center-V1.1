@@ -5269,12 +5269,26 @@ def api_cal_tasks_update(task_id: str):
             if "duration" in payload:
                 t["duration"] = int(payload["duration"] or 30)
             if "done" in payload:
-                was_done = t.get("done", False)
-                t["done"] = bool(payload["done"])
-                if t["done"] and not was_done:
-                    t["completed_at"] = now_iso()
-                elif not t["done"]:
+                instance_date = (payload.get("instance_date") or "").strip()
+                is_recurring = (t.get("recurring") or "none") != "none"
+                if is_recurring and instance_date:
+                    # Per-date done tracking for recurring tasks
+                    done_dates = set(t.get("done_dates") or [])
+                    if bool(payload["done"]):
+                        done_dates.add(instance_date)
+                    else:
+                        done_dates.discard(instance_date)
+                    t["done_dates"] = sorted(done_dates)
+                    # Keep global done=False so other instances aren't affected
+                    t["done"] = False
                     t["completed_at"] = None
+                else:
+                    was_done = t.get("done", False)
+                    t["done"] = bool(payload["done"])
+                    if t["done"] and not was_done:
+                        t["completed_at"] = now_iso()
+                    elif not t["done"]:
+                        t["completed_at"] = None
             _save_cal_tasks(u.get("username", ""), tasks)
             return jsonify({"ok": True, "task": t})
     return jsonify({"ok": False, "error": "Task not found"}), 404
@@ -5299,7 +5313,9 @@ def api_cal_task_complete_action(task_id: str):
         client_email  = (task.get("on_complete_client_email") or "").strip()
         client_name   = (task.get("on_complete_client_name") or "").strip()
         task_title    = task.get("title", "Untitled task")
-        task_desc     = task.get("description", "")
+        # Prefer the live description sent from the frontend (may include unsaved edits)
+        # over the stale version on disk
+        task_desc     = (payload.get("task_description") or task.get("description") or "").strip()
         task_date     = task.get("date", "")
     else:
         # Google Calendar event — use inline fields sent from frontend
@@ -5337,18 +5353,20 @@ def api_cal_task_complete_action(task_id: str):
     if voice == "operator":
         sign_off_name = operator_name
         desc_block = (
-            f"\n\nHere is what was done/accomplished for this task:\n{task_desc}\n\n"
-            f"IMPORTANT: Reference the specific activities and details above naturally in the email body. "
-            f"Do not be vague — mention actual numbers, actions, and specifics from the notes above. "
-            f"The email should feel like a genuine, personalized update, not a generic 'task complete' notice."
+            f"\n\nACTIVITIES COMPLETED (you MUST reference these specifically in the email body — do not paraphrase vaguely):\n"
+            f"{task_desc}\n\n"
+            f"Your email body MUST mention the actual numbers, actions, and specifics listed above. "
+            f"If it says '50 friend requests sent' — say that. If it says '3 stories shared' — say that. "
+            f"A generic 'I wanted to update you that the task is complete' is NOT acceptable. "
+            f"The client should be able to read this and know exactly what was done."
         ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
-            + (f" (scheduled {task_date})" if task_date else "")
-            + f".{desc_block} "
-            + f"Write a professional, warm, concise email from {operator_name} "
+            + (f" (date: {task_date})" if task_date else "")
+            + f".{desc_block}\n\n"
+            + f"Write a professional, warm email from {operator_name} "
             + (f"at {business_name} " if business_name else "")
-            + f"{to_line} sharing this update. "
+            + f"{to_line} reporting on what was done. "
             + f"Write in first person as {operator_name}. Address the client as '{client_ref}'. "
             + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
@@ -5365,17 +5383,19 @@ def api_cal_task_complete_action(task_id: str):
         import hashlib as _hsh
         _phrase = brand_phrases[int(_hsh.md5((task_title + teammate_display).encode()).hexdigest(), 16) % len(brand_phrases)]
         desc_block = (
-            f"\n\nHere is what was done/accomplished for this task:\n{task_desc}\n\n"
-            f"IMPORTANT: Reference the specific activities and details above naturally in the email body. "
-            f"Do not be vague or generic — mention actual numbers, actions, and specifics from the notes. "
-            f"The email should feel like a genuine, personalized update that proves real work was done."
+            f"\n\nACTIVITIES COMPLETED (you MUST reference these specifically in the email body — do not paraphrase vaguely):\n"
+            f"{task_desc}\n\n"
+            f"Your email body MUST mention the actual numbers, actions, and specifics listed above. "
+            f"If it says '50 friend requests sent' — say that. If it says '3 stories shared' — say that. "
+            f"A generic 'I wanted to update you that the task is complete' is NOT acceptable. "
+            f"The client should be able to read this and know exactly what was done."
         ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
-            + (f" (scheduled {task_date})" if task_date else "")
-            + f".{desc_block} "
-            + f"Write a professional, warm, concise email from {teammate_display} ({_phrase}) "
-            + f"{to_line} sharing this update. "
+            + (f" (date: {task_date})" if task_date else "")
+            + f".{desc_block}\n\n"
+            + f"Write a professional, warm email from {teammate_display} ({_phrase}) "
+            + f"{to_line} reporting on what was done. "
             + f"In the opening, introduce yourself naturally — for example: 'I'm {teammate_display} {_phrase}.' "
             + f"Address the client as '{client_ref}'. "
             + f"Mention Simply Agentic AI naturally in the opening. "
@@ -15134,7 +15154,9 @@ function wcalExpandRecurring(tasks){
         const dow = cur.getDay(); // 0=Sun
         if(activeDays === null || activeDays.includes(dow)){
           const instanceDate = ymd(cur);
-          const isDone = t.done && instanceDate <= (t.completed_at||'').slice(0,10);
+          // Per-date done tracking: check done_dates set, fall back to legacy done flag
+          const doneDates = t.done_dates || [];
+          const isDone = doneDates.includes(instanceDate) || (t.done && instanceDate <= (t.completed_at||'').slice(0,10));
           expanded.push(Object.assign({}, t, {
             id: t.id,
             date: instanceDate,
@@ -15312,35 +15334,66 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
 }
 window.wcalToggleTask = async function(e, taskId){
   e.stopPropagation();
-  const task=cal.tasks.find(t=>t.id===taskId); if(!task) return;
-  const newDone=!task.done;
+  // Find the specific instance that was clicked — use data-tdate to identify the day
+  const clickedEl = e.currentTarget.closest('.wcal-event[data-etype="task"]');
+  const instanceDate = clickedEl ? (clickedEl.dataset.tdate || '') : '';
+  const task = cal.tasks.find(t => t.id === taskId && (!instanceDate || t.date === instanceDate));
+  if(!task) return;
+  const newDone = !task.done;
+  const isRecurring = (task.recurring && task.recurring !== 'none');
   try{
-    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:newDone})});
-    task.done=newDone;
-    task.completed_at=newDone?new Date().toISOString():null;
-    // Update ALL matching task blocks in-place (no full refresh = no disappear)
-    document.querySelectorAll('.wcal-event[data-etype="task"]').forEach(el=>{
-      const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
-      if(tid!==taskId) return;
-      el.classList.toggle('is-done', newDone);
-      const circle=el.querySelector('.wcal-event-check');
-      if(circle){ circle.classList.toggle('checked', newDone); circle.title=newDone?'Unmark':'Mark done'; }
+    const body = { done: newDone };
+    if(isRecurring && instanceDate) body.instance_date = instanceDate;
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+
+    // Update in-memory done_dates on all instances of this task
+    if(isRecurring && instanceDate){
+      cal.tasks.forEach(t=>{
+        if(t.id !== taskId) return;
+        const dd = t.done_dates || [];
+        if(newDone){ if(!dd.includes(instanceDate)) dd.push(instanceDate); }
+        else { const i=dd.indexOf(instanceDate); if(i>=0) dd.splice(i,1); }
+        t.done_dates = dd;
+        if(t.date === instanceDate) t.done = newDone;
+      });
+    } else {
+      task.done = newDone;
+      task.completed_at = newDone ? new Date().toISOString() : null;
+    }
+
+    // Update ONLY the clicked day's DOM element, not all instances
+    if(isRecurring && instanceDate && clickedEl){
+      clickedEl.classList.toggle('is-done', newDone);
+      const circle = clickedEl.querySelector('.wcal-event-check');
+      if(circle){ circle.classList.toggle('checked', newDone); circle.title = newDone?'Unmark':'Mark done'; }
       if(newDone){
-        el.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
+        clickedEl.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
       } else {
-        const p=task.priority||'high';
-        el.classList.add('task-prio-'+p);
+        clickedEl.classList.add('task-prio-'+(task.priority||'high'));
       }
-    });
+    } else {
+      // Non-recurring: update all matching blocks (there's only one)
+      document.querySelectorAll('.wcal-event[data-etype="task"]').forEach(el=>{
+        const tid = el.dataset.tid ? decodeURIComponent(el.dataset.tid) : '';
+        if(tid !== taskId) return;
+        el.classList.toggle('is-done', newDone);
+        const circle = el.querySelector('.wcal-event-check');
+        if(circle){ circle.classList.toggle('checked', newDone); circle.title = newDone?'Unmark':'Mark done'; }
+        if(newDone){
+          el.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
+        } else {
+          el.classList.add('task-prio-'+(task.priority||'high'));
+        }
+      });
+    }
+
     wcalRenderUpcoming();
-    showToast(newDone?'✓ Task complete':'Task marked todo');
+    showToast(newDone ? '✓ Task complete' : 'Task marked todo');
 
     if(newDone){
       if(task.on_complete_teammate){
-        // Teammate already configured — fire voice popup directly
         wcalFireCompleteAction(taskId, task);
       } else {
-        // No teammate pre-configured — offer the option inline
         wcalOfferDraftFromCircle(taskId, task);
       }
     }
@@ -15948,11 +16001,14 @@ window.wcalDetToggleDone = async function(){
   const teammate    = (document.getElementById('detAutoTeammate')?.value    || task.on_complete_teammate    || '').trim();
   const clientEmail = (document.getElementById('detAutoEmail')?.value        || task.on_complete_client_email|| '').trim();
   const clientName  = (document.getElementById('detForClient')?.value || document.getElementById('detAutoClientName')?.value || task.on_complete_client_name || '').trim();
+  // Always read the live description from the notes field — this is the key data for the email draft
+  const liveDesc    = (document.getElementById('detDesc')?.value || task.description || '').trim();
   if(newDone && teammate){
     const synthTask = Object.assign({}, task, {
       on_complete_teammate:     teammate,
       on_complete_client_email: clientEmail,
       on_complete_client_name:  clientName,
+      description:              liveDesc,
     });
     wcalFireCompleteAction(task.id, synthTask);
   }
