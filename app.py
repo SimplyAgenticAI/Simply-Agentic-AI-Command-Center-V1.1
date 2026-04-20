@@ -5336,22 +5336,25 @@ def api_cal_task_complete_action(task_id: str):
 
     if voice == "operator":
         sign_off_name = operator_name
+        desc_block = (
+            f"\n\nHere is what was done/accomplished for this task:\n{task_desc}\n\n"
+            f"IMPORTANT: Reference the specific activities and details above naturally in the email body. "
+            f"Do not be vague — mention actual numbers, actions, and specifics from the notes above. "
+            f"The email should feel like a genuine, personalized update, not a generic 'task complete' notice."
+        ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
             + (f" (scheduled {task_date})" if task_date else "")
-            + ". "
-            + (f"Task notes: {task_desc}. " if task_desc else "")
+            + f".{desc_block} "
             + f"Write a professional, warm, concise email from {operator_name} "
             + (f"at {business_name} " if business_name else "")
-            + f"{to_line} letting them know this task is complete. "
+            + f"{to_line} sharing this update. "
             + f"Write in first person as {operator_name}. Address the client as '{client_ref}'. "
             + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
     else:
         teammate_display = defn.get("name", teammate_name)
-        # Teammate signs off with their own name, not the operator's
         sign_off_name = teammate_display
-        # Variety in how the teammate mentions Simply Agentic AI
         brand_phrases = [
             f"from Simply Agentic AI",
             f"here at Simply Agentic AI",
@@ -5361,16 +5364,21 @@ def api_cal_task_complete_action(task_id: str):
         ]
         import hashlib as _hsh
         _phrase = brand_phrases[int(_hsh.md5((task_title + teammate_display).encode()).hexdigest(), 16) % len(brand_phrases)]
+        desc_block = (
+            f"\n\nHere is what was done/accomplished for this task:\n{task_desc}\n\n"
+            f"IMPORTANT: Reference the specific activities and details above naturally in the email body. "
+            f"Do not be vague or generic — mention actual numbers, actions, and specifics from the notes. "
+            f"The email should feel like a genuine, personalized update that proves real work was done."
+        ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
             + (f" (scheduled {task_date})" if task_date else "")
-            + ". "
-            + (f"Task notes: {task_desc}. " if task_desc else "")
+            + f".{desc_block} "
             + f"Write a professional, warm, concise email from {teammate_display} ({_phrase}) "
-            + f"{to_line} letting them know this task is complete. "
+            + f"{to_line} sharing this update. "
             + f"In the opening, introduce yourself naturally — for example: 'I'm {teammate_display} {_phrase}.' "
             + f"Address the client as '{client_ref}'. "
-            + f"Mention Simply Agentic AI naturally in the opening (you can vary the phrasing — 'from', 'here at', 'with', 'over at', etc.). "
+            + f"Mention Simply Agentic AI naturally in the opening. "
             + f"Sign off using exactly this closing — do not change it:\nBest,\n{sign_off_name}"
         )
 
@@ -5399,7 +5407,7 @@ def api_cal_task_complete_action(task_id: str):
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.65,
-            max_tokens=600,
+            max_tokens=900,
             timeout=45,
         )
         raw = (resp.choices[0].message.content or "").strip()
@@ -8792,10 +8800,12 @@ label         { font-size: 14px !important; }
 
       </div>
 
-      <!-- Center: pinned shortcuts + session objective pill -->
+      <!-- Center: pinned icon shortcuts + session objective pill on same row -->
       <div class="saNavCenter">
-        <div id="saPinnedBar" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;"></div>
-        <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
+        <div style="display:flex;align-items:center;gap:6px;justify-content:center;flex-wrap:nowrap;max-width:100%;">
+          <div id="saPinnedBar" style="display:flex;gap:3px;align-items:center;flex-shrink:0;"></div>
+          <div class="saObjectivePill" id="sessionObjectivePill" title="Current session objective">No objective set</div>
+        </div>
       </div>
 
       <!-- Right: model tag + logout -->
@@ -13139,11 +13149,11 @@ async function pollImageJob(jobId, seatName){
         _pinned.forEach(key=>{
           const f = FEATURE_MAP[key]; if(!f) return;
           const btn = document.createElement('button');
-          btn.title   = f.label;
-          btn.style.cssText = 'background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#c4b5fd;border-radius:8px;padding:4px 9px;font-size:15px;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .15s;';
-          btn.innerHTML = `${f.icon}<span style="font-size:11px;font-weight:600;">${f.label}</span>`;
-          btn.onmouseenter = ()=>{ btn.style.background='rgba(124,58,237,.35)'; };
-          btn.onmouseleave = ()=>{ btn.style.background='rgba(124,58,237,.18)'; };
+          btn.title = f.label;
+          btn.style.cssText = 'background:transparent;border:none;color:#a5b4fc;border-radius:6px;padding:3px 5px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,transform .1s;line-height:1;';
+          btn.textContent = f.icon;
+          btn.onmouseenter = ()=>{ btn.style.background='rgba(124,58,237,.2)'; btn.style.transform='scale(1.15)'; };
+          btn.onmouseleave = ()=>{ btn.style.background='transparent'; btn.style.transform='scale(1)'; };
           btn.onclick = ()=>{ const fn=window[f.fn]; if(typeof fn==='function') fn(); };
           bar.appendChild(btn);
         });
