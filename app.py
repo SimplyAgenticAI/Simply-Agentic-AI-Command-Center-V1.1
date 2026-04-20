@@ -11582,7 +11582,7 @@ function makeSeat(defn, idx){
 
       const meta = document.createElement("div");
       meta.className = "seatMeta";
-      meta.innerText = "Profile";
+      meta.innerText = "";
       seat.appendChild(meta);
 
       // Default position like other seats (with saved drag positions)
@@ -16071,109 +16071,65 @@ window.wcalDetSaveEvent = async function(encodedId){
   }
 };
 
-// ── Activation sound — round table powering up (deep, powerful, no whine) ─
+// ── Activation sound — round table powering up (bright, uplifting, celebratory) ─
 function wcalPlayActivationSound(){
   try{
     const ctx=new(window.AudioContext||window.webkitAudioContext)();
     const t=ctx.currentTime;
 
-    // Master bus
+    // Master bus — keep it warm but not loud
     const master=ctx.createGain();
-    master.gain.setValueAtTime(0,t);
-    master.gain.linearRampToValueAtTime(0.82,t+0.07);
-    master.gain.setValueAtTime(0.82,t+2.5);
-    master.gain.linearRampToValueAtTime(0,t+3.2);
+    master.gain.setValueAtTime(0.0,t);
+    master.gain.linearRampToValueAtTime(0.55,t+0.04);
+    master.gain.setValueAtTime(0.55,t+2.2);
+    master.gain.linearRampToValueAtTime(0.0,t+2.8);
     master.connect(ctx.destination);
 
-    // 1. HEAVY BASS IMPACT — the table slams on (deep sine punch 80→30 Hz)
-    const boom=ctx.createOscillator(); const boomG=ctx.createGain();
-    boom.type='sine';
-    boom.frequency.setValueAtTime(80,t);
-    boom.frequency.exponentialRampToValueAtTime(30,t+0.5);
-    boomG.gain.setValueAtTime(0,t);
-    boomG.gain.linearRampToValueAtTime(1.0,t+0.02);
-    boomG.gain.exponentialRampToValueAtTime(0.001,t+0.55);
-    boom.connect(boomG); boomG.connect(master);
-    boom.start(t); boom.stop(t+0.6);
+    // Reverb-style convolver for warmth
+    const revBuf=ctx.createBuffer(1,ctx.sampleRate*1.2,ctx.sampleRate);
+    const revD=revBuf.getChannelData(0);
+    for(let i=0;i<revD.length;i++) revD[i]=(Math.random()*2-1)*Math.pow(1-i/revD.length,2.5);
+    const rev=ctx.createConvolver(); rev.buffer=revBuf;
+    const revG=ctx.createGain(); revG.gain.value=0.18;
+    rev.connect(revG); revG.connect(master);
 
-    // 2. SECOND THUD — a slight echo hit at 0.18s for weight
-    const boom2=ctx.createOscillator(); const boom2G=ctx.createGain();
-    boom2.type='sine';
-    boom2.frequency.setValueAtTime(65,t+0.18);
-    boom2.frequency.exponentialRampToValueAtTime(25,t+0.6);
-    boom2G.gain.setValueAtTime(0,t+0.18);
-    boom2G.gain.linearRampToValueAtTime(0.65,t+0.20);
-    boom2G.gain.exponentialRampToValueAtTime(0.001,t+0.65);
-    boom2.connect(boom2G); boom2G.connect(master);
-    boom2.start(t+0.18); boom2.stop(t+0.7);
+    // Helper: play a musical sine tone
+    function chime(freq, when, dur, vol){
+      const o=ctx.createOscillator(); const g=ctx.createGain();
+      o.type='sine'; o.frequency.value=freq;
+      g.gain.setValueAtTime(0,t+when);
+      g.gain.linearRampToValueAtTime(vol,t+when+0.015);
+      g.gain.exponentialRampToValueAtTime(0.001,t+when+dur);
+      o.connect(g); g.connect(master); o.connect(rev);
+      o.start(t+when); o.stop(t+when+dur+0.05);
+    }
 
-    // 3. LOW ENGINE RUMBLE — steady power hum rising 40→120 Hz (sawtooth through lowpass)
-    const eng=ctx.createOscillator(); const engG=ctx.createGain();
-    const engF=ctx.createBiquadFilter();
-    eng.type='sawtooth';
-    eng.frequency.setValueAtTime(40,t+0.1);
-    eng.frequency.linearRampToValueAtTime(120,t+1.6);
-    eng.frequency.setValueAtTime(120,t+1.6);
-    eng.frequency.linearRampToValueAtTime(105,t+2.8);
-    engF.type='lowpass'; engF.frequency.value=200; engF.Q.value=0.5;
-    engG.gain.setValueAtTime(0,t+0.1);
-    engG.gain.linearRampToValueAtTime(0.5,t+0.35);
-    engG.gain.setValueAtTime(0.5,t+2.0);
-    engG.gain.linearRampToValueAtTime(0.0,t+3.0);
-    eng.connect(engF); engF.connect(engG); engG.connect(master);
-    eng.start(t+0.1); eng.stop(t+3.1);
+    // Rising major chord arpeggio — C4, E4, G4, C5 (bright and happy)
+    // C4=261.6  E4=329.6  G4=392  B4=493.9  C5=523.3  E5=659.3
+    chime(261.6, 0.00, 0.55, 0.38);   // C4 — foundation
+    chime(329.6, 0.10, 0.55, 0.32);   // E4 — warmth
+    chime(392.0, 0.20, 0.55, 0.28);   // G4 — lift
+    chime(523.3, 0.32, 0.70, 0.30);   // C5 — arrival
+    chime(659.3, 0.46, 0.80, 0.22);   // E5 — sparkle
 
-    // 4. MID POWER TONE — a wide square wave 180→320 Hz (thick, not whiny)
-    const mid=ctx.createOscillator(); const midG=ctx.createGain();
-    const midF=ctx.createBiquadFilter();
-    mid.type='square';
-    mid.frequency.setValueAtTime(180,t+0.3);
-    mid.frequency.linearRampToValueAtTime(320,t+1.8);
-    mid.frequency.setValueAtTime(320,t+1.8);
-    midF.type='lowpass'; midF.frequency.value=500; midF.Q.value=1.0;
-    midG.gain.setValueAtTime(0,t+0.3);
-    midG.gain.linearRampToValueAtTime(0.18,t+0.6);
-    midG.gain.setValueAtTime(0.18,t+1.8);
-    midG.gain.exponentialRampToValueAtTime(0.001,t+2.6);
-    mid.connect(midF); midF.connect(midG); midG.connect(master);
-    mid.start(t+0.3); mid.stop(t+2.7);
+    // Soft harmonic shimmer on the high note
+    chime(1046.5,0.46, 0.60, 0.08);   // C6 — air
 
-    // 5. POWER LOCK THUD — system engaged punch at 1.6s
-    const lock=ctx.createOscillator(); const lockG=ctx.createGain();
-    lock.type='sine';
-    lock.frequency.setValueAtTime(95,t+1.6);
-    lock.frequency.exponentialRampToValueAtTime(38,t+1.95);
-    lockG.gain.setValueAtTime(0,t+1.6);
-    lockG.gain.linearRampToValueAtTime(1.0,t+1.63);
-    lockG.gain.exponentialRampToValueAtTime(0.001,t+2.05);
-    lock.connect(lockG); lockG.connect(master);
-    lock.start(t+1.6); lock.stop(t+2.1);
+    // Gentle second wave — major chord settle
+    chime(392.0, 0.75, 0.65, 0.16);
+    chime(523.3, 0.80, 0.65, 0.18);
+    chime(659.3, 0.87, 0.70, 0.14);
 
-    // 6. NOISE SWEEP — broadband filtered noise, ground-level rumble texture
-    const bufSize=ctx.sampleRate*1.0;
-    const buf=ctx.createBuffer(1,bufSize,ctx.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<bufSize;i++) d[i]=(Math.random()*2-1);
-    const nSrc=ctx.createBufferSource(); nSrc.buffer=buf;
-    const nF=ctx.createBiquadFilter(); nF.type='lowpass'; nF.frequency.value=180; nF.Q.value=0.6;
-    const nG=ctx.createGain();
-    nG.gain.setValueAtTime(0,t);
-    nG.gain.linearRampToValueAtTime(0.22,t+0.15);
-    nG.gain.setValueAtTime(0.22,t+0.7);
-    nG.gain.exponentialRampToValueAtTime(0.001,t+1.2);
-    nSrc.connect(nF); nF.connect(nG); nG.connect(master);
-    nSrc.start(t); nSrc.stop(t+1.25);
-
-    // 7. TWO DEEP CONFIRMATION TONES — low, resonant (NOT high pings)
-    [[320,2.0,0.28],[480,2.18,0.22]].forEach(([freq,when,vol])=>{
-      const p=ctx.createOscillator(); const pg=ctx.createGain();
-      const pf=ctx.createBiquadFilter(); pf.type='lowpass'; pf.frequency.value=600;
-      p.type='sine'; p.frequency.value=freq;
-      pg.gain.setValueAtTime(0,t+when);
-      pg.gain.linearRampToValueAtTime(vol,t+when+0.03);
-      pg.gain.exponentialRampToValueAtTime(0.001,t+when+0.55);
-      p.connect(pf); pf.connect(pg); pg.connect(master);
-      p.start(t+when); p.stop(t+when+0.6);
+    // Warm pad — soft sine chord underneath for fullness
+    [261.6,329.6,392.0].forEach((f,i)=>{
+      const o=ctx.createOscillator(); const g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f;
+      g.gain.setValueAtTime(0,t+0.05+i*0.03);
+      g.gain.linearRampToValueAtTime(0.08,t+0.25);
+      g.gain.setValueAtTime(0.08,t+1.6);
+      g.gain.linearRampToValueAtTime(0.0,t+2.5);
+      o.connect(g); g.connect(master);
+      o.start(t+0.05); o.stop(t+2.6);
     });
 
   }catch(e){}
