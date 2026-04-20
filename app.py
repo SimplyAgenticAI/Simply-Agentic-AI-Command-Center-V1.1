@@ -15685,8 +15685,6 @@ function wcalShowTaskDetail(task){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Stacy" value="${task.on_complete_client_name||''}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -15792,6 +15790,15 @@ function wcalShowGcalTaskDetail(ev){
       <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;${isRecur?'color:#a5b4fc;':'opacity:.5;'}">
         ${isRecur?'↻ Recurring (managed in Google Calendar)':'Does not repeat'}
       </div>
+      ${isRecur?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">M</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">T</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">W</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">Th</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">F</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.35);color:rgba(148,163,184,.5);font-size:11px;font-weight:700;">Sa</span>
+        <span style="padding:3px 8px;border-radius:6px;background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.35);color:rgba(148,163,184,.5);font-size:11px;font-weight:700;">Su</span>
+      </div>`:''}
     </div>
     <div>
       <div class="wcal-detail-label">For</div>
@@ -15816,8 +15823,6 @@ function wcalShowGcalTaskDetail(ev){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Stacy" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -17023,10 +17028,9 @@ window.wcalDetFillClientFromCRM = function(val){
   if(!val) return;
   try{
     const c = JSON.parse(val);
-    // Support both local task IDs (detAutoClientName/detAutoEmail)
-    // and gcal task IDs (detEvAutoClientName/detEvAutoEmail)
-    const nameEl  = document.getElementById('detAutoClientName')  || document.getElementById('detEvAutoClientName');
-    const emailEl = document.getElementById('detAutoEmail')        || document.getElementById('detEvAutoEmail');
+    // Write to the unified "For" field, falling back to legacy IDs
+    const nameEl  = document.getElementById('detForClient') || document.getElementById('detAutoClientName') || document.getElementById('detEvAutoClientName');
+    const emailEl = document.getElementById('detAutoEmail') || document.getElementById('detEvAutoEmail');
     if(nameEl  && c.name)  nameEl.value  = c.name;
     if(emailEl && c.email) emailEl.value = c.email;
   }catch(e){}
