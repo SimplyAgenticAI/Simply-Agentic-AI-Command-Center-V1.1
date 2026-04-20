@@ -15245,12 +15245,39 @@ function _setEvDone(eid,done){
 window.wcalToggleEvent = function(e, eid){
   e.stopPropagation();
   const isDone = _evDone.has(eid);
-  _setEvDone(eid, !isDone);
+  const newDone = !isDone;
+  _setEvDone(eid, newDone);
   const circle = e.currentTarget;
-  circle.classList.toggle('checked', !isDone);
+  circle.classList.toggle('checked', newDone);
   const block = circle.closest('.wcal-event');
-  if(block) block.classList.toggle('is-done', !isDone);
-  showToast(!isDone ? '✓ Event marked done' : 'Event unmarked');
+  if(block) block.classList.toggle('is-done', newDone);
+  showToast(newDone ? '✓ Event marked done' : 'Event unmarked');
+
+  if(newDone){
+    // Look up meta for this event to see if there's a teammate configured
+    const meta=(cal.gcalMeta||{})[eid]||{};
+    const teammate=meta.on_complete_teammate||'';
+    // Build a synthetic task object for the draft flow
+    let evObj=null;
+    Object.values(cal.events||{}).forEach(arr=>arr.forEach(ev=>{
+      if((ev.id||ev.summary||'')===eid) evObj=ev;
+    }));
+    const synthTask={
+      id:eid,
+      title:(evObj&&evObj.summary)||eid,
+      description:(meta.notes||''),
+      date:(evObj&&evObj.start||'').slice(0,10),
+      on_complete_teammate:teammate,
+      on_complete_client_email:meta.on_complete_client_email||'',
+      on_complete_client_name:meta.on_complete_client_name||'',
+      _isGcalTask:true,
+    };
+    if(teammate){
+      wcalFireCompleteAction(eid, synthTask);
+    } else {
+      wcalOfferDraftFromCircle(eid, synthTask);
+    }
+  }
 };
 
 function wcalEventHtml(ev, extraStyle=''){
@@ -15666,12 +15693,20 @@ function wcalShowTaskDetail(task){
         <option value="biweekly" ${task.recurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly" ${task.recurring==='monthly'?'selected':''}>Monthly</option>
       </select>
-      <div id="detDayPicker" style="display:${(task.recurring==='weekdays'||task.recurring==='custom')?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
-        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{const d=[1,2,3,4,5,6,0][i]; const defActive=d>=1&&d<=5; const active=(task.recur_days||[d]).includes(d)||(task.recurring==='weekdays'&&defActive); return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;}).join('')}
+      <div id="detDayPicker" style="display:${(task.recurring&&task.recurring!=='none')?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
+          const d=[1,2,3,4,5,6,0][i];
+          let active;
+          if(task.recurring==='daily') active=true;
+          else if(task.recurring==='weekdays') active=d>=1&&d<=5;
+          else if(task.recur_days&&task.recur_days.length) active=task.recur_days.map(Number).includes(d);
+          else active=d>=1&&d<=5;
+          return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;
+        }).join('')}
       </div>
     </div>
     <div>
-      <div class="wcal-detail-label">Description / Notes</div>
+      <div class="wcal-detail-label">Notes</div>
       <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(task.description||'')}</textarea>
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
@@ -15810,7 +15845,7 @@ function wcalShowGcalTaskDetail(ev){
       </div>
     </div>
     <div>
-      <div class="wcal-detail-label">Description / Notes</div>
+      <div class="wcal-detail-label">Notes</div>
       <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes about what was done…">${wcalCleanDescription(storedNotes)}</textarea>
     </div>
     <div class="wcal-autocomplete-section" id="detAutoSection">
@@ -17078,15 +17113,22 @@ function _wcalGetActiveDays(pickerId){
 window.wcalToggleRecurDays = function(rule, pickerId){
   const el = document.getElementById(pickerId);
   if(!el) return;
-  const show = rule === 'weekdays' || rule === 'custom';
+  const show = rule && rule !== 'none';
   el.style.display = show ? 'flex' : 'none';
-  if(rule === 'weekdays'){
-    // Default: Mon–Fri active, Sa/Su inactive
-    el.querySelectorAll('.wcal-day-btn').forEach(b=>{
-      const d = parseInt(b.dataset.day);
+  if(!show) return;
+  // Set default active days based on rule
+  el.querySelectorAll('.wcal-day-btn').forEach(b=>{
+    const d = parseInt(b.dataset.day);
+    if(rule === 'daily'){
+      b.classList.add('active'); // all days active
+    } else if(rule === 'weekdays'){
       b.classList.toggle('active', d >= 1 && d <= 5);
-    });
-  }
+    } else if(rule === 'weekly' || rule === 'biweekly' || rule === 'monthly'){
+      // For weekly/biweekly/monthly: only keep currently active days, don't reset
+      // (leave as-is so user can pick which day of week/month)
+    }
+    // 'custom': leave as-is, user controls individually
+  });
 };
 
 window.wcalPopSwitch=function(type){
