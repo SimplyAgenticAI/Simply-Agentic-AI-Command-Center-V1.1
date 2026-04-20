@@ -5156,7 +5156,6 @@ def api_gcal_event_meta_set():
         "gcal_item_type": (payload.get("gcal_item_type") or meta.get(event_id, {}).get("gcal_item_type") or "").strip(),
         "priority": (payload.get("priority") or meta.get(event_id, {}).get("priority") or "").strip(),
         "notes":    (payload.get("notes")    if payload.get("notes") is not None else meta.get(event_id, {}).get("notes") or ""),
-        "title":    (payload.get("title")    if payload.get("title")    else meta.get(event_id, {}).get("title") or ""),
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -10168,6 +10167,13 @@ label         { font-size: 14px !important; }
       <option value="medium">🟡 Medium</option>
       <option value="low">🟢 Low</option>
     </select>
+    <div class="wcp-label" style="margin-top:6px;">For (client name)</div>
+    <div style="display:flex;gap:5px;">
+      <select class="wcp-field" id="wcalPopClientSelect" onchange="wcalPopClientPick(this.value)" style="flex:1;">
+        <option value="">— Pick from CRM —</option>
+      </select>
+    </div>
+    <input class="wcp-field" id="wcalPopClientName" placeholder="Or type a name…" autocomplete="off" style="margin-top:4px;" />
   </div>
   <div class="wcp-row">
     <button class="wcp-btn" id="wcalPopCreate">Create</button>
@@ -15417,6 +15423,15 @@ function wcalShowTaskDetail(task){
   const prioLabel={high:'High',medium:'Medium',low:'Low'};
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" />
+    <div style="margin-bottom:2px;">
+      <div class="wcal-detail-label" style="margin-bottom:3px;">For</div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <input class="wcal-detail-field" id="detForClient" type="text" placeholder="Client name (optional)" value="${(task.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" style="flex:1;" />
+        <select class="wcal-detail-field" id="detForClientCrm" onchange="wcalDetFillForClient(this.value)" style="flex:1;font-size:11px;">
+          <option value="">— CRM —</option>
+        </select>
+      </div>
+    </div>
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${task.done?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
@@ -15492,7 +15507,23 @@ function wcalShowTaskDetail(task){
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
+  wcalPopulateCrmClientDropdown('detForClientCrm', '');
 }
+
+// Fill the "For" client name field from the CRM dropdown
+window.wcalDetFillForClient = function(val){
+  if(!val) return;
+  try{
+    const c=JSON.parse(val);
+    const el=document.getElementById('detForClient');
+    if(el && c.name) el.value=c.name;
+    // Also propagate to email-on-complete fields if empty
+    const emailEl=document.getElementById('detAutoEmail');
+    if(emailEl && !emailEl.value && c.email) emailEl.value=c.email;
+    const nameEl=document.getElementById('detAutoClientName');
+    if(nameEl && !nameEl.value && c.name) nameEl.value=c.name;
+  }catch(e){}
+};
 
 // ── Toggle a gcal event between event/task display type ────────
 window.wcalToggleGcalItemType = async function(evId, currentType){
@@ -15540,7 +15571,7 @@ function wcalShowGcalTaskDetail(ev){
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
+    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
 
@@ -15816,7 +15847,7 @@ window.wcalDetSaveTask = async function(taskId){
     recurring:document.getElementById('detRecurring')?.value||'none',
     description:(document.getElementById('detDesc')?.value||'').trim(),
     on_complete_teammate:document.getElementById('detAutoTeammate')?.value||'',
-    on_complete_client_name:(document.getElementById('detAutoClientName')?.value||'').trim(),
+    on_complete_client_name:(document.getElementById('detForClient')?.value||document.getElementById('detAutoClientName')?.value||'').trim(),
     on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
@@ -15845,12 +15876,10 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
   const priority = document.getElementById('detGcalTaskPriority')?.value || 'high';
   const notes    = document.getElementById('detGcalTaskNotes')?.value    || '';
-  const title    = (document.getElementById('detTitle')?.value || '').trim();
   const payload={
     event_id: evId,
     priority,
     notes,
-    title,
     on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
     on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
@@ -15862,12 +15891,6 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
     cal.gcalMeta[evId]=d.meta;
-    // Update the local event summary so the calendar grid reflects the new name
-    if(title){
-      Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{
-        if((e.id||e.summary||'')=== evId){ e.summary=title; }
-      }));
-    }
     // Apply priority live on the grid
     _evPriority[evId] = priority;
     wcalRefresh();
@@ -16761,6 +16784,9 @@ function wcalPopOpen(clientX, clientY, dt, timeStr){
   // Pre-fill
   const tEl=document.getElementById('wcalPopTime'); if(tEl) tEl.value=timeStr;
   const titleEl=document.getElementById('wcalPopTitle'); if(titleEl){ titleEl.value=''; titleEl.focus(); }
+  // Reset client fields
+  const clientNameEl=document.getElementById('wcalPopClientName'); if(clientNameEl) clientNameEl.value='';
+  const clientSelEl=document.getElementById('wcalPopClientSelect'); if(clientSelEl) clientSelEl.value='';
   // Update label
   const lbl=document.getElementById('wcalPopLabel');
   const d=new Date(dt+'T12:00:00');
@@ -16777,6 +16803,20 @@ window.wcalPopSwitch=function(type){
   document.getElementById('wcalPopTabTask')?.classList.toggle('active',type==='task');
   const ex=document.getElementById('wcalPopTaskExtras');
   if(ex) ex.style.display=type==='task'?'block':'none';
+  // Populate CRM client dropdown when switching to task
+  if(type==='task'){
+    try{ wcalPopulateCrmClientDropdown('wcalPopClientSelect',''); }catch(e){}
+  }
+};
+
+// When a CRM client is picked in the popover, fill the name field
+window.wcalPopClientPick=function(val){
+  if(!val) return;
+  try{
+    const c=JSON.parse(val);
+    const nameEl=document.getElementById('wcalPopClientName');
+    if(nameEl && c.name) nameEl.value=c.name;
+  }catch(e){}
 };
 
 async function wcalPopCreate(){
@@ -16801,9 +16841,11 @@ async function wcalPopCreate(){
     }catch(e){ showToast('Event creation failed: '+(e.message||e)+' — connect Calendar in Settings'); }
   } else {
     const priority=document.getElementById('wcalPopPriority')?.value||'medium';
+    const forClient=(document.getElementById('wcalPopClientName')?.value||'').trim();
     try{
       const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority})});
+        body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority,
+          on_complete_client_name:forClient})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
       cal.tasks.push(d.task); showToast('Task added: '+title); wcalRefresh();
     }catch(e){ showToast('Task creation failed: '+(e.message||e)); }
