@@ -15745,27 +15745,27 @@ function wcalShowGcalTaskDetail(ev){
   const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
   const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
   const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
+  const durMins=(!isNaN(startD)&&!isNaN(endD))?Math.max(15,Math.round((endD-startD)/60000)):30;
   const isDone=_evDone.has(evId)||(!!((cal.gcalMeta||{})[evId]||{}).done);
   const htmlLink=ev.htmlLink||'';
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  // Notes: show stored local notes; if none, pre-fill with Google description as a starting point
+  const isRecur=!!(ev.recurringEventId);
+  // Notes: use stored local notes; fall back to Google description
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
+    <div class="wcal-detail-title-wrap"><input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" /></div>
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
-
     <div>
       <div class="wcal-detail-label">Status</div>
-      <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
-        <span id="detEvDoneIcon">${isDone?'✓':'○'}</span>
-        <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
+      <div class="wcal-done-toggle ${isDone?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
+        <span id="detDoneIcon">${isDone?'✓':'○'}</span>
+        <span id="detDoneLabel">${isDone?'Completed':'Mark complete'}</span>
       </div>
     </div>
-
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
@@ -15776,38 +15776,46 @@ function wcalShowGcalTaskDetail(ev){
         <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${startVal?startVal+(endVal?' – '+endVal:''):'—'}</div>
       </div>
     </div>
-
-    <div>
-      <div class="wcal-detail-label">Priority</div>
-      <select class="wcal-detail-field" id="detGcalTaskPriority" onchange="wcalDetGcalTaskPriorityChange(this.value)">
-        <option value="high"   ${storedPrio==='high'   ?'selected':''}>🟣 High</option>
-        <option value="medium" ${storedPrio==='medium' ?'selected':''}>🟡 Medium</option>
-        <option value="low"    ${storedPrio==='low'    ?'selected':''}>🟢 Low</option>
-      </select>
+    <div class="wcal-detail-row">
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Priority</div>
+        <select class="wcal-detail-field" id="detPriority" onchange="wcalDetGcalTaskPriorityChange(this.value)">
+          <option value="high"   ${storedPrio==='high'   ?'selected':''}>🟣 High</option>
+          <option value="medium" ${storedPrio==='medium' ?'selected':''}>🟡 Medium</option>
+          <option value="low"    ${storedPrio==='low'    ?'selected':''}>🟢 Low</option>
+        </select>
+      </div>
     </div>
-
+    ${isRecur?`<div><div class="wcal-detail-label">Recurring</div><div class="wcal-detail-value" style="font-size:12px;padding:3px 0;color:#a5b4fc;">↻ Repeating event (managed in Google Calendar)</div></div>`:''}
     <div>
-      <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detGcalTaskNotes" placeholder="Add notes about this task…" style="min-height:80px;">${storedNotes.replace(/</g,'&lt;')}</textarea>
+      <div class="wcal-detail-label">For</div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <input class="wcal-detail-field" id="detForClient" type="text" placeholder="Client name (optional)" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" style="flex:1;" />
+        <select class="wcal-detail-field" id="detForClientCrm" onchange="wcalDetFillForClient(this.value)" style="flex:1;font-size:11px;">
+          <option value="">— CRM —</option>
+        </select>
+      </div>
     </div>
-
-    <div class="wcal-autocomplete-section" id="detEvAutoSection">
+    <div>
+      <div class="wcal-detail-label">Description / Notes</div>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes about what was done…">${wcalCleanDescription(storedNotes)}</textarea>
+    </div>
+    <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a client (auto-fills name &amp; email)</div>
-      <select class="wcal-detail-field" id="detGcalCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
         <option value="">— Select from CRM (optional) —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Teammate to draft email</div>
-      <select class="wcal-detail-field" id="detEvAutoTeammate">
+      <div class="wcal-detail-label" style="margin-top:6px;">Assign teammate to draft email</div>
+      <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
       <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. Stacy" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email</div>
-      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
-      <div class="wcal-automail-status" id="detEvAutoStatus"></div>
+      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Stacy" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
+      <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
-
     <div>
       <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','task')">
         ⇄ Switch to Event
@@ -15823,12 +15831,22 @@ function wcalShowGcalTaskDetail(ev){
   const detHdr=document.querySelector('.wcal-detail-header');
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
-  panel._currentEvent=ev; panel._currentTask=null;
-  // Set current priority in _evPriority so live changes work
+  // Store as _currentTask shape so wcalDetToggleDone works
+  panel._currentTask={
+    id:evId, title:meta.title||ev.summary||'Task',
+    description:storedNotes,
+    date:dateVal, start:startVal,
+    on_complete_teammate:meta.on_complete_teammate||'',
+    on_complete_client_email:meta.on_complete_client_email||'',
+    on_complete_client_name:meta.on_complete_client_name||'',
+    done:isDone, _isGcalTask:true,
+  };
+  panel._currentEvent=ev;
   _evPriority[evId]=storedPrio;
   // Populate dropdowns
-  wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
-  wcalPopulateCrmClientDropdown('detGcalCrmClient', meta.on_complete_client_email||'');
+  wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
+  wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
+  wcalPopulateCrmClientDropdown('detForClientCrm','');
 }
 
 function wcalShowEventDetail(ev){
@@ -15987,6 +16005,48 @@ window.wcalDetToggleDone = async function(){
   if(!panel||!panel._currentTask) return;
   const task=panel._currentTask;
   const newDone = !task.done;
+
+  // gcal tasks: use event_meta API instead of local task API
+  if(task._isGcalTask){
+    const evId=task.id;
+    const teammate    = (document.getElementById('detAutoTeammate')?.value || task.on_complete_teammate || '').trim();
+    const clientEmail = (document.getElementById('detAutoEmail')?.value || task.on_complete_client_email || '').trim();
+    const clientName  = (document.getElementById('detForClient')?.value || document.getElementById('detAutoClientName')?.value || task.on_complete_client_name || '').trim();
+    const liveDesc    = (document.getElementById('detDesc')?.value || task.description || '').trim();
+    const payload={
+      event_id: evId, done: newDone,
+      on_complete_teammate: teammate,
+      on_complete_client_name: clientName,
+      on_complete_client_email: clientEmail,
+      notes: liveDesc,
+      priority: document.getElementById('detPriority')?.value || 'high',
+    };
+    try{
+      const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await res.json();
+      if(!d.ok) throw new Error(d.error||'Failed');
+      if(!cal.gcalMeta) cal.gcalMeta={};
+      cal.gcalMeta[evId]=d.meta;
+      task.done=newDone;
+      const toggle=document.getElementById('detDoneToggle');
+      const icon=document.getElementById('detDoneIcon');
+      const lbl=document.getElementById('detDoneLabel');
+      if(toggle) toggle.classList.toggle('done',newDone);
+      if(icon) icon.textContent=newDone?'✓':'○';
+      if(lbl) lbl.textContent=newDone?'Completed':'Mark complete';
+      showToast(newDone?'✓ Task complete':'Task marked todo');
+      if(newDone && teammate){
+        const synthTask=Object.assign({},task,{
+          on_complete_teammate:teammate, on_complete_client_email:clientEmail,
+          on_complete_client_name:clientName, description:liveDesc,
+        });
+        wcalFireCompleteAction(evId, synthTask);
+      }
+      wcalRefresh();
+    }catch(e){ showToast('Update failed'); }
+    return;
+  }
+
   await wcalToggleTaskById(task.id, newDone);
   task.done = newDone;
   task.completed_at = newDone ? new Date().toISOString() : null;
@@ -16062,17 +16122,19 @@ window.wcalDetDeleteTask = async function(taskId){
 // Save email-on-complete fields for a Google Calendar item shown as task
 window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
-  const priority = document.getElementById('detGcalTaskPriority')?.value || 'high';
-  const notes    = document.getElementById('detGcalTaskNotes')?.value    || '';
+  // Use unified field IDs that match the local task panel
+  const priority = document.getElementById('detPriority')?.value || document.getElementById('detGcalTaskPriority')?.value || 'high';
+  const notes    = document.getElementById('detDesc')?.value    || document.getElementById('detGcalTaskNotes')?.value || '';
   const title    = (document.getElementById('detTitle')?.value || '').trim();
+  const forClient= (document.getElementById('detForClient')?.value || '').trim();
   const payload={
     event_id: evId,
     priority,
     notes,
     title,
-    on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
-    on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
-    on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
+    on_complete_teammate:     (document.getElementById('detAutoTeammate')?.value    || document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
+    on_complete_client_name:  (forClient || document.getElementById('detAutoClientName')?.value || document.getElementById('detEvAutoClientName')?.value ||'').trim(),
+    on_complete_client_email: (document.getElementById('detAutoEmail')?.value || document.getElementById('detEvAutoEmail')?.value ||'').trim(),
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
   try{
