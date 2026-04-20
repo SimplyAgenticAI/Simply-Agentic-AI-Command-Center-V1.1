@@ -5156,6 +5156,7 @@ def api_gcal_event_meta_set():
         "gcal_item_type": (payload.get("gcal_item_type") or meta.get(event_id, {}).get("gcal_item_type") or "").strip(),
         "priority": (payload.get("priority") or meta.get(event_id, {}).get("priority") or "").strip(),
         "notes":    (payload.get("notes")    if payload.get("notes") is not None else meta.get(event_id, {}).get("notes") or ""),
+        "title":    (payload.get("title")    if payload.get("title")    else meta.get(event_id, {}).get("title") or ""),
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -15539,7 +15540,7 @@ function wcalShowGcalTaskDetail(ev){
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
+    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
 
@@ -15844,10 +15845,12 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
   const priority = document.getElementById('detGcalTaskPriority')?.value || 'high';
   const notes    = document.getElementById('detGcalTaskNotes')?.value    || '';
+  const title    = (document.getElementById('detTitle')?.value || '').trim();
   const payload={
     event_id: evId,
     priority,
     notes,
+    title,
     on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
     on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
@@ -15859,6 +15862,12 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
     cal.gcalMeta[evId]=d.meta;
+    // Update the local event summary so the calendar grid reflects the new name
+    if(title){
+      Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{
+        if((e.id||e.summary||'')=== evId){ e.summary=title; }
+      }));
+    }
     // Apply priority live on the grid
     _evPriority[evId] = priority;
     wcalRefresh();
