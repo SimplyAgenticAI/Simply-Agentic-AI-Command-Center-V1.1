@@ -15312,12 +15312,9 @@ window.wcalToggleTask = async function(e, taskId){
     document.querySelectorAll('.wcal-event[data-etype="task"]').forEach(el=>{
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       if(tid!==taskId) return;
-      // Toggle done class (strikethrough + grey)
       el.classList.toggle('is-done', newDone);
-      // Update check circle
       const circle=el.querySelector('.wcal-event-check');
       if(circle){ circle.classList.toggle('checked', newDone); circle.title=newDone?'Unmark':'Mark done'; }
-      // Update priority class (remove if done)
       if(newDone){
         el.classList.remove('task-prio-high','task-prio-medium','task-prio-low');
       } else {
@@ -15327,11 +15324,105 @@ window.wcalToggleTask = async function(e, taskId){
     });
     wcalRenderUpcoming();
     showToast(newDone?'✓ Task complete':'Task marked todo');
-    if(newDone && task.on_complete_teammate){
-      wcalFireCompleteAction(taskId, task);
+
+    if(newDone){
+      if(task.on_complete_teammate){
+        // Teammate already configured — fire voice popup directly
+        wcalFireCompleteAction(taskId, task);
+      } else {
+        // No teammate pre-configured — offer the option inline
+        wcalOfferDraftFromCircle(taskId, task);
+      }
     }
   }catch(err){ showToast('Update failed'); }
 };
+
+// Shown when the circle is clicked and no teammate was pre-configured —
+// lets the operator pick a teammate + optional client on the spot
+async function wcalOfferDraftFromCircle(taskId, task){
+  // Build a lightweight yes/no first — don't force email if they just want to check done
+  const wantDraft = await new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    const box=document.createElement('div');
+    box.style.cssText='background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:16px;padding:24px;max-width:380px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.6);';
+
+    const title=document.createElement('div');
+    title.style.cssText='font-size:15px;font-weight:800;color:#e6edff;margin-bottom:6px;';
+    title.textContent='Draft a completion email?';
+
+    const sub=document.createElement('div');
+    sub.style.cssText='font-size:12px;color:rgba(180,196,255,.7);margin-bottom:16px;line-height:1.5;';
+    sub.textContent=`"${task.title||'Task'}" is marked complete. Have a teammate draft a follow-up email?`;
+
+    // Teammate picker
+    const tmLabel=document.createElement('div');
+    tmLabel.style.cssText='font-size:11px;font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;';
+    tmLabel.textContent='Teammate';
+    const tmSel=document.createElement('select');
+    tmSel.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:10px;';
+    tmSel.innerHTML='<option value="">— Pick a teammate —</option>';
+    // Populate from installed teammates
+    const populateTm = (state)=>{
+      const names=(state.installed_order||Object.keys(state.installed||{}));
+      names.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; tmSel.appendChild(o); });
+      // Pre-select if task already has one saved
+      if(task.on_complete_teammate) tmSel.value=task.on_complete_teammate;
+    };
+    try{
+      if(window._cachedRegistry && Object.keys(window._cachedRegistry.installed||{}).length){
+        populateTm(window._cachedRegistry);
+      } else {
+        fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; populateTm(d); }).catch(()=>{});
+      }
+    }catch(_){}
+
+    // Client name
+    const clLabel=document.createElement('div');
+    clLabel.style.cssText='font-size:11px;font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;';
+    clLabel.textContent='Client name (optional)';
+    const clInput=document.createElement('input');
+    clInput.type='text'; clInput.placeholder='e.g. Sarah';
+    clInput.value=task.on_complete_client_name||'';
+    clInput.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:16px;';
+
+    const btnRow=document.createElement('div');
+    btnRow.style.cssText='display:flex;gap:8px;';
+
+    const draftBtn=document.createElement('button');
+    draftBtn.textContent='Draft Email';
+    draftBtn.style.cssText='flex:1;padding:9px;border-radius:8px;background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#f3e8ff;font-size:13px;font-weight:700;cursor:pointer;';
+    draftBtn.onclick=()=>{
+      const tm=tmSel.value.trim();
+      if(!tm){ tmSel.focus(); return; }
+      document.body.removeChild(overlay);
+      resolve({ teammate:tm, clientName:clInput.value.trim() });
+    };
+
+    const skipBtn=document.createElement('button');
+    skipBtn.textContent='Skip';
+    skipBtn.style.cssText='padding:9px 16px;border-radius:8px;background:transparent;border:1px solid rgba(42,58,106,.5);color:rgba(148,163,184,.6);font-size:13px;cursor:pointer;';
+    skipBtn.onclick=()=>{ document.body.removeChild(overlay); resolve(null); };
+
+    btnRow.appendChild(draftBtn); btnRow.appendChild(skipBtn);
+    box.appendChild(title); box.appendChild(sub);
+    box.appendChild(tmLabel); box.appendChild(tmSel);
+    box.appendChild(clLabel); box.appendChild(clInput);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+
+  if(!wantDraft) return;
+
+  // Merge the picked teammate/client into the task and fire the standard voice picker
+  const enrichedTask = Object.assign({}, task, {
+    on_complete_teammate:     wantDraft.teammate,
+    on_complete_client_name:  wantDraft.clientName,
+    on_complete_client_email: task.on_complete_client_email||'',
+  });
+  wcalFireCompleteAction(taskId, enrichedTask);
+}
 
 // Called when a task with an assigned teammate is marked done — asks voice choice then opens draft
 async function wcalFireCompleteAction(taskId, task){
