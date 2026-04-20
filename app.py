@@ -15266,7 +15266,7 @@ function wcalEventHtml(ev, extraStyle=''){
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
   const joinBadge=meetBadge||zoomBadge;
-  const isRecur=!!(ev.recurringEventId);
+  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring event">↻</span>':'';
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
   const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
@@ -15314,9 +15314,7 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const isRecur=!!(ev.recurringEventId);
-  const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">↻</span>':'';
-  // Priority from user-set override
+  const isRecur=!!(ev.recurringEventId) || !!(ev._recurring) || (ev.is_motion_task===true);
   const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||'high';
   const prioCls=isDone?'':' task-prio-'+prio;
   // Meet/Zoom join badges (gcal tasks can still have video links)
@@ -15751,8 +15749,7 @@ function wcalShowGcalTaskDetail(ev){
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const isRecur=!!(ev.recurringEventId);
-  // Notes: use stored local notes; fall back to Google description
+  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
@@ -15778,6 +15775,10 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
+        <div class="wcal-detail-label">Duration</div>
+        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${durMins} min</div>
+      </div>
+      <div style="flex:1;">
         <div class="wcal-detail-label">Priority</div>
         <select class="wcal-detail-field" id="detPriority" onchange="wcalDetGcalTaskPriorityChange(this.value)">
           <option value="high"   ${storedPrio==='high'   ?'selected':''}>🟣 High</option>
@@ -15786,7 +15787,12 @@ function wcalShowGcalTaskDetail(ev){
         </select>
       </div>
     </div>
-    ${isRecur?`<div><div class="wcal-detail-label">Recurring</div><div class="wcal-detail-value" style="font-size:12px;padding:3px 0;color:#a5b4fc;">↻ Repeating event (managed in Google Calendar)</div></div>`:''}
+    <div>
+      <div class="wcal-detail-label">Repeats</div>
+      <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;${isRecur?'color:#a5b4fc;':'opacity:.5;'}">
+        ${isRecur?'↻ Recurring (managed in Google Calendar)':'Does not repeat'}
+      </div>
+    </div>
     <div>
       <div class="wcal-detail-label">For</div>
       <div style="display:flex;gap:5px;align-items:center;">
@@ -15831,7 +15837,6 @@ function wcalShowGcalTaskDetail(ev){
   const detHdr=document.querySelector('.wcal-detail-header');
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
-  // Store as _currentTask shape so wcalDetToggleDone works
   panel._currentTask={
     id:evId, title:meta.title||ev.summary||'Task',
     description:storedNotes,
@@ -15843,7 +15848,6 @@ function wcalShowGcalTaskDetail(ev){
   };
   panel._currentEvent=ev;
   _evPriority[evId]=storedPrio;
-  // Populate dropdowns
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
   wcalPopulateCrmClientDropdown('detForClientCrm','');
