@@ -5156,6 +5156,7 @@ def api_gcal_event_meta_set():
         "gcal_item_type": (payload.get("gcal_item_type") or meta.get(event_id, {}).get("gcal_item_type") or "").strip(),
         "priority": (payload.get("priority") or meta.get(event_id, {}).get("priority") or "").strip(),
         "notes":    (payload.get("notes")    if payload.get("notes") is not None else meta.get(event_id, {}).get("notes") or ""),
+        "title":    (payload.get("title")    if payload.get("title")    else meta.get(event_id, {}).get("title") or ""),
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -5226,6 +5227,8 @@ def api_cal_tasks_create():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     payload = request.get_json(force=True, silent=True) or {}
+    recur_days_raw = payload.get("recur_days") or []
+    recur_days = [int(d) for d in recur_days_raw if str(d).isdigit() or isinstance(d, int)] if isinstance(recur_days_raw, list) else []
     task: Dict[str, Any] = {
         "id": str(uuid.uuid4()),
         "title": (payload.get("title") or "Untitled task").strip(),
@@ -5235,6 +5238,7 @@ def api_cal_tasks_create():
         "priority": (payload.get("priority") or "high").strip(),
         "description": (payload.get("description") or "").strip(),
         "recurring": (payload.get("recurring") or "none").strip(),
+        "recur_days": recur_days,
         "on_complete_teammate": (payload.get("on_complete_teammate") or "").strip(),
         "on_complete_client_email": (payload.get("on_complete_client_email") or "").strip(),
         "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
@@ -5259,6 +5263,9 @@ def api_cal_tasks_update(task_id: str):
             for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email", "on_complete_client_name"):
                 if field in payload:
                     t[field] = (payload[field] or "").strip()
+            if "recur_days" in payload:
+                rd = payload["recur_days"]
+                t["recur_days"] = [int(d) for d in rd if str(d).isdigit() or isinstance(d, int)] if isinstance(rd, list) else []
             if "duration" in payload:
                 t["duration"] = int(payload["duration"] or 30)
             if "done" in payload:
@@ -9771,6 +9778,10 @@ label         { font-size: 14px !important; }
 .wcal-event-check.checked { background:currentColor; }
 .wcal-event-check.checked::after { content:'✓'; color:#080c1a; }
 /* Recurring badge — pinned top-right, always visible pill */
+.wcal-day-btn { display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;border-radius:7px;border:1px solid rgba(80,110,180,.4);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;user-select:none;transition:all .12s; }
+.wcal-day-btn.active { background:rgba(124,58,237,.35);border-color:rgba(124,58,237,.7);color:#c4b5fd; }
+.wcal-day-btn:hover { border-color:rgba(124,58,237,.5);color:#e2e8f0; }
+.wcp-field ~ .wcal-day-btn,.wcal-day-btn { font-family:inherit; }
 .wcal-recur-badge {
   position:absolute; top:3px; right:4px;
   width:14px; height:14px; border-radius:50%;
@@ -10048,13 +10059,23 @@ label         { font-size: 14px !important; }
           <option value="medium">🟡 Medium</option>
           <option value="low">🟢 Low</option>
         </select>
-        <select class="wcal-field" id="wcalTaskRecurring">
+        <select class="wcal-field" id="wcalTaskRecurring" onchange="wcalToggleRecurDays(this.value,'wcalTaskDayPicker')">
           <option value="none" selected>Does not repeat</option>
-          <option value="daily">Daily</option>
+          <option value="daily">Every day</option>
+          <option value="weekdays">Weekdays (Mon–Fri)</option>
           <option value="weekly">Weekly</option>
           <option value="biweekly">Every 2 weeks</option>
           <option value="monthly">Monthly</option>
         </select>
+        <div id="wcalTaskDayPicker" style="display:none;flex-wrap:wrap;gap:4px;margin-top:4px;">
+          <span class="wcal-day-btn active" data-day="1">M</span>
+          <span class="wcal-day-btn active" data-day="2">T</span>
+          <span class="wcal-day-btn active" data-day="3">W</span>
+          <span class="wcal-day-btn active" data-day="4">Th</span>
+          <span class="wcal-day-btn active" data-day="5">F</span>
+          <span class="wcal-day-btn" data-day="6">Sa</span>
+          <span class="wcal-day-btn" data-day="0">Su</span>
+        </div>
         <button class="wcal-submit" id="wcalAddTaskBtn">Add task</button>
       </div>
       <div class="wcal-status" id="wcalAddStatus"></div>
@@ -10167,13 +10188,25 @@ label         { font-size: 14px !important; }
       <option value="medium">🟡 Medium</option>
       <option value="low">🟢 Low</option>
     </select>
-    <div class="wcp-label" style="margin-top:6px;">For (client name)</div>
-    <div style="display:flex;gap:5px;">
-      <select class="wcp-field" id="wcalPopClientSelect" onchange="wcalPopClientPick(this.value)" style="flex:1;">
-        <option value="">— Pick from CRM —</option>
-      </select>
+    <div class="wcp-label" style="margin-top:6px;">Repeats</div>
+    <select class="wcp-field" id="wcalPopRecurring" onchange="wcalToggleRecurDays(this.value,'wcalPopDayPicker')">
+      <option value="none" selected>Does not repeat</option>
+      <option value="daily">Every day</option>
+      <option value="weekdays">Weekdays (Mon–Fri)</option>
+      <option value="custom">Custom days…</option>
+      <option value="weekly">Weekly</option>
+      <option value="biweekly">Every 2 weeks</option>
+      <option value="monthly">Monthly</option>
+    </select>
+    <div id="wcalPopDayPicker" style="display:none;flex-wrap:wrap;gap:4px;margin-top:4px;">
+      <span class="wcal-day-btn active" data-day="1">M</span>
+      <span class="wcal-day-btn active" data-day="2">T</span>
+      <span class="wcal-day-btn active" data-day="3">W</span>
+      <span class="wcal-day-btn active" data-day="4">Th</span>
+      <span class="wcal-day-btn active" data-day="5">F</span>
+      <span class="wcal-day-btn" data-day="6">Sa</span>
+      <span class="wcal-day-btn" data-day="0">Su</span>
     </div>
-    <input class="wcp-field" id="wcalPopClientName" placeholder="Or type a name…" autocomplete="off" style="margin-top:4px;" />
   </div>
   <div class="wcp-row">
     <button class="wcp-btn" id="wcalPopCreate">Create</button>
@@ -15051,20 +15084,25 @@ function wcalExpandRecurring(tasks){
     if(!rule || rule==='none'){
       expanded.push(t); return;
     }
-    // Base date
     if(!t.date){ expanded.push(t); return; }
     const base = new Date(t.date+'T12:00:00');
     if(isNaN(base)){ expanded.push(t); return; }
 
-    // Walk forward from base (and a bit before) generating instances
-    let cur = new Date(base);
-    // Step back to start of window if base is before it
+    // Which days of week are active (0=Sun,1=Mon...6=Sat)
+    let activeDays = null; // null = all days
+    if(rule === 'weekdays'){
+      activeDays = [1,2,3,4,5]; // Mon–Fri
+    } else if(rule === 'custom'){
+      activeDays = (t.recur_days || [1,2,3,4,5]).map(Number);
+    }
+
+    // Step back to window start
     const stepBack = (d)=>{
       const tmp = new Date(d);
       let iters=0;
       while(tmp > windowStart && iters<400){
         const prev=new Date(tmp);
-        if(rule==='daily')   prev.setDate(tmp.getDate()-1);
+        if(rule==='daily'||rule==='weekdays'||rule==='custom') prev.setDate(tmp.getDate()-1);
         else if(rule==='weekly') prev.setDate(tmp.getDate()-7);
         else if(rule==='biweekly') prev.setDate(tmp.getDate()-14);
         else if(rule==='monthly') prev.setMonth(tmp.getMonth()-1);
@@ -15074,25 +15112,29 @@ function wcalExpandRecurring(tasks){
       }
       return tmp;
     };
-    cur = stepBack(cur);
+    let cur = stepBack(new Date(base));
 
     let iters=0;
     while(cur <= windowEnd && iters<500){
       if(cur >= windowStart){
-        const instanceDate = ymd(cur);
-        // Mark done only if the base task is done AND this is the base date (or past)
-        const isDone = t.done && instanceDate <= (t.completed_at||'').slice(0,10);
-        expanded.push(Object.assign({}, t, {
-          id: t.id, // keep same id — toggling affects the base
-          date: instanceDate,
-          _isRecurInstance: instanceDate !== t.date,
-          done: isDone,
-        }));
+        // For weekdays/custom: skip days not in activeDays
+        const dow = cur.getDay(); // 0=Sun
+        if(activeDays === null || activeDays.includes(dow)){
+          const instanceDate = ymd(cur);
+          const isDone = t.done && instanceDate <= (t.completed_at||'').slice(0,10);
+          expanded.push(Object.assign({}, t, {
+            id: t.id,
+            date: instanceDate,
+            _isRecurInstance: instanceDate !== t.date,
+            done: isDone,
+          }));
+        }
       }
-      if(rule==='daily')      cur.setDate(cur.getDate()+1);
-      else if(rule==='weekly')    cur.setDate(cur.getDate()+7);
-      else if(rule==='biweekly')  cur.setDate(cur.getDate()+14);
-      else if(rule==='monthly')   cur.setMonth(cur.getMonth()+1);
+      // Always step by 1 day for weekdays/custom so we check every day
+      if(rule==='daily'||rule==='weekdays'||rule==='custom') cur.setDate(cur.getDate()+1);
+      else if(rule==='weekly') cur.setDate(cur.getDate()+7);
+      else if(rule==='biweekly') cur.setDate(cur.getDate()+14);
+      else if(rule==='monthly') cur.setMonth(cur.getMonth()+1);
       else break;
       iters++;
     }
@@ -15189,12 +15231,8 @@ function wcalEventHtml(ev, extraStyle=''){
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
   const joinBadge=meetBadge||zoomBadge;
-  const isRecur=!!(ev.recurringEventId||ev._recurring);
+  const isRecur=!!(ev.recurringEventId);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring event">↻</span>':'';
-  const evKey=ev.id||ev.summary||'';
-  const isDone=_evDone.has(evKey);
-  const doneCls=isDone?' is-done':'';
-  // Events (manually switched to Event type) use blue/teal styling
   const evPrioOverride=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
   const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
   let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="📅 ${title}">`;
@@ -15241,7 +15279,7 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const isRecur=!!(ev.recurringEventId||ev._recurring);
+  const isRecur=!!(ev.recurringEventId);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">↻</span>':'';
   // Priority from user-set override
   const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||'high';
@@ -15423,15 +15461,6 @@ function wcalShowTaskDetail(task){
   const prioLabel={high:'High',medium:'Medium',low:'Low'};
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" />
-    <div style="margin-bottom:2px;">
-      <div class="wcal-detail-label" style="margin-bottom:3px;">For</div>
-      <div style="display:flex;gap:5px;align-items:center;">
-        <input class="wcal-detail-field" id="detForClient" type="text" placeholder="Client name (optional)" value="${(task.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" style="flex:1;" />
-        <select class="wcal-detail-field" id="detForClientCrm" onchange="wcalDetFillForClient(this.value)" style="flex:1;font-size:11px;">
-          <option value="">— CRM —</option>
-        </select>
-      </div>
-    </div>
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${task.done?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
@@ -15465,13 +15494,18 @@ function wcalShowTaskDetail(task){
     </div>
     <div>
       <div class="wcal-detail-label">Repeats</div>
-      <select class="wcal-detail-field" id="detRecurring">
+      <select class="wcal-detail-field" id="detRecurring" onchange="wcalToggleRecurDays(this.value,'detDayPicker')">
         <option value="none" ${(task.recurring||'none')==='none'?'selected':''}>Does not repeat</option>
-        <option value="daily" ${task.recurring==='daily'?'selected':''}>Daily</option>
+        <option value="daily" ${task.recurring==='daily'?'selected':''}>Every day</option>
+        <option value="weekdays" ${task.recurring==='weekdays'?'selected':''}>Weekdays (Mon–Fri)</option>
+        <option value="custom" ${task.recurring==='custom'?'selected':''}>Custom days…</option>
         <option value="weekly" ${task.recurring==='weekly'?'selected':''}>Weekly</option>
         <option value="biweekly" ${task.recurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly" ${task.recurring==='monthly'?'selected':''}>Monthly</option>
       </select>
+      <div id="detDayPicker" style="display:${(task.recurring==='weekdays'||task.recurring==='custom')?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{const d=[1,2,3,4,5,6,0][i]; const defActive=d>=1&&d<=5; const active=(task.recur_days||[d]).includes(d)||(task.recurring==='weekdays'&&defActive); return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;}).join('')}
+      </div>
     </div>
     <div>
       <div class="wcal-detail-label">Description / Notes</div>
@@ -15507,23 +15541,7 @@ function wcalShowTaskDetail(task){
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
-  wcalPopulateCrmClientDropdown('detForClientCrm', '');
 }
-
-// Fill the "For" client name field from the CRM dropdown
-window.wcalDetFillForClient = function(val){
-  if(!val) return;
-  try{
-    const c=JSON.parse(val);
-    const el=document.getElementById('detForClient');
-    if(el && c.name) el.value=c.name;
-    // Also propagate to email-on-complete fields if empty
-    const emailEl=document.getElementById('detAutoEmail');
-    if(emailEl && !emailEl.value && c.email) emailEl.value=c.email;
-    const nameEl=document.getElementById('detAutoClientName');
-    if(nameEl && !nameEl.value && c.name) nameEl.value=c.name;
-  }catch(e){}
-};
 
 // ── Toggle a gcal event between event/task display type ────────
 window.wcalToggleGcalItemType = async function(evId, currentType){
@@ -15571,7 +15589,7 @@ function wcalShowGcalTaskDetail(ev){
   const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
 
   body.innerHTML=`
-    <div style="font-size:13px;font-weight:700;color:#e2e8f0;padding:2px 0 6px;border-bottom:1px solid rgba(42,58,106,.4);margin-bottom:2px;word-break:break-word;">${(ev.summary||'Task').replace(/</g,'&lt;')}</div>
+    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
 
@@ -15845,6 +15863,7 @@ window.wcalDetSaveTask = async function(taskId){
     duration:parseInt(document.getElementById('detDur')?.value||'30',10),
     priority:document.getElementById('detPriority')?.value||'medium',
     recurring:document.getElementById('detRecurring')?.value||'none',
+    recur_days:_wcalGetActiveDays('detDayPicker'),
     description:(document.getElementById('detDesc')?.value||'').trim(),
     on_complete_teammate:document.getElementById('detAutoTeammate')?.value||'',
     on_complete_client_name:(document.getElementById('detForClient')?.value||document.getElementById('detAutoClientName')?.value||'').trim(),
@@ -15853,7 +15872,7 @@ window.wcalDetSaveTask = async function(taskId){
   try{
     const res=await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
-    Object.assign(cal.tasks.find(t=>t.id===taskId)||{},payload);
+    // Re-fetch and re-expand so recurring changes show immediately
     await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
     if(st) st.innerText='Saved ✓';
     showToast('Task saved');
@@ -15876,10 +15895,12 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
   const priority = document.getElementById('detGcalTaskPriority')?.value || 'high';
   const notes    = document.getElementById('detGcalTaskNotes')?.value    || '';
+  const title    = (document.getElementById('detTitle')?.value || '').trim();
   const payload={
     event_id: evId,
     priority,
     notes,
+    title,
     on_complete_teammate:     (document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
     on_complete_client_name:  (document.getElementById('detEvAutoClientName')?.value  ||'').trim(),
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value        ||'').trim(),
@@ -15891,6 +15912,12 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
     cal.gcalMeta[evId]=d.meta;
+    // Update the local event summary so the calendar grid reflects the new name
+    if(title){
+      Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{
+        if((e.id||e.summary||'')=== evId){ e.summary=title; }
+      }));
+    }
     // Apply priority live on the grid
     _evPriority[evId] = priority;
     wcalRefresh();
@@ -16700,12 +16727,16 @@ async function wcalAddTask(){
   const dur=parseInt(document.getElementById('wcalTaskDur')?.value||'30',10);
   const priority=document.getElementById('wcalTaskPriority')?.value||'medium';
   const recurring=document.getElementById('wcalTaskRecurring')?.value||'none';
+  const recur_days=_wcalGetActiveDays('wcalTaskDayPicker');
   if(!title){ if(st) st.innerText='Title required'; return; }
   if(!date){  if(st) st.innerText='Date required'; return; }
   try{
-    const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring})});
+    const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring,recur_days})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
-    cal.tasks.push(data.task);
+    // Re-expand so recurring instances appear immediately across all dates
+    const base=cal.tasks.filter(t=>!t._isRecurInstance);
+    base.push(data.task);
+    cal.tasks=wcalExpandRecurring(base);
     document.getElementById('wcalTaskTitle').value='';
     if(st) st.innerText='✓ Task added'; showToast('Task added');
     wcalRefresh(); wcalRenderMiniMonth();
@@ -16784,9 +16815,9 @@ function wcalPopOpen(clientX, clientY, dt, timeStr){
   // Pre-fill
   const tEl=document.getElementById('wcalPopTime'); if(tEl) tEl.value=timeStr;
   const titleEl=document.getElementById('wcalPopTitle'); if(titleEl){ titleEl.value=''; titleEl.focus(); }
-  // Reset client fields
-  const clientNameEl=document.getElementById('wcalPopClientName'); if(clientNameEl) clientNameEl.value='';
-  const clientSelEl=document.getElementById('wcalPopClientSelect'); if(clientSelEl) clientSelEl.value='';
+  // Reset recurring
+  const recurEl=document.getElementById('wcalPopRecurring'); if(recurEl) recurEl.value='none';
+  const dayPickEl=document.getElementById('wcalPopDayPicker'); if(dayPickEl) dayPickEl.style.display='none';
   // Update label
   const lbl=document.getElementById('wcalPopLabel');
   const d=new Date(dt+'T12:00:00');
@@ -16797,26 +16828,34 @@ function wcalPopClose(){
   const pop=document.getElementById('wcalPopover'); if(pop) pop.style.display='none';
 }
 
+// Collect active day numbers from a day-picker container
+function _wcalGetActiveDays(pickerId){
+  const el=document.getElementById(pickerId);
+  if(!el||el.style.display==='none') return [];
+  return Array.from(el.querySelectorAll('.wcal-day-btn.active')).map(b=>parseInt(b.dataset.day));
+}
+
+// Show/hide day picker when recurring rule changes
+window.wcalToggleRecurDays = function(rule, pickerId){
+  const el = document.getElementById(pickerId);
+  if(!el) return;
+  const show = rule === 'weekdays' || rule === 'custom';
+  el.style.display = show ? 'flex' : 'none';
+  if(rule === 'weekdays'){
+    // Default: Mon–Fri active, Sa/Su inactive
+    el.querySelectorAll('.wcal-day-btn').forEach(b=>{
+      const d = parseInt(b.dataset.day);
+      b.classList.toggle('active', d >= 1 && d <= 5);
+    });
+  }
+};
+
 window.wcalPopSwitch=function(type){
   _wcalPopType=type;
   document.getElementById('wcalPopTabEvent')?.classList.toggle('active',type==='event');
   document.getElementById('wcalPopTabTask')?.classList.toggle('active',type==='task');
   const ex=document.getElementById('wcalPopTaskExtras');
   if(ex) ex.style.display=type==='task'?'block':'none';
-  // Populate CRM client dropdown when switching to task
-  if(type==='task'){
-    try{ wcalPopulateCrmClientDropdown('wcalPopClientSelect',''); }catch(e){}
-  }
-};
-
-// When a CRM client is picked in the popover, fill the name field
-window.wcalPopClientPick=function(val){
-  if(!val) return;
-  try{
-    const c=JSON.parse(val);
-    const nameEl=document.getElementById('wcalPopClientName');
-    if(nameEl && c.name) nameEl.value=c.name;
-  }catch(e){}
 };
 
 async function wcalPopCreate(){
@@ -16841,13 +16880,17 @@ async function wcalPopCreate(){
     }catch(e){ showToast('Event creation failed: '+(e.message||e)+' — connect Calendar in Settings'); }
   } else {
     const priority=document.getElementById('wcalPopPriority')?.value||'medium';
-    const forClient=(document.getElementById('wcalPopClientName')?.value||'').trim();
+    const recurring=document.getElementById('wcalPopRecurring')?.value||'none';
+    const recur_days=_wcalGetActiveDays('wcalPopDayPicker');
     try{
       const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority,
-          on_complete_client_name:forClient})});
+        body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority,recurring,recur_days})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
-      cal.tasks.push(d.task); showToast('Task added: '+title); wcalRefresh();
+      // Re-expand so recurring instances appear immediately across all dates
+      const base=cal.tasks.filter(t=>!t._isRecurInstance);
+      base.push(d.task);
+      cal.tasks=wcalExpandRecurring(base);
+      showToast('Task added: '+title); wcalRefresh();
     }catch(e){ showToast('Task creation failed: '+(e.message||e)); }
   }
 }
