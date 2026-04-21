@@ -15340,7 +15340,7 @@ function wcalTaskHtml(task, extraStyle=''){
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
-  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" onclick="wcalQuickToggleRecurring(event,'${task.id.replace(/'/g,\"\\\\'\")}',${ JSON.stringify(task.recurring||'none')})" title="${isRecur?'Remove recurring':'Make recurring'}">↻</span>`;
+  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" data-tid="${encodeURIComponent(task.id)}" data-r="${task.recurring||'none'}" onclick="event.stopPropagation();wcalQuickToggleRecurring(event,decodeURIComponent(this.dataset.tid),this.dataset.r)" title="${isRecur?'Remove recurring':'Make recurring'}">&#x21bb;</span>`;
   h+='</div>';
   return h;
 }
@@ -16236,6 +16236,7 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     on_complete_client_email: (document.getElementById('detAutoEmail')?.value||'').trim(),
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
+  try{
     const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
