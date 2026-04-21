@@ -10114,7 +10114,7 @@ label         { font-size: 14px !important; }
           <option value="biweekly">Every 2 weeks</option>
           <option value="monthly">Monthly</option>
         </select>
-        <div id="wcalTaskDayPicker" style="display:none;flex-wrap:wrap;gap:4px;margin-top:4px;">
+        <div id="wcalTaskDayPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
           <span class="wcal-day-btn active" data-day="1">M</span>
           <span class="wcal-day-btn active" data-day="2">T</span>
           <span class="wcal-day-btn active" data-day="3">W</span>
@@ -10245,7 +10245,7 @@ label         { font-size: 14px !important; }
       <option value="biweekly">Every 2 weeks</option>
       <option value="monthly">Monthly</option>
     </select>
-    <div id="wcalPopDayPicker" style="display:none;flex-wrap:wrap;gap:4px;margin-top:4px;">
+    <div id="wcalPopDayPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">
       <span class="wcal-day-btn active" data-day="1">M</span>
       <span class="wcal-day-btn active" data-day="2">T</span>
       <span class="wcal-day-btn active" data-day="3">W</span>
@@ -15210,16 +15210,16 @@ function wcalCleanDescription(raw){
   const boilerplates=[
     /This event was created by Motion[\s\S]*$/si,
     /This task was created by Motion[\s\S]*$/si,
-    /Created (in|by|via) Motion[\s\S]*$/si,
+    /Created (in|by|via) Motion.*$/si,
+    /To edit settings.*$/si,
+    /To disconnect Motion.*$/si,
+    /Managed by Motion.*$/si,
     /If you are a teammate of this person[\s\S]*$/si,
     /If you are the owner of this event[\s\S]*$/si,
-    /the task details are hidden for privacy[\s\S]*$/si,
     /feel free to book over this event[\s\S]*$/si,
     /please view details of this task within Motion[\s\S]*$/si,
-    /To edit settings[\s\S]*$/si,
-    /To disconnect Motion[\s\S]*$/si,
-    /Managed by Motion[\s\S]*$/si,
-    /Scheduled by Motion[\s\S]*$/si,
+    /the task details are hidden for privacy[\s\S]*$/si,
+    /Scheduled by Motion.*$/si,
     /https?:\/\/app\.usemotion\.com[^\s]*/gi,
     /https?:\/\/www\.usemotion\.com[^\s]*/gi,
   ];
@@ -15715,12 +15715,12 @@ function wcalShowTaskDetail(task){
         <option value="biweekly" ${task.recurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly" ${task.recurring==='monthly'?'selected':''}>Monthly</option>
       </select>
-      <div id="detDayPicker" style="display:${(task.recurring&&task.recurring!=='none')?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+      <div id="detDayPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
         ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
           const d=[1,2,3,4,5,6,0][i];
           let active;
           if(task.recurring==='daily') active=true;
-          else if(task.recurring==='weekdays') active=d>=1&&d<=5;
+          else if(task.recurring==='weekdays'||task.recurring==='none'||!task.recurring) active=d>=1&&d<=5;
           else if(task.recur_days&&task.recur_days.length) active=task.recur_days.map(Number).includes(d);
           else active=d>=1&&d<=5;
           return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;
@@ -15805,11 +15805,10 @@ function wcalShowGcalTaskDetail(ev){
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const _rawDesc=ev.description||'';
-  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(_rawDesc);
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:_rawDesc;
+  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
   const evIdSafe=evId.replace(/'/g,"\\'");
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
@@ -15857,7 +15856,7 @@ function wcalShowGcalTaskDetail(ev){
         <option value="biweekly"  ${storedRecurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly"   ${storedRecurring==='monthly'  ?'selected':''}>Monthly</option>
       </select>
-      <div id="detDayPicker" style="display:${storedRecurring!=='none'?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+      <div id="detDayPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
         ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
           const d=[1,2,3,4,5,6,0][i];
           let active;
@@ -15932,11 +15931,10 @@ function wcalShowEventDetail(ev){
   const meta=(cal.gcalMeta||{})[evId]||{};
   const isDone=!!(meta.done||_evDone.has(evId));
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const _rawDescEv=ev.description||'';
-  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(_rawDescEv);
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:_rawDescEv;
+  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
   const evIdSafe=evId.replace(/'/g,"\\'");
   const zoomLink=(ev.location&&ev.location.includes('zoom.us'))?ev.location:'';
   body.innerHTML=`
@@ -15985,7 +15983,7 @@ function wcalShowEventDetail(ev){
         <option value="biweekly"  ${storedRecurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly"   ${storedRecurring==='monthly'  ?'selected':''}>Monthly</option>
       </select>
-      <div id="detDayPicker" style="display:${storedRecurring!=='none'?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+      <div id="detDayPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
         ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
           const d=[1,2,3,4,5,6,0][i];
           let active;
@@ -16245,7 +16243,7 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     recurring,
     recur_days,
     on_complete_teammate:     (document.getElementById('detAutoTeammate')?.value||'').trim(),
-    on_complete_client_name:  (document.getElementById('detAutoClientName')?.value||document.getElementById('detForClient')?.value||'').trim(),
+    on_complete_client_name:  (document.getElementById('detForClient')?.value||'').trim(),
     on_complete_client_email: (document.getElementById('detAutoEmail')?.value||'').trim(),
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
@@ -16432,7 +16430,7 @@ window.wcalDetSaveEvent = async function(encodedId){
   const useMeet=document.getElementById('detMeet')?.value==='meet';
   // on_complete metadata (new fields)
   const onCompleteTeammate=(document.getElementById('detAutoTeammate')?.value||document.getElementById('detEvAutoTeammate')?.value||'').trim();
-  const onCompleteClientName=(document.getElementById('detAutoClientName')?.value||document.getElementById('detForClient')?.value||document.getElementById('detEvAutoClientName')?.value||'').trim();
+  const onCompleteClientName=(document.getElementById('detForClient')?.value||document.getElementById('detEvAutoClientName')?.value||'').trim();
   const onCompleteClientEmail=(document.getElementById('detAutoEmail')?.value||document.getElementById('detEvAutoEmail')?.value||'').trim();
 
   // Save on_complete metadata locally (always, even if Google save fails)
@@ -17135,7 +17133,7 @@ window.wcalDetFillClientFromCRM = function(val){
   try{
     const c = JSON.parse(val);
     // Write to the unified "For" field, falling back to legacy IDs
-    const nameEl  = document.getElementById('detAutoClientName') || document.getElementById('detForClient') || document.getElementById('detEvAutoClientName');
+    const nameEl  = document.getElementById('detForClient') || document.getElementById('detAutoClientName') || document.getElementById('detEvAutoClientName');
     const emailEl = document.getElementById('detAutoEmail') || document.getElementById('detEvAutoEmail');
     if(nameEl  && c.name)  nameEl.value  = c.name;
     if(emailEl && c.email) emailEl.value = c.email;
@@ -17184,19 +17182,16 @@ function _wcalGetActiveDays(pickerId){
 window.wcalToggleRecurDays = function(rule, pickerId){
   const el = document.getElementById(pickerId);
   if(!el) return;
-  const show = rule && rule !== 'none';
-  el.style.display = show ? 'flex' : 'none';
-  if(!show) return;
-  // Set default active days based on rule
+  el.style.display = 'flex'; // always visible
   el.querySelectorAll('.wcal-day-btn').forEach(b=>{
     const d = parseInt(b.dataset.day);
     if(rule === 'daily'){
-      b.classList.add('active'); // all days active
-    } else if(rule === 'weekdays'){
+      b.classList.add('active');
+    } else if(rule === 'weekdays' || rule === 'none' || !rule){
+      // pre-select Mon\u2013Fri as the default template even when not recurring
       b.classList.toggle('active', d >= 1 && d <= 5);
     } else if(rule === 'weekly' || rule === 'biweekly' || rule === 'monthly'){
-      // For weekly/biweekly/monthly: only keep currently active days, don't reset
-      // (leave as-is so user can pick which day of week/month)
+      // leave as-is so user picks which day(s)
     }
     // 'custom': leave as-is, user controls individually
   });
