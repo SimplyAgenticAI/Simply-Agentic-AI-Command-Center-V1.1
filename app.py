@@ -15622,6 +15622,19 @@ function wcalShowTaskDetail(task){
   if(!panel||!body) return;
   const prioColors={high:'high',medium:'medium',low:'low'};
   const prioLabel={high:'High',medium:'Medium',low:'Low'};
+  // Pre-compute day picker HTML outside the template literal to avoid parser issues
+  const _dpNums=[1,2,3,4,5,6,0];
+  const _dpLabels=['M','T','W','Th','F','Sa','Su'];
+  const _dpHtml=_dpLabels.map((l,i)=>{
+    const d=_dpNums[i];
+    let on;
+    if(task.recurring==='daily') on=true;
+    else if(task.recurring==='weekdays') on=(d>=1&&d<=5);
+    else if(task.recur_days&&task.recur_days.length) on=task.recur_days.map(Number).includes(d);
+    else on=(d>=1&&d<=5);
+    return '<span class="wcal-day-btn'+(on?' active':'')+'" data-day="'+d+'" onclick="this.classList.toggle(\'active\')">'+l+'</span>';
+  }).join('');
+  const _dpShow=(task.recurring&&task.recurring!=='none')?'flex':'none';
   body.innerHTML=`
     <div class="wcal-detail-title-wrap"><input class="wcal-detail-title" id="detTitle" value="${(task.title||'').replace(/"/g,'&quot;')}" placeholder="Task title" /></div>
     <div>
@@ -15666,16 +15679,8 @@ function wcalShowTaskDetail(task){
         <option value="biweekly" ${task.recurring==='biweekly'?'selected':''}>Every 2 weeks</option>
         <option value="monthly" ${task.recurring==='monthly'?'selected':''}>Monthly</option>
       </select>
-      <div id="detDayPicker" style="display:${(task.recurring&&task.recurring!=='none')?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
-        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
-          const d=[1,2,3,4,5,6,0][i];
-          let active;
-          if(task.recurring==='daily') active=true;
-          else if(task.recurring==='weekdays') active=d>=1&&d<=5;
-          else if(task.recur_days&&task.recur_days.length) active=task.recur_days.map(Number).includes(d);
-          else active=d>=1&&d<=5;
-          return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;
-        }).join('')}
+      <div id="detDayPicker" style="display:${_dpShow};flex-wrap:wrap;gap:4px;margin-top:6px;">
+        ${_dpHtml}
       </div>
     </div>
     <div>
