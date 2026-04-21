@@ -10332,7 +10332,10 @@ label         { font-size: 14px !important; }
               <div class="h1">Group Replies</div>
               <div class="h2">Last round table responses in one place.</div>
             </div>
-            <button class="btn" id="clearGroup">Clear</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="btn btnPrimary" id="saveToPlaybooksBtn" title="Save round table output as a playbook" style="font-size:12px;padding:4px 10px;display:none;">Save to Playbooks</button>
+              <button class="btn" id="clearGroup">Clear</button>
+            </div>
           </div>
           <div class="groupReplies" id="groupReplies">
             <div class="tiny">No group replies yet. Use the center Group Console.</div>
@@ -13066,6 +13069,9 @@ function makeSeat(defn, idx){
 
       lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
+      // Show Save to Playbooks when there are group replies
+      var savePbBtn = document.getElementById('saveToPlaybooksBtn');
+      if(savePbBtn) savePbBtn.style.display = Object.keys(outputs||{}).length > 0 ? 'inline-block' : 'none';
 
       // Seats not present in outputs remain waiting
       order.forEach(n => { if(!(n in outputs)) setSeatLive(n, "waiting"); });
@@ -13379,7 +13385,35 @@ async function pollImageJob(jobId, seatName){
     $("clearGroup").onclick = () => {
       lastGroupOutputs = {};
       renderGroupReplies({}, {});
+      var savePbBtnClr = document.getElementById('saveToPlaybooksBtn');
+      if(savePbBtnClr) savePbBtnClr.style.display = 'none';
     };
+
+    // Save Round Table output to Playbooks
+    window.wcalSaveToPlaybooks = async function(text, titleHint){
+      var title = prompt('Name this playbook:', titleHint || 'Round Table Playbook');
+      if(!title) return;
+      try{
+        var res = await fetch('/api/playbooks/save', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ title: title.trim(), content: text.trim() })
+        });
+        var data = await res.json();
+        if(!data.ok) throw new Error(data.error || 'Save failed');
+        showToast('Playbook saved: ' + title);
+      }catch(err){ showToast('Could not save: '+(err.message||'error')); }
+    };
+
+    // Wire the Group Replies Save to Playbooks button
+    (function(){
+      var btn = document.getElementById('saveToPlaybooksBtn');
+      if(!btn) return;
+      btn.onclick = function(){
+        var combined = _combineGroupOutputs ? _combineGroupOutputs() : '';
+        if(!combined.trim()){ showToast('No round table output to save.'); return; }
+        wcalSaveToPlaybooks(combined, 'Round Table ' + new Date().toLocaleDateString());
+      };
+    })();
 
     // -----------------------------
     // v9: Tactical Passes (stateless one-click analyses)
@@ -14783,7 +14817,18 @@ async function crmFetchTasks(){
         const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Generation failed');
-        if(box) box.innerHTML = crmRenderRichBlocks(data.output || '');
+        const output = data.output || '';
+        if(box){
+          box.innerHTML = crmRenderRichBlocks(output);
+          if(output.trim()){
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'btn btnPrimary';
+            saveBtn.style.cssText = 'margin-top:14px;width:100%;font-size:13px;padding:8px 14px;';
+            saveBtn.innerText = 'Save to Playbooks';
+            saveBtn.onclick = function(){ wcalSaveToPlaybooks(output, payload.goal || 'Playbook'); };
+            box.appendChild(saveBtn);
+          }
+        }
         if(st) st.innerText = 'Ready';
       }catch(e){
         if(st) st.innerText = e.message || 'Generation failed';
@@ -14831,6 +14876,7 @@ async function crmFetchTasks(){
                   ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
                   ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">⚡ Draft</button>`:''}
+                  <button onclick="crmCreateTaskForContact('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;cursor:pointer;" title="Add calendar task for this contact">+ Task</button>
                 </div>
               </div>`;
             }).join('')}
@@ -14869,7 +14915,43 @@ async function crmFetchTasks(){
     }
 
     // Pipeline quick-actions
-    window.crmPipelineOpenClient = function(clientId){
+    window.crmCreateTaskForContact = async function(clientId){
+  const client = (crmCache.clients||[]).find(c=>c.id===clientId);
+  if(!client) return;
+  const today = new Date().toISOString().slice(0,10);
+  const defaultTitle = 'Follow up with ' + (client.name||'contact');
+  const payload = {
+    title: defaultTitle,
+    date: today,
+    start: '09:00',
+    duration: 30,
+    priority: 'high',
+    recurring: 'none',
+    recur_days: [],
+    description: '',
+    on_complete_client_name: client.name||'',
+    on_complete_client_email: client.email||'',
+    on_complete_teammate: '',
+  };
+  try{
+    const res = await fetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'Failed');
+    showToast('Task added: ' + defaultTitle);
+    // If calendar is visible, refresh it and open the new task detail
+    if(typeof wcalFetchTasks === 'function'){
+      await wcalFetchTasks();
+      if(typeof wcalRefresh === 'function') wcalRefresh();
+      if(typeof wcalRenderUpcoming === 'function') wcalRenderUpcoming();
+      // Open the new task in the detail panel
+      if(data.task && typeof wcalShowTaskDetail === 'function'){
+        wcalShowTaskDetail(data.task);
+      }
+    }
+  }catch(err){ showToast('Could not create task: '+(err.message||'error')); }
+};
+
+window.crmPipelineOpenClient = function(clientId){
       const c = (crmCache.clients||[]).find(x=>x.id===clientId);
       if(!c) return;
       crmEditingClientId = clientId;
@@ -15604,28 +15686,7 @@ async function wcalFireCompleteAction(taskId, task){
     if(d.ok && d.draft){
       const draftObj = { subject: d.subject, body: d.body, to: d.to || task.on_complete_client_email || '' };
       const drafterName = d.teammate || task.on_complete_teammate;
-      if(typeof window.applyEmailDraft === 'function'){
-        window.applyEmailDraft(draftObj, drafterName);
-        showToast('📝 Draft ready — review and send from Email Console');
-      } else if(typeof showEmailConsoleModal === 'function'){
-        // Email console not yet initialized — open it first, then apply
-        showEmailConsoleModal('Email Console');
-        setTimeout(()=>{
-          if(typeof window.applyEmailDraft === 'function'){
-            window.applyEmailDraft(draftObj, drafterName);
-          } else {
-            const subEl=document.getElementById('emailSubject');
-            const bodyEl=document.getElementById('emailBody');
-            const toEl=document.getElementById('emailTo');
-            if(subEl) subEl.value=d.subject||'';
-            if(bodyEl) bodyEl.value=d.body||'';
-            if(toEl)   toEl.value=draftObj.to;
-          }
-          showToast('📝 Draft ready — review and send from Email Console');
-        }, 350);
-      } else {
-        showToast('📝 Draft generated — open Email Console to review');
-      }
+      wcalShowDraftSendModal(draftObj, drafterName);
     } else {
       showToast('⚠️ Draft error: '+(d.error||'unknown'));
     }
@@ -15635,6 +15696,55 @@ async function wcalFireCompleteAction(taskId, task){
 }
 
 // ── Open detail panel ──────────────────────────────────────────
+// One-click send modal after AI drafts a completion email
+window.wcalShowDraftSendModal = function(draft, drafterName){
+  var esc = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:18px;padding:24px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;';
+  box.innerHTML = '<div style="font-size:16px;font-weight:800;color:#e6edff;">Email Draft Ready</div>'
+    + '<div style="font-size:12px;color:rgba(180,196,255,.65);">Drafted by ' + esc(drafterName||'teammate') + ' - review then send.</div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:rgba(160,185,240,.7);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">To</label>'
+    + '<input id="wcalSendTo" type="email" value="' + esc(draft.to||'') + '" style="width:100%;background:rgba(20,30,60,.8);border:1px solid rgba(80,110,180,.4);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;outline:none;box-sizing:border-box;"/></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:rgba(160,185,240,.7);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Subject</label>'
+    + '<input id="wcalSendSubject" type="text" value="' + esc(draft.subject||'') + '" style="width:100%;background:rgba(20,30,60,.8);border:1px solid rgba(80,110,180,.4);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;outline:none;box-sizing:border-box;"/></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:rgba(160,185,240,.7);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Message</label>'
+    + '<textarea id="wcalSendBody" rows="10" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;outline:none;resize:vertical;box-sizing:border-box;">' + esc(draft.body||'') + '</textarea></div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+    + '<button id="wcalSendNowBtn" style="flex:1;min-width:140px;padding:10px 18px;border-radius:10px;background:rgba(124,58,237,.85);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer;">Send Now</button>'
+    + '<button id="wcalSendConsoleBtn" style="flex:1;min-width:130px;padding:10px 14px;border-radius:10px;background:rgba(20,30,60,.8);border:1px solid rgba(80,110,180,.4);color:#c4b5fd;font-size:13px;font-weight:600;cursor:pointer;">Open Email Console</button>'
+    + '<button id="wcalSendCancelBtn" style="padding:10px 14px;border-radius:10px;background:transparent;border:1px solid rgba(80,110,180,.25);color:rgba(180,196,255,.5);font-size:13px;cursor:pointer;">Cancel</button>'
+    + '</div>'
+    + '<div id="wcalSendStatus" style="font-size:12px;text-align:center;min-height:16px;"></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  var close = function(){ try{ document.body.removeChild(overlay); }catch(e){} };
+  box.querySelector('#wcalSendCancelBtn').onclick = close;
+  overlay.onclick = function(e){ if(e.target===overlay) close(); };
+  box.querySelector('#wcalSendConsoleBtn').onclick = function(){
+    var d2 = { to: box.querySelector('#wcalSendTo').value, subject: box.querySelector('#wcalSendSubject').value, body: box.querySelector('#wcalSendBody').value };
+    if(typeof window.applyEmailDraft === 'function') window.applyEmailDraft(d2, drafterName);
+    else if(typeof showEmailConsoleModal === 'function'){ showEmailConsoleModal('Email Console'); setTimeout(function(){ if(typeof window.applyEmailDraft==='function') window.applyEmailDraft(d2, drafterName); },350); }
+    close();
+  };
+  box.querySelector('#wcalSendNowBtn').onclick = async function(){
+    var btn = box.querySelector('#wcalSendNowBtn');
+    var st  = box.querySelector('#wcalSendStatus');
+    var to = box.querySelector('#wcalSendTo').value.trim();
+    var subject = box.querySelector('#wcalSendSubject').value.trim();
+    var body = box.querySelector('#wcalSendBody').value.trim();
+    if(!to||!subject||!body){ st.style.color='#f87171'; st.innerText='Please fill in all fields.'; return; }
+    btn.disabled=true; btn.innerText='Sending...'; st.innerText='';
+    try{
+      var res = await fetch('/api/send_email',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to:to, subject:subject, body:body, from_teammate: drafterName||''}) });
+      var data = await res.json();
+      if(data.ok){ st.style.color='#6ee7b7'; st.innerText='Sent!'; showToast('Email sent to '+to); setTimeout(close,1600); }
+      else throw new Error(data.error||'Send failed');
+    }catch(err){ btn.disabled=false; btn.innerText='Send Now'; st.style.color='#f87171'; st.innerText=err.message||'Send failed'; }
+  };
+};
+
 window.wcalOpenDetail = function(el){
   const etype=el.dataset.etype;
   if(etype==='task'){
@@ -22583,6 +22693,46 @@ def api_crm_playbooks():
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
     return jsonify({"ok": True, "output": output})
+
+
+@app.post("/api/playbooks/save")
+def api_playbooks_save():
+    """Save a playbook from round table or Growth Playbooks output."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    title        = (payload.get("title") or "Untitled Playbook").strip()[:200]
+    content_text = (payload.get("content") or "").strip()
+    if not content_text:
+        return jsonify({"ok": False, "error": "No content to save"}), 400
+    p = DATA / f"saved_playbooks_{uname}.json"
+    try:
+        existing = load_json(p, []) or []
+        if not isinstance(existing, list): existing = []
+    except Exception:
+        existing = []
+    entry = {"id": str(uuid.uuid4()), "title": title, "content": content_text, "created_at": now_iso()}
+    existing.insert(0, entry)
+    existing = existing[:100]
+    save_json(p, existing)
+    return jsonify({"ok": True, "playbook": entry})
+
+
+@app.get("/api/playbooks/list")
+def api_playbooks_list():
+    """Return saved playbooks for the current user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    p = DATA / f"saved_playbooks_{uname}.json"
+    try:
+        data = load_json(p, []) or []
+    except Exception:
+        data = []
+    return jsonify({"ok": True, "playbooks": data})
 
 
 @app.errorhandler(Exception)
