@@ -15208,13 +15208,18 @@ function wcalCleanDescription(raw){
   let txt = raw.replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').trim();
   // Remove known Motion/Google Calendar/third-party boilerplate
   const boilerplates=[
-    /This event was created by Motion.*$/si,
-    /This task was created by Motion.*$/si,
-    /Created (in|by|via) Motion.*$/si,
-    /To edit settings.*$/si,
-    /To disconnect Motion.*$/si,
-    /Managed by Motion.*$/si,
-    /Scheduled by Motion.*$/si,
+    /This event was created by Motion[\s\S]*$/si,
+    /This task was created by Motion[\s\S]*$/si,
+    /Created (in|by|via) Motion[\s\S]*$/si,
+    /If you are a teammate of this person[\s\S]*$/si,
+    /If you are the owner of this event[\s\S]*$/si,
+    /the task details are hidden for privacy[\s\S]*$/si,
+    /feel free to book over this event[\s\S]*$/si,
+    /please view details of this task within Motion[\s\S]*$/si,
+    /To edit settings[\s\S]*$/si,
+    /To disconnect Motion[\s\S]*$/si,
+    /Managed by Motion[\s\S]*$/si,
+    /Scheduled by Motion[\s\S]*$/si,
     /https?:\/\/app\.usemotion\.com[^\s]*/gi,
     /https?:\/\/www\.usemotion\.com[^\s]*/gi,
   ];
@@ -15737,6 +15742,8 @@ function wcalShowTaskDetail(task){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${task.on_complete_client_name||''}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -15747,7 +15754,7 @@ function wcalShowTaskDetail(task){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  if(typeLbl){ typeLbl.innerText=(task.recurring&&task.recurring!=='none')?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentTask=task; panel._currentEvent=null;
@@ -15798,10 +15805,11 @@ function wcalShowGcalTaskDetail(ev){
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
+  const _rawDesc=ev.description||'';
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(_rawDesc);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const storedNotes=meta.notes!=null?meta.notes:_rawDesc;
   const evIdSafe=evId.replace(/'/g,"\\'");
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
@@ -15875,6 +15883,8 @@ function wcalShowGcalTaskDetail(ev){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -15922,10 +15932,11 @@ function wcalShowEventDetail(ev){
   const meta=(cal.gcalMeta||{})[evId]||{};
   const isDone=!!(meta.done||_evDone.has(evId));
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
+  const _rawDescEv=ev.description||'';
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(_rawDescEv);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const storedNotes=meta.notes!=null?meta.notes:_rawDescEv;
   const evIdSafe=evId.replace(/'/g,"\\'");
   const zoomLink=(ev.location&&ev.location.includes('zoom.us'))?ev.location:'';
   body.innerHTML=`
@@ -16012,6 +16023,8 @@ function wcalShowEventDetail(ev){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
@@ -16232,7 +16245,7 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     recurring,
     recur_days,
     on_complete_teammate:     (document.getElementById('detAutoTeammate')?.value||'').trim(),
-    on_complete_client_name:  (document.getElementById('detForClient')?.value||'').trim(),
+    on_complete_client_name:  (document.getElementById('detAutoClientName')?.value||document.getElementById('detForClient')?.value||'').trim(),
     on_complete_client_email: (document.getElementById('detAutoEmail')?.value||'').trim(),
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
@@ -16419,7 +16432,7 @@ window.wcalDetSaveEvent = async function(encodedId){
   const useMeet=document.getElementById('detMeet')?.value==='meet';
   // on_complete metadata (new fields)
   const onCompleteTeammate=(document.getElementById('detAutoTeammate')?.value||document.getElementById('detEvAutoTeammate')?.value||'').trim();
-  const onCompleteClientName=(document.getElementById('detForClient')?.value||document.getElementById('detEvAutoClientName')?.value||'').trim();
+  const onCompleteClientName=(document.getElementById('detAutoClientName')?.value||document.getElementById('detForClient')?.value||document.getElementById('detEvAutoClientName')?.value||'').trim();
   const onCompleteClientEmail=(document.getElementById('detAutoEmail')?.value||document.getElementById('detEvAutoEmail')?.value||'').trim();
 
   // Save on_complete metadata locally (always, even if Google save fails)
@@ -17122,7 +17135,7 @@ window.wcalDetFillClientFromCRM = function(val){
   try{
     const c = JSON.parse(val);
     // Write to the unified "For" field, falling back to legacy IDs
-    const nameEl  = document.getElementById('detForClient') || document.getElementById('detAutoClientName') || document.getElementById('detEvAutoClientName');
+    const nameEl  = document.getElementById('detAutoClientName') || document.getElementById('detForClient') || document.getElementById('detEvAutoClientName');
     const emailEl = document.getElementById('detAutoEmail') || document.getElementById('detEvAutoEmail');
     if(nameEl  && c.name)  nameEl.value  = c.name;
     if(emailEl && c.email) emailEl.value = c.email;
