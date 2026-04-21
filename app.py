@@ -2572,13 +2572,18 @@ def _strip_motion_boilerplate(text: str) -> str:
     txt = _html.unescape(txt).strip()
     # Remove Motion patterns
     patterns = [
-        r"This event was created by Motion.*",
-        r"This task was created by Motion.*",
-        r"Created (in|by|via) Motion.*",
-        r"Managed by Motion.*",
-        r"Scheduled by Motion.*",
-        r"To edit settings.*",
-        r"To disconnect Motion.*",
+        r"This event was created by Motion[\s\S]*",
+        r"This task was created by Motion[\s\S]*",
+        r"Created (in|by|via) Motion[\s\S]*",
+        r"If you are a teammate of this person[\s\S]*",
+        r"If you are the owner of this event[\s\S]*",
+        r"feel free to book over this event[\s\S]*",
+        r"please view details of this task within Motion[\s\S]*",
+        r"the task details are hidden for privacy[\s\S]*",
+        r"Managed by Motion[\s\S]*",
+        r"Scheduled by Motion[\s\S]*",
+        r"To edit settings[\s\S]*",
+        r"To disconnect Motion[\s\S]*",
         r"https?://app\.usemotion\.com\S*",
         r"https?://www\.usemotion\.com\S*",
     ]
@@ -9827,18 +9832,6 @@ label         { font-size: 14px !important; }
   box-shadow:0 0 0 1px rgba(0,0,0,.3);
 }
 .wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
-/* Quick recurring toggle button on task cards */
-.wcal-recur-toggle {
-  position:absolute; bottom:2px; right:3px;
-  width:16px; height:16px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  font-size:10px; font-weight:900; z-index:6; line-height:1;
-  cursor:pointer; transition:all .15s; border:1px solid rgba(80,110,180,.3);
-  background:rgba(14,22,48,.5); color:rgba(148,163,184,.35);
-}
-.wcal-recur-toggle:hover { border-color:rgba(124,58,237,.7); color:#c4b5fd; background:rgba(124,58,237,.22); transform:scale(1.15); }
-.wcal-recur-toggle.is-on { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.75); color:#c4b5fd; }
-.wcal-recur-toggle.is-on:hover { background:rgba(200,30,60,.28); border-color:rgba(200,30,60,.7); color:#fca5a5; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
@@ -15345,7 +15338,7 @@ function wcalTaskHtml(task, extraStyle=''){
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
-  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" data-tid="${encodeURIComponent(task.id)}" data-r="${task.recurring||'none'}" onclick="event.stopPropagation();wcalQuickToggleRecurring(event,decodeURIComponent(this.dataset.tid),this.dataset.r)" title="${isRecur?'Remove recurring':'Make recurring'}">&#x21bb;</span>`;
+
   h+='</div>';
   return h;
 }
@@ -15363,7 +15356,8 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const doneCls=isDone?' is-done':'';
   const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const isRecur=!!(ev.recurringEventId) || !!(ev._recurring) || (ev.is_motion_task===true);
+  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(ev.description||'');
+  const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">&#x21bb;</span>':'';
   const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||'high';
   const prioCls=isDone?'':' task-prio-'+prio;
   // Meet/Zoom join badges (gcal tasks can still have video links)
@@ -15808,7 +15802,7 @@ function wcalShowGcalTaskDetail(ev){
   const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const storedNotes=wcalCleanDescription(meta.notes!=null?meta.notes:(ev.description||''));
   const evIdSafe=evId.replace(/'/g,"\\'");
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
@@ -15934,7 +15928,7 @@ function wcalShowEventDetail(ev){
   const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
   const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
-  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const storedNotes=wcalCleanDescription(meta.notes!=null?meta.notes:(ev.description||''));
   const evIdSafe=evId.replace(/'/g,"\\'");
   const zoomLink=(ev.location&&ev.location.includes('zoom.us'))?ev.location:'';
   body.innerHTML=`
@@ -16193,29 +16187,6 @@ window.wcalDetSaveTask = async function(taskId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
-
-// ── Quick recurring toggle on task cards ──────────────────────
-window.wcalQuickToggleRecurring = async function(e, taskId, currentRecurring){
-  e.stopPropagation();
-  const nowOn = (currentRecurring && currentRecurring !== 'none');
-  const newRecurring = nowOn ? 'none' : 'weekdays';
-  const newRecurDays = nowOn ? [] : [1,2,3,4,5];
-  const task = cal.tasks.find(t=>t.id===taskId);
-  if(task){ task.recurring=newRecurring; task.recur_days=newRecurDays; }
-  try{
-    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ recurring: newRecurring, recur_days: newRecurDays })
-    });
-    showToast(nowOn ? '○ Non-recurring' : '↻ Recurring (weekdays)');
-    await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
-    const panel=document.getElementById('wcalDetail');
-    if(panel && panel._currentTask && panel._currentTask.id===taskId){
-      const updated=cal.tasks.find(t=>t.id===taskId);
-      if(updated) wcalShowTaskDetail(updated);
-    }
-  }catch(err){ showToast('Could not update: '+(err.message||'error')); }
-};
 
 window.wcalDetDeleteTask = async function(taskId){
   if(!confirm('Delete this task?')) return;
