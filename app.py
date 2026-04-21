@@ -9822,6 +9822,26 @@ label         { font-size: 14px !important; }
   pointer-events:none; line-height:1; opacity:.95;
   box-shadow:0 0 0 1px rgba(0,0,0,.3);
 }
+/* Quick recurring toggle on task cards */
+.wcal-recur-toggle {
+  position:absolute; bottom:2px; right:3px;
+  width:16px; height:16px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:900; z-index:6; line-height:1;
+  cursor:pointer; transition:all .15s; border:1px solid rgba(80,110,180,.3);
+  background:rgba(14,22,48,.6); color:rgba(148,163,184,.4);
+  box-shadow:0 0 0 1px rgba(0,0,0,.2);
+}
+.wcal-recur-toggle:hover { border-color:rgba(124,58,237,.7); color:#c4b5fd; background:rgba(124,58,237,.25); transform:scale(1.15); }
+.wcal-recur-toggle.is-on { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.75); color:#c4b5fd; opacity:.9; }
+.wcal-recur-toggle.is-on:hover { background:rgba(200,30,60,.3); border-color:rgba(200,30,60,.7); color:#fca5a5; }
+/* Recurring indicator in detail panel header */
+.wcal-det-recur-pill {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:2px 8px; border-radius:12px;
+  background:rgba(124,58,237,.22); border:1px solid rgba(124,58,237,.45);
+  color:#c4b5fd; font-size:11px; font-weight:700; letter-spacing:.04em;
+}
 .wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
@@ -15324,6 +15344,8 @@ function wcalTaskHtml(task, extraStyle=''){
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
+  // Quick recurring toggle button (always visible, dim when off, purple when on)
+  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" onclick="wcalQuickToggleRecurring(event,'${task.id.replace(/'/g,"\\'")}','${task.recurring||'none'}')" title="${isRecur?'Click to make non-recurring':'Click to make recurring'}">↻</span>`;
   h+='</div>';
   return h;
 }
@@ -15730,10 +15752,7 @@ function wcalShowTaskDetail(task){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
-  const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
-  panel.classList.add('open');
-  panel._currentTask=task; panel._currentEvent=null;
+  if(typeLbl){ typeLbl.innerText=(task.recurring&&task.recurring!=='none')?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
@@ -15822,18 +15841,13 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Repeats</div>
-      <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;${isRecur?'color:#a5b4fc;':'opacity:.5;'}">
-        ${isRecur?'↻ Recurring (managed in Google Calendar)':'Does not repeat'}
-      </div>
-      ${isRecur?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">M</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">T</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">W</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">Th</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#a5b4fc;font-size:11px;font-weight:700;">F</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.35);color:rgba(148,163,184,.5);font-size:11px;font-weight:700;">Sa</span>
-        <span style="padding:3px 8px;border-radius:6px;background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.35);color:rgba(148,163,184,.5);font-size:11px;font-weight:700;">Su</span>
-      </div>`:''}
+      ${isRecur
+        ? `<div style="display:flex;align-items:center;gap:7px;padding:4px 0 6px;"><span style="font-size:15px;color:#c4b5fd;">↻</span><span class="wcal-det-recur-pill">Recurring</span><span style="font-size:11px;color:rgba(180,200,240,.6);margin-left:2px;">managed in Google Calendar</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{ const d=[1,2,3,4,5,6,0][i]; const isWd=d>=1&&d<=5; return `<span class="wcal-day-btn${isWd?' active':''}" style="cursor:default;" title="${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}">${l}</span>`; }).join('')}
+      </div>`
+        : `<div style="font-size:12px;color:rgba(148,163,184,.55);padding:4px 0;">Does not repeat</div>`
+      }
     </div>
     <div>
       <div class="wcal-detail-label">For</div>
@@ -15873,7 +15887,7 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  if(typeLbl){ typeLbl.innerText=isRecur?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   const detHdr=document.querySelector('.wcal-detail-header');
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
@@ -15908,6 +15922,7 @@ function wcalShowEventDetail(ev){
   const evId=ev.id||ev.summary||'';
   const meta=(cal.gcalMeta||{})[evId]||{};
   const isDone=!!(meta.done||_evDone.has(evId));
+  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
 
   body.innerHTML=`
     <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
@@ -15919,6 +15934,16 @@ function wcalShowEventDetail(ev){
         <span id="detEvDoneIcon">${isDone?'✓':'○'}</span>
         <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
       </div>
+    </div>
+    <div>
+      <div class="wcal-detail-label">Repeats</div>
+      ${isRecur
+        ? `<div style="display:flex;align-items:center;gap:7px;padding:4px 0 6px;"><span style="font-size:15px;color:#c4b5fd;">&#x21BB;</span><span class="wcal-det-recur-pill">Recurring</span><span style="font-size:11px;color:rgba(180,200,240,.6);margin-left:2px;">managed in Google Calendar</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
+          ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{ const d=[1,2,3,4,5,6,0][i]; const isWd=d>=1&&d<=5; return `<span class="wcal-day-btn${isWd?' active':''}" style="cursor:default;">${l}</span>`; }).join('')}
+        </div>`
+        : `<div style="font-size:12px;color:rgba(148,163,184,.55);padding:4px 0;">Does not repeat</div>`
+      }
     </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
@@ -15994,7 +16019,7 @@ function wcalShowEventDetail(ev){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText='📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
+  if(typeLbl){ typeLbl.innerText=isRecur?'↻ EVENT':'📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
   const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-event';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
@@ -16162,6 +16187,33 @@ window.wcalDetDeleteTask = async function(taskId){
     wcalRefresh(); wcalRenderUpcoming(); showToast('Task deleted');
   }catch(e){ showToast('Delete failed'); }
 };
+
+// ── Quick recurring toggle on task cards ──────────────────────
+window.wcalQuickToggleRecurring = async function(e, taskId, currentRecurring){
+  e.stopPropagation();
+  const nowOn = (currentRecurring && currentRecurring !== 'none');
+  const newRecurring = nowOn ? 'none' : 'weekdays';
+  const newRecurDays = nowOn ? [] : [1,2,3,4,5];
+  // Update in-memory immediately for snappy UX
+  const task = cal.tasks.find(t=>t.id===taskId);
+  if(task){ task.recurring=newRecurring; task.recur_days=newRecurDays; }
+  try{
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ recurring: newRecurring, recur_days: newRecurDays })
+    });
+    showToast(nowOn ? '○ Set to non-recurring' : '↻ Set to recurring (weekdays)');
+    await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
+    // If detail panel is open for this task, refresh it
+    const panel=document.getElementById('wcalDetail');
+    if(panel && panel._currentTask && panel._currentTask.id===taskId){
+      const updated=cal.tasks.find(t=>t.id===taskId);
+      if(updated) wcalShowTaskDetail(updated);
+    }
+  }catch(err){ showToast('Could not update recurring: '+(err.message||'error')); }
+};
+
+
 
 // Save email-on-complete fields for a Google Calendar item shown as task
 window.wcalDetSaveGcalTaskMeta = async function(evId){
