@@ -3816,12 +3816,21 @@ function copyCode(code) {
   }).catch(() => { prompt('Copy this code:', code); });
 }
 
-function showToast(msg) {
-  const t = document.createElement('div');
-  t.textContent = msg;
-  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:10px 18px;border-radius:10px;font-size:13px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+function showToast(msg, type) {
+  var borderColor = type==='success' ? 'rgba(52,211,153,.7)' : type==='error' ? 'rgba(248,113,113,.7)' : 'rgba(124,58,237,.5)';
+  var textColor   = type==='success' ? '#6ee7b7' : type==='error' ? '#fca5a5' : '#c4b5fd';
+  var icon        = type==='success' ? '✓ ' : type==='error' ? '✕ ' : '';
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#141e38;border-left:3px solid '+borderColor+';border-top:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);color:'+textColor+';padding:11px 18px 11px 15px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.55);max-width:320px;line-height:1.4;transform:translateX(120%);transition:transform .28s cubic-bezier(.34,1.56,.64,1),opacity .22s;opacity:0;';
+  t.innerHTML = '<span style="opacity:.8;">' + icon + '</span>' + String(msg).replace(/</g,'&lt;');
   document.body.appendChild(t);
-  setTimeout(()=>t.remove(), 2500);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    t.style.transform = 'translateX(0)'; t.style.opacity = '1';
+  }); });
+  setTimeout(function(){
+    t.style.transform = 'translateX(120%)'; t.style.opacity = '0';
+    setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 280);
+  }, 2600);
 }
 
 function openEdit(code) {
@@ -7571,9 +7580,15 @@ HTML = r"""
       pointer-events:none;
     }
     .liveDot.idle{ background: rgba(184,196,255,.28); }
-    .liveDot.thinking{ background: rgba(255,207,112,.55); box-shadow: 0 0 14px rgba(255,207,112,.25); }
+    .liveDot.thinking{ background: rgba(255,207,112,.55); box-shadow: 0 0 14px rgba(255,207,112,.25); animation: dotPulse 1.1s ease-in-out infinite; }
     .liveDot.done{ background: rgba(141,255,179,.60); box-shadow: 0 0 14px rgba(141,255,179,.25); }
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
+    @keyframes dotPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.4); box-shadow:0 0 22px rgba(255,207,112,.6); } }
+    .typingDots { display:inline-flex; gap:3px; align-items:center; height:14px; }
+    .typingDots span { width:5px; height:5px; border-radius:50%; background:rgba(255,207,112,.8); animation:typingBounce 1.1s ease-in-out infinite; }
+    .typingDots span:nth-child(2){ animation-delay:.18s; }
+    .typingDots span:nth-child(3){ animation-delay:.36s; }
+    @keyframes typingBounce { 0%,80%,100%{ transform:translateY(0); opacity:.5; } 40%{ transform:translateY(-5px); opacity:1; } }
 
     .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
     .seatName{ font-weight:800; font-size:13px; }
@@ -9765,6 +9780,15 @@ label         { font-size: 14px !important; }
       <div class="tiny" id="playbookStatus" style="margin-top:10px;text-align:center;"></div>
     </div>
     <div id="playbookResults" style="margin-top:20px;"></div>
+    <div id="savedPlaybooksSection" style="margin-top:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="font-size:14px;font-weight:800;color:#c4b5fd;">Saved Playbooks</div>
+        <button class="btn btnMini" onclick="wcalLoadSavedPlaybooks()" id="refreshPlaybooksBtn" style="font-size:11px;">Refresh</button>
+      </div>
+      <div id="savedPlaybooksList" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="tiny" style="opacity:.6;">No saved playbooks yet. Generate a playbook and click Save to Playbooks.</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -9832,6 +9856,10 @@ label         { font-size: 14px !important; }
   box-shadow:0 0 0 1px rgba(0,0,0,.3);
 }
 .wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
+@keyframes shimmerSweep { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
+.shimmer-card { background:rgba(20,30,60,.6); border:1px solid rgba(80,110,180,.2); border-radius:10px; padding:14px; overflow:hidden; margin-bottom:10px; }
+.shimmer-line { height:10px; border-radius:5px; background:linear-gradient(90deg,rgba(80,110,180,.12) 25%,rgba(124,58,237,.2) 50%,rgba(80,110,180,.12) 75%); background-size:400px 100%; animation:shimmerSweep 1.4s ease-in-out infinite; margin-bottom:9px; }
+.shimmer-line.wide{width:70%;} .shimmer-line.med{width:45%;} .shimmer-line.short{width:25%;margin-bottom:0;}
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
@@ -10181,6 +10209,10 @@ label         { font-size: 14px !important; }
 ">
 <style>
 @keyframes wcalPopIn{from{opacity:0;transform:scale(.93)}to{opacity:1;transform:scale(1)}}
+@keyframes wcalRipple{0%{transform:scale(0);opacity:.7}100%{transform:scale(4.5);opacity:0}}
+@keyframes wcalCheckBurst{0%{transform:scale(1)}30%{transform:scale(1.6)}65%{transform:scale(.88)}100%{transform:scale(1)}}
+@keyframes wcalRecurSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
@@ -11030,14 +11062,13 @@ window.showModal = function showModal(title, body, imgUrl){
       seatStatus[name] = mode;
       const dot = document.getElementById("live_" + name);
       const label = document.getElementById("status_" + name);
-      if(dot){
-        dot.className = "liveDot " + mode;
-      }
+      if(dot){ dot.className = "liveDot " + mode; }
       if(label){
-        label.innerText =
-          mode === "thinking" ? "Thinking" :
-          mode === "done" ? "Responded" :
-          mode === "waiting" ? "Waiting" : "Idle";
+        if(mode === "thinking"){
+          label.innerHTML = '<span class="typingDots"><span></span><span></span><span></span></span>';
+        } else {
+          label.innerText = mode==="done"?"Responded":mode==="waiting"?"Waiting":"Idle";
+        }
       }
       updateTablePulseFromStatuses();
     }
@@ -14888,10 +14919,29 @@ async function crmFetchTasks(){
       box.querySelectorAll('[data-client-drag]').forEach(el=>{
         el.addEventListener('dragstart', ev=>{
           ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
+          el.style.transform='rotate(2deg) scale(1.05)';
+          el.style.boxShadow='0 16px 40px rgba(0,0,0,.7)';
+          el.style.opacity='0.9';
+          el.style.zIndex='200';
+          el.style.transition='transform .15s,box-shadow .15s';
+        });
+        el.addEventListener('dragend', ev=>{
+          el.style.transform=''; el.style.boxShadow=''; el.style.opacity=''; el.style.zIndex='';
+          document.querySelectorAll('[data-stage-drop]').forEach(function(z){
+            z.style.background=''; z.style.boxShadow=''; z.style.borderRadius='';
+          });
         });
       });
       box.querySelectorAll('[data-stage-drop]').forEach(el=>{
-        el.addEventListener('dragover', ev=> ev.preventDefault());
+        el.addEventListener('dragover', ev=>{
+          ev.preventDefault();
+          el.style.background='rgba(124,58,237,.14)';
+          el.style.boxShadow='inset 0 0 0 2px rgba(124,58,237,.55)';
+          el.style.borderRadius='10px';
+        });
+        el.addEventListener('dragleave', ev=>{
+          el.style.background=''; el.style.boxShadow=''; el.style.borderRadius='';
+        });
         el.addEventListener('drop', async ev=>{
           ev.preventDefault();
           const clientId = ev.dataTransfer.getData('text/plain');
@@ -15079,6 +15129,65 @@ window.crmPipelineOpenClient = function(clientId){
         result: ($("offerBuilderResult")?.value || '').trim(),
         method: ($("offerBuilderMethod")?.value || '').trim()
       }, 'offerBuilderStatus', 'offerBuilderResults'));
+      // Load saved playbooks when the view becomes visible
+      window.wcalLoadSavedPlaybooks = async function(){
+        const list = document.getElementById('savedPlaybooksList');
+        if(!list) return;
+        list.innerHTML = [1,2,3].map(function(){
+          return '<div class="shimmer-card"><div class="shimmer-line wide"></div><div class="shimmer-line med"></div><div class="shimmer-line short"></div></div>';
+        }).join('');
+        try{
+          const res = await fetch('/api/playbooks/list');
+          const data = await res.json();
+          const books = data.playbooks || [];
+          if(!books.length){
+            list.innerHTML = '<div class="tiny" style="opacity:.6;">No saved playbooks yet. Generate a playbook and click Save to Playbooks.</div>';
+            return;
+          }
+          list.innerHTML = '';
+          books.forEach(function(pb){
+            const card = document.createElement('div');
+            card.style.cssText = 'background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.3);border-radius:10px;padding:12px 14px;';
+            const created = pb.created_at ? new Date(pb.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+            card.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">'
+              + '<div style="font-size:13px;font-weight:700;color:#e2e8f0;">' + (pb.title||'Untitled') + '</div>'
+              + '<div style="display:flex;gap:6px;align-items:center;">'
+              + '<span style="font-size:11px;opacity:.5;">' + created + '</span>'
+              + '<button class="btn btnMini" style="font-size:11px;color:#c4b5fd;" data-viewbtn>View</button>'
+              + '<button class="btn btnMini" style="font-size:11px;color:#f87171;" data-delbtn data-pbid="' + (pb.id||'') + '">Delete</button>'
+              + '</div></div>'
+              + '<div data-pbbody style="display:none;font-size:12px;color:rgba(180,200,240,.85);white-space:pre-wrap;margin-top:8px;line-height:1.6;max-height:320px;overflow-y:auto;">' + (pb.content||'').replace(/</g,'&lt;') + '</div>';
+            card.setAttribute('data-pbcard','');
+            // Wire view toggle via JS (avoids nested quote issues)
+            var vb = card.querySelector('[data-viewbtn]');
+            var pb2 = card.querySelector('[data-pbbody]');
+            if(vb && pb2){ vb.onclick = function(){ pb2.style.display = pb2.style.display==='none'?'block':'none'; vb.innerText = pb2.style.display==='none'?'View':'Hide'; }; }
+            var db = card.querySelector('[data-delbtn]');
+            if(db){ db.onclick = function(){ wcalDeletePlaybook(db.getAttribute('data-pbid'), db); }; }
+            list.appendChild(card);
+          });
+        }catch(err){
+          list.innerHTML = '<div class="tiny" style="color:#f87171;">Failed to load: ' + (err.message||'error') + '</div>';
+        }
+      };
+
+      window.wcalDeletePlaybook = async function(pbId, btn){
+        if(!confirm('Delete this playbook?')) return;
+        try{
+          const res = await fetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pbId})});
+          const data = await res.json();
+          if(data.ok){ btn.closest('[data-pbcard]').remove(); showToast('Playbook deleted'); }
+          else throw new Error(data.error||'Delete failed');
+        }catch(err){ showToast('Could not delete: '+(err.message||'error')); }
+      };
+
+      // Auto-load when playbooks tab is opened
+      const origCrmShowView = window.crmShowView;
+      window.crmShowView = function(viewId){
+        if(typeof origCrmShowView === 'function') origCrmShowView(viewId);
+        if(viewId === 'crmViewPlaybooks') setTimeout(wcalLoadSavedPlaybooks, 80);
+      };
+
       b('playbookRunBtn', ()=>crmRunGenerator('/api/crm/playbooks', {
         goal: ($("playbookGoal")?.value || 'get_clients'),
         timeline: ($("playbookTimeline")?.value || '30 days'),
@@ -15455,6 +15564,21 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   h+='</div>';
   return h;
 }
+function wcalFireTaskDoneEffect(el, priority){
+  var colors = {high:'rgba(139,92,246,.75)',medium:'rgba(234,179,8,.75)',low:'rgba(16,185,129,.75)'};
+  var color = colors[priority||'high']||colors.high;
+  var ring = document.createElement('div');
+  ring.className = 'wcal-ripple-ring';
+  ring.style.background = color;
+  el.style.overflow = 'hidden';
+  el.appendChild(ring);
+  setTimeout(function(){ if(ring.parentNode) ring.parentNode.removeChild(ring); }, 560);
+  var circle = el.querySelector('.wcal-event-check');
+  if(circle){ circle.style.animation='none'; void circle.offsetHeight; circle.style.animation='wcalCheckBurst .32s ease-out'; setTimeout(function(){ circle.style.animation=''; },340); }
+  var badge = el.querySelector('.wcal-recur-badge');
+  if(badge){ badge.style.animation='none'; void badge.offsetHeight; badge.style.animation='wcalRecurSpin .48s ease-out'; setTimeout(function(){ badge.style.animation=''; },500); }
+}
+
 window.wcalToggleTask = async function(e, taskId){
   e.stopPropagation();
   // Find the specific instance that was clicked — use data-tdate to identify the day
@@ -15511,7 +15635,8 @@ window.wcalToggleTask = async function(e, taskId){
     }
 
     wcalRenderUpcoming();
-    showToast(newDone ? '✓ Task complete' : 'Task marked todo');
+    showToast(newDone ? '\u2713 Task complete' : 'Task marked todo', newDone?'success':'info');
+    if(newDone && clickedEl) wcalFireTaskDoneEffect(clickedEl, task.priority||'high');
 
     if(newDone){
       if(task.on_complete_teammate){
@@ -15572,6 +15697,15 @@ async function wcalOfferDraftFromCircle(taskId, task){
     clInput.value=task.on_complete_client_name||'';
     clInput.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:16px;';
 
+    // Log note to CRM
+    const noteLabel=document.createElement('div');
+    noteLabel.style.cssText='font-size:11px;font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;margin-top:10px;';
+    noteLabel.textContent='Log a note (saved to CRM contact)';
+    const noteInput=document.createElement('textarea');
+    noteInput.placeholder='What happened? e.g. Had a great call, ready to move forward...';
+    noteInput.rows=3;
+    noteInput.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;resize:vertical;margin-bottom:16px;';
+
     const btnRow=document.createElement('div');
     btnRow.style.cssText='display:flex;gap:8px;';
 
@@ -15582,7 +15716,7 @@ async function wcalOfferDraftFromCircle(taskId, task){
       const tm=tmSel.value.trim();
       if(!tm){ tmSel.focus(); return; }
       document.body.removeChild(overlay);
-      resolve({ teammate:tm, clientName:clInput.value.trim() });
+      resolve({ teammate:tm, clientName:clInput.value.trim(), note:noteInput.value.trim() });
     };
 
     const skipBtn=document.createElement('button');
@@ -15594,6 +15728,7 @@ async function wcalOfferDraftFromCircle(taskId, task){
     box.appendChild(title); box.appendChild(sub);
     box.appendChild(tmLabel); box.appendChild(tmSel);
     box.appendChild(clLabel); box.appendChild(clInput);
+    box.appendChild(noteLabel); box.appendChild(noteInput);
     box.appendChild(btnRow);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
@@ -15607,6 +15742,13 @@ async function wcalOfferDraftFromCircle(taskId, task){
     on_complete_client_name:  wantDraft.clientName,
     on_complete_client_email: task.on_complete_client_email||'',
   });
+  // Log note to CRM if provided and contact email is known
+  if(wantDraft.note && (task.on_complete_client_email||'').trim()){
+    fetch('/api/crm/log_note', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: task.on_complete_client_email, note: wantDraft.note, task_title: task.title||'' })
+    }).then(function(r){ return r.json(); }).then(function(d){ if(d.ok) showToast('Note logged to CRM'); }).catch(function(){});
+  }
   wcalFireCompleteAction(taskId, enrichedTask);
 }
 
@@ -17029,7 +17171,7 @@ function wcalRenderUpcoming(){
       const t=item.task;
       const doneMark=t.done?'✓ ':'';
       const title=(t.title||'Task').replace(/</g,'&lt;');
-      return '<div class="wcal-upcoming-item" onclick="wcalSelectDate(&quot;'+t.date+'&quot;)"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+t.date+' · '+(t.start||'')+'</div></div>';
+        return '<div class="wcal-upcoming-item" onclick="(function(){wcalSelectDate(&quot;'+t.date+'&quot;);setTimeout(function(){var tk=cal&&cal.tasks&&cal.tasks.find(function(x){return x.id===&quot;'+t.id+'&quot;;});if(tk&&typeof wcalShowTaskDetail===&quot;function&quot;)wcalShowTaskDetail(tk);},120);})()"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+t.date+' · '+(t.start||'')+'</div></div>';
     } else if(item.type==='task'){
       // gcal item shown as task
       const ev=item.ev;
@@ -17038,7 +17180,7 @@ function wcalRenderUpcoming(){
       const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
       const title=(ev.summary||'Task').replace(/</g,'&lt;');
       const isDone=_evDone.has(ev.id||ev.summary||'');
-      return '<div class="wcal-upcoming-item" onclick="(function(){const d=&quot;'+item.dt+'&quot;;wcalSelectDate(d);})()"><div class="wcal-upcoming-title">'+(isDone?'✓ ':'☑ ')+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+        return '<div class="wcal-upcoming-item" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=&quot;'+(ev.id||ev.summary||'')+'&quot;;var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowGcalTaskDetail===&quot;function&quot;)wcalShowGcalTaskDetail(ev2);},120);})()"><div class="wcal-upcoming-title">'+(isDone?'✓ ':'☑ ')+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
     } else {
       // gcal item shown as event (blue)
       const ev=item.ev;
@@ -17046,7 +17188,7 @@ function wcalRenderUpcoming(){
       const dateStr=isNaN(sd)?ev.start.slice(0,10):sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
       const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
       const title=(ev.summary||'Event').replace(/</g,'&lt;');
-      return '<div class="wcal-upcoming-item" style="color:#7dd3fc;" onclick="wcalSelectDate(&quot;'+item.dt+'&quot;)"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+        return '<div class="wcal-upcoming-item" style="color:#7dd3fc;" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=&quot;'+(ev.id||ev.summary||'')+'&quot;;var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowEventDetail===&quot;function&quot;)wcalShowEventDetail(ev2);},120);})()"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
     }
   }).join('');
 }
@@ -22733,6 +22875,59 @@ def api_playbooks_list():
     except Exception:
         data = []
     return jsonify({"ok": True, "playbooks": data})
+
+
+@app.post("/api/playbooks/delete")
+def api_playbooks_delete():
+    """Delete a saved playbook by id."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    pb_id = (payload.get("id") or "").strip()
+    if not pb_id:
+        return jsonify({"ok": False, "error": "Missing id"}), 400
+    p = DATA / f"saved_playbooks_{uname}.json"
+    try:
+        data = load_json(p, []) or []
+        data = [x for x in data if x.get("id") != pb_id]
+        save_json(p, data)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.post("/api/crm/log_note")
+def api_crm_log_note():
+    """Append a timestamped note to a CRM contact matched by email."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    email      = (payload.get("email") or "").strip().lower()
+    note_text  = (payload.get("note") or "").strip()
+    task_title = (payload.get("task_title") or "").strip()
+    if not email or not note_text:
+        return jsonify({"ok": False, "error": "Missing email or note"}), 400
+    crm = _crm_load(uname)
+    clients = crm.get("clients") or {}
+    matched_id = None
+    for cid, c in clients.items():
+        if isinstance(c, dict) and (c.get("email") or "").strip().lower() == email:
+            matched_id = cid
+            break
+    if not matched_id:
+        return jsonify({"ok": False, "error": "No CRM contact found with that email"}), 404
+    c = clients[matched_id]
+    timestamp = now_iso()[:10]
+    prefix = f"[{timestamp}] {task_title}: " if task_title else f"[{timestamp}] "
+    existing_notes = (c.get("notes") or "").strip()
+    c["notes"] = (existing_notes + ("\n" if existing_notes else "") + prefix + note_text).strip()
+    crm["clients"][matched_id] = c
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "note": prefix + note_text})
 
 
 @app.errorhandler(Exception)
