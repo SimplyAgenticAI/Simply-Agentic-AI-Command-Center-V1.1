@@ -5148,6 +5148,8 @@ def api_gcal_event_meta_set():
     if not event_id:
         return jsonify({"ok": False, "error": "Missing event_id"}), 400
     meta = _load_gcal_event_meta(uname)
+    _rd = payload.get("recur_days") or []
+    _rdv = [int(d) for d in _rd if str(d).isdigit() or isinstance(d, int)] if isinstance(_rd, list) else (meta.get(event_id, {}).get("recur_days") or [])
     meta[event_id] = {
         "on_complete_teammate":    (payload.get("on_complete_teammate") or "").strip(),
         "on_complete_client_name": (payload.get("on_complete_client_name") or "").strip(),
@@ -5157,6 +5159,8 @@ def api_gcal_event_meta_set():
         "priority": (payload.get("priority") or meta.get(event_id, {}).get("priority") or "").strip(),
         "notes":    (payload.get("notes")    if payload.get("notes") is not None else meta.get(event_id, {}).get("notes") or ""),
         "title":    (payload.get("title")    if payload.get("title")    else meta.get(event_id, {}).get("title") or ""),
+        "recurring": (payload.get("recurring") if payload.get("recurring") is not None else meta.get(event_id, {}).get("recurring") or "none"),
+        "recur_days": _rdv,
         "updated_at": now_iso(),
     }
     _save_gcal_event_meta(uname, meta)
@@ -9822,27 +9826,19 @@ label         { font-size: 14px !important; }
   pointer-events:none; line-height:1; opacity:.95;
   box-shadow:0 0 0 1px rgba(0,0,0,.3);
 }
-/* Quick recurring toggle on task cards */
+.wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
+/* Quick recurring toggle button on task cards */
 .wcal-recur-toggle {
   position:absolute; bottom:2px; right:3px;
   width:16px; height:16px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   font-size:10px; font-weight:900; z-index:6; line-height:1;
   cursor:pointer; transition:all .15s; border:1px solid rgba(80,110,180,.3);
-  background:rgba(14,22,48,.6); color:rgba(148,163,184,.4);
-  box-shadow:0 0 0 1px rgba(0,0,0,.2);
+  background:rgba(14,22,48,.5); color:rgba(148,163,184,.35);
 }
-.wcal-recur-toggle:hover { border-color:rgba(124,58,237,.7); color:#c4b5fd; background:rgba(124,58,237,.25); transform:scale(1.15); }
-.wcal-recur-toggle.is-on { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.75); color:#c4b5fd; opacity:.9; }
-.wcal-recur-toggle.is-on:hover { background:rgba(200,30,60,.3); border-color:rgba(200,30,60,.7); color:#fca5a5; }
-/* Recurring indicator in detail panel header */
-.wcal-det-recur-pill {
-  display:inline-flex; align-items:center; gap:4px;
-  padding:2px 8px; border-radius:12px;
-  background:rgba(124,58,237,.22); border:1px solid rgba(124,58,237,.45);
-  color:#c4b5fd; font-size:11px; font-weight:700; letter-spacing:.04em;
-}
-.wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
+.wcal-recur-toggle:hover { border-color:rgba(124,58,237,.7); color:#c4b5fd; background:rgba(124,58,237,.22); transform:scale(1.15); }
+.wcal-recur-toggle.is-on { background:rgba(124,58,237,.3); border-color:rgba(124,58,237,.75); color:#c4b5fd; }
+.wcal-recur-toggle.is-on:hover { background:rgba(200,30,60,.28); border-color:rgba(200,30,60,.7); color:#fca5a5; }
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
 .wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
@@ -15344,8 +15340,7 @@ function wcalTaskHtml(task, extraStyle=''){
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
-  // Quick recurring toggle button (always visible, dim when off, purple when on)
-  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" onclick="wcalQuickToggleRecurring(event,'${task.id.replace(/'/g,"\\'")}','${task.recurring||'none'}')" title="${isRecur?'Click to make non-recurring':'Click to make recurring'}">↻</span>`;
+  h+=`<span class="wcal-recur-toggle${isRecur?' is-on':''}" onclick="wcalQuickToggleRecurring(event,'${task.id.replace(/'/g,\"\\\\'\")}',${ JSON.stringify(task.recurring||'none')})" title="${isRecur?'Remove recurring':'Make recurring'}">↻</span>`;
   h+='</div>';
   return h;
 }
@@ -15752,7 +15747,10 @@ function wcalShowTaskDetail(task){
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText=(task.recurring&&task.recurring!=='none')?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  if(typeLbl){ typeLbl.innerText='☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
+  panel.classList.add('open');
+  panel._currentTask=task; panel._currentEvent=null;
   // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
@@ -15794,18 +15792,19 @@ function wcalShowGcalTaskDetail(ev){
   const endD=new Date(ev.end||ev.start||'');
   const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
   const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
-  const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
-  const durMins=(!isNaN(startD)&&!isNaN(endD))?Math.max(15,Math.round((endD-startD)/60000)):30;
+  const durMins=(!isNaN(startD)&&!isNaN(new Date(ev.end||ev.start||'')))?Math.max(15,Math.round((new Date(ev.end||ev.start||'')-startD)/60000)):30;
   const isDone=_evDone.has(evId)||(!!((cal.gcalMeta||{})[evId]||{}).done);
   const htmlLink=ev.htmlLink||'';
   const meta=(cal.gcalMeta||{})[evId]||{};
   const meetLink=ev.hangoutLink||'';
   const storedPrio=meta.priority||(_evPriority[evId])||'high';
-  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
-  const storedNotes=meta.notes!=null ? meta.notes : (ev.description||'');
-
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
+  const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
+  const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
+  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const evIdSafe=evId.replace(/'/g,"\\'");
   body.innerHTML=`
-    <div class="wcal-detail-title-wrap"><input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" /></div>
+    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
     <div>
@@ -15818,17 +15817,17 @@ function wcalShowGcalTaskDetail(ev){
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
-        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${dateVal||'—'}</div>
+        <input class="wcal-detail-field" id="detDate" type="date" value="${dateVal}" />
       </div>
       <div style="flex:1;">
-        <div class="wcal-detail-label">Time</div>
-        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${startVal?startVal+(endVal?' – '+endVal:''):'—'}</div>
+        <div class="wcal-detail-label">Start time</div>
+        <input class="wcal-detail-field" id="detStart" type="time" value="${startVal||'09:00'}" />
       </div>
     </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
-        <div class="wcal-detail-label">Duration</div>
-        <div class="wcal-detail-value" style="font-size:13px;padding:4px 0;">${durMins} min</div>
+        <div class="wcal-detail-label">Duration (min)</div>
+        <input class="wcal-detail-field" id="detDur" type="number" min="5" max="480" value="${durMins}" />
       </div>
       <div style="flex:1;">
         <div class="wcal-detail-label">Priority</div>
@@ -15841,26 +15840,30 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Repeats</div>
-      ${isRecur
-        ? `<div style="display:flex;align-items:center;gap:7px;padding:4px 0 6px;"><span style="font-size:15px;color:#c4b5fd;">↻</span><span class="wcal-det-recur-pill">Recurring</span><span style="font-size:11px;color:rgba(180,200,240,.6);margin-left:2px;">managed in Google Calendar</span></div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
-        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{ const d=[1,2,3,4,5,6,0][i]; const isWd=d>=1&&d<=5; return `<span class="wcal-day-btn${isWd?' active':''}" style="cursor:default;" title="${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}">${l}</span>`; }).join('')}
-      </div>`
-        : `<div style="font-size:12px;color:rgba(148,163,184,.55);padding:4px 0;">Does not repeat</div>`
-      }
-    </div>
-    <div>
-      <div class="wcal-detail-label">For</div>
-      <div style="display:flex;gap:5px;align-items:center;">
-        <input class="wcal-detail-field" id="detForClient" type="text" placeholder="Client name (optional)" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" style="flex:1;" />
-        <select class="wcal-detail-field" id="detForClientCrm" onchange="wcalDetFillForClient(this.value)" style="flex:1;font-size:11px;">
-          <option value="">— CRM —</option>
-        </select>
+      <select class="wcal-detail-field" id="detRecurring" onchange="wcalToggleRecurDays(this.value,'detDayPicker')">
+        <option value="none"      ${storedRecurring==='none'     ?'selected':''}>Does not repeat</option>
+        <option value="daily"     ${storedRecurring==='daily'    ?'selected':''}>Every day</option>
+        <option value="weekdays"  ${storedRecurring==='weekdays' ?'selected':''}>Weekdays (Mon–Fri)</option>
+        <option value="custom"    ${storedRecurring==='custom'   ?'selected':''}>Custom days…</option>
+        <option value="weekly"    ${storedRecurring==='weekly'   ?'selected':''}>Weekly</option>
+        <option value="biweekly"  ${storedRecurring==='biweekly'?'selected':''}>Every 2 weeks</option>
+        <option value="monthly"   ${storedRecurring==='monthly'  ?'selected':''}>Monthly</option>
+      </select>
+      <div id="detDayPicker" style="display:${storedRecurring!=='none'?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
+          const d=[1,2,3,4,5,6,0][i];
+          let active;
+          if(storedRecurring==='daily') active=true;
+          else if(storedRecurring==='weekdays') active=d>=1&&d<=5;
+          else if(storedRecurDays.length) active=storedRecurDays.includes(d);
+          else active=d>=1&&d<=5;
+          return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;
+        }).join('')}
       </div>
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes about what was done…">${wcalCleanDescription(storedNotes)}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(storedNotes)}</textarea>
     </div>
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
@@ -15876,18 +15879,14 @@ function wcalShowGcalTaskDetail(ev){
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
-    <div>
-      <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','task')">
-        ⇄ Switch to Event
-      </button>
-    </div>
     <div class="wcal-detail-actions">
-      <button class="wcal-det-btn primary" onclick="wcalDetSaveGcalTaskMeta('${evId.replace(/'/g,"\\'")}')">Save</button>
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveGcalTaskMeta('${evIdSafe}')">Save</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText=isRecur?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
+  const isRecurring=(storedRecurring!=='none');
+  if(typeLbl){ typeLbl.innerText=isRecurring?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   const detHdr=document.querySelector('.wcal-detail-header');
   if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
@@ -15904,7 +15903,6 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
-  wcalPopulateCrmClientDropdown('detForClientCrm','');
 }
 
 function wcalShowEventDetail(ev){
@@ -15917,116 +15915,122 @@ function wcalShowEventDetail(ev){
   const dateVal=isNaN(startD)?'':(ev.start||'').slice(0,10);
   const startVal=isNaN(startD)?'':pad2(startD.getHours())+':'+pad2(startD.getMinutes());
   const endVal=isNaN(endD)?'':pad2(endD.getHours())+':'+pad2(endD.getMinutes());
+  const durMins=(!isNaN(startD)&&!isNaN(endD))?Math.max(15,Math.round((endD-startD)/60000)):30;
   const meetLink=ev.hangoutLink||ev.conferenceData?.entryPoints?.[0]?.uri||'';
   const htmlLink=ev.htmlLink||'';
   const evId=ev.id||ev.summary||'';
   const meta=(cal.gcalMeta||{})[evId]||{};
   const isDone=!!(meta.done||_evDone.has(evId));
-  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
-
+  const storedPrio=meta.priority||(_evPriority[evId])||'high';
+  const isGcalRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
+  const storedRecurring=meta.recurring!=null?meta.recurring:(isGcalRecur?'weekdays':'none');
+  const storedRecurDays=(meta.recur_days&&meta.recur_days.length)?meta.recur_days.map(Number):[1,2,3,4,5];
+  const storedNotes=meta.notes!=null?meta.notes:(ev.description||'');
+  const evIdSafe=evId.replace(/'/g,"\\'");
+  const zoomLink=(ev.location&&ev.location.includes('zoom.us'))?ev.location:'';
   body.innerHTML=`
-    <input class="wcal-detail-title" id="detTitle" value="${(ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
+    <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
-    ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
+    ${zoomLink?`<a class="wcal-join-btn wcal-join-zoom" href="${zoomLink.replace(/"/g,'&quot;')}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
-      <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evId.replace(/'/g,"\\'")}')">
+      <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evIdSafe}')">
         <span id="detEvDoneIcon">${isDone?'✓':'○'}</span>
         <span id="detEvDoneLabel">${isDone?'Completed':'Mark complete'}</span>
       </div>
-    </div>
-    <div>
-      <div class="wcal-detail-label">Repeats</div>
-      ${isRecur
-        ? `<div style="display:flex;align-items:center;gap:7px;padding:4px 0 6px;"><span style="font-size:15px;color:#c4b5fd;">&#x21BB;</span><span class="wcal-det-recur-pill">Recurring</span><span style="font-size:11px;color:rgba(180,200,240,.6);margin-left:2px;">managed in Google Calendar</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">
-          ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{ const d=[1,2,3,4,5,6,0][i]; const isWd=d>=1&&d<=5; return `<span class="wcal-day-btn${isWd?' active':''}" style="cursor:default;">${l}</span>`; }).join('')}
-        </div>`
-        : `<div style="font-size:12px;color:rgba(148,163,184,.55);padding:4px 0;">Does not repeat</div>`
-      }
     </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
         <div class="wcal-detail-label">Date</div>
         <input class="wcal-detail-field" id="detDate" type="date" value="${dateVal}" />
       </div>
+      <div style="flex:1;">
+        <div class="wcal-detail-label">Start time</div>
+        <input class="wcal-detail-field" id="detStart" type="time" value="${startVal||'09:00'}" />
+      </div>
     </div>
     <div class="wcal-detail-row">
       <div style="flex:1;">
-        <div class="wcal-detail-label">Start</div>
-        <input class="wcal-detail-field" id="detStart" type="time" value="${startVal}" />
+        <div class="wcal-detail-label">Duration (min)</div>
+        <input class="wcal-detail-field" id="detDur" type="number" min="5" max="480" value="${durMins}" />
       </div>
       <div style="flex:1;">
-        <div class="wcal-detail-label">End</div>
-        <input class="wcal-detail-field" id="detEnd" type="time" value="${endVal}" />
+        <div class="wcal-detail-label">Priority</div>
+        <select class="wcal-detail-field" id="detPriority" onchange="wcalDetEvPriorityChange(this.value)">
+          <option value="high"   ${storedPrio==='high'   ?'selected':''}>🟣 High</option>
+          <option value="medium" ${storedPrio==='medium' ?'selected':''}>🟡 Medium</option>
+          <option value="low"    ${storedPrio==='low'    ?'selected':''}>🟢 Low</option>
+        </select>
+      </div>
+    </div>
+    <div>
+      <div class="wcal-detail-label">Repeats</div>
+      <select class="wcal-detail-field" id="detRecurring" onchange="wcalToggleRecurDays(this.value,'detDayPicker')">
+        <option value="none"      ${storedRecurring==='none'     ?'selected':''}>Does not repeat</option>
+        <option value="daily"     ${storedRecurring==='daily'    ?'selected':''}>Every day</option>
+        <option value="weekdays"  ${storedRecurring==='weekdays' ?'selected':''}>Weekdays (Mon–Fri)</option>
+        <option value="custom"    ${storedRecurring==='custom'   ?'selected':''}>Custom days…</option>
+        <option value="weekly"    ${storedRecurring==='weekly'   ?'selected':''}>Weekly</option>
+        <option value="biweekly"  ${storedRecurring==='biweekly'?'selected':''}>Every 2 weeks</option>
+        <option value="monthly"   ${storedRecurring==='monthly'  ?'selected':''}>Monthly</option>
+      </select>
+      <div id="detDayPicker" style="display:${storedRecurring!=='none'?'flex':'none'};flex-wrap:wrap;gap:4px;margin-top:6px;">
+        ${['M','T','W','Th','F','Sa','Su'].map((l,i)=>{
+          const d=[1,2,3,4,5,6,0][i];
+          let active;
+          if(storedRecurring==='daily') active=true;
+          else if(storedRecurring==='weekdays') active=d>=1&&d<=5;
+          else if(storedRecurDays.length) active=storedRecurDays.includes(d);
+          else active=d>=1&&d<=5;
+          return `<span class="wcal-day-btn${active?' active':''}" data-day="${d}" onclick="this.classList.toggle('active')">${l}</span>`;
+        }).join('')}
       </div>
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes…"></textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(storedNotes)}</textarea>
     </div>
-    <div>
-      <div class="wcal-detail-label">Meeting link</div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input class="wcal-detail-field" id="detLocation" value="${meetLink ? meetLink.replace(/"/g,'&quot;') : (ev.location&&!ev.location.includes('usemotion')&&!ev.location.match(/^\d/))?ev.location.replace(/"/g,'&quot;'):''}" placeholder="Google Meet or Zoom URL" style="flex:1;" />
-        ${(meetLink||(ev.location&&ev.location.includes('meet.google')||ev.location&&ev.location.includes('zoom.us')))?`<button onclick="(function(){const v=document.getElementById('detLocation')?.value||'';if(v){navigator.clipboard?.writeText(v).then(()=>showToast('📋 Link copied!')).catch(()=>showToast('Copy: '+v));}})()" style="flex-shrink:0;padding:5px 9px;border-radius:7px;border:1px solid rgba(80,110,180,.45);background:rgba(20,30,60,.7);color:#c4b5fd;font-size:11px;cursor:pointer;white-space:nowrap;" title="Copy meeting link">📋 Copy</button>`:''}
-      </div>
-    </div>
-    <div>
-      <div class="wcal-detail-label">Invite attendees</div>
-      <input class="wcal-detail-field" id="detAttendees" placeholder="email1@x.com, email2@x.com" autocomplete="off" />
-    </div>
-    <div>
+    ${(meetLink||zoomLink)?`<div>
       <div class="wcal-detail-label">Video call</div>
       <div class="wcal-conf-row">
         <button class="wcal-conf-btn ${meetLink?'active-meet':''}" id="detMeetBtn" onclick="wcalDetToggleConf('meet')" title="Generate a Google Meet link when saving">
           📹 ${meetLink?'Meet added':'Add Google Meet'}
         </button>
-        <button class="wcal-conf-btn ${(ev.location&&ev.location.includes('zoom.us'))?'active-zoom':''}" id="detZoomBtn" onclick="wcalDetToggleConf('zoom')" title="Paste a Zoom URL into the Location field">
-          🔵 ${(ev.location&&ev.location.includes('zoom.us'))?'Zoom added':'Add Zoom'}
+        <button class="wcal-conf-btn ${zoomLink?'active-zoom':''}" id="detZoomBtn" onclick="wcalDetToggleConf('zoom')" title="Paste a Zoom URL into the Location field">
+          🔵 ${zoomLink?'Zoom added':'Add Zoom'}
         </button>
       </div>
-    </div>
+    </div>`:''}
     <input type="hidden" id="detMeet" value="${meetLink?'meet':''}" />
-    <div>
-      <div class="wcal-detail-label">Priority</div>
-      <select class="wcal-detail-field" id="detEvPriority" onchange="wcalDetEvPriorityChange(this.value)">
-        <option value="high" selected>🟣 High</option>
-        <option value="medium">🟡 Medium</option>
-        <option value="low">🟢 Low</option>
-      </select>
-    </div>
-    <div class="wcal-autocomplete-section" id="detEvAutoSection">
+    <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Teammate to draft email</div>
-      <select class="wcal-detail-field" id="detEvAutoTeammate">
+      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
+        <option value="">— Select from CRM (optional) —</option>
+      </select>
+      <div class="wcal-detail-label" style="margin-top:6px;">Assign teammate to draft email</div>
+      <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
-      <input class="wcal-detail-field" id="detEvAutoClientName" type="text" placeholder="e.g. David" value="${meta.on_complete_client_name||''}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email</div>
-      <input class="wcal-detail-field" id="detEvAutoEmail" type="email" placeholder="client@example.com" value="${meta.on_complete_client_email||''}" autocomplete="off" />
-      <div class="wcal-automail-status" id="detEvAutoStatus"></div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
+      <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
     <div class="wcal-detail-actions">
-      <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(evId)}')">Save changes</button>
+      <button class="wcal-det-btn primary" onclick="wcalDetSaveEvent('${encodeURIComponent(evId)}')">Save</button>
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
-    </div>
-    <div>
-      <button class="wcal-type-toggle-btn" onclick="wcalToggleGcalItemType('${evId.replace(/'/g,"\\'")}','event')">
-        ⇄ Switch to Task
-      </button>
     </div>
     <div class="wcal-status" id="detStatus"></div>
   `;
-  if(typeLbl){ typeLbl.innerText=isRecur?'↻ EVENT':'📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
+  const isRecurring=(storedRecurring!=='none');
+  if(typeLbl){ typeLbl.innerText=isRecurring?'↻ EVENT':'📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
   const detHdr2=document.querySelector('.wcal-detail-header'); if(detHdr2) detHdr2.className='wcal-detail-header type-event';
   panel.classList.add('open');
   panel._currentEvent=ev; panel._currentTask=null;
-  // Populate teammate dropdown
-  wcalPopulateTeammateDropdown('detEvAutoTeammate', meta.on_complete_teammate||'');
+  _evPriority[evId]=storedPrio;
+  wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
+  wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
 }
-
 // Toggle done on a Google Calendar event
 window.wcalDetToggleEvDone = async function(evId){
   const meta=(cal.gcalMeta||{})[evId]||{};
@@ -16178,6 +16182,30 @@ window.wcalDetSaveTask = async function(taskId){
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
+
+// ── Quick recurring toggle on task cards ──────────────────────
+window.wcalQuickToggleRecurring = async function(e, taskId, currentRecurring){
+  e.stopPropagation();
+  const nowOn = (currentRecurring && currentRecurring !== 'none');
+  const newRecurring = nowOn ? 'none' : 'weekdays';
+  const newRecurDays = nowOn ? [] : [1,2,3,4,5];
+  const task = cal.tasks.find(t=>t.id===taskId);
+  if(task){ task.recurring=newRecurring; task.recur_days=newRecurDays; }
+  try{
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ recurring: newRecurring, recur_days: newRecurDays })
+    });
+    showToast(nowOn ? '○ Non-recurring' : '↻ Recurring (weekdays)');
+    await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
+    const panel=document.getElementById('wcalDetail');
+    if(panel && panel._currentTask && panel._currentTask.id===taskId){
+      const updated=cal.tasks.find(t=>t.id===taskId);
+      if(updated) wcalShowTaskDetail(updated);
+    }
+  }catch(err){ showToast('Could not update: '+(err.message||'error')); }
+};
+
 window.wcalDetDeleteTask = async function(taskId){
   if(!confirm('Delete this task?')) return;
   try{
@@ -16188,52 +16216,26 @@ window.wcalDetDeleteTask = async function(taskId){
   }catch(e){ showToast('Delete failed'); }
 };
 
-// ── Quick recurring toggle on task cards ──────────────────────
-window.wcalQuickToggleRecurring = async function(e, taskId, currentRecurring){
-  e.stopPropagation();
-  const nowOn = (currentRecurring && currentRecurring !== 'none');
-  const newRecurring = nowOn ? 'none' : 'weekdays';
-  const newRecurDays = nowOn ? [] : [1,2,3,4,5];
-  // Update in-memory immediately for snappy UX
-  const task = cal.tasks.find(t=>t.id===taskId);
-  if(task){ task.recurring=newRecurring; task.recur_days=newRecurDays; }
-  try{
-    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ recurring: newRecurring, recur_days: newRecurDays })
-    });
-    showToast(nowOn ? '○ Set to non-recurring' : '↻ Set to recurring (weekdays)');
-    await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
-    // If detail panel is open for this task, refresh it
-    const panel=document.getElementById('wcalDetail');
-    if(panel && panel._currentTask && panel._currentTask.id===taskId){
-      const updated=cal.tasks.find(t=>t.id===taskId);
-      if(updated) wcalShowTaskDetail(updated);
-    }
-  }catch(err){ showToast('Could not update recurring: '+(err.message||'error')); }
-};
-
-
-
 // Save email-on-complete fields for a Google Calendar item shown as task
 window.wcalDetSaveGcalTaskMeta = async function(evId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
-  // Use unified field IDs that match the local task panel
-  const priority = document.getElementById('detPriority')?.value || document.getElementById('detGcalTaskPriority')?.value || 'high';
-  const notes    = document.getElementById('detDesc')?.value    || document.getElementById('detGcalTaskNotes')?.value || '';
+  const priority = document.getElementById('detPriority')?.value || 'high';
+  const notes    = (document.getElementById('detDesc')?.value || '').trim();
   const title    = (document.getElementById('detTitle')?.value || '').trim();
-  const forClient= (document.getElementById('detForClient')?.value || '').trim();
+  const recurring= document.getElementById('detRecurring')?.value || 'none';
+  const recur_days = _wcalGetActiveDays('detDayPicker');
   const payload={
     event_id: evId,
     priority,
     notes,
     title,
-    on_complete_teammate:     (document.getElementById('detAutoTeammate')?.value    || document.getElementById('detEvAutoTeammate')?.value    ||'').trim(),
-    on_complete_client_name:  (forClient || document.getElementById('detAutoClientName')?.value || document.getElementById('detEvAutoClientName')?.value ||'').trim(),
-    on_complete_client_email: (document.getElementById('detAutoEmail')?.value || document.getElementById('detEvAutoEmail')?.value ||'').trim(),
+    recurring,
+    recur_days,
+    on_complete_teammate:     (document.getElementById('detAutoTeammate')?.value||'').trim(),
+    on_complete_client_name:  (document.getElementById('detForClient')?.value||'').trim(),
+    on_complete_client_email: (document.getElementById('detAutoEmail')?.value||'').trim(),
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
-  try{
     const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
@@ -16415,9 +16417,9 @@ window.wcalDetSaveEvent = async function(encodedId){
   const attendees=attendeesRaw.split(',').map(x=>x.trim()).filter(Boolean);
   const useMeet=document.getElementById('detMeet')?.value==='meet';
   // on_complete metadata (new fields)
-  const onCompleteTeammate=document.getElementById('detEvAutoTeammate')?.value||'';
-  const onCompleteClientName=(document.getElementById('detEvAutoClientName')?.value||'').trim();
-  const onCompleteClientEmail=(document.getElementById('detEvAutoEmail')?.value||'').trim();
+  const onCompleteTeammate=(document.getElementById('detAutoTeammate')?.value||document.getElementById('detEvAutoTeammate')?.value||'').trim();
+  const onCompleteClientName=(document.getElementById('detForClient')?.value||document.getElementById('detEvAutoClientName')?.value||'').trim();
+  const onCompleteClientEmail=(document.getElementById('detAutoEmail')?.value||document.getElementById('detEvAutoEmail')?.value||'').trim();
 
   // Save on_complete metadata locally (always, even if Google save fails)
   if(evId){
@@ -16429,6 +16431,9 @@ window.wcalDetSaveEvent = async function(encodedId){
         on_complete_client_name: onCompleteClientName,
         on_complete_client_email: onCompleteClientEmail,
         done: existingMeta.done||false,
+        priority: document.getElementById('detPriority')?.value||existingMeta.priority||'high',
+        recurring: document.getElementById('detRecurring')?.value||'none',
+        recur_days: _wcalGetActiveDays('detDayPicker'),
       };
       const mr=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
       const md=await mr.json();
