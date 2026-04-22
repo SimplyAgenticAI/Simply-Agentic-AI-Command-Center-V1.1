@@ -7508,6 +7508,16 @@ HTML = r"""
         0 0 22px rgba(124,58,237,.30),
         0 0 38px rgba(255,215,105,.18);
     }
+.seatPulse::after{
+      content:'';position:absolute;inset:-6px;border-radius:inherit;
+      border:2px solid rgba(124,58,237,.0);
+      animation:seatHalo 1.9s ease-in-out infinite;
+      pointer-events:none;
+    }
+    @keyframes seatHalo{
+      0%,100%{border-color:rgba(124,58,237,.0);box-shadow:0 0 0 rgba(124,58,237,.0);}
+      50%{border-color:rgba(124,58,237,.5);box-shadow:0 0 16px 3px rgba(124,58,237,.18);}
+    }
     @keyframes seatPulse{
       0%{
         box-shadow:
@@ -7528,6 +7538,7 @@ HTML = r"""
 
     .seat{
       position:absolute;
+      overflow:visible;
       width: 190px;
       height: 124px;
       background: rgba(14,22,48,.78);
@@ -8489,7 +8500,14 @@ HTML = r"""
   background: rgba(255,255,255,.04);
   padding:10px;
   min-height: 72px;
+  border-top: 3px solid rgba(255,255,255,.1);
+  transition: border-top-color .2s;
 }
+.diagCard[data-stage="Lead"]        { border-top-color:rgba(59,130,246,.7);  background:rgba(59,130,246,.05); }
+.diagCard[data-stage="Conversation"]{ border-top-color:rgba(234,179,8,.7);   background:rgba(234,179,8,.05); }
+.diagCard[data-stage="Interested"]  { border-top-color:rgba(139,92,246,.7);  background:rgba(139,92,246,.05); }
+.diagCard[data-stage="Call booked"] { border-top-color:rgba(20,184,166,.7);  background:rgba(20,184,166,.05); }
+.diagCard[data-stage="Client"]      { border-top-color:rgba(16,185,129,.7);  background:rgba(16,185,129,.05); }
 .diagLabel{ font-size:12px; color: var(--muted); margin-bottom:6px; }
 .diagValue{ font-size:13px; color: var(--text); line-height:1.35; word-break:break-word; }
 #diagPre{
@@ -9911,8 +9929,23 @@ label         { font-size: 14px !important; }
 .wcal-detail-value { font-size:12px; color:#e2e8f0; }
 .wcal-detail-field { width:100%; background:rgba(20,30,60,.7); border:1px solid rgba(80,110,180,.45); border-radius:7px; padding:5px 8px; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; }
 .wcal-detail-field:focus { border-color:rgba(124,58,237,.6); }
+@keyframes detFadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.wcal-detail.open .wcal-detail-body > * { animation:detFadeUp .28s ease-out both; }
+.wcal-detail.open .wcal-detail-body > *:nth-child(1){animation-delay:.04s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(2){animation-delay:.08s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(3){animation-delay:.12s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(4){animation-delay:.16s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(5){animation-delay:.20s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(6){animation-delay:.24s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(7){animation-delay:.27s}
+.wcal-detail.open .wcal-detail-body > *:nth-child(n+8){animation-delay:.30s}
 .wcal-detail-textarea { width:100%; background:rgba(7,10,20,.6); border:1px solid rgba(42,58,106,.6); border-radius:7px; padding:6px 8px; font-size:12px; color:#e2e8f0; outline:none; resize:vertical; min-height:70px; box-sizing:border-box; }
 .wcal-detail-textarea:focus { border-color:rgba(124,58,237,.6); }
+.wcal-char-counter{position:absolute;bottom:5px;right:8px;font-size:10px;font-weight:600;color:rgba(100,120,160,.45);pointer-events:none;transition:color .2s,opacity .2s;opacity:0;line-height:1;}
+.wcal-char-counter.visible{opacity:1;}
+.wcal-char-counter.warn{color:rgba(234,179,8,.85);}
+.wcal-char-counter.limit{color:rgba(248,113,113,.95);}
+.wcal-detail-textarea-wrap{position:relative;display:block;}
 .wcal-detail-row { display:flex; gap:8px; align-items:center; }
 .wcal-detail-status { display:flex; align-items:center; gap:8px; }
 .wcal-done-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; padding:5px 10px; border-radius:8px; border:1px solid rgba(42,58,106,.6); background:rgba(14,22,48,.7); font-size:12px; color:#e2e8f0; font-weight:600; user-select:none; }
@@ -9958,10 +9991,12 @@ label         { font-size: 14px !important; }
 .wcal-event[data-etype="task"].task-prio-high {
   background: rgba(139,92,246,.75) !important;
   color: #f5f3ff !important;
-  border-left-color: rgba(216,180,254,.99) !important;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
+}
 }
 .wcal-event[data-etype="task"].task-prio-medium {
-  background: rgba(161,98,7,.82) !important;
+  animation: prioGlowMed 3.6s ease-in-out infinite;
+}
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.99) !important;
 }
@@ -9972,7 +10007,8 @@ label         { font-size: 14px !important; }
 }
 .wcal-event[data-etype="task"].is-done {
   background: rgba(30,40,70,.75) !important;
-  color: rgba(160,180,220,.75) !important;
+  animation: none !important;
+}
   border-left-color: rgba(100,120,180,.4) !important;
 }
 /* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
@@ -9983,12 +10019,14 @@ label         { font-size: 14px !important; }
   border-radius: 4px 6px 6px 4px;
 }
 .wcal-event[data-etype="gcal-task"].task-prio-high {
-  background: rgba(139,92,246,.75) !important;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
+}
   color: #f5f3ff !important;
   border-left-color: rgba(216,180,254,.99) !important;
 }
 .wcal-event[data-etype="gcal-task"].task-prio-medium {
-  background: rgba(161,98,7,.82) !important;
+  animation: prioGlowMed 3.6s ease-in-out infinite;
+}
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.99) !important;
 }
@@ -9998,7 +10036,8 @@ label         { font-size: 14px !important; }
   border-left-color: rgba(16,185,129,.99) !important;
 }
 .wcal-event[data-etype="gcal-task"].is-done {
-  background: rgba(30,40,70,.75) !important;
+  animation: none !important;
+}
   color: rgba(160,180,220,.75) !important;
   border-left-color: rgba(100,120,180,.4) !important;
 }
@@ -10213,6 +10252,8 @@ label         { font-size: 14px !important; }
 @keyframes wcalCheckBurst{0%{transform:scale(1)}30%{transform:scale(1.6)}65%{transform:scale(.88)}100%{transform:scale(1)}}
 @keyframes wcalRecurSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
+@keyframes prioGlowHigh{0%,100%{box-shadow:0 0 0 rgba(139,92,246,0)}50%{box-shadow:0 0 10px rgba(139,92,246,.55),0 0 20px rgba(139,92,246,.22)}}
+@keyframes prioGlowMed{0%,100%{box-shadow:0 0 0 rgba(234,179,8,0)}50%{box-shadow:0 0 7px rgba(234,179,8,.45),0 0 14px rgba(234,179,8,.18)}}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
@@ -15836,6 +15877,31 @@ async function wcalFireCompleteAction(taskId, task){
     showToast('⚠️ Draft failed: '+String(err));
   }
 }
+
+// ── Live character counter on detail textareas ─────────────────
+(function(){
+  function wcalWireCharCounter(ta){
+    if(!ta||ta.dataset.ccWired) return;
+    ta.dataset.ccWired='1';
+    var wrap=document.createElement('div');
+    wrap.className='wcal-detail-textarea-wrap';
+    wrap.style.cssText='position:relative;display:block;';
+    ta.parentNode.insertBefore(wrap,ta);
+    wrap.appendChild(ta);
+    var ctr=document.createElement('div');
+    ctr.className='wcal-char-counter';
+    wrap.appendChild(ctr);
+    var max=600;
+    function upd(){ var n=ta.value.length; if(!n){ctr.className='wcal-char-counter';return;} var p=n/max; ctr.textContent=n+'/'+max; ctr.className='wcal-char-counter visible'+(p>=1?' limit':p>=.9?' warn':''); }
+    ta.addEventListener('input',upd); ta.addEventListener('focus',upd);
+    ta.addEventListener('blur',function(){ if(!ta.value.length) ctr.className='wcal-char-counter'; });
+  }
+  var panel=document.getElementById('wcalDetail');
+  if(panel) new MutationObserver(function(muts){
+    muts.forEach(function(m){ m.addedNodes.forEach(function(n){ if(n.querySelectorAll) n.querySelectorAll('.wcal-detail-textarea').forEach(wcalWireCharCounter); }); });
+    if(panel.classList.contains('open')) setTimeout(function(){ var b=document.getElementById('wcalDetBody'); if(b) b.querySelectorAll('.wcal-detail-textarea').forEach(wcalWireCharCounter); },80);
+  }).observe(panel,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+})();
 
 // ── Open detail panel ──────────────────────────────────────────
 // One-click send modal after AI drafts a completion email
