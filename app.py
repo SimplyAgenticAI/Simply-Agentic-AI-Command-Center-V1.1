@@ -18894,13 +18894,26 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!board) return;
       board.innerHTML = "";
 
+      // Stage color map — border-top + faint background tint
+      const stageColors = {
+        "Lead":         { border:"rgba(59,130,246,.75)",  bg:"rgba(59,130,246,.06)",  text:"rgba(147,197,253,.9)" },
+        "Conversation": { border:"rgba(234,179,8,.75)",   bg:"rgba(234,179,8,.06)",   text:"rgba(253,224,71,.9)"  },
+        "Interested":   { border:"rgba(139,92,246,.75)",  bg:"rgba(139,92,246,.06)",  text:"rgba(196,181,253,.9)" },
+        "Call Booked":  { border:"rgba(20,184,166,.75)",  bg:"rgba(20,184,166,.06)",  text:"rgba(94,234,212,.9)"  },
+        "Call booked":  { border:"rgba(20,184,166,.75)",  bg:"rgba(20,184,166,.06)",  text:"rgba(94,234,212,.9)"  },
+        "Client":       { border:"rgba(16,185,129,.75)",  bg:"rgba(16,185,129,.06)",  text:"rgba(110,231,183,.9)" },
+      };
+
       for(const st of stages){
+        const clr = stageColors[st] || { border:"rgba(255,255,255,.15)", bg:"rgba(255,255,255,.03)", text:"rgba(255,255,255,.7)" };
         const col = document.createElement("div");
         col.className = "card";
         col.style.minWidth = "260px";
         col.style.maxWidth = "260px";
         col.style.padding = "10px";
-        col.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">${escapeHtml(st)}</div>`;
+        col.style.borderTop = `3px solid ${clr.border}`;
+        col.style.background = clr.bg;
+        col.innerHTML = `<div style="font-weight:800; margin-bottom:8px; color:${clr.text};">${escapeHtml(st)}</div>`;
         const list = document.createElement("div");
         list.style.display = "flex";
         list.style.flexDirection = "column";
