@@ -4211,16 +4211,16 @@ def api_create_teammate():
     return jsonify({"ok": True, "teammate": t})
 
 
-@app.get("/api/teammate/<name>")
-def api_get_teammate(n: str):
+@app.get("/api/teammate/<n>")
+def api_get_teammate(name: str):
     uname = _get_session_username()
     reg = load_registry(uname)
     installed = reg.get("installed", {})
-    if n not in installed:
+    if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
-    t = installed[n]
+    t = installed[name]
     return jsonify({"ok": True, "teammate": {
-        "name": t.get("name", n), "job_title": t.get("job_title", ""),
+        "name": t.get("name", name), "job_title": t.get("job_title", ""),
         "version": t.get("version", ""), "mission": t.get("mission", ""),
         "responsibilities": t.get("responsibilities", []), "thinking_style": t.get("thinking_style", ""),
         "will_not_do": t.get("will_not_do", []), "goal": t.get("goal", ""),
@@ -4229,20 +4229,20 @@ def api_get_teammate(n: str):
 
 
 @app.post("/api/teammate/<n>")
-def api_update_teammate(n: str):
+def api_update_teammate(name: str):
     uname = _get_session_username()
     reg = load_registry(uname)
     installed = reg.get("installed", {})
-    if n not in installed:
+    if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
     payload = request.get_json(force=True) or {}
-    current = installed[n]
+    current = installed[name]
     updated = _sanitize_teammate_update(payload, current)
-    installed[n] = updated
+    installed[name] = updated
     reg["installed"] = installed
     save_registry(reg, uname)
     append_log("teammate_updated", {
-        "name": n, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
+        "name": name, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
         "snapshot": {"name": updated.get("name",""), "job_title": updated.get("job_title",""),
                      "version": updated.get("version",""), "mission": updated.get("mission",""),
                      "responsibilities_count": len(updated.get("responsibilities",[]) or []),
@@ -4668,18 +4668,18 @@ def api_thread(name: str):
     return jsonify({"ok": True, "thread": load_thread(name, uname), "image_state": load_image_state(name, uname)})
 
 @app.get("/api/teammates/<name>/image_state")
-def api_teammate_image_state(n: str):
+def api_teammate_image_state(name: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    if n not in installed:
+    if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "image_state": load_image_state(n, _get_session_username())})
+    return jsonify({"ok": True, "image_state": load_image_state(name, uname)})
 
 @app.post("/api/teammates/<name>/current_image")
-def api_teammate_set_current_image(n: str):
+def api_teammate_set_current_image(name: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    if n not in installed:
+    if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     data = request.get_json(force=True) or {}
     file_id = (data.get("file_id") or "").strip()
@@ -4689,18 +4689,18 @@ def api_teammate_set_current_image(n: str):
     rec = get_upload_record(file_id)
     if not _is_image_record(rec):
         return jsonify({"ok": False, "error": "Image not found"}), 404
-    st = set_current_image_for_teammate(n, rec, source="selected", prompt="", mode="selected", username=_get_session_username())
+    st = set_current_image_for_teammate(name, rec, source="selected", prompt="", mode="selected", username=_get_session_username())
     if approve:
-        st = approve_current_image_for_teammate(n, username=_get_session_username())
+        st = approve_current_image_for_teammate(name, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
 
 @app.post("/api/teammates/<name>/approve_current_image")
-def api_teammate_approve_current_image(n: str):
+def api_teammate_approve_current_image(name: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    if n not in installed:
+    if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    st = approve_current_image_for_teammate(n, username=_get_session_username())
+    st = approve_current_image_for_teammate(name, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st})
 
 
@@ -9985,56 +9985,77 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.high   { background:rgba(139,92,246,.22);  color:#ddd6fe; border:1px solid rgba(139,92,246,.45); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
 .wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
-/* == TASKS (local) and GCAL-TASKS - identical purple look, all glow == */
-.wcal-event[data-etype="task"],
-.wcal-event[data-etype="gcal-task"] {
-  background: rgba(139,92,246,.75) !important;
+/* ── TASKS (local app tasks) — purple ── */
+.wcal-event[data-etype="task"] {
+  background: rgba(139,92,246,.65) !important;
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
-.wcal-event[data-etype="task"].task-prio-high,
-.wcal-event[data-etype="gcal-task"].task-prio-high {
-  background: rgba(139,92,246,.78) !important;
+.wcal-event[data-etype="task"].task-prio-high {
+  background: rgba(139,92,246,.75) !important;
   color: #f5f3ff !important;
-  border-left-color: rgba(216,180,254,.99) !important;
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
-.wcal-event[data-etype="task"].task-prio-medium,
-.wcal-event[data-etype="gcal-task"].task-prio-medium {
-  background: rgba(161,98,7,.82) !important;
-  color: #fef9c3 !important;
-  border-left-color: rgba(234,179,8,.99) !important;
+}
+.wcal-event[data-etype="task"].task-prio-medium {
   animation: prioGlowMed 3.6s ease-in-out infinite;
 }
-.wcal-event[data-etype="task"].task-prio-low,
+  color: #fef9c3 !important;
+  border-left-color: rgba(234,179,8,.99) !important;
+}
+.wcal-event[data-etype="task"].task-prio-low {
+  background: rgba(6,95,70,.82) !important;
+  color: #d1fae5 !important;
+  border-left-color: rgba(16,185,129,.99) !important;
+}
+.wcal-event[data-etype="task"].is-done {
+  background: rgba(30,40,70,.75) !important;
+  animation: none !important;
+}
+  border-left-color: rgba(100,120,180,.4) !important;
+}
+/* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
+.wcal-event[data-etype="gcal-task"] {
+  background: rgba(139,92,246,.65) !important;
+  color: #f5f3ff !important;
+  border-left: 3px solid rgba(196,181,253,.95) !important;
+  border-radius: 4px 6px 6px 4px;
+}
+.wcal-event[data-etype="gcal-task"].task-prio-high {
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
+}
+  color: #f5f3ff !important;
+  border-left-color: rgba(216,180,254,.99) !important;
+}
+.wcal-event[data-etype="gcal-task"].task-prio-medium {
+  animation: prioGlowMed 3.6s ease-in-out infinite;
+}
+  color: #fef9c3 !important;
+  border-left-color: rgba(234,179,8,.99) !important;
+}
 .wcal-event[data-etype="gcal-task"].task-prio-low {
   background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.99) !important;
-  animation: prioGlowLow 3.2s ease-in-out infinite;
 }
-.wcal-event[data-etype="task"].is-done,
 .wcal-event[data-etype="gcal-task"].is-done {
-  background: rgba(30,40,70,.75) !important;
-  color: rgba(160,180,220,.75) !important;
-  border-left-color: rgba(100,120,180,.4) !important;
   animation: none !important;
 }
-/* == EVENTS (gcal calendar events) - blue/teal with glow == */
+  color: rgba(160,180,220,.75) !important;
+  border-left-color: rgba(100,120,180,.4) !important;
+}
+/* ── EVENTS (gcal items manually switched to Event) — blue/teal, distinct ── */
 .wcal-event[data-etype="event"] {
   background: rgba(14,116,144,.72) !important;
   color: #e0f2fe !important;
   border-left: 3px solid rgba(56,189,248,.85) !important;
   border-radius: 4px 6px 6px 4px;
-  animation: prioGlowEvent 2.8s ease-in-out infinite;
 }
 .wcal-event[data-etype="event"].is-done {
   background: rgba(20,40,60,.75) !important;
   color: rgba(148,180,220,.7) !important;
   border-left-color: rgba(56,130,180,.35) !important;
-  animation: none !important;
 }
 /* ── Type toggle button in detail panel ── */
 .wcal-type-toggle-btn {
@@ -10237,8 +10258,6 @@ label         { font-size: 14px !important; }
 .wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
 @keyframes prioGlowHigh{0%,100%{box-shadow:0 0 0 rgba(139,92,246,0)}50%{box-shadow:0 0 10px rgba(139,92,246,.55),0 0 20px rgba(139,92,246,.22)}}
 @keyframes prioGlowMed{0%,100%{box-shadow:0 0 0 rgba(234,179,8,0)}50%{box-shadow:0 0 7px rgba(234,179,8,.45),0 0 14px rgba(234,179,8,.18)}}
-@keyframes prioGlowLow{0%,100%{box-shadow:0 0 0 rgba(16,185,129,0)}50%{box-shadow:0 0 9px rgba(16,185,129,.5),0 0 18px rgba(16,185,129,.2)}}
-@keyframes prioGlowEvent{0%,100%{box-shadow:0 0 0 rgba(56,189,248,0)}50%{box-shadow:0 0 9px rgba(56,189,248,.5),0 0 18px rgba(56,189,248,.2)}}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
