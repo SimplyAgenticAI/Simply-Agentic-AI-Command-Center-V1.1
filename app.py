@@ -9999,7 +9999,7 @@ label         { font-size: 14px !important; }
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-medium {
-  animation: prioGlowMed 3.6s ease-in-out infinite;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.99) !important;
