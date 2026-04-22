@@ -9987,63 +9987,34 @@ label         { font-size: 14px !important; }
 .wcal-priority-pill.high   { background:rgba(139,92,246,.22);  color:#ddd6fe; border:1px solid rgba(139,92,246,.45); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
 .wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
-/* ── TASKS (local app tasks) — purple ── */
-.wcal-event[data-etype="task"] {
-  background: rgba(139,92,246,.65) !important;
-  color: #f5f3ff !important;
-  border-left: 3px solid rgba(196,181,253,.95) !important;
-  border-radius: 4px 6px 6px 4px;
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-}
-.wcal-event[data-etype="task"].task-prio-high {
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-}
-.wcal-event[data-etype="task"].task-prio-medium {
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-}
-  color: #fef9c3 !important;
-  border-left-color: rgba(234,179,8,.99) !important;
-}
-.wcal-event[data-etype="task"].task-prio-low {
-  background: rgba(6,95,70,.82) !important;
-  color: #d1fae5 !important;
-  border-left-color: rgba(16,185,129,.99) !important;
-}
-.wcal-event[data-etype="task"].is-done {
-  background: rgba(30,40,70,.75) !important;
-  animation: none !important;
-}
-  border-left-color: rgba(100,120,180,.4) !important;
-}
-/* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
+/* ── ALL TASKS (local + gcal) — unified purple ethereal glow ── */
+.wcal-event[data-etype="task"],
 .wcal-event[data-etype="gcal-task"] {
   background: rgba(139,92,246,.65) !important;
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
+.wcal-event[data-etype="task"].task-prio-high,
 .wcal-event[data-etype="gcal-task"].task-prio-high {
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
-  color: #f5f3ff !important;
-  border-left-color: rgba(216,180,254,.99) !important;
-}
+.wcal-event[data-etype="task"].task-prio-medium,
 .wcal-event[data-etype="gcal-task"].task-prio-medium {
-  animation: prioGlowMed 3.6s ease-in-out infinite;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
-  color: #fef9c3 !important;
-  border-left-color: rgba(234,179,8,.99) !important;
-}
+.wcal-event[data-etype="task"].task-prio-low,
 .wcal-event[data-etype="gcal-task"].task-prio-low {
   background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.99) !important;
 }
+.wcal-event[data-etype="task"].is-done,
 .wcal-event[data-etype="gcal-task"].is-done {
-  animation: none !important;
-}
-  color: rgba(160,180,220,.75) !important;
+  background: rgba(30,40,70,.75) !important;
   border-left-color: rgba(100,120,180,.4) !important;
+  animation: none !important;
 }
 /* ── EVENTS (gcal items manually switched to Event) — blue/teal, distinct ── */
 .wcal-event[data-etype="event"] {
