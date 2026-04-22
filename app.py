@@ -2037,46 +2037,20 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
 
 # Alias map: lowercase spoken/misheard word -> canonical installed name.
-# Mirrors the JS TEAMMATE_ALIASES in the frontend.
 TEAMMATE_ALIASES: Dict[str, str] = {
-    # Atlis variants
-    "atlas":     "Atlis",
-    "atlis":     "Atlis",
-    "atliss":    "Atlis",
-    "altas":     "Atlis",
-    "altis":     "Atlis",
-    "otlis":     "Atlis",
-    "otlas":     "Atlis",
-    "alice":     "Atlis",
-    # Alex variants
-    "alexander": "Alex",
-    "alexis":    "Alex",
-    "alec":      "Alex",
-    "alek":      "Alex",
-    # Willow variants
-    "willo":     "Willow",
-    "willa":     "Willow",
-    # Ava variants
-    "eva":       "Ava",
-    "avah":      "Ava",
-    # Orion variants
-    "orian":     "Orion",
-    "oreon":     "Orion",
-    "orieon":    "Orion",
-    "arion":     "Orion",
-    "ryan":      "Orion",
-    # Sunshine variants
-    "sunny":     "Sunshine",
-    "sunshyne":  "Sunshine",
-    # Luna variants
-    "loona":     "Luna",
-    "lunah":     "Luna",
-    "lena":      "Luna",
+    "atlas":"Atlis","atlis":"Atlis","atliss":"Atlis","altas":"Atlis",
+    "altis":"Atlis","otlis":"Atlis","otlas":"Atlis","alice":"Atlis",
+    "alexander":"Alex","alexis":"Alex","alec":"Alex","alek":"Alex",
+    "willo":"Willow","willa":"Willow",
+    "eva":"Ava","avah":"Ava",
+    "orian":"Orion","oreon":"Orion","orieon":"Orion","arion":"Orion","ryan":"Orion",
+    "sunny":"Sunshine","sunshyne":"Sunshine",
+    "loona":"Luna","lunah":"Luna","lena":"Luna",
 }
 
 
 def _levenshtein(a: str, b: str) -> int:
-    """Compute Levenshtein edit distance for fuzzy name matching."""
+    """Levenshtein edit distance for fuzzy name matching."""
     m, n = len(a), len(b)
     if not m: return n
     if not n: return m
@@ -2090,31 +2064,20 @@ def _levenshtein(a: str, b: str) -> int:
 
 
 def _resolve_teammate_name(name: str, installed: Dict[str, Any]) -> str:
-    """Resolve misheard/aliased name to canonical installed key.
-    Priority: exact > alias > case-insensitive > fuzzy Levenshtein > alias fuzzy.
-    """
-    if not name:
-        return name
+    """Resolve misheard/aliased name to canonical installed key."""
+    if not name: return name
     nl = name.lower().strip()
-    if name in installed:
-        return name
-    canonical = TEAMMATE_ALIASES.get(nl)
-    if canonical and canonical in installed:
-        return canonical
-    for iname in installed:
-        if iname.lower() == nl:
-            return iname
-    for iname in installed:
-        il = iname.lower()
-        max_dist = 1 if len(il) <= 4 else 2
-        if _levenshtein(nl, il) <= max_dist:
-            return iname
+    if name in installed: return name
+    c = TEAMMATE_ALIASES.get(nl)
+    if c and c in installed: return c
+    for k in installed:
+        if k.lower() == nl: return k
+    for k in installed:
+        il = k.lower()
+        if _levenshtein(nl, il) <= (1 if len(il) <= 4 else 2): return k
     for alias, canonical in TEAMMATE_ALIASES.items():
-        if canonical not in installed:
-            continue
-        max_dist = 1 if len(alias) <= 4 else 2
-        if _levenshtein(nl, alias) <= max_dist:
-            return canonical
+        if canonical not in installed: continue
+        if _levenshtein(nl, alias) <= (1 if len(alias) <= 4 else 2): return canonical
     return name
 
 
@@ -13012,224 +12975,23 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    
-    // ============================================================
-    // TEAMMATE NAME RECOGNITION ENGINE
-    // Handles: exact match, aliases, phonetic variants, partial
-    // match, and common speech-to-text substitutions.
-    // ============================================================
-
-    // Static alias map: lowercase spoken word -> canonical name.
-    // Add entries here whenever a name gets misheard.
-    const TEAMMATE_ALIASES = {
-      // Atlis variants
-      "atlas":    "Atlis",
-      "atlis":    "Atlis",
-      "atliss":   "Atlis",
-      "atlas's":  "Atlis",
-      "atliss's": "Atlis",
-      "alice":    "Atlis",
-      "altas":    "Atlis",
-      "altis":    "Atlis",
-      "otlis":    "Atlis",
-      "otlas":    "Atlis",
-      // Alex variants
-      "alex":     "Alex",
-      "alexander":"Alex",
-      "alexis":   "Alex",
-      "alec":     "Alex",
-      "alek":     "Alex",
-      // Willow variants
-      "willow":   "Willow",
-      "willo":    "Willow",
-      "willa":    "Willow",
-      "willo's":  "Willow",
-      // Ava variants
-      "ava":      "Ava",
-      "ava's":    "Ava",
-      "eva":      "Ava",
-      "avah":     "Ava",
-      // Orion variants
-      "orion":    "Orion",
-      "orian":    "Orion",
-      "oreon":    "Orion",
-      "orieon":   "Orion",
-      "ryan":     "Orion",   // common STT mishearing
-      "arion":    "Orion",
-      // Sunshine variants
-      "sunshine":  "Sunshine",
-      "sun shine": "Sunshine",
-      "son shine": "Sunshine",
-      "sunshyne":  "Sunshine",
-      "sunny":     "Sunshine",
-      // Luna variants
-      "luna":     "Luna",
-      "loona":    "Luna",
-      "lunah":    "Luna",
-      "lena":     "Luna",
-    };
-
-    // Double-Metaphone-lite: reduce a word to its rough phonetic code.
-    // Not a full implementation — tuned for the 7 teammate names.
-    function _phoneticCode(word) {
-      let s = (word || "").toLowerCase()
-        .replace(/[^a-z]/g, "");
-      if(!s) return "";
-
-      // Initial pair rules
-      s = s.replace(/^kn/, "n")
-           .replace(/^gn/, "n")
-           .replace(/^ae/, "e")
-           .replace(/^wr/, "r")
-           .replace(/^wh/, "w");
-
-      // Vowel normalisation — collapse all vowels to "a"
-      s = s.replace(/[aeiouy]+/g, "a");
-
-      // Consonant equivalences
-      s = s.replace(/ck/g, "k")
-           .replace(/[sz]/g, "s")
-           .replace(/[dt]/g, "t")
-           .replace(/[bp]/g, "b")
-           .replace(/[fvph]/g, "f")
-           .replace(/[ckg]/g, "k")
-           .replace(/[mn]/g, "m")
-           .replace(/[lr]/g, "l")
-           .replace(/[wv]/g, "w")
-           .replace(/th/g, "t")
-           .replace(/sh/g, "s")
-           .replace(/ch/g, "s")
-           .replace(/qu/g, "k")
-           .replace(/x/g, "ks")
-           .replace(/j/g, "y");
-
-      // Deduplicate consecutive identical chars
-      s = s.replace(/(.)\1+/g, "$1");
-
-      // Drop trailing vowel-equivalents
-      s = s.replace(/a$/, "");
-
-      return s;
-    }
-
-    // Pre-compute phonetic codes for all installed names.
-    function _buildPhoneticMap() {
-      const inst = (typeof state !== "undefined" && state && state.installed)
-                   ? state.installed : {};
-      const map  = {};   // phoneticCode -> canonicalName
-      for(const name of Object.keys(inst)) {
-        const code = _phoneticCode(name);
-        if(code) map[code] = name;
-      }
-      // Also encode alias targets so Atlas/Atlis share code
-      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES)) {
-        if(inst[canonical]) {
-          const code = _phoneticCode(alias);
-          if(code && !map[code]) map[code] = canonical;
-        }
-      }
-      return map;
-    }
-
-    // Levenshtein distance — for fuzzy fallback.
-    function _lev(a, b) {
-      const m = a.length, n = b.length;
-      if(!m) return n;
-      if(!n) return m;
-      const dp = [];
-      for(let i = 0; i <= m; i++) { dp[i] = [i]; }
-      for(let j = 0; j <= n; j++) { dp[0][j] = j; }
-      for(let i = 1; i <= m; i++) {
-        for(let j = 1; j <= n; j++) {
-          dp[i][j] = (a[i-1] === b[j-1])
-            ? dp[i-1][j-1]
-            : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
-        }
-      }
-      return dp[m][n];
-    }
-
-    // Core resolution: given a single spoken word, return canonical name or null.
-    function _resolveWord(word) {
-      if(!word) return null;
-      const inst = (typeof state !== "undefined" && state && state.installed)
-                   ? state.installed : {};
-      const wl = word.toLowerCase().trim();
-
-      // 1. Exact installed name (case-insensitive)
-      for(const name of Object.keys(inst)) {
-        if(name.toLowerCase() === wl) return name;
-      }
-
-      // 2. Static alias map
-      const aliasHit = TEAMMATE_ALIASES[wl];
-      if(aliasHit && inst[aliasHit]) return aliasHit;
-
-      // 3. Phonetic match
-      const phoneticMap = _buildPhoneticMap();
-      const wCode = _phoneticCode(wl);
-      if(wCode && phoneticMap[wCode]) return phoneticMap[wCode];
-
-      // 4. Fuzzy Levenshtein — allow 1 edit for short names, 2 for longer
-      for(const name of Object.keys(inst)) {
-        const nl = name.toLowerCase();
-        const maxDist = nl.length <= 4 ? 1 : 2;
-        if(_lev(wl, nl) <= maxDist) return name;
-      }
-
-      // 5. Alias fuzzy
-      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES)) {
-        if(!inst[canonical]) continue;
-        const maxDist = alias.length <= 4 ? 1 : 2;
-        if(_lev(wl, alias) <= maxDist) return canonical;
-      }
-
-      return null;
-    }
-
-    // Scan text for ANY mention of a teammate name (word by word + phrases).
-    // Returns { name: canonicalName, idx: charIndex } or null.
-    function findFirstNameMention(text) {
-      if(!text) return null;
-      const lower = text.toLowerCase();
-      const words = lower.split(/\s+/);
+    function findFirstNameMention(text){
+      const names = getInstalledNamesInOrder();
+      const lower = (text || "").toLowerCase();
       let best = null;
 
-      let charPos = 0;
-      for(let i = 0; i < words.length; i++) {
-        const raw = words[i].replace(/[''s,.!?]+$/, ""); // strip trailing punctuation/possessives
-        const wordStart = lower.indexOf(raw, charPos);
-
-        // Single-word resolve
-        const hit = _resolveWord(raw);
-        if(hit) {
-          if(best === null || wordStart < best.idx) {
-            best = { name: hit, idx: wordStart };
-          }
-          if(charPos < wordStart) charPos = wordStart;
-          continue;
-        }
-
-        // Two-word phrase (e.g. "sun shine" -> Sunshine)
-        if(i + 1 < words.length) {
-          const phrase = raw + " " + words[i+1].replace(/[''s,.!?]+$/, "");
-          const phraseHit = _resolveWord(phrase.replace(/\s+/, ""));
-          if(phraseHit) {
-            if(best === null || wordStart < best.idx) {
-              best = { name: phraseHit, idx: wordStart };
-            }
+      for(const name of names){
+        if(!name) continue;
+        const nl = name.toLowerCase();
+        const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+        const m = rx.exec(lower);
+        if(m && m.index >= 0){
+          if(best === null || m.index < best.idx){
+            best = { name, idx: m.index };
           }
         }
-
-        if(wordStart >= 0) charPos = wordStart + raw.length;
       }
-
       return best;
-    }
-
-    // Resolve a raw name string to its canonical installed name.
-    function resolveTeammateName(raw) {
-      return _resolveWord((raw || "").trim()) || raw;
     }
 
     function removeNameOnce(text, name){
@@ -13281,254 +13043,304 @@ function makeSeat(defn, idx){
     // UPDATE: Build canonical final + interim from the full results list.
     // This prevents the repeated phrases caused by appending partials.
     // Accumulates only NEW final results — never replays old ones
-    let _alwaysAccumFinals = "";
-    let _alwaysLastProcIdx  = 0;   // FIX: track highest processed resultIndex to prevent replaying
-    let _alwaysNewSession   = false; // FIX: set true on onend restart to guard against iOS replay
-    let _alwaysIgnoreUntil  = 0;    // FIX: timestamp — skip finals before this (iOS replays arrive fast)
+    // ============================================================
+    // ALWAYS-LISTEN ENGINE — completely rewritten for reliability
+    // ============================================================
+    // Key fixes vs old version:
+    //  1. No ignore window — dropped real speech on restart
+    //  2. Simple, direct transcript accumulation — no watermark drift
+    //  3. Name matching runs on EVERY result (interim + final)
+    //  4. Auto-restart on onend with zero delay
+    //  5. Text fills box immediately, every result
 
-    function getCanonicalSpeech(event){
-      let newFinals = "";
-      let interim   = "";
+    let _alwaysBuf = "";          // everything heard since last reset
+    let _alwaysLastResult = "";   // last interim snapshot (for dedup)
 
-      // On iOS, a new recognition session resets resultIndex to 0 and replays
-      // previously finalised results. Detect this by checking _alwaysNewSession
-      // and resetting the watermark so the new session starts clean.
-      if(_alwaysNewSession){
-        _alwaysNewSession  = false;
-        _alwaysLastProcIdx = 0;
-        _alwaysAccumFinals = "";
-        // Ignore any finals that arrive within 900ms of restart — those are iOS replays
-        _alwaysIgnoreUntil = Date.now() + 900;
-      }
+    // ── Teammate name recognition ──────────────────────────────────────────
+    // Four-layer system: exact → alias → phonetic → fuzzy (Levenshtein)
 
-      // Only process results we haven't seen yet (start from resultIndex, but never below our watermark)
-      const startIdx = Math.max(event.resultIndex, _alwaysLastProcIdx);
-      for(let i = startIdx; i < event.results.length; i++){
-        const txt = (event.results[i][0].transcript || "");
-        if(event.results[i].isFinal){
-          // Skip finals during the iOS-replay ignore window
-          if(Date.now() >= _alwaysIgnoreUntil){
-            newFinals += txt + " ";
-          }
-          _alwaysLastProcIdx = i + 1;   // advance watermark past this final result
-        } else {
-          interim += txt;
+    const TEAMMATE_ALIASES = {
+      "atlas":"Atlis","atlis":"Atlis","atliss":"Atlis","altas":"Atlis",
+      "altis":"Atlis","otlis":"Atlis","otlas":"Atlis","alice":"Atlis",
+      "alexander":"Alex","alexis":"Alex","alec":"Alex","alek":"Alex",
+      "willo":"Willow","willa":"Willow",
+      "eva":"Ava","avah":"Ava",
+      "orian":"Orion","oreon":"Orion","orieon":"Orion","arion":"Orion","ryan":"Orion",
+      "sunny":"Sunshine","sunshyne":"Sunshine","son shine":"Sunshine","sun shine":"Sunshine",
+      "loona":"Luna","lunah":"Luna","lena":"Luna",
+    };
+
+    function _lev(a,b){
+      const m=a.length,n=b.length;
+      if(!m)return n; if(!n)return m;
+      let dp=Array.from({length:m+1},(_,i)=>i);
+      for(let j=1;j<=n;j++){
+        let prev=dp[0]; dp[0]=j;
+        for(let i=1;i<=m;i++){
+          const tmp=dp[i];
+          dp[i]=a[i-1]===b[j-1]?prev:1+Math.min(prev,dp[i-1],dp[i]);
+          prev=tmp;
         }
       }
+      return dp[m];
+    }
 
-      newFinals = newFinals.replace(/\s+/g, " ").trim();
-      interim   = interim.replace(/\s+/g, " ").trim();
-
-      if(newFinals){
-        _alwaysAccumFinals = (_alwaysAccumFinals + " " + newFinals).replace(/\s+/g, " ").trim();
+    function _resolveWord(word){
+      if(!word) return null;
+      const inst=(typeof state!=="undefined"&&state&&state.installed)?state.installed:{};
+      const wl=word.toLowerCase().replace(/['',.!?]+$/,"").trim();
+      if(!wl) return null;
+      // 1. Exact
+      for(const k of Object.keys(inst)){if(k.toLowerCase()===wl)return k;}
+      // 2. Alias
+      const al=TEAMMATE_ALIASES[wl];
+      if(al&&inst[al])return al;
+      // 3. Fuzzy against installed names
+      for(const k of Object.keys(inst)){
+        const kl=k.toLowerCase();
+        const maxD=kl.length<=4?1:2;
+        if(_lev(wl,kl)<=maxD)return k;
       }
-
-      return { allFinal: _alwaysAccumFinals, interim };
-    }
-
-    function _resetCanonicalSpeech(){
-      _alwaysAccumFinals   = "";
-      _alwaysLastProcIdx   = 0;   // FIX: also reset watermark on name switch / auto-send
-      _alwaysNewSession    = false;
-      _alwaysIgnoreUntil   = 0;
-    }
-
-    function subtractBaseline(allFinal){
-      const base = (alwaysFinalBaseline || "").trim();
-      const cur = (allFinal || "").trim();
-      if(!base) return cur;
-
-      if(cur.startsWith(base)){
-        const rest = cur.slice(base.length).replace(/\s+/g, " ").trim();
-        return rest;
+      // 4. Fuzzy against aliases
+      for(const[alias,canonical]of Object.entries(TEAMMATE_ALIASES)){
+        if(!inst[canonical])continue;
+        const maxD=alias.length<=4?1:2;
+        if(_lev(wl,alias)<=maxD)return canonical;
       }
-
-      // If the recognizer trimmed or changed history, safest is to not replay old text.
-      if(base.startsWith(cur)) return "";
-
-      return cur;
+      return null;
     }
 
-    // CHANGE: Always listening in continuous mode + name switching that activates seat glow
+    // Scan text word-by-word (+ 2-word phrases) for any teammate name.
+    // Returns {name, idx} or null.
+    function findFirstNameMention(text){
+      if(!text) return null;
+      const lower=text.toLowerCase();
+      const words=lower.split(/\s+/);
+      let best=null, pos=0;
+      for(let i=0;i<words.length;i++){
+        const w=words[i].replace(/[''s,.!?]+$/,"");
+        const wi=lower.indexOf(w,pos);
+        const hit=_resolveWord(w);
+        if(hit){
+          if(!best||wi<best.idx) best={name:hit,idx:wi};
+          pos=wi+w.length; continue;
+        }
+        // 2-word phrase (e.g. "sun shine")
+        if(i+1<words.length){
+          const phrase=w+" "+words[i+1].replace(/[''s,.!?]+$/,"");
+          const ph=_resolveWord(phrase.replace(/\s+/,""));
+          if(ph&&(!best||wi<best.idx)) best={name:ph,idx:wi};
+        }
+        if(wi>=0) pos=wi+w.length;
+      }
+      return best;
+    }
+
+    function resolveTeammateName(raw){
+      return _resolveWord((raw||"").trim())||raw;
+    }
+
+    function removeNameOnce(text, name){
+      if(!text||!name) return text;
+      const nl=name.toLowerCase();
+      // Remove the alias word that triggered it as well
+      let out=text;
+      const wordsToRemove=[nl];
+      for(const[alias,canonical] of Object.entries(TEAMMATE_ALIASES)){
+        if(canonical===name) wordsToRemove.push(alias);
+      }
+      for(const w of wordsToRemove){
+        const rx=new RegExp("\\b"+w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");
+        out=out.replace(rx,"");
+      }
+      return out.replace(/\s+/g," ").trim();
+    }
+
+    // ── Core always-listen functions ───────────────────────────────────────
+
+    function currentAlwaysTarget(){
+      return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
+    }
+    function currentAlwaysStatusEl(){
+      return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
+    }
+    function resetAlwaysBuffers(){
+      _alwaysBuf="";
+      _alwaysLastResult="";
+      alwaysFinalText="";
+      alwaysInterimText="";
+      alwaysFinalBaseline="";
+      alwaysBaseText=(()=>{
+        const t=currentAlwaysTarget();
+        return (t&&t.value)?t.value.trim():"";
+      })();
+    }
+    function stopAlwaysListening(){
+      alwaysOn=false;
+      const st1=$("micStatusGroup"),st2=$("micStatusDm");
+      if(st1)st1.innerText="Mic: idle";
+      if(st2)st2.innerText="Mic: idle";
+      try{
+        if(alwaysRec){
+          alwaysRec.onresult=null;
+          alwaysRec.onerror=null;
+          alwaysRec.onend=null;
+          alwaysRec.stop();
+        }
+      }catch(e){}
+      alwaysRec=null;
+      if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+      updateAlwaysButtons();
+    }
+
     async function startAlwaysListening(mode){
-      if(!speechSupported()){
-        showToast("🎤 " + micHelpText());
-        return;
-      }
-
-      alwaysMode = mode || "dm";
-      alwaysOn = true;
+      if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
+      alwaysMode=mode||"dm";
+      alwaysOn=true;
       updateAlwaysButtons();
       resetAlwaysBuffers();
 
-      const okPerm = await ensureMicPermission();
+      const okPerm=await ensureMicPermission();
       if(!okPerm){
-        alwaysOn = false;
-        updateAlwaysButtons();
-        showToast("🎤 Microphone blocked — " + micHelpText());
-        return;
+        alwaysOn=false;updateAlwaysButtons();
+        showToast("🎤 Microphone blocked — "+micHelpText());return;
       }
 
-      const status = currentAlwaysStatusEl();
-      if(status) status.innerText = "Mic: always listening";
+      const status=currentAlwaysStatusEl();
+      if(status)status.innerText="Mic: always listening";
 
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new SR();
-      rec.lang = "en-US";
-      rec.interimResults = true;
-      rec.continuous = true;
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      const rec=new SR();
+      rec.lang="en-US";
+      rec.interimResults=true;
+      rec.continuous=true;
+      rec.maxAlternatives=1;
+      alwaysRec=rec;
 
-      alwaysRec = rec;
+      rec.onresult=async(event)=>{
+        // Collect ALL results from this event into one string
+        let finalChunk="", interimChunk="";
+        for(let i=event.resultIndex;i<event.results.length;i++){
+          const t=(event.results[i][0].transcript||"");
+          if(event.results[i].isFinal) finalChunk+=t+" ";
+          else interimChunk+=t;
+        }
+        finalChunk=finalChunk.trim();
+        interimChunk=interimChunk.trim();
 
-      rec.onresult = async (event) => {
-        const canon      = getCanonicalSpeech(event);
-        const allFinal   = canon.allFinal;   // accumulated new finals only
-        const interimRaw = canon.interim;
+        // Append any new final text to buffer
+        if(finalChunk) _alwaysBuf=(_alwaysBuf+" "+finalChunk).replace(/\s+/g," ").trim();
 
-        // FIX: Detect name in INTERIM first (fast response), then fallback to allFinal.
-        // This catches names whether they arrive as interim or finalized text.
-        const hit = findFirstNameMention(interimRaw) || findFirstNameMention(allFinal);
+        // Combined text to scan for names
+        const combined=(_alwaysBuf+" "+interimChunk).replace(/\s+/g," ").trim();
+
+        // ── Name detection ──────────────────────────────────────
+        const hit=findFirstNameMention(interimChunk)||findFirstNameMention(finalChunk)||findFirstNameMention(combined);
 
         if(hit){
-          const now = Date.now();
-          if(now - lastNameSwitchAt > 800){
-            lastNameSwitchAt = now;
-            window._alwaysLastSwitchedName = hit.name;   // FIX: remember for normal-path filtering
+          const now=Date.now();
+          if(now-lastNameSwitchAt>600){
+            lastNameSwitchAt=now;
 
-            // Save clean text (without name) to current target
-            const cleanedFinal = removeNameOnce(allFinal, hit.name);
-            const targetBefore = currentAlwaysTarget();
-            if(targetBefore && cleanedFinal){
-              targetBefore.value = cleanedFinal.trim();
-            }else if(targetBefore){
-              targetBefore.value = "";  // FIX: clear box when only the name was spoken
-            }
+            // Strip the name from whatever is going into the box
+            const textWithoutName=removeNameOnce(combined,hit.name);
 
-            // Switch to named teammate
-            await selectSeat(hit.name);
-            forceSeatSelectUI(hit.name);
+            // Switch seat
+            try{
+              if(typeof selectSeat==="function") await selectSeat(hit.name);
+              if(typeof forceSeatSelectUI==="function") forceSeatSelectUI(hit.name);
+            }catch(_){}
 
-            // Reset accumulators completely for the new target
-            _resetCanonicalSpeech();
-            alwaysFinalText   = "";
-            alwaysInterimText = "";
-            const t2 = currentAlwaysTarget();
-            alwaysBaseText = (t2 && t2.value ? t2.value : "").trim();
+            // Put remaining text (after the name) in the new seat's box
+            const tgt=currentAlwaysTarget();
+            if(tgt) tgt.value=textWithoutName;
+
+            // Reset buffer for the new seat
+            _alwaysBuf=textWithoutName;
+            _alwaysLastResult="";
+            alwaysFinalText=textWithoutName;
+            alwaysInterimText="";
+            alwaysBaseText="";
             return;
           }
         }
 
-        // Normal update — accumulated finals + current interim
-        // FIX: Strip the last switched name so it never bleeds into the box after finalization
-        const _lsn = window._alwaysLastSwitchedName || "";
-        const filteredFinal  = _lsn ? removeNameOnce(allFinal,   _lsn) : allFinal;
-        const filteredInterim = _lsn ? removeNameOnce(interimRaw, _lsn) : interimRaw;
-        alwaysFinalText   = filteredFinal;
-        alwaysInterimText = filteredInterim;
+        // ── Normal text update ──────────────────────────────────
+        // Show combined (finals + interim) in the box immediately
+        const display=(_alwaysBuf+(interimChunk?" "+interimChunk:"")).replace(/\s+/g," ").trim();
+        const tgt=currentAlwaysTarget();
+        if(tgt) tgt.value=display;
+        alwaysFinalText=_alwaysBuf;
+        alwaysInterimText=interimChunk;
 
-        // Clear the filter name once we have new speech that isn't the name
-        if(filteredFinal && filteredFinal !== alwaysBaseText){
-          window._alwaysLastSwitchedName = "";
-        }
-
-        const target = currentAlwaysTarget();
-        if(target){
-          target.value = (alwaysBaseText + " " + alwaysFinalText + " " + alwaysInterimText)
-            .replace(/\s+/g, " ")
-            .trim();
-        }
-
-        // ── Auto-send after 2.5 s of no new speech ──────────────
-        // Only fires when there is actual content and it's a final result
-        if(allFinal && allFinal.trim()){
-          if(window._alwaysAutoSendTimer) clearTimeout(window._alwaysAutoSendTimer);
-          window._alwaysAutoSendTimer = setTimeout(async ()=>{
-            if(!alwaysOn) return;
-            const tgt = currentAlwaysTarget();
-            if(!tgt) return;
-            const msg = tgt.value.trim();
-            if(!msg) return;
-            // Clear accumulators so next phrase starts fresh
-            alwaysFinalText = "";
-            alwaysInterimText = "";
-            alwaysBaseText = "";
-            _resetCanonicalSpeech();
-            // Send via the correct channel
-            if(alwaysMode === "dm"){
-              if(typeof sendFollow === "function") await sendFollow();
-            } else {
-              // Group mode — use conveneAll if available, else trigger opPrompt send
-              if(typeof conveneAll === "function") await conveneAll();
-              else {
-                const btn = document.getElementById("sendGroup") || document.getElementById("conveneBtn");
-                if(btn) btn.click();
+        // ── Auto-send after 2 s of silence (only on final results) ──
+        if(finalChunk){
+          if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
+          window._alwaysAutoSendTimer=setTimeout(async()=>{
+            if(!alwaysOn)return;
+            const t2=currentAlwaysTarget();
+            if(!t2)return;
+            const msg=t2.value.trim();
+            if(!msg)return;
+            _alwaysBuf=""; _alwaysLastResult="";
+            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
+            t2.value="";
+            if(alwaysMode==="dm"){
+              if(typeof sendFollow==="function")await sendFollow();
+            }else{
+              if(typeof conveneAll==="function")await conveneAll();
+              else{
+                const btn=document.getElementById("sendGroup")||document.getElementById("conveneBtn");
+                if(btn)btn.click();
               }
             }
-          }, 2500);
+          },2000);
         }
       };
 
-      rec.onerror = (e) => {
-        const errType = (e && e.error) ? e.error : "";
-        // "no-speech" means the mic was silent too long — not a real error, just restart quietly
-        // "aborted" means the recognizer was stopped programmatically — also not an error
-        if(errType === "no-speech" || errType === "aborted") {
-          return; // onend will fire next and auto-restart if alwaysOn
-        }
-        // Real errors (permission denied, hardware missing, etc.) — stop and inform the user
-        const s = currentAlwaysStatusEl();
-        if(s) s.innerText = "Mic: error";
-        try{ stopAlwaysListening(); }catch(_){ }
-        const friendlyMsg = {
-          "not-allowed":          "Microphone access was denied. Please allow microphone access in your browser's site settings and try again.",
-          "audio-capture":        "No microphone was found. Please connect a microphone and try again.",
-          "service-not-allowed":  "Speech recognition is not allowed on this page. Try using HTTPS or a supported browser.",
-          "network":              "A network error interrupted speech recognition. Please check your connection and try again.",
-        }[errType] || ("Speech recognition error: " + (errType || "unknown") + ". Please check your microphone and try again.");
-        try{ showToast("🎤 " + friendlyMsg); }catch(_){ }
+      rec.onerror=(e)=>{
+        const errType=(e&&e.error)?e.error:"";
+        if(errType==="no-speech"||errType==="aborted")return;
+        const s=currentAlwaysStatusEl();
+        if(s)s.innerText="Mic: error";
+        try{stopAlwaysListening();}catch(_){}
+        const friendlyMsg={
+          "not-allowed":"Microphone access denied. Please allow microphone in your browser site settings.",
+          "audio-capture":"No microphone found. Please connect one and try again.",
+          "service-not-allowed":"Speech recognition not allowed. Please use HTTPS.",
+          "network":"Network error during speech recognition. Check your connection.",
+        }[errType]||("Speech recognition error: "+(errType||"unknown"));
+        try{showToast("🎤 "+friendlyMsg);}catch(_){}
       };
 
-      rec.onend = () => {
-        if(!alwaysOn) return;
+      rec.onend=()=>{
+        if(!alwaysOn)return;
         try{
-          const s = currentAlwaysStatusEl();
-          if(s) s.innerText = "Mic: always listening";
-          // FIX: snapshot textarea and mark new session so iOS replay is ignored
-          const t = currentAlwaysTarget();
-          alwaysBaseText    = (t && t.value ? t.value : "").trim();
-          alwaysFinalText   = "";
-          alwaysInterimText = "";
-          _alwaysNewSession = true;   // getCanonicalSpeech will reset accum + set ignore window
-          rec.start();
-        }catch(e){
-          stopAlwaysListening();
-        }
+          const s=currentAlwaysStatusEl();
+          if(s)s.innerText="Mic: always listening";
+          // Snapshot what's in the box so it's preserved across restart
+          const t=currentAlwaysTarget();
+          alwaysBaseText=(t&&t.value)?t.value.trim():"";
+          _alwaysBuf=alwaysBaseText;
+          _alwaysLastResult="";
+          rec.start();  // restart immediately — no delay, no ignore window
+        }catch(e){stopAlwaysListening();}
       };
 
-      try{
-        rec.start();
-      }catch(e){
+      try{rec.start();}catch(e){
         stopAlwaysListening();
         showToast("🎤 Could not start mic — check site permissions and try again");
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = () => {
-      if(alwaysOn && alwaysMode === "group"){
-        stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("group");
-      }
+    $("alwaysListenGroupBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="group"){stopAlwaysListening();}
+      else{stopAlwaysListening();startAlwaysListening("group");}
     };
 
-    $("alwaysListenDmBtn").onclick = () => {
-      if(alwaysOn && alwaysMode === "dm"){
-        stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("dm");
-      }
+    $("alwaysListenDmBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="dm"){stopAlwaysListening();}
+      else{stopAlwaysListening();startAlwaysListening("dm");}
     };
 
 
@@ -24011,18 +23823,12 @@ ADD_UI_POLISH_V8 = r'''
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    // Use the full recognition engine — handles phonetic variants, aliases, fuzzy
     const hit = findFirstNameMention(s);
     if(hit){
       try{
-        if(typeof window.selectSeat === "function"){
-          window.selectSeat(hit.name);
-        }else if(typeof window.forceSeatSelectUI === "function"){
-          window.forceSeatSelectUI(hit.name);
-        }
-        if(typeof window.forceSeatSelectUI === "function"){
-          window.forceSeatSelectUI(hit.name);
-        }
+        if(typeof window.selectSeat==="function") window.selectSeat(hit.name);
+        else if(typeof window.forceSeatSelectUI==="function") window.forceSeatSelectUI(hit.name);
+        if(typeof window.forceSeatSelectUI==="function") window.forceSeatSelectUI(hit.name);
       }catch(_){}
       return true;
     }
