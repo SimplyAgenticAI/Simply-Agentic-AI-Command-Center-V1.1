@@ -4220,7 +4220,7 @@ def api_get_teammate(n: str):
         return jsonify({"ok": False, "error": "Teammate not installed"}), 404
     t = installed[n]
     return jsonify({"ok": True, "teammate": {
-        "name": t.get("name", name), "job_title": t.get("job_title", ""),
+        "name": t.get("name", n), "job_title": t.get("job_title", ""),
         "version": t.get("version", ""), "mission": t.get("mission", ""),
         "responsibilities": t.get("responsibilities", []), "thinking_style": t.get("thinking_style", ""),
         "will_not_do": t.get("will_not_do", []), "goal": t.get("goal", ""),
@@ -4242,7 +4242,7 @@ def api_update_teammate(n: str):
     reg["installed"] = installed
     save_registry(reg, uname)
     append_log("teammate_updated", {
-        "name": name, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
+        "name": n, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
         "snapshot": {"name": updated.get("name",""), "job_title": updated.get("job_title",""),
                      "version": updated.get("version",""), "mission": updated.get("mission",""),
                      "responsibilities_count": len(updated.get("responsibilities",[]) or []),
@@ -4673,13 +4673,13 @@ def api_teammate_image_state(n: str):
     installed = reg["installed"]
     if n not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "image_state": load_image_state(n, uname)})
+    return jsonify({"ok": True, "image_state": load_image_state(n, _get_session_username())})
 
 @app.post("/api/teammates/<name>/current_image")
-def api_teammate_set_current_image(name: str):
+def api_teammate_set_current_image(n: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    if name not in installed:
+    if n not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
     data = request.get_json(force=True) or {}
     file_id = (data.get("file_id") or "").strip()
@@ -4689,18 +4689,18 @@ def api_teammate_set_current_image(name: str):
     rec = get_upload_record(file_id)
     if not _is_image_record(rec):
         return jsonify({"ok": False, "error": "Image not found"}), 404
-    st = set_current_image_for_teammate(name, rec, source="selected", prompt="", mode="selected", username=_get_session_username())
+    st = set_current_image_for_teammate(n, rec, source="selected", prompt="", mode="selected", username=_get_session_username())
     if approve:
-        st = approve_current_image_for_teammate(name, username=_get_session_username())
+        st = approve_current_image_for_teammate(n, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st, "file": rec, "url": _image_url_for_record(rec)})
 
 @app.post("/api/teammates/<name>/approve_current_image")
-def api_teammate_approve_current_image(name: str):
+def api_teammate_approve_current_image(n: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    if name not in installed:
+    if n not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    st = approve_current_image_for_teammate(name, username=_get_session_username())
+    st = approve_current_image_for_teammate(n, username=_get_session_username())
     return jsonify({"ok": True, "image_state": st})
 
 
