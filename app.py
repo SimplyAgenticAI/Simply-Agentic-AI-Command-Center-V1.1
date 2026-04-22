@@ -81,6 +81,12 @@ STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")       # sk_live_... o
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")   # whsec_...
 STRIPE_MODE           = os.getenv("STRIPE_MODE", "subscription")
 
+# =========================
+# FREE TRIAL CONFIG
+# =========================
+# Set FREE_TRIAL_DAYS=0 in env to disable the trial entirely.
+FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "5"))
+
 # ── Plan price IDs (set these in Render → Environment) ──────────────────────
 # Legacy single-price fallback: if only STRIPE_PRICE_ID is set, it maps to Starter.
 STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
@@ -187,6 +193,79 @@ def _get_user_plan(username: str) -> str:
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
 # =========================
+
+# =========================
+# TRIAL STATUS HELPERS
+# =========================
+
+def _get_user_trial_info(username: str) -> Dict[str, Any]:
+    """Return trial status for a user.
+    Returns dict with: on_trial, trial_end, days_remaining, trial_expired
+    """
+    default = {"on_trial": False, "trial_end": None, "days_remaining": 0, "trial_expired": False}
+    if not username:
+        return default
+    try:
+        seats = (_load_seats().get("seats") or {})
+        for seat in seats.values():
+            if seat.get("claimed_by") != username:
+                continue
+            trial_end_str = (seat.get("trial_end") or "").strip()
+            if not trial_end_str:
+                return default
+            try:
+                trial_end_dt = datetime.fromisoformat(trial_end_str.replace("Z", ""))
+            except Exception:
+                return default
+            now_dt = datetime.utcnow()
+            days_remaining = max(0, (trial_end_dt - now_dt).days)
+            trial_expired  = now_dt > trial_end_dt
+            on_trial       = bool(seat.get("trial_active")) and not trial_expired
+            return {
+                "on_trial":       on_trial,
+                "trial_end":      trial_end_str,
+                "days_remaining": days_remaining,
+                "trial_expired":  trial_expired,
+            }
+    except Exception:
+        pass
+    return default
+
+
+def _trial_banner_html(username: str) -> str:
+    """Return an HTML banner string for the trial countdown, or empty string."""
+    if FREE_TRIAL_DAYS <= 0:
+        return ""
+    try:
+        info = _get_user_trial_info(username)
+        if not info.get("on_trial") and not info.get("trial_expired"):
+            return ""
+        if info.get("trial_expired"):
+            return (
+                "<div id='trial-banner' style='"
+                "background:linear-gradient(135deg,#7f1d1d,#991b1b);"
+                "color:#fef2f2;padding:10px 20px;text-align:center;font-size:13px;font-weight:600;"
+                "border-bottom:1px solid rgba(255,100,100,.3);'>\""
+                "⚠️ Your free trial has ended. "
+                "<a href='/pricing' style='color:#fca5a5;text-decoration:underline;'>Manage your subscription</a> to keep access."
+                "</div>"
+            )
+        days = info.get("days_remaining", 0)
+        day_word = "day" if days == 1 else "days"
+        color = "#7c3aed" if days >= 3 else "#b45309"
+        return (
+            f"<div id='trial-banner' style='"
+            f"background:{color};"
+            f"color:#f3e8ff;padding:10px 20px;text-align:center;font-size:13px;font-weight:600;"
+            f"border-bottom:1px solid rgba(255,255,255,.15);'>\""
+            f"🎉 Free trial — {days} {day_word} remaining. "
+            f"<a href='/pricing' style='color:#e9d5ff;text-decoration:underline;'>Upgrade anytime</a>"
+            f"</div>"
+        )
+    except Exception:
+        return ""
+
+
 
 GOOGLE_AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -310,16 +389,30 @@ app = Flask(__name__)
 # -----------------------------
 @app.get("/uploads/<path:relpath>")
 def serve_upload(relpath):
-    """Serve files saved under DATA/uploads. Required for teammate image links."""
+    """Serve files saved under DATA/uploads. Requires login; enforces ownership."""
+    # Auth check
+    u = current_user()
+    if not u:
+        return abort(401)
     try:
-        # Prevent path traversal
+        # Prevent path traversal via resolved path check
         relpath = relpath.replace("\\", "/")
-        if relpath.startswith("../") or "/../" in relpath:
+        fp = (UPLOADS_DIR / relpath).resolve()
+        base = UPLOADS_DIR.resolve()
+        if not str(fp).startswith(str(base)):
             return abort(400)
-        fp = UPLOADS_DIR / relpath
         if not fp.exists():
             return abort(404)
-        return send_from_directory(str(UPLOADS_DIR), relpath)
+        # Ownership check: if file is in upload index and has an owner, enforce it
+        file_id = fp.stem.split("_")[0] if "_" in fp.stem else ""
+        if file_id:
+            rec = get_upload_record(file_id)
+            if rec:
+                owner = (rec.get("owner") or "").strip()
+                uname = (u.get("username") if isinstance(u, dict) else None) or ""
+                if owner and owner != uname and not _is_admin_user(u):
+                    return abort(403)
+        return send_from_directory(str(UPLOADS_DIR), str(fp.relative_to(base)))
     except Exception:
         return abort(404)
 
@@ -707,6 +800,11 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
         code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
 
     plan_info = PLANS.get(plan) or PLANS.get("starter") or {}
+    # Calculate trial end date
+    _trial_end = None
+    if FREE_TRIAL_DAYS > 0:
+        _trial_end = (datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)).isoformat() + "Z"
+
     seats[code] = {
         "seat_num":          next_num,
         "label":             name.strip() if name.strip() else f"Stripe Seat #{next_num}",
@@ -723,6 +821,9 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
         "source":             "stripe",
         "plan":               plan,
         "plan_name":          plan_info.get("name", "Starter Operator"),
+        "trial_days":         FREE_TRIAL_DAYS,
+        "trial_end":          _trial_end,
+        "trial_active":       (FREE_TRIAL_DAYS > 0),
     }
     data["seats"] = seats
     _save_seats(data)
@@ -821,6 +922,62 @@ def _clear_login_failures(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         _LOGIN_ATTEMPTS.pop(key, None)
+
+# =========================
+# API RATE LIMITING (per-user, in-memory)
+# =========================
+# Prevents runaway usage / API cost abuse. Limits: calls per minute per user.
+# These are intentionally generous for normal use but catch bots/loops.
+_RATE_LIMITS: Dict[str, Any] = {}  # { key -> {"count": int, "window_start": datetime} }
+_RATE_LIMITS_LOCK = threading.Lock()
+
+# Limits per 60-second window, by endpoint category
+RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))       # chat/followup per user/min
+RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))      # image gen per user/min
+RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))      # email sends per user/min
+RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))     # uploads per user/min
+RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))   # general API per user/min
+RATE_LIMIT_WINDOW_SEC = 60
+
+def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
+    """Returns (allowed, error_message). Thread-safe sliding-window counter."""
+    now = datetime.utcnow()
+    with _RATE_LIMITS_LOCK:
+        rec = _RATE_LIMITS.get(key)
+        if rec is None:
+            _RATE_LIMITS[key] = {"count": 1, "window_start": now}
+            return True, ""
+        elapsed = (now - rec["window_start"]).total_seconds()
+        if elapsed > RATE_LIMIT_WINDOW_SEC:
+            # New window
+            _RATE_LIMITS[key] = {"count": 1, "window_start": now}
+            return True, ""
+        if rec["count"] >= limit:
+            wait = int(RATE_LIMIT_WINDOW_SEC - elapsed) + 1
+            return False, f"Rate limit reached. Please wait {wait} second(s) before trying again."
+        rec["count"] += 1
+        return True, ""
+
+def _get_rate_key(category: str) -> str:
+    """Build a per-user rate limit key. Falls back to IP if not logged in."""
+    try:
+        u = current_user()
+        uname = (u.get("username") if isinstance(u, dict) else None) or ""
+        if uname:
+            return f"rl:{category}:{uname}"
+    except Exception:
+        pass
+    ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+    return f"rl:{category}:ip:{ip}"
+
+def _check_rate_limit(category: str, limit: int):
+    """Call from route handlers. Returns a 429 response or None if allowed."""
+    key = _get_rate_key(category)
+    allowed, msg = _rate_limit_check(key, limit)
+    if not allowed:
+        return jsonify({"ok": False, "error": msg}), 429
+    return None
+
 
 def load_users() -> Dict[str, Any]:
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
@@ -939,6 +1096,20 @@ def _add_security_headers(response):
     response.headers["Permissions-Policy"]     = "geolocation=(), camera=(), microphone=(self)"
     if PUBLIC_BASE_URL.startswith("https://"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # Content Security Policy — tightened for production
+    # Allows: same-origin scripts/styles, CDN fonts, Stripe.js, inline styles needed by Flask templates
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob: https:; "
+        "connect-src 'self' https://api.openai.com https://api.anthropic.com https://api.stripe.com; "
+        "frame-src https://js.stripe.com; "
+        "object-src 'none'; "
+        "base-uri 'self';"
+    )
+    response.headers["Content-Security-Policy"] = csp
     return response
 
 @app.errorhandler(404)
@@ -2434,7 +2605,6 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
         return True, ""
     # Disabled global SMTP fallback
     return False, "No SMTP connected. Add your email in Settings."
-    return False, "No SMTP connected. Add your email in Settings."
 
 
 
@@ -3236,7 +3406,8 @@ def api_state():
             "active":    bool(session.get("_impersonating_as")),
             "as_user":   session.get("_impersonating_as") or "",
             "exit_url":  "/admin/exit_impersonation",
-        }
+        },
+        "trial": _get_user_trial_info(_get_session_username()),
     })
 
 
@@ -3264,7 +3435,7 @@ def api_diagnostics():
     # Basic session flags (safe)
     sess = {
         "authenticated": bool(u),
-        "user": (u or ""),
+        "user": ((u.get("username") if isinstance(u, dict) else None) or ""),
     }
 
     return jsonify({
@@ -4255,8 +4426,29 @@ def api_update_teammate(n: str):
 
 
 
+# Allowlisted upload extensions — executables, scripts & server files are blocked
+UPLOAD_ALLOWED_EXTENSIONS = {
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tiff",
+    # Documents
+    ".pdf", ".txt", ".md", ".csv", ".json", ".xml", ".rtf",
+    # Office
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp",
+    # Audio/Video (for future use)
+    ".mp3", ".mp4", ".wav", ".ogg", ".m4a", ".mov", ".webm",
+    # Archives
+    ".zip", ".tar", ".gz",
+}
+
+def _upload_extension_allowed(filename: str) -> bool:
+    ext = Path(filename).suffix.lower()
+    return ext in UPLOAD_ALLOWED_EXTENSIONS
+
+
 @app.post("/api/upload")
 def api_upload():
+    _rl = _check_rate_limit("upload", RATE_LIMIT_UPLOAD)
+    if _rl: return _rl
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "Missing file field"}), 400
 
@@ -4267,6 +4459,9 @@ def api_upload():
     filename = secure_filename(f.filename)
     if not filename:
         return jsonify({"ok": False, "error": "Invalid filename"}), 400
+
+    if not _upload_extension_allowed(filename):
+        return jsonify({"ok": False, "error": f"File type not allowed. Allowed types: images, PDFs, documents, CSV, JSON, ZIP."}), 400
 
     file_id = uuid.uuid4().hex
     subdir = datetime.utcnow().strftime("%Y%m%d")
@@ -4575,6 +4770,9 @@ def _api_followup_impl(data):
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
+        # Rate limit image generation separately (expensive API calls)
+        _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
+        if _img_rl: return _img_rl
         job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
 
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
@@ -4663,7 +4861,8 @@ def _api_followup_impl(data):
 
 @app.get("/api/thread/<name>")
 def api_thread(name: str):
-    reg = load_registry(_get_session_username())
+    uname = _get_session_username()
+    reg = load_registry(uname)
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4671,7 +4870,8 @@ def api_thread(name: str):
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
-    reg = load_registry(_get_session_username())
+    uname = _get_session_username()
+    reg = load_registry(uname)
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -4708,6 +4908,8 @@ def api_teammate_approve_current_image(name: str):
 
 @app.post("/api/send_email")
 def api_send_email():
+    _rl = _check_rate_limit("email", RATE_LIMIT_EMAIL)
+    if _rl: return _rl
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -6564,8 +6766,9 @@ def pricing_page():
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
             </span>
-            Get Started
+            {"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"}
           </button>
+          {"<div class='trial-note'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""}
         </div>"""
 
     page = f"""<!doctype html>
@@ -6657,6 +6860,7 @@ body{{
 <div class='pg-header'>
   <h1>Every feature. Every AI teammate.</h1>
   <p>You get the full platform on every plan. You scale, we scale with you.</p>
+  {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
 <div class='plans'>{cards_html}</div>
 
@@ -6669,7 +6873,7 @@ body{{
 
 <div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
 <div class='pg-footer' style='margin-top:24px;'>
-  All plans billed monthly. Cancel anytime. &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+  {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
 <script>
 async function startCheckout(plan) {{
@@ -6999,6 +7203,16 @@ def admin_impersonate(username: str):
         return redirect(url_for("admin_users_page"))
     session["_admin_user"]       = real_uname
     session["_impersonating_as"] = username
+    # Audit log: record every impersonation event
+    try:
+        append_log("admin_impersonate", {
+            "admin": real_uname,
+            "impersonating": username,
+            "at": now_iso(),
+            "ip": (request.headers.get("X-Forwarded-For") or request.remote_addr or ""),
+        })
+    except Exception:
+        pass
     return redirect(url_for("index"))
 
 
@@ -7039,7 +7253,7 @@ def stripe_create_checkout():
     success_url = f"{base}/register?stripe_session={{CHECKOUT_SESSION_ID}}&plan={plan_key}"
     cancel_url  = f"{base}/pricing"
 
-    status, data = _stripe_api("POST", "/checkout/sessions", {
+    checkout_params = {
         "payment_method_types[]": "card",
         "line_items[0][price]":    price_id,
         "line_items[0][quantity]": "1",
@@ -7047,7 +7261,13 @@ def stripe_create_checkout():
         "allow_promotion_codes":   "true",
         "success_url":             success_url,
         "cancel_url":              cancel_url,
-    })
+    }
+    # Attach free trial to subscription mode checkouts
+    if FREE_TRIAL_DAYS > 0 and STRIPE_MODE == "subscription":
+        checkout_params["subscription_data[trial_period_days]"] = str(FREE_TRIAL_DAYS)
+        # Collect payment method upfront but don't charge until trial ends
+        checkout_params["payment_method_collection"] = "always"
+    status, data = _stripe_api("POST", "/checkout/sessions", checkout_params)
     if status >= 400:
         err = (data.get("error") or {}).get("message") or "Stripe error"
         return jsonify({"ok": False, "error": err}), 400
@@ -7095,6 +7315,39 @@ def stripe_webhook():
         if session_id:
             _generate_seat_for_stripe(email, customer_id, session_id, name=name, plan=plan)
 
+    # Trial ending soon — log it for future email notifications
+    if event.get("type") == "customer.subscription.trial_will_end":
+        try:
+            sub_obj     = (event.get("data") or {}).get("object") or {}
+            customer_id = sub_obj.get("customer") or ""
+            trial_end   = sub_obj.get("trial_end") or 0
+            append_log("stripe_trial_will_end", {
+                "customer_id": customer_id,
+                "trial_end_epoch": trial_end,
+                "at": now_iso(),
+            })
+        except Exception:
+            pass
+
+    # Trial converted to paid — mark seat trial_active = False
+    if event.get("type") in ("invoice.paid", "customer.subscription.updated"):
+        try:
+            obj2        = (event.get("data") or {}).get("object") or {}
+            customer_id = obj2.get("customer") or ""
+            if customer_id:
+                data  = _load_seats()
+                seats = data.get("seats") or {}
+                changed = False
+                for code, seat in seats.items():
+                    if seat.get("stripe_customer_id") == customer_id and seat.get("trial_active"):
+                        seats[code]["trial_active"] = False
+                        changed = True
+                if changed:
+                    data["seats"] = seats
+                    _save_seats(data)
+        except Exception:
+            pass
+
     return jsonify({"ok": True})
 
 
@@ -7136,8 +7389,38 @@ def reset_post():
     data["users"][username] = u
     save_users(data)
 
-    # Token is shown once on screen (copy it). In production you'd email this.
-    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=token, ok=None)
+    # Try to email the token if the user has an email address on file
+    user_email = (u.get("email") or "").strip()
+    sent_email = False
+    if user_email:
+        try:
+            reset_body = (
+                f"Hello {username},\n\n"
+                f"You requested a password reset for {APP_TITLE}.\n\n"
+                f"Your reset token is:\n\n    {token}\n\n"
+                f"Enter this token at {PUBLIC_BASE_URL or 'the app'}/reset to set a new password.\n"
+                f"This token expires in 1 hour.\n\n"
+                f"If you did not request this, ignore this email.\n"
+            )
+            # Try SMTP (global server settings) for password reset emails
+            if SMTP_USER and SMTP_PASS:
+                send_email_smtp(user_email, f"Password Reset - {APP_TITLE}", reset_body,
+                                SMTP_FROM_NAME, SMTP_USER)
+                sent_email = True
+        except Exception:
+            pass
+
+    if sent_email:
+        ok_msg = f"Reset token sent to {user_email}. Check your inbox (and spam folder)."
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=ok_msg)
+    elif user_email:
+        # Email on file but SMTP not configured — show token as fallback with warning
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
+            token=token, ok="Email delivery not configured. Copy your token below (shown once):")
+    else:
+        # No email address on account — show token (admin-managed accounts only)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
+            token=token, ok="No email on file. Copy your reset token below (shown once):")
 
 @app.post("/reset_password")
 def reset_password_post():
@@ -8799,6 +9082,7 @@ label         { font-size: 14px !important; }
 </style>
 </head>
 <body>
+  {{trial_banner|safe}}
   <div class="topbar">
     <div class="topbarMain">
       <div class="brand">
@@ -20459,9 +20743,84 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </html>
 """
 
+# =========================
+# ACCOUNT DELETION (GDPR / user self-service)
+# =========================
+
+@app.post("/api/account/delete")
+def api_account_delete():
+    """Permanently delete the current user's account and all their data."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    if not uname:
+        return jsonify({"ok": False, "error": "Could not determine username"}), 400
+
+    # Require password confirmation
+    body = request.get_json(silent=True) or {}
+    pw_confirm = (body.get("password") or "").strip()
+    if not pw_confirm:
+        return jsonify({"ok": False, "error": "Password confirmation required"}), 400
+    if not check_password_hash(u.get("password_hash", ""), pw_confirm):
+        return jsonify({"ok": False, "error": "Incorrect password"}), 403
+
+    safe = _safe_name(uname)
+    errors = []
+
+    # 1. Remove user from users.json
+    try:
+        data = load_users()
+        users = data.get("users") or {}
+        users.pop(uname, None)
+        data["users"] = users
+        save_users(data)
+    except Exception as e:
+        errors.append(f"users: {e}")
+
+    # 2. Delete per-user data directories
+    for dirpath in [
+        USER_TEAMMATES_DIR / f"{safe}.json",
+        USER_THREADS_DIR / safe,
+        USER_IMG_STATE_DIR / safe,
+        ACTION_STACKS_DIR / safe,
+        ACTION_STACK_RUNS_DIR / safe,
+        ACTION_STACK_MEMORY_DIR / safe,
+        ACTION_STACK_SCHEDULES_DIR / safe,
+        ONBOARDING_DIR / safe,
+        TASK_LOG_DIR / f"{safe}.jsonl",
+        DATA / "clients" / f"{safe}.json",
+        DATA / "operator_profile" / f"{safe}.json",
+    ]:
+        try:
+            p = Path(dirpath)
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.exists():
+                p.unlink(missing_ok=True)
+        except Exception as e:
+            errors.append(f"{dirpath}: {e}")
+
+    # 3. Clear their session
+    try:
+        session.clear()
+    except Exception:
+        pass
+
+    if errors:
+        # Log but don't fail — partial deletion is better than no deletion
+        append_log("account_delete_partial", {"username": uname, "errors": errors})
+
+    append_log("account_deleted", {"username": uname, "at": now_iso()})
+    return jsonify({"ok": True, "message": "Account and data deleted successfully."})
+
+
 @app.get("/")
 def index():
-    return render_template_string(HTML, app_title=APP_TITLE, model=MODEL)
+    _uname = _get_session_username()
+    _trial_banner = _trial_banner_html(_uname) if FREE_TRIAL_DAYS > 0 else ""
+    return render_template_string(HTML, app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner)
 
 
 
@@ -25326,6 +25685,8 @@ def api_webhook_receive(token: str):
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
 @app.post("/api/followup/stream")
 def api_followup_stream():
+    _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
+    if _rl: return _rl
     """SSE streaming followup — tokens arrive in real time instead of one big wait.
     Drops in alongside the existing /api/followup; same thread/logging semantics."""
     from flask import Response, stream_with_context
