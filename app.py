@@ -10025,36 +10025,6 @@ label         { font-size: 14px !important; }
   border-left-color: rgba(100,120,180,.4) !important;
   color: rgba(160,180,220,.75) !important;
 }
-/* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
-.wcal-event[data-etype="gcal-task"] {
-  background: rgba(139,92,246,.65) !important;
-  color: #f5f3ff !important;
-  border-left: 3px solid rgba(196,181,253,.95) !important;
-  border-radius: 4px 6px 6px 4px;
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-}
-.wcal-event[data-etype="gcal-task"].task-prio-high {
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-  color: #f5f3ff !important;
-  border-left-color: rgba(216,180,254,.99) !important;
-}
-.wcal-event[data-etype="gcal-task"].task-prio-medium {
-  animation: prioGlowMed 3.6s ease-in-out infinite;
-  color: #fef9c3 !important;
-  border-left-color: rgba(234,179,8,.99) !important;
-}
-.wcal-event[data-etype="gcal-task"].task-prio-low {
-  background: rgba(6,95,70,.82) !important;
-  color: #d1fae5 !important;
-  border-left-color: rgba(16,185,129,.99) !important;
-  animation: prioGlowLow 3.6s ease-in-out infinite;
-}
-.wcal-event[data-etype="gcal-task"].is-done {
-  animation: none !important;
-  color: rgba(160,180,220,.75) !important;
-  border-left-color: rgba(100,120,180,.4) !important;
-  background: rgba(30,40,70,.75) !important;
-}
 /* ── EVENTS (gcal items manually switched to Event) — blue/teal, distinct ── */
 .wcal-event[data-etype="event"] {
   background: rgba(14,116,144,.72) !important;
@@ -15557,33 +15527,31 @@ window.wcalToggleEvent = function(e, eid){
   circle.classList.toggle('checked', newDone);
   const block = circle.closest('.wcal-event');
   if(block) block.classList.toggle('is-done', newDone);
-  showToast(newDone ? '✓ Event marked done' : 'Event unmarked');
+  showToast(newDone ? '✓ Task complete' : 'Task marked todo');
 
   if(newDone){
-    // Look up meta for this event to see if there's a teammate configured
     const meta=(cal.gcalMeta||{})[eid]||{};
     const teammate=meta.on_complete_teammate||'';
-    // Build a synthetic task object for the draft flow
-    let evObj=null;
-    Object.values(cal.events||{}).forEach(arr=>arr.forEach(ev=>{
-      if((ev.id||ev.summary||'')===eid) evObj=ev;
-    }));
-    const synthTask={
-      id:eid,
-      title:(evObj&&evObj.summary)||eid,
-      description:(meta.notes||''),
-      date:(evObj&&evObj.start||'').slice(0,10),
-      on_complete_teammate:teammate,
-      on_complete_client_email:meta.on_complete_client_email||'',
-      on_complete_client_name:meta.on_complete_client_name||'',
-      _isGcalTask:true,
-    };
+    // Only fire email draft if a teammate was explicitly configured — no auto-popup
     if(teammate){
+      let evObj=null;
+      Object.values(cal.events||{}).forEach(arr=>arr.forEach(ev=>{
+        if((ev.id||ev.summary||'')===eid) evObj=ev;
+      }));
+      const synthTask={
+        id:eid,
+        title:(evObj&&evObj.summary)||eid,
+        description:(meta.notes||''),
+        date:(evObj&&evObj.start||'').slice(0,10),
+        on_complete_teammate:teammate,
+        on_complete_client_email:meta.on_complete_client_email||'',
+        on_complete_client_name:meta.on_complete_client_name||'',
+        _isGcalTask:true,
+      };
       wcalFireCompleteAction(eid, synthTask);
-    } else {
-      wcalOfferDraftFromCircle(eid, synthTask);
     }
   }
+  wcalRefresh(); wcalRenderUpcoming();
 };
 
 function wcalEventHtml(ev, extraStyle=''){
@@ -15636,6 +15604,7 @@ function wcalTaskHtml(task, extraStyle=''){
 }
 
 // ── Render a Google Calendar event styled as a task ───────────
+// Merged: gcal tasks now render identically to local tasks — same etype, same CSS, same glow
 function wcalGcalTaskHtml(ev, extraStyle=''){
   const startDate=new Date(ev.start);
   if(isNaN(startDate)) return '';
@@ -15644,20 +15613,21 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const durMins=Math.max(30,(endDate-startDate)/60000);
   const height=Math.max(28,durMins);
   const evKey=ev.id||ev.summary||'';
-  const isDone=_evDone.has(evKey);
+  const meta=(cal.gcalMeta||{})[evKey]||{};
+  const isDone=_evDone.has(evKey)||(!!meta.done);
   const doneCls=isDone?' is-done':'';
-  const title=(ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const title=(meta.title||ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true)||/this (event|task) was created by motion/i.test(ev.description||'');
+  const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">&#x21bb;</span>':'';
-  const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||'high';
+  const prio=(typeof _evPriority!=='undefined'&&_evPriority[evKey])||meta.priority||'high';
   const prioCls=isDone?'':' task-prio-'+prio;
-  // Meet/Zoom join badges (gcal tasks can still have video links)
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Meet">📹</a>`:'';
   const zoomBadge=(ev.location&&ev.location.includes('zoom.us'))?` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵</a>`:'';
   const joinBadge=meetBadge||zoomBadge;
-  let h=`<div class="wcal-event${prioCls}${doneCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="gcal-task" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  // Use data-etype="task" so both task types share one CSS tree, one glow, one toggle
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="task" data-tdate="${(ev.start||'').slice(0,10)}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
@@ -16013,17 +15983,20 @@ window.wcalOpenDetail = function(el){
   const etype=el.dataset.etype;
   if(etype==='task'){
     const tid=decodeURIComponent(el.dataset.tid||'');
-    const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
-    wcalShowTaskDetail(task);
-  } else if(etype==='gcal-task'){
-    // Google Calendar event displayed as a task — open gcal task detail
     const eid=decodeURIComponent(el.dataset.eid||'');
-    let ev=null;
-    Object.values(cal.events).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
-    if(!ev){ ev={summary:eid}; }
-    wcalShowGcalTaskDetail(ev);
+    if(tid){
+      // Local task — open local task detail
+      const task=cal.tasks.find(t=>t.id===tid); if(!task) return;
+      wcalShowTaskDetail(task);
+    } else if(eid){
+      // GCal task — open gcal task detail panel
+      let ev=null;
+      Object.values(cal.events).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
+      if(!ev){ ev={summary:eid}; }
+      wcalShowGcalTaskDetail(ev);
+    }
   } else {
-    // Find event from cal.events by matching id or summary
+    // Blue calendar event
     const eid=decodeURIComponent(el.dataset.eid||'');
     let ev=null;
     Object.values(cal.events).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
@@ -16708,11 +16681,12 @@ window.wcalDetGcalTaskPriorityChange = function(val){
 
       if(!el){ _ctxPendingAction=false; _ctxEl=null; return; }
       const etype = el.dataset.etype;
+      const tid = decodeURIComponent(el.dataset.tid || '');
+      const eid = decodeURIComponent(el.dataset.eid || '');
 
-      if(etype === 'task'){
-        const tid = decodeURIComponent(el.dataset.tid || '');
+      if(etype === 'task' && tid){
+        // Local task — delete via local API
         _ctxPendingAction=false; _ctxEl=null;
-        if(!tid) return;
         if(!confirm('Remove this task?')) return;
         try{
           const res = await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
@@ -16725,14 +16699,14 @@ window.wcalDetGcalTaskPriorityChange = function(val){
           } else { showToast('Remove failed: ' + (d&&d.error||'unknown')); }
         }catch(err){ showToast('Remove failed'); }
       } else {
-        // Both 'event' and 'gcal-task' are Google Calendar items — delete via gcal API
-        const eid = decodeURIComponent(el.dataset.eid || '');
+        // GCal task or event — delete via gcal API
         _ctxPendingAction=false; _ctxEl=null;
-        if(!eid) return;
+        const gcalId = eid;
+        if(!gcalId) return;
         let ev = null;
-        Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(eid)) ev=e; }));
-        if(!ev){ ev = {id: eid, summary: eid}; }
-        const itemLabel = etype==='gcal-task' ? 'task' : 'event';
+        Object.values(cal.events||{}).forEach(arr=>arr.forEach(e=>{ if((e.id||e.summary||'')===(gcalId)) ev=e; }));
+        if(!ev){ ev = {id: gcalId, summary: gcalId}; }
+        const itemLabel = 'task';
         if(!confirm('Remove "' + (ev.summary||'this '+itemLabel) + '" from your calendar?')) return;
         try{
           const res = await fetch('/api/calendar/delete_event', {
