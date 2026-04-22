@@ -9994,12 +9994,9 @@ label         { font-size: 14px !important; }
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-high,
-.wcal-event[data-etype="gcal-task"].task-prio-high {
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
-}
+.wcal-event[data-etype="gcal-task"].task-prio-high,
 .wcal-event[data-etype="task"].task-prio-medium,
 .wcal-event[data-etype="gcal-task"].task-prio-medium {
   animation: prioGlowHigh 2.4s ease-in-out infinite;
