@@ -9607,12 +9607,16 @@ label         { font-size: 14px !important; }
       <div class="tiny" style="margin-bottom:8px;">Enroll client</div>
       <div class="grid">
         <div>
-          <label>Client ID</label>
-          <input id="crmEnrollClient" placeholder="client_..." />
+          <label>Client</label>
+          <select id="crmEnrollClient" style="width:100%;background:rgba(7,10,20,.6);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;">
+            <option value="">-- Select client --</option>
+          </select>
         </div>
         <div>
-          <label>Sequence ID</label>
-          <input id="crmEnrollSeq" placeholder="seq_..." />
+          <label>Sequence</label>
+          <select id="crmEnrollSeq" style="width:100%;background:rgba(7,10,20,.6);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;">
+            <option value="">-- Select sequence --</option>
+          </select>
         </div>
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
@@ -13990,10 +13994,22 @@ Challenge weak assumptions. Surface risks.`;
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
+    var _crmLastSearch = '', _crmLastFilter = '';
     function crmShowView(id){
+      var srch=$("crmSearch"); var flt=$("crmFilter");
+      if(srch) _crmLastSearch = srch.value||'';
+      if(flt)  _crmLastFilter  = flt.value||'';
       crmHideViews();
-      const el=$(id); if(el) el.style.display = "block";
-      try{ const sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
+      var el=$(id); if(el) el.style.display = "block";
+      try{ var sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
+      if(id==='crmViewClients'){
+        setTimeout(function(){
+          var s2=$("crmSearch"); var f2=$("crmFilter");
+          if(s2 && _crmLastSearch) s2.value=_crmLastSearch;
+          if(f2 && _crmLastFilter) f2.value=_crmLastFilter;
+          if(_crmLastSearch||_crmLastFilter) crmRenderClients();
+        },30);
+      }
     }
 
     async function crmFetchState(){
@@ -14615,9 +14631,22 @@ async function crmFetchTasks(){
         $("crmSeqEditor").style.display='none';
         await crmFetchSequences();
         crmRenderSequences();
+      crmPopulateEnrollDropdowns();
         showToast('Sequence saved');
       }catch(e){
         if(st) st.innerText='Save failed (check JSON)';
+      }
+    }
+
+    function crmPopulateEnrollDropdowns(){
+      var cs=$("crmEnrollClient"); var ss=$("crmEnrollSeq");
+      if(cs){ var cv=cs.value;
+        cs.innerHTML='<option value="">-- Select client --</option>'
+          +(crmCache.clients||[]).map(function(c){ return '<option value="'+escapeHtml(c.id||'')+'"'+(c.id===cv?' selected':'')+'>'+escapeHtml(c.name||c.email||c.id||'')+'</option>'; }).join('');
+      }
+      if(ss){ var sv=ss.value;
+        ss.innerHTML='<option value="">-- Select sequence --</option>'
+          +(crmCache.sequences||[]).map(function(s){ return '<option value="'+escapeHtml(s.id||'')+'"'+(s.id===sv?' selected':'')+'>'+escapeHtml(s.name||s.id||'')+'</option>'; }).join('');
       }
     }
 
@@ -14740,14 +14769,34 @@ async function crmFetchTasks(){
       return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
     }
 
+    window._lastLeadResults = window._lastLeadResults || [];
+    window.crmExportLeadsCSV = function(){
+      var items = window._lastLeadResults || [];
+      if(!items.length){ showToast('No leads to export'); return; }
+      var headers = ['Name','Company','Email','Phone','Website','Source'];
+      var rows = items.map(function(it){
+        return [it.name||'',it.company||'',it.email||'',it.phone||'',it.website||it.domain||'',it.source_query||'']
+          .map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(',');
+      });
+      var csv = [headers.join(',')].concat(rows).join('\n');
+      var a = document.createElement('a');
+      a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+      a.download = 'leads_' + new Date().toISOString().slice(0,10) + '.csv';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      showToast('Exported ' + items.length + ' leads', 'success');
+    };
+
     function crmRenderLeadResults(items){
+      window._lastLeadResults = Array.isArray(items) ? items : [];
       const box = $("leadLabResults");
       if(!box) return;
       if(!Array.isArray(items) || !items.length){
         box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
         return;
       }
-      box.innerHTML = items.map((item, idx)=>{
+      const exportBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
+        + '<button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (' + items.length + ')</button></div>';
+      box.innerHTML = exportBar + items.map((item, idx)=>{
         // Only show confirmed real email addresses — skip AI-guessed email_candidates
         const topEmail = item.email || '';
         const topPhone = item.phone || '';
@@ -15145,7 +15194,7 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
       b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
-      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmSetStatus('Ready'); });
+      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmPopulateEnrollDropdowns(); crmSetStatus('Ready'); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
       b('crmPickCsvBtn', ()=>{ const f=$("crmCsvFile"); if(f) f.click(); });
       if($("crmCsvFile")) $("crmCsvFile").addEventListener('change', crmImportCsv);
@@ -16500,8 +16549,27 @@ window.wcalDetSaveTask = async function(taskId){
     // Re-fetch and re-expand so recurring changes show immediately
     await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
     if(st) st.innerText='Saved ✓';
-    showToast('Task saved');
-    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+    showToast('Task saved', 'success');
+    // Auto-close panel after short delay
+    setTimeout(()=>{
+      const panel=document.getElementById('wcalDetail');
+      if(panel) panel.classList.remove('open');
+    }, 900);
+    // Update CRM last_contact if task has a linked client email
+    const clientEmail=(payload.on_complete_client_email||'').trim();
+    if(clientEmail){
+      const today=new Date().toISOString().slice(0,10);
+      const matched=(crmCache.clients||[]).find(c=>(c.email||'').toLowerCase()===clientEmail.toLowerCase());
+      if(matched && matched.id){
+        fetch('/api/crm/clients/'+encodeURIComponent(matched.id),{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({...matched, last_contact:today})
+        }).then(r=>r.json()).then(d=>{
+          if(d.ok){ const c=crmCache.clients.find(x=>x.id===matched.id); if(c) c.last_contact=today; }
+        }).catch(()=>{});
+      }
+    }
+    setTimeout(()=>{ if(st&&st.parentNode) st.innerText=''; },2000);
   }catch(e){ if(st) st.innerText=e.message||'Save failed'; }
 };
 
@@ -16552,8 +16620,9 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     _evPriority[evId] = priority;
     wcalRefresh();
     if(st) st.innerText='Saved ✓';
-    showToast('Task saved');
-    setTimeout(()=>{ if(st) st.innerText=''; },2000);
+    showToast('Task saved', 'success');
+    setTimeout(()=>{ const p=document.getElementById('wcalDetail'); if(p) p.classList.remove('open'); },900);
+    setTimeout(()=>{ if(st&&st.parentNode) st.innerText=''; },2000);
   }catch(e){
     if(st) st.innerText=e.message||'Save failed';
     showToast('Save failed');
@@ -16753,6 +16822,7 @@ window.wcalDetSaveEvent = async function(encodedId){
       if(!d.ok) throw new Error(d.error||'Failed');
       if(st) st.innerText='Saved ✓';
       showToast(useMeet?'Event updated with Meet link':'Event saved');
+      setTimeout(()=>{ const p=document.getElementById('wcalDetail'); if(p) p.classList.remove('open'); },1100);
       await wcalFetchCurrentRange(); wcalRefresh();
       setTimeout(()=>{ if(st) st.innerText=''; },2500);
     }catch(e){ if(st) st.innerText=e.message||'Google Calendar save failed'; }
