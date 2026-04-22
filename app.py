@@ -2036,6 +2036,39 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
 
+# Aliases for teammate names — handles common mishearings/misspellings.
+# Keys are lowercase aliases, values are the canonical installed name.
+TEAMMATE_ALIASES: Dict[str, str] = {
+    "atlas":  "Atlis",   # very common speech-to-text mishearing
+    "atlis":  "Atlis",   # exact match (lowercase)
+    "atliss": "Atlis",   # occasional extra-s mishearing
+    "alice":  "Atlis",   # phonetic near-miss
+}
+
+
+def _resolve_teammate_name(name: str, installed: Dict[str, Any]) -> str:
+    """Resolve a potentially aliased or misheard teammate name to the canonical
+    installed key. Returns the original name unchanged if no alias matches.
+    Priority: exact match in installed > alias map > original.
+    """
+    if not name:
+        return name
+    # Exact match first (most common path)
+    if name in installed:
+        return name
+    # Alias lookup (case-insensitive)
+    canonical = TEAMMATE_ALIASES.get(name.lower().strip())
+    if canonical and canonical in installed:
+        return canonical
+    # Case-insensitive fallback across all installed names
+    nl = name.lower().strip()
+    for installed_name in installed:
+        if installed_name.lower() == nl:
+            return installed_name
+    return name
+
+
+
 
 # =========================
 # REGISTRY + THREADS
@@ -4738,6 +4771,8 @@ def _api_followup_impl(data):
 
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
+    # Resolve aliases (e.g. "Atlas" -> "Atlis") before any lookup
+    name = _resolve_teammate_name(name, installed)
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
 
@@ -12928,14 +12963,46 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
+    // Teammate name aliases — handles speech-to-text mishearings.
+    // Maps lowercase alias -> canonical installed name.
+    const TEAMMATE_ALIASES_JS = {
+      "atlas":  "Atlis",
+      "atlis":  "Atlis",
+      "atliss": "Atlis",
+      "alice":  "Atlis",
+    };
+
+    function resolveTeammateName(raw){
+      if(!raw) return raw;
+      const inst = (state && state.installed) ? state.installed : {};
+      if(inst[raw]) return raw;
+      const canonical = TEAMMATE_ALIASES_JS[raw.toLowerCase().trim()];
+      if(canonical && inst[canonical]) return canonical;
+      const rl = raw.toLowerCase().trim();
+      for(const k of Object.keys(inst)){
+        if(k.toLowerCase() === rl) return k;
+      }
+      return raw;
+    }
+
     function findFirstNameMention(text){
       const names = getInstalledNamesInOrder();
       const lower = (text || "").toLowerCase();
       let best = null;
 
+      // Build search list: installed names + their aliases
+      const inst = (state && state.installed) ? state.installed : {};
+      const searchList = [];
       for(const name of names){
         if(!name) continue;
-        const nl = name.toLowerCase();
+        searchList.push({ word: name.toLowerCase(), resolvedName: name });
+      }
+      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES_JS)){
+        if(inst[canonical]) searchList.push({ word: alias, resolvedName: canonical });
+      }
+
+      for(const { word: nl, resolvedName: name } of searchList){
+        if(!nl) continue;
         const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
         const m = rx.exec(lower);
         if(m && m.index >= 0){
@@ -23726,13 +23793,21 @@ ADD_UI_POLISH_V8 = r'''
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    // Basic match: if transcript contains the seat name as a whole word-ish
+    // Build search list: seat names + aliases
+    const aliasMap = typeof TEAMMATE_ALIASES_JS !== "undefined" ? TEAMMATE_ALIASES_JS : {};
+    const searchSeats = []; // [{word, canonicalName}]
     for(const name of seats){
-      const n = (name || "").toLowerCase();
+      if(!name) continue;
+      searchSeats.push({ word: name.toLowerCase(), canonicalName: name });
+    }
+    for(const [alias, canonical] of Object.entries(aliasMap)){
+      if(seats.includes(canonical)) searchSeats.push({ word: alias, canonicalName: canonical });
+    }
+
+    for(const { word: n, canonicalName: name } of searchSeats){
       if(!n) continue;
-      // Allow "hey alex" or "alex"
+      // Allow "hey atlas" or "atlas" to resolve to "Atlis"
       if(s === n || s.includes(" " + n + " ") || s.startsWith(n + " ") || s.endsWith(" " + n) || s.includes(n)){
-        // Switch seat + force glow pulse if available
         try{
           if(typeof window.selectSeat === "function"){
             window.selectSeat(name);
@@ -25710,6 +25785,8 @@ def api_followup_stream():
 
     reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
+    # Resolve aliases (e.g. "Atlas" -> "Atlis") before any lookup
+    name = _resolve_teammate_name(name, installed)
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
 
