@@ -15739,12 +15739,8 @@ window.wcalToggleTask = async function(e, taskId){
     showToast(newDone ? '\u2713 Task complete' : 'Task marked todo', newDone?'success':'info');
     if(newDone && clickedEl) wcalFireTaskDoneEffect(clickedEl, task.priority||'high');
 
-    if(newDone){
-      if(task.on_complete_teammate){
-        wcalFireCompleteAction(taskId, task);
-      } else {
-        wcalOfferDraftFromCircle(taskId, task);
-      }
+    if(newDone && task.on_complete_teammate){
+      wcalFireCompleteAction(taskId, task);
     }
   }catch(err){ showToast('Update failed'); }
 };
