@@ -10017,6 +10017,7 @@ label         { font-size: 14px !important; }
   background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.99) !important;
+  animation: prioGlowLow 3.6s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].is-done {
   background: rgba(30,40,70,.75) !important;
@@ -10030,6 +10031,7 @@ label         { font-size: 14px !important; }
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.95) !important;
   border-radius: 4px 6px 6px 4px;
+  animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="gcal-task"].task-prio-high {
   animation: prioGlowHigh 2.4s ease-in-out infinite;
@@ -10045,6 +10047,7 @@ label         { font-size: 14px !important; }
   background: rgba(6,95,70,.82) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.99) !important;
+  animation: prioGlowLow 3.6s ease-in-out infinite;
 }
 .wcal-event[data-etype="gcal-task"].is-done {
   animation: none !important;
@@ -10265,6 +10268,7 @@ label         { font-size: 14px !important; }
 .wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
 @keyframes prioGlowHigh{0%,100%{box-shadow:0 0 0 rgba(139,92,246,0)}50%{box-shadow:0 0 10px rgba(139,92,246,.55),0 0 20px rgba(139,92,246,.22)}}
 @keyframes prioGlowMed{0%,100%{box-shadow:0 0 0 rgba(234,179,8,0)}50%{box-shadow:0 0 7px rgba(234,179,8,.45),0 0 14px rgba(234,179,8,.18)}}
+@keyframes prioGlowLow{0%,100%{box-shadow:0 0 0 rgba(16,185,129,0)}50%{box-shadow:0 0 7px rgba(16,185,129,.45),0 0 14px rgba(16,185,129,.18)}}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
