@@ -9997,14 +9997,13 @@ label         { font-size: 14px !important; }
 .wcal-event[data-etype="task"].task-prio-high {
   background: rgba(139,92,246,.75) !important;
   color: #f5f3ff !important;
+  border-left-color: rgba(216,180,254,.99) !important;
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
-}
 .wcal-event[data-etype="task"].task-prio-medium {
-  animation: prioGlowMed 3.6s ease-in-out infinite;
-}
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.99) !important;
+  animation: prioGlowMed 3.6s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-low {
   background: rgba(6,95,70,.82) !important;
@@ -10013,9 +10012,8 @@ label         { font-size: 14px !important; }
 }
 .wcal-event[data-etype="task"].is-done {
   background: rgba(30,40,70,.75) !important;
-  animation: none !important;
-}
   border-left-color: rgba(100,120,180,.4) !important;
+  animation: none !important;
 }
 /* ── GCAL TASKS (Google Calendar items shown as tasks) — same purple ── */
 .wcal-event[data-etype="gcal-task"] {
