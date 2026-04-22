@@ -8948,7 +8948,8 @@ label         { font-size: 14px !important; }
 
 
               <div class="modalForm" id="modalForm">
-                <div class="tiny" id="editHint" style="margin-bottom:10px;">
+                <div class="modalInner">
+                <div class="tiny" id="editHint" style="margin-bottom:10px;text-align:center;">
                   Update responsibilities, rules, and goals for this teammate. Name stays locked.
                 </div>
 
@@ -9021,13 +9022,14 @@ label         { font-size: 14px !important; }
                   </div>
                 </div>
 
-                <div class="actions">
+                <div class="actions" style="justify-content:center;">
                   <button class="btn" id="cancelEdit">Cancel</button>
                   <button class="btn btnPrimary" id="saveEdit">Save changes</button>
                   <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
                 </div>
 
-                <div class="tiny" id="editStatus" style="margin-top:10px;"></div>
+                <div class="tiny" id="editStatus" style="margin-top:10px;text-align:center;"></div>
+                </div>
               </div>
 
 <div id="apiKeyHelpForm" class="modalForm" style="display:none;">
@@ -9049,17 +9051,18 @@ label         { font-size: 14px !important; }
 </div>
 
               <div class="modalForm" id="manageForm">
-                <div class="tiny" style="margin-bottom:10px;">
+                <div class="modalInner">
+                <div class="tiny" style="margin-bottom:10px;text-align:center;">
                   Toggle who is present at the table. Installed teammates stay installed.
                 </div>
                 <div id="manageList"></div>
-                <div class="actions">
+                <div class="actions" style="justify-content:center;">
                   <button class="btn" id="cancelManage">Cancel</button>
                   <button class="btn" id="assembleInManageBtn">Assemble All</button>
                   <button class="btn btnPrimary" id="saveManage">Save</button>
                   <button class="btn btnPrimary" id="saveManageExit">Save &amp; Exit</button>
                 </div>
-                <div class="tiny" id="manageStatus" style="margin-top:10px;"></div>
+                <div class="tiny" id="manageStatus" style="margin-top:10px;text-align:center;"></div>
 
                 <!-- Delete custom teammate section -->
                 <div style="margin-top:22px; padding-top:16px; border-top:1px solid rgba(255,255,255,.08);">
@@ -9071,10 +9074,12 @@ label         { font-size: 14px !important; }
                   </div>
                   <div class="tiny" id="deleteTeammateStatus" style="margin-top:8px; color:#fca5a5;"></div>
                 </div>
+                </div>
               </div>
 
               <div class="modalForm" id="createForm">
-                <div class="tiny" style="margin-bottom:10px;">
+                <div class="modalInner">
+                <div class="tiny" style="margin-bottom:10px;text-align:center;">
                   Create a new teammate (name is locked after creation).
                 </div>
 
@@ -9119,34 +9124,38 @@ label         { font-size: 14px !important; }
                 <label>Will Not Do (one per line)</label>
                 <textarea id="newWillNotDo" placeholder="One rule per line"></textarea>
 
-                <div class="actions">
+                <div class="actions" style="justify-content:center;">
                   <button class="btn" id="cancelCreate">Cancel</button>
                   <button class="btn btnPrimary" id="saveCreate">Create</button>
                   <button class="btn btnPrimary" id="saveCreateExit">Create &amp; Exit</button>
                 </div>
-                <div class="tiny" id="createStatus" style="margin-top:10px;"></div>
+                <div class="tiny" id="createStatus" style="margin-top:10px;text-align:center;"></div>
+                </div>
               </div>
 
               <div class="modalForm" id="frameworkForm">
-                <div class="tiny" style="margin-bottom:10px;">
+                <div class="modalInner">
+                <div class="tiny" style="margin-bottom:10px;text-align:center;">
                   This is injected into every teammate system prompt. Changes affect all teammates immediately.
                 </div>
 
                 <label>Core framework (pillars and rules)</label>
                 <textarea id="frameworkText" style="height:520px;min-height:320px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
 
-                <div class="actions">
+                <div class="actions" style="justify-content:center;">
                   <button class="btn" id="cancelFramework">Cancel</button>
                   <button class="btn" id="resetFramework">Reset to default</button>
                   <button class="btn btnPrimary" id="saveFramework">Save framework</button>
                   <button class="btn btnPrimary" id="saveFrameworkExit">Save &amp; Exit</button>
                 </div>
-                <div class="tiny" id="frameworkStatus" style="margin-top:10px;"></div>
+                <div class="tiny" id="frameworkStatus" style="margin-top:10px;text-align:center;"></div>
+                </div>
               </div>
 
 
               <div class="modalForm" id="settingsForm">
-                <div class="tiny" style="margin-bottom:10px;">
+                <div class="modalInner">
+                <div class="tiny" style="margin-bottom:10px;text-align:center;">
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
 
@@ -9215,12 +9224,13 @@ label         { font-size: 14px !important; }
                   <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
                 </details>
 
-                <div class="actions">
+                <div class="actions" style="justify-content:center;">
                   <button class="btn" id="cancelSettings">Cancel</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                   <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
                 </div>
-                <div class="tiny" id="settingsStatus" style="margin-top:10px;"></div>
+                <div class="tiny" id="settingsStatus" style="margin-top:10px;text-align:center;"></div>
+                </div>
               </div>
 
               
