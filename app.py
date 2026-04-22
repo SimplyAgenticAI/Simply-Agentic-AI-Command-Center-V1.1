@@ -4149,7 +4149,7 @@ def api_set_active_order():
     return jsonify({"ok": True, "active_order": final})
 
 
-@app.delete("/api/teammate/<n>")
+@app.delete("/api/teammate/<name>")
 def api_delete_teammate(n: str):
     """Permanently delete a custom teammate. Built-in teammates cannot be deleted."""
     u = current_user()
@@ -4211,8 +4211,9 @@ def api_create_teammate():
     return jsonify({"ok": True, "teammate": t})
 
 
-@app.get("/api/teammate/<n>")
-def api_get_teammate(name: str):
+@app.get("/api/teammate/<name>")
+def api_get_teammate(n: str):
+    name = n
     uname = _get_session_username()
     reg = load_registry(uname)
     installed = reg.get("installed", {})
@@ -4228,8 +4229,9 @@ def api_get_teammate(name: str):
     }})
 
 
-@app.post("/api/teammate/<n>")
-def api_update_teammate(name: str):
+@app.post("/api/teammate/<name>")
+def api_update_teammate(n: str):
+    name = n
     uname = _get_session_username()
     reg = load_registry(uname)
     installed = reg.get("installed", {})
