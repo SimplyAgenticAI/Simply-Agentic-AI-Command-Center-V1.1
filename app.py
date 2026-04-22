@@ -9996,8 +9996,6 @@ label         { font-size: 14px !important; }
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-high {
-  background: rgba(139,92,246,.75) !important;
-  color: #f5f3ff !important;
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-medium {
