@@ -2036,35 +2036,85 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
 
-# Aliases for teammate names — handles common mishearings/misspellings.
-# Keys are lowercase aliases, values are the canonical installed name.
+# Alias map: lowercase spoken/misheard word -> canonical installed name.
+# Mirrors the JS TEAMMATE_ALIASES in the frontend.
 TEAMMATE_ALIASES: Dict[str, str] = {
-    "atlas":  "Atlis",   # very common speech-to-text mishearing
-    "atlis":  "Atlis",   # exact match (lowercase)
-    "atliss": "Atlis",   # occasional extra-s mishearing
-    "alice":  "Atlis",   # phonetic near-miss
+    # Atlis variants
+    "atlas":     "Atlis",
+    "atlis":     "Atlis",
+    "atliss":    "Atlis",
+    "altas":     "Atlis",
+    "altis":     "Atlis",
+    "otlis":     "Atlis",
+    "otlas":     "Atlis",
+    "alice":     "Atlis",
+    # Alex variants
+    "alexander": "Alex",
+    "alexis":    "Alex",
+    "alec":      "Alex",
+    "alek":      "Alex",
+    # Willow variants
+    "willo":     "Willow",
+    "willa":     "Willow",
+    # Ava variants
+    "eva":       "Ava",
+    "avah":      "Ava",
+    # Orion variants
+    "orian":     "Orion",
+    "oreon":     "Orion",
+    "orieon":    "Orion",
+    "arion":     "Orion",
+    "ryan":      "Orion",
+    # Sunshine variants
+    "sunny":     "Sunshine",
+    "sunshyne":  "Sunshine",
+    # Luna variants
+    "loona":     "Luna",
+    "lunah":     "Luna",
+    "lena":      "Luna",
 }
 
 
+def _levenshtein(a: str, b: str) -> int:
+    """Compute Levenshtein edit distance for fuzzy name matching."""
+    m, n = len(a), len(b)
+    if not m: return n
+    if not n: return m
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev = dp[:]
+        dp[0] = i
+        for j in range(1, n + 1):
+            dp[j] = prev[j-1] if a[i-1] == b[j-1] else 1 + min(prev[j-1], prev[j], dp[j-1])
+    return dp[n]
+
+
 def _resolve_teammate_name(name: str, installed: Dict[str, Any]) -> str:
-    """Resolve a potentially aliased or misheard teammate name to the canonical
-    installed key. Returns the original name unchanged if no alias matches.
-    Priority: exact match in installed > alias map > original.
+    """Resolve misheard/aliased name to canonical installed key.
+    Priority: exact > alias > case-insensitive > fuzzy Levenshtein > alias fuzzy.
     """
     if not name:
         return name
-    # Exact match first (most common path)
+    nl = name.lower().strip()
     if name in installed:
         return name
-    # Alias lookup (case-insensitive)
-    canonical = TEAMMATE_ALIASES.get(name.lower().strip())
+    canonical = TEAMMATE_ALIASES.get(nl)
     if canonical and canonical in installed:
         return canonical
-    # Case-insensitive fallback across all installed names
-    nl = name.lower().strip()
-    for installed_name in installed:
-        if installed_name.lower() == nl:
-            return installed_name
+    for iname in installed:
+        if iname.lower() == nl:
+            return iname
+    for iname in installed:
+        il = iname.lower()
+        max_dist = 1 if len(il) <= 4 else 2
+        if _levenshtein(nl, il) <= max_dist:
+            return iname
+    for alias, canonical in TEAMMATE_ALIASES.items():
+        if canonical not in installed:
+            continue
+        max_dist = 1 if len(alias) <= 4 else 2
+        if _levenshtein(nl, alias) <= max_dist:
+            return canonical
     return name
 
 
@@ -4771,7 +4821,6 @@ def _api_followup_impl(data):
 
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
-    # Resolve aliases (e.g. "Atlas" -> "Atlis") before any lookup
     name = _resolve_teammate_name(name, installed)
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
@@ -12963,55 +13012,224 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // Teammate name aliases — handles speech-to-text mishearings.
-    // Maps lowercase alias -> canonical installed name.
-    const TEAMMATE_ALIASES_JS = {
-      "atlas":  "Atlis",
-      "atlis":  "Atlis",
-      "atliss": "Atlis",
-      "alice":  "Atlis",
+    
+    // ============================================================
+    // TEAMMATE NAME RECOGNITION ENGINE
+    // Handles: exact match, aliases, phonetic variants, partial
+    // match, and common speech-to-text substitutions.
+    // ============================================================
+
+    // Static alias map: lowercase spoken word -> canonical name.
+    // Add entries here whenever a name gets misheard.
+    const TEAMMATE_ALIASES = {
+      // Atlis variants
+      "atlas":    "Atlis",
+      "atlis":    "Atlis",
+      "atliss":   "Atlis",
+      "atlas's":  "Atlis",
+      "atliss's": "Atlis",
+      "alice":    "Atlis",
+      "altas":    "Atlis",
+      "altis":    "Atlis",
+      "otlis":    "Atlis",
+      "otlas":    "Atlis",
+      // Alex variants
+      "alex":     "Alex",
+      "alexander":"Alex",
+      "alexis":   "Alex",
+      "alec":     "Alex",
+      "alek":     "Alex",
+      // Willow variants
+      "willow":   "Willow",
+      "willo":    "Willow",
+      "willa":    "Willow",
+      "willo's":  "Willow",
+      // Ava variants
+      "ava":      "Ava",
+      "ava's":    "Ava",
+      "eva":      "Ava",
+      "avah":     "Ava",
+      // Orion variants
+      "orion":    "Orion",
+      "orian":    "Orion",
+      "oreon":    "Orion",
+      "orieon":   "Orion",
+      "ryan":     "Orion",   // common STT mishearing
+      "arion":    "Orion",
+      // Sunshine variants
+      "sunshine":  "Sunshine",
+      "sun shine": "Sunshine",
+      "son shine": "Sunshine",
+      "sunshyne":  "Sunshine",
+      "sunny":     "Sunshine",
+      // Luna variants
+      "luna":     "Luna",
+      "loona":    "Luna",
+      "lunah":    "Luna",
+      "lena":     "Luna",
     };
 
-    function resolveTeammateName(raw){
-      if(!raw) return raw;
-      const inst = (state && state.installed) ? state.installed : {};
-      if(inst[raw]) return raw;
-      const canonical = TEAMMATE_ALIASES_JS[raw.toLowerCase().trim()];
-      if(canonical && inst[canonical]) return canonical;
-      const rl = raw.toLowerCase().trim();
-      for(const k of Object.keys(inst)){
-        if(k.toLowerCase() === rl) return k;
-      }
-      return raw;
+    // Double-Metaphone-lite: reduce a word to its rough phonetic code.
+    // Not a full implementation — tuned for the 7 teammate names.
+    function _phoneticCode(word) {
+      let s = (word || "").toLowerCase()
+        .replace(/[^a-z]/g, "");
+      if(!s) return "";
+
+      // Initial pair rules
+      s = s.replace(/^kn/, "n")
+           .replace(/^gn/, "n")
+           .replace(/^ae/, "e")
+           .replace(/^wr/, "r")
+           .replace(/^wh/, "w");
+
+      // Vowel normalisation — collapse all vowels to "a"
+      s = s.replace(/[aeiouy]+/g, "a");
+
+      // Consonant equivalences
+      s = s.replace(/ck/g, "k")
+           .replace(/[sz]/g, "s")
+           .replace(/[dt]/g, "t")
+           .replace(/[bp]/g, "b")
+           .replace(/[fvph]/g, "f")
+           .replace(/[ckg]/g, "k")
+           .replace(/[mn]/g, "m")
+           .replace(/[lr]/g, "l")
+           .replace(/[wv]/g, "w")
+           .replace(/th/g, "t")
+           .replace(/sh/g, "s")
+           .replace(/ch/g, "s")
+           .replace(/qu/g, "k")
+           .replace(/x/g, "ks")
+           .replace(/j/g, "y");
+
+      // Deduplicate consecutive identical chars
+      s = s.replace(/(.)\1+/g, "$1");
+
+      // Drop trailing vowel-equivalents
+      s = s.replace(/a$/, "");
+
+      return s;
     }
 
-    function findFirstNameMention(text){
-      const names = getInstalledNamesInOrder();
-      const lower = (text || "").toLowerCase();
-      let best = null;
-
-      // Build search list: installed names + their aliases
-      const inst = (state && state.installed) ? state.installed : {};
-      const searchList = [];
-      for(const name of names){
-        if(!name) continue;
-        searchList.push({ word: name.toLowerCase(), resolvedName: name });
+    // Pre-compute phonetic codes for all installed names.
+    function _buildPhoneticMap() {
+      const inst = (typeof state !== "undefined" && state && state.installed)
+                   ? state.installed : {};
+      const map  = {};   // phoneticCode -> canonicalName
+      for(const name of Object.keys(inst)) {
+        const code = _phoneticCode(name);
+        if(code) map[code] = name;
       }
-      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES_JS)){
-        if(inst[canonical]) searchList.push({ word: alias, resolvedName: canonical });
-      }
-
-      for(const { word: nl, resolvedName: name } of searchList){
-        if(!nl) continue;
-        const rx = new RegExp("\\b" + nl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
-        const m = rx.exec(lower);
-        if(m && m.index >= 0){
-          if(best === null || m.index < best.idx){
-            best = { name, idx: m.index };
-          }
+      // Also encode alias targets so Atlas/Atlis share code
+      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES)) {
+        if(inst[canonical]) {
+          const code = _phoneticCode(alias);
+          if(code && !map[code]) map[code] = canonical;
         }
       }
+      return map;
+    }
+
+    // Levenshtein distance — for fuzzy fallback.
+    function _lev(a, b) {
+      const m = a.length, n = b.length;
+      if(!m) return n;
+      if(!n) return m;
+      const dp = [];
+      for(let i = 0; i <= m; i++) { dp[i] = [i]; }
+      for(let j = 0; j <= n; j++) { dp[0][j] = j; }
+      for(let i = 1; i <= m; i++) {
+        for(let j = 1; j <= n; j++) {
+          dp[i][j] = (a[i-1] === b[j-1])
+            ? dp[i-1][j-1]
+            : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+        }
+      }
+      return dp[m][n];
+    }
+
+    // Core resolution: given a single spoken word, return canonical name or null.
+    function _resolveWord(word) {
+      if(!word) return null;
+      const inst = (typeof state !== "undefined" && state && state.installed)
+                   ? state.installed : {};
+      const wl = word.toLowerCase().trim();
+
+      // 1. Exact installed name (case-insensitive)
+      for(const name of Object.keys(inst)) {
+        if(name.toLowerCase() === wl) return name;
+      }
+
+      // 2. Static alias map
+      const aliasHit = TEAMMATE_ALIASES[wl];
+      if(aliasHit && inst[aliasHit]) return aliasHit;
+
+      // 3. Phonetic match
+      const phoneticMap = _buildPhoneticMap();
+      const wCode = _phoneticCode(wl);
+      if(wCode && phoneticMap[wCode]) return phoneticMap[wCode];
+
+      // 4. Fuzzy Levenshtein — allow 1 edit for short names, 2 for longer
+      for(const name of Object.keys(inst)) {
+        const nl = name.toLowerCase();
+        const maxDist = nl.length <= 4 ? 1 : 2;
+        if(_lev(wl, nl) <= maxDist) return name;
+      }
+
+      // 5. Alias fuzzy
+      for(const [alias, canonical] of Object.entries(TEAMMATE_ALIASES)) {
+        if(!inst[canonical]) continue;
+        const maxDist = alias.length <= 4 ? 1 : 2;
+        if(_lev(wl, alias) <= maxDist) return canonical;
+      }
+
+      return null;
+    }
+
+    // Scan text for ANY mention of a teammate name (word by word + phrases).
+    // Returns { name: canonicalName, idx: charIndex } or null.
+    function findFirstNameMention(text) {
+      if(!text) return null;
+      const lower = text.toLowerCase();
+      const words = lower.split(/\s+/);
+      let best = null;
+
+      let charPos = 0;
+      for(let i = 0; i < words.length; i++) {
+        const raw = words[i].replace(/[''s,.!?]+$/, ""); // strip trailing punctuation/possessives
+        const wordStart = lower.indexOf(raw, charPos);
+
+        // Single-word resolve
+        const hit = _resolveWord(raw);
+        if(hit) {
+          if(best === null || wordStart < best.idx) {
+            best = { name: hit, idx: wordStart };
+          }
+          if(charPos < wordStart) charPos = wordStart;
+          continue;
+        }
+
+        // Two-word phrase (e.g. "sun shine" -> Sunshine)
+        if(i + 1 < words.length) {
+          const phrase = raw + " " + words[i+1].replace(/[''s,.!?]+$/, "");
+          const phraseHit = _resolveWord(phrase.replace(/\s+/, ""));
+          if(phraseHit) {
+            if(best === null || wordStart < best.idx) {
+              best = { name: phraseHit, idx: wordStart };
+            }
+          }
+        }
+
+        if(wordStart >= 0) charPos = wordStart + raw.length;
+      }
+
       return best;
+    }
+
+    // Resolve a raw name string to its canonical installed name.
+    function resolveTeammateName(raw) {
+      return _resolveWord((raw || "").trim()) || raw;
     }
 
     function removeNameOnce(text, name){
@@ -23793,33 +24011,20 @@ ADD_UI_POLISH_V8 = r'''
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    // Build search list: seat names + aliases
-    const aliasMap = typeof TEAMMATE_ALIASES_JS !== "undefined" ? TEAMMATE_ALIASES_JS : {};
-    const searchSeats = []; // [{word, canonicalName}]
-    for(const name of seats){
-      if(!name) continue;
-      searchSeats.push({ word: name.toLowerCase(), canonicalName: name });
-    }
-    for(const [alias, canonical] of Object.entries(aliasMap)){
-      if(seats.includes(canonical)) searchSeats.push({ word: alias, canonicalName: canonical });
-    }
-
-    for(const { word: n, canonicalName: name } of searchSeats){
-      if(!n) continue;
-      // Allow "hey atlas" or "atlas" to resolve to "Atlis"
-      if(s === n || s.includes(" " + n + " ") || s.startsWith(n + " ") || s.endsWith(" " + n) || s.includes(n)){
-        try{
-          if(typeof window.selectSeat === "function"){
-            window.selectSeat(name);
-          }else if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(name);
-          }
-          if(typeof window.forceSeatSelectUI === "function"){
-            window.forceSeatSelectUI(name);
-          }
-        }catch(_){}
-        return true;
-      }
+    // Use the full recognition engine — handles phonetic variants, aliases, fuzzy
+    const hit = findFirstNameMention(s);
+    if(hit){
+      try{
+        if(typeof window.selectSeat === "function"){
+          window.selectSeat(hit.name);
+        }else if(typeof window.forceSeatSelectUI === "function"){
+          window.forceSeatSelectUI(hit.name);
+        }
+        if(typeof window.forceSeatSelectUI === "function"){
+          window.forceSeatSelectUI(hit.name);
+        }
+      }catch(_){}
+      return true;
     }
     return false;
   }
@@ -25785,7 +25990,6 @@ def api_followup_stream():
 
     reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
-    # Resolve aliases (e.g. "Atlas" -> "Atlis") before any lookup
     name = _resolve_teammate_name(name, installed)
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
