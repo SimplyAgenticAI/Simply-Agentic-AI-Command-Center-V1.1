@@ -10250,8 +10250,12 @@ label         { font-size: 14px !important; }
 .wcal-upcoming { font-size:11px; }
 .wcal-upcoming-item { padding:4px 0; border-bottom:1px solid rgba(42,58,106,.25); cursor:pointer; }
 .wcal-upcoming-item:hover { color:#c4b5fd; }
+.wcal-upcoming-item.overdue .wcal-upcoming-title { color:#fca5a5; }
+.wcal-upcoming-item.overdue .wcal-upcoming-time { color:rgba(252,165,165,.7); }
 .wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
 .wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#f87171; line-height:1; pointer-events:none; }
+.wcal-event[data-etype="task"].task-overdue:not(.is-done) { border-left-color:#f87171 !important; }
 /* Detail Panel (Motion-style right sidebar) */
 .wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
@@ -14407,6 +14411,16 @@ Challenge weak assumptions. Surface risks.`;
         const nextFollowup = c.next_followup || '';
         const isOverdue = nextFollowup && nextFollowup < today;
         const isDueToday = nextFollowup && nextFollowup === today;
+        // Last contacted age badge
+        let lastContactBadge = '';
+        if(lastContact){
+          const diffDays = Math.floor((new Date(today) - new Date(lastContact)) / 86400000);
+          let ageLabel, ageColor;
+          if(diffDays <= 3){ ageLabel = diffDays===0?'Today':diffDays+'d ago'; ageColor='#6ee7b7'; }
+          else if(diffDays <= 14){ ageLabel = diffDays+'d ago'; ageColor='#fbbf24'; }
+          else { ageLabel = diffDays < 60 ? diffDays+'d ago' : Math.floor(diffDays/30)+'mo ago'; ageColor='#f87171'; }
+          lastContactBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(0,0,0,.25);color:${ageColor};border:1px solid ${ageColor}40;white-space:nowrap;" title="Last contacted ${lastContact}">${ageLabel}</span>`;
+        }
         const followupLabel = nextFollowup
           ? (isOverdue
               ? `<span style="color:#f87171;font-weight:700;">⚠ Follow-up overdue (${nextFollowup})</span>`
@@ -14421,9 +14435,12 @@ Challenge weak assumptions. Surface risks.`;
           <div class="diagCard" style="padding:10px;${isOverdue?'border-left:3px solid #f87171;':''}${isDueToday?'border-left:3px solid #fbbf24;':''}">
             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
               <div>
-                <div style="font-weight:700;">${name || '(no name)'} <span style="opacity:.75; font-weight:500;">${status ? '• '+status : ''}</span></div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <span style="font-weight:700;">${name || '(no name)'} <span style="opacity:.75; font-weight:500;">${status ? '• '+status : ''}</span></span>
+                  ${lastContactBadge}
+                </div>
                 <div class="tiny" style="opacity:.9;">${email} ${stage ? '• ' + stage : ''}</div>
-                ${(lastContactLabel||followupLabel)?`<div class="tiny" style="margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;">${lastContactLabel}${followupLabel}</div>`:''}
+                ${followupLabel?`<div class="tiny" style="margin-top:5px;">${followupLabel}</div>`:''}
                 <div style="margin-top:6px;">${tags}</div>
               </div>
               <div style="display:flex; gap:8px; align-items:flex-start;">
@@ -15919,18 +15936,22 @@ function wcalTaskHtml(task, extraStyle=''){
   const prio=task.priority||'high';
   const prioCls=task.done?'':' task-prio-'+prio;
   const doneCls=task.done?' is-done':'';
+  const todayStr=ymd(new Date());
+  const isOverdue=!task.done&&task.date&&task.date<todayStr;
+  const overdueCls=isOverdue?' task-overdue':'';
   const title=(task.title||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const isRecur=(task.recurring&&task.recurring!=='none');
   const recurBadge=isRecur?`<span class="wcal-recur-badge" title="Repeats ${task.recurring}">↻</span>`:'';
   const hasAutoEmail=!!(task.on_complete_teammate&&task.on_complete_client_email);
   const autoEmailBadge=hasAutoEmail?'<span style="position:absolute;bottom:2px;right:20px;font-size:9px;opacity:.75;" title="Auto-email on complete">✉</span>':'';
+  const overdueBadge=isOverdue?'<span class="wcal-overdue-badge" title="Overdue">!</span>':'';
   const durLabel=height>40?` · ${task.duration||30}m`:'';
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}${overdueCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
   h+=autoEmailBadge;
-
+  h+=overdueBadge;
   h+='</div>';
   return h;
 }
@@ -17604,6 +17625,10 @@ function wcalRenderUpcoming(){
   const box=document.getElementById('wcalUpcoming'); if(!box) return;
   const now=new Date(); const todayStr=ymd(now);
   const items=[];
+  // Overdue incomplete tasks first
+  const overdueItems=[];
+  cal.tasks.filter(t=>!t.done&&t.date&&t.date<todayStr).forEach(t=>overdueItems.push({type:'local-task',dt:t.date,task:t,overdue:true}));
+  overdueItems.sort((a,b)=>a.task.date.localeCompare(b.task.date));
   Object.keys(cal.events).sort().forEach(dt=>{
     if(dt<todayStr) return;
     (cal.events[dt]||[]).forEach(ev=>{ if(ev.start) items.push({type: ev._gcalType||'task', dt, ev}); });
@@ -17614,13 +17639,16 @@ function wcalRenderUpcoming(){
     const bStr=b.type==='local-task'?b.task.date+'T'+(b.task.start||'09:00'):b.ev.start;
     return aStr.localeCompare(bStr);
   });
-  if(!items.length){ box.innerHTML='<div class="wcal-upcoming-time">No upcoming</div>'; return; }
-  box.innerHTML=items.slice(0,12).map(item=>{
+  const allItems=[...overdueItems,...items];
+  if(!allItems.length){ box.innerHTML='<div class="wcal-upcoming-time">No upcoming</div>'; return; }
+  box.innerHTML=allItems.slice(0,14).map(item=>{
     if(item.type==='local-task'){
       const t=item.task;
       const doneMark=t.done?'✓ ':'';
       const title=(t.title||'Task').replace(/</g,'&lt;');
-        return '<div class="wcal-upcoming-item" onclick="(function(){wcalSelectDate(&quot;'+t.date+'&quot;);setTimeout(function(){var tk=cal&&cal.tasks&&cal.tasks.find(function(x){return x.id===&quot;'+t.id+'&quot;;});if(tk&&typeof wcalShowTaskDetail===&quot;function&quot;)wcalShowTaskDetail(tk);},120);})()"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+t.date+' · '+(t.start||'')+'</div></div>';
+      const timeLabel=item.overdue?'⚠ Overdue · '+t.date:t.date+' · '+(t.start||'');
+      const overdueCls=item.overdue?' overdue':'';
+        return '<div class="wcal-upcoming-item'+overdueCls+'" onclick="(function(){wcalSelectDate(&quot;'+t.date+'&quot;);setTimeout(function(){var tk=cal&&cal.tasks&&cal.tasks.find(function(x){return x.id===&quot;'+t.id+'&quot;;});if(tk&&typeof wcalShowTaskDetail===&quot;function&quot;)wcalShowTaskDetail(tk);},120);})()"><div class="wcal-upcoming-title">☑ '+doneMark+title+'</div><div class="wcal-upcoming-time">'+timeLabel+'</div></div>';
     } else if(item.type==='task'){
       // gcal item shown as task
       const ev=item.ev;
@@ -18377,11 +18405,28 @@ $("saveFramework").onclick = async () => {
     el.addEventListener("keydown", (e) => {
       if(e.key !== "Enter") return;
       if(e.shiftKey) return;
-
+      // Ctrl+Enter always sends; plain Enter sends only for non-followMsg
+      if(id === "followMsg" && !e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       try{ fn(); }catch(err){}
     });
   }
+
+  // Character counter for followMsg
+  (function(){
+    const ta = document.getElementById("followMsg");
+    if(!ta) return;
+    const MAX = 4000;
+    const wrap = ta.parentElement;
+    if(wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+    const ctr = document.createElement('span');
+    ctr.className = 'wcal-char-counter';
+    ctr.style.cssText = 'position:absolute;bottom:6px;right:48px;font-size:10px;font-weight:600;color:rgba(100,120,160,.45);pointer-events:none;transition:color .2s,opacity .2s;opacity:0;line-height:1;z-index:2;';
+    if(wrap) wrap.appendChild(ctr);
+    function upd(){ var n=ta.value.length; if(!n){ctr.style.opacity='0';return;} var p=n/MAX; ctr.textContent=n+'/'+MAX; ctr.style.opacity='1'; ctr.style.color=p>=1?'rgba(248,113,113,.95)':p>=.85?'rgba(234,179,8,.85)':'rgba(100,120,160,.45)'; }
+    ta.addEventListener('input', upd);
+    ta.addEventListener('blur', function(){ if(!ta.value.length) ctr.style.opacity='0'; });
+  })();
 
   enableEnterSend("opPrompt", conveneAll);
   enableEnterSend("followMsg", sendFollow);
