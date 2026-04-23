@@ -16957,6 +16957,7 @@ window.wcalDetDeleteTask = async function(taskId){
   try{
     await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
     cal.tasks=cal.tasks.filter(t=>t.id!==taskId);
+    if(cal._rawTasks) cal._rawTasks=cal._rawTasks.filter(t=>t.id!==taskId);
     document.getElementById('wcalDetail')?.classList.remove('open');
     wcalRefresh(); wcalRenderUpcoming(); showToast('Task deleted');
   }catch(e){ showToast('Delete failed'); }
@@ -17091,6 +17092,7 @@ window.wcalDetGcalTaskPriorityChange = function(val){
           const d = await res.json();
           if(d && d.ok !== false){
             cal.tasks = cal.tasks.filter(t=>t.id!==tid);
+            if(cal._rawTasks) cal._rawTasks=cal._rawTasks.filter(t=>t.id!==tid);
             const panel = document.getElementById('wcalDetail');
             if(panel && panel._currentTask && panel._currentTask.id===tid) panel.classList.remove('open');
             wcalRefresh(); wcalRenderUpcoming(); showToast('✓ Task removed');
@@ -17386,28 +17388,6 @@ const wcalDrag={
     const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
     const newStart=pad2(newHH)+':'+pad2(newMM);
     if(newStart===origStart && targetDate===origDate) return;
-
-    // ── OVERLAP CHECK: block move if another task already occupies this slot ──
-    if(etype==='task'){
-      const dur=origDur||30;
-      const newEnd=targetMins+dur;
-      const conflict=cal.tasks.find(t=>
-        t.id!==tid &&
-        !t.done &&
-        t.date===targetDate &&
-        (function(){
-          const [th,tm]=(t.start||'09:00').split(':').map(Number);
-          const tStart=th*60+tm;
-          const tEnd=tStart+(t.duration||30);
-          return newEnd>tStart && targetMins<tEnd;
-        })()
-      );
-      if(conflict){
-        showToast('⚠ Time slot taken by "'+((conflict.title||'task').slice(0,28))+'". Choose another time.');
-        wcalRefresh();
-        return;
-      }
-    }
 
     if(etype==='task'){
       try{
@@ -17885,6 +17865,7 @@ async function wcalAddTask(){
     // Re-expand so recurring instances appear immediately across all dates
     const base=cal.tasks.filter(t=>!t._isRecurInstance);
     base.push(data.task);
+    cal._rawTasks=base;
     cal.tasks=wcalExpandRecurring(base);
     document.getElementById('wcalTaskTitle').value='';
     if(st) st.innerText='✓ Task added'; showToast('Task added');
