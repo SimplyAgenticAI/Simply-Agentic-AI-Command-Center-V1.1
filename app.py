@@ -17277,6 +17277,8 @@ function wcalPlayActivationSound(){
 }
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
+// mousemove + mouseup are wired ONCE at module level (not inside wcalDragWireGrid)
+// so repeated grid re-renders never accumulate duplicate document listeners.
 const wcalDrag={
   active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
@@ -17284,19 +17286,163 @@ const wcalDrag={
   clickOffsetPx:0,
   startY:0, startX:0,
   _targetDate:null, _targetMins:null,
+  _saving:false,   // guard: prevents double-save if mouseup fires twice
 };
 
-function wcalDragWireGrid(grid){
-  const wrap=document.getElementById('wcalGridWrap');
+// ── Singleton mousemove handler ───────────────────────────────
+document.addEventListener('mousemove',function(e){
+  if(!wcalDrag.el) return;
+  const dy=Math.abs(e.clientY-wcalDrag.startY);
+  const dx=Math.abs(e.clientX-wcalDrag.startX);
+  if(!wcalDrag.active && dy<6 && dx<6) return;
 
+  const wrap=document.getElementById('wcalGridWrap');
+  if(!wrap) return;
+
+  if(!wcalDrag.active){
+    wcalDrag.active=true;
+    wcalDrag.el.style.opacity='0.5';
+    wcalDrag.el.style.zIndex='20';
+    wcalDrag.el.style.cursor='grabbing';
+    wcalDrag.el.style.pointerEvents='none';
+    wcalDrag._suppressNextClick=true;
+    const tip=document.createElement('div');
+    tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
+    document.body.appendChild(tip);
+    wcalDrag.tip=tip;
+  }
+
+  const wrapRect=wrap.getBoundingClientRect();
+  const scrolled=wrap.scrollTop;
+
+  // Find the grid from the dragged element's current parent chain
+  const grid=document.getElementById('wcalGrid');
+  if(!grid) return;
+  const cols=grid.querySelectorAll('.wcal-day-col');
+  let targetCol=null, targetDate=null;
+  cols.forEach(col=>{
+    const r=col.getBoundingClientRect();
+    if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
+  });
+  if(!targetCol){
+    const dayArea=grid.querySelector('[data-date]');
+    if(dayArea){
+      const r=dayArea.getBoundingClientRect();
+      if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
+    }
+  }
+  if(!targetCol||!targetDate) return;
+
+  const rawY=(e.clientY-wrapRect.top)+scrolled-wcalDrag.clickOffsetPx;
+  const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15,23*60));
+
+  const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
+  if(origCol && targetCol!==origCol) targetCol.appendChild(wcalDrag.el);
+  wcalDrag.el.style.top=startMins+'px';
+  wcalDrag.el.style.left='3px';
+  wcalDrag.el.style.right='3px';
+  wcalDrag.el.style.position='absolute';
+
+  if(wcalDrag.tip){
+    const hh=Math.floor(startMins/60),mm=startMins%60;
+    const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
+    wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
+    wcalDrag.tip.style.left=(e.clientX+14)+'px';
+    wcalDrag.tip.style.top=(e.clientY-26)+'px';
+  }
+
+  wcalDrag._targetDate=targetDate;
+  wcalDrag._targetMins=startMins;
+});
+
+// ── Singleton mouseup handler ─────────────────────────────────
+document.addEventListener('mouseup',async function(e){
+  if(!wcalDrag.el) return;
+  const wasDragging=wcalDrag.active;
+
+  // Restore element styles immediately
+  wcalDrag.el.style.opacity='';
+  wcalDrag.el.style.zIndex='';
+  wcalDrag.el.style.cursor='';
+  wcalDrag.el.style.pointerEvents='';
+
+  if(wcalDrag._suppressNextClick){
+    wcalDrag._suppressNextClick=false;
+    const el2=wcalDrag.el;
+    const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
+    wcalDrag.el.addEventListener('click',suppressHandler,true);
+  }
+
+  if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
+
+  const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
+  const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
+  const {etype,tid,eid,origDate,origStart,origDur}=wcalDrag;
+
+  // Reset state BEFORE any await so a second mouseup event is a no-op
+  Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_saving:false});
+
+  if(!wasDragging||targetMins==null) return;
+
+  const newHH=Math.floor(targetMins/60),newMM=targetMins%60;
+  const newStart=pad2(newHH)+':'+pad2(newMM);
+  if(newStart===origStart && targetDate===origDate) return;
+
+  if(etype==='task'){
+    try{
+      const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date:targetDate,start:newStart})
+      });
+      const d=await res.json();
+      if(!d.ok) throw new Error(d.error||'Move failed');
+      // Update base task in-memory (via _rawTasks) then re-expand — no extra fetch needed
+      if(cal._rawTasks){
+        const base=cal._rawTasks.find(t=>t.id===tid);
+        if(base){ base.date=targetDate; base.start=newStart; }
+        cal.tasks=wcalExpandRecurring(cal._rawTasks);
+      } else {
+        // Fallback: update the first matching task object directly
+        const t=cal.tasks.find(x=>x.id===tid&&!x._isRecurInstance);
+        if(t){ t.date=targetDate; t.start=newStart; }
+      }
+      showToast('Task moved');
+      wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
+    }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
+
+  } else {
+    let ev=null;
+    Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
+      if((e2.id||e2.summary||'')===eid) ev=e2;
+    }));
+    if(!ev){ wcalRefresh(); return; }
+    const newStartDt=new Date(targetDate+'T'+newStart+':00');
+    const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
+    const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
+    let resend=false;
+    if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
+    try{
+      if(!ev.id) throw new Error('No event ID — refresh and try again');
+      const res=await fetch('/api/calendar/move_event',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({event_id:ev.id,start:newStartDt.toISOString(),end:newEndDt.toISOString(),timezone:cal.tz,resend})
+      });
+      const d=await res.json();
+      if(!d.ok) throw new Error(d.error||'Move failed');
+      showToast('Event moved'+(resend?' · Invite resent':''));
+      await wcalFetchCurrentRange(); wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
+    }catch(err){ showToast('Move failed: '+err.message); wcalRefresh(); }
+  }
+});
+
+// ── Wire mousedown on each event element (called after every render) ──
+function wcalDragWireGrid(grid){
   grid.querySelectorAll('.wcal-event').forEach(el=>{
     if(el._wcalDragWired) return;
     el._wcalDragWired=true;
     el.addEventListener('mousedown',function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
-      // Do NOT call preventDefault here — that would kill the onclick/detail-open.
-      // We only take over if the user actually drags (detected in mousemove).
       const etype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
@@ -17306,9 +17452,8 @@ function wcalDragWireGrid(grid){
       const wrapEl=document.getElementById('wcalGridWrap');
       const wrapTop=wrapEl?wrapEl.getBoundingClientRect().top:0;
       const wrapScroll=wrapEl?wrapEl.scrollTop:0;
-      // clickOffsetPx = how many grid-pixels from the grid's scroll-origin the grabbed point is
-      const clickOffsetPx=(e.clientY - wrapTop) + wrapScroll - parseFloat(el.style.top||'0');
-      let origStart='09:00', origDur=30;
+      const clickOffsetPx=(e.clientY-wrapTop)+wrapScroll-parseFloat(el.style.top||'0');
+      let origStart='09:00',origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
         if(task){ origStart=task.start||'09:00'; origDur=task.duration||30; }
@@ -17330,160 +17475,10 @@ function wcalDragWireGrid(grid){
       wcalDrag.clickOffsetPx=clickOffsetPx;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
+      wcalDrag._saving=false;
     });
-  });
-
-  if(grid._wcalMoveWired) return;
-  grid._wcalMoveWired=true;
-
-  document.addEventListener('mousemove',function(e){
-    if(!wcalDrag.el) return;
-    const dy=Math.abs(e.clientY-wcalDrag.startY);
-    const dx=Math.abs(e.clientX-wcalDrag.startX);
-    if(!wcalDrag.active && dy<6 && dx<6) return;
-
-    if(!wcalDrag.active){
-      wcalDrag.active=true;
-      wcalDrag.el.style.opacity='0.5';
-      wcalDrag.el.style.zIndex='20';
-      wcalDrag.el.style.cursor='grabbing';
-      wcalDrag.el.style.pointerEvents='none';
-      // Suppress the upcoming click so the detail panel doesn't open on drag-release
-      wcalDrag._suppressNextClick=true;
-      // Time tooltip
-      const tip=document.createElement('div');
-      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
-      document.body.appendChild(tip);
-      wcalDrag.tip=tip;
-    }
-
-    // ── TIME CALCULATION ──────────────────────────────────────────
-    // Use the wrap container's top edge as the stable reference so the
-    // calculation is not affected by the sticky header's visual offset.
-    // pixelsFromGridTop = (mouse viewport Y) - (wrap viewport top) + scrollTop
-    // Then subtract clickOffsetPx so the block's grabbed point stays under the cursor.
-    const wrapRect=wrap?wrap.getBoundingClientRect():{top:0,left:0};
-    const scrolled=wrap?wrap.scrollTop:0;
-
-    // Find which day column the mouse is over (for cross-day drag)
-    const cols=grid.querySelectorAll('.wcal-day-col');
-    let targetCol=null, targetDate=null;
-    cols.forEach(col=>{
-      const r=col.getBoundingClientRect();
-      if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
-    });
-    if(!targetCol){
-      const dayArea=grid.querySelector('[data-date]');
-      if(dayArea){
-        const r=dayArea.getBoundingClientRect();
-        if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
-      }
-    }
-    if(!targetCol||!targetDate) return;
-
-    const rawY = (e.clientY - wrapRect.top) + scrolled - wcalDrag.clickOffsetPx;
-    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
-
-    // Move the original block visually (no ghost clone)
-    const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
-    if(origCol && targetCol !== origCol){
-      targetCol.appendChild(wcalDrag.el);
-    }
-    wcalDrag.el.style.top=startMins+'px';
-    wcalDrag.el.style.left='3px';
-    wcalDrag.el.style.right='3px';
-    wcalDrag.el.style.position='absolute';
-
-    // Update tooltip
-    if(wcalDrag.tip){
-      const hh=Math.floor(startMins/60), mm=startMins%60;
-      const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
-      wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
-      wcalDrag.tip.style.left=(e.clientX+14)+'px';
-      wcalDrag.tip.style.top=(e.clientY-26)+'px';
-    }
-
-    wcalDrag._targetDate=targetDate;
-    wcalDrag._targetMins=startMins;
-  });
-
-  document.addEventListener('mouseup',async function(e){
-    if(!wcalDrag.el) return;
-    const wasDragging=wcalDrag.active;
-
-    // Restore element styles
-    wcalDrag.el.style.opacity='';
-    wcalDrag.el.style.zIndex='';
-    wcalDrag.el.style.cursor='';
-    wcalDrag.el.style.pointerEvents='';
-    // If we actually dragged, suppress the next click event so detail panel doesn't open
-    if(wcalDrag._suppressNextClick){
-      wcalDrag._suppressNextClick=false;
-      const el2=wcalDrag.el;
-      const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
-      wcalDrag.el.addEventListener('click',suppressHandler,true);
-    }
-
-    // Remove tooltip
-    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
-
-    const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
-    const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
-
-    const { etype,tid,eid,origDate,origStart,origDur } = wcalDrag;
-    Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null});
-
-    // FIX: do NOT call wcalRefresh() on a plain click (no drag).
-    // Calling it here replaces grid.innerHTML synchronously, detaching the clicked
-    // element before the browser fires the click event — so onclick="wcalOpenDetail(this)"
-    // never runs. Return here and let the inline onclick open the detail panel naturally.
-    if(!wasDragging||targetMins==null){ return; }
-
-    const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
-    const newStart=pad2(newHH)+':'+pad2(newMM);
-    if(newStart===origStart && targetDate===origDate){ return; }
-
-    if(etype==='task'){
-      const task=cal.tasks.find(t=>t.id===tid); if(!task){ wcalRefresh(); return; }
-      try{
-        await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
-          method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({date:targetDate,start:newStart})
-        });
-        task.date=targetDate; task.start=newStart;
-        showToast('Task moved → '+targetDate+' '+newStart);
-        wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
-      }catch(err){ showToast('Move failed'); wcalRefresh(); }
-
-    } else {
-      let ev=null;
-      Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
-        if((e2.id||e2.summary||'')===eid) ev=e2;
-      }));
-      if(!ev){ wcalRefresh(); return; }
-      const newStartDt=new Date(targetDate+'T'+newStart+':00');
-      const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
-      const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
-      let resend=false;
-      if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
-      try{
-        if(ev.id){
-          const res=await fetch('/api/calendar/move_event',{
-            method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({event_id:ev.id,start:newStartDt.toISOString(),end:newEndDt.toISOString(),timezone:cal.tz,resend})
-          });
-          const d=await res.json();
-          if(!d.ok) throw new Error(d.error||'Move failed');
-        } else {
-          throw new Error('No event ID — refresh and try again');
-        }
-        showToast('Event moved'+(resend?' · Invite resent':''));
-        await wcalFetchCurrentRange(); wcalRefresh();
-      }catch(err){ showToast('Move failed: '+err.message); wcalRefresh(); }
-    }
   });
 }
-
 
 // ── Render week view ───────────────────────────────────────────
 function wcalRenderWeek(){
