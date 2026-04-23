@@ -2036,7 +2036,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_ORDER = ["Alex", "Willow", "Ava", "Orion", "Sunshine", "Luna", "Atlis"]
 
-TEAMMATE_ALIASES: Dict[str, str] = {
+TEAMMATE_ALIASES: Dict[str,str] = {
     "atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis",
     "otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis",
     "alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex",
@@ -2047,31 +2047,31 @@ TEAMMATE_ALIASES: Dict[str, str] = {
     "loona":"Luna","lunah":"Luna","lena":"Luna",
 }
 
-def _levenshtein(a: str, b: str) -> int:
-    m, n = len(a), len(b)
-    if not m: return n
-    if not n: return m
-    dp = list(range(n+1))
-    for i in range(1, m+1):
-        prev=dp[:]; dp[0]=i
-        for j in range(1, n+1):
+def _levenshtein(a:str,b:str)->int:
+    m,n=len(a),len(b)
+    if not m:return n
+    if not n:return m
+    dp=list(range(n+1))
+    for i in range(1,m+1):
+        prev=dp[:];dp[0]=i
+        for j in range(1,n+1):
             dp[j]=prev[j-1] if a[i-1]==b[j-1] else 1+min(prev[j-1],prev[j],dp[j-1])
     return dp[n]
 
-def _resolve_teammate_name(name: str, installed: Dict[str,Any]) -> str:
-    if not name: return name
-    nl = name.lower().strip()
-    if name in installed: return name
-    c = TEAMMATE_ALIASES.get(nl)
-    if c and c in installed: return c
+def _resolve_teammate_name(name:str,installed:Dict[str,Any])->str:
+    if not name:return name
+    nl=name.lower().strip()
+    if name in installed:return name
+    c=TEAMMATE_ALIASES.get(nl)
+    if c and c in installed:return c
     for k in installed:
-        if k.lower()==nl: return k
+        if k.lower()==nl:return k
     for k in installed:
         kl=k.lower()
-        if _levenshtein(nl,kl)<=(1 if len(kl)<=4 else 2): return k
+        if _levenshtein(nl,kl)<=(1 if len(kl)<=4 else 2):return k
     for alias,canon in TEAMMATE_ALIASES.items():
-        if canon not in installed: continue
-        if _levenshtein(nl,alias)<=(1 if len(alias)<=4 else 2): return canon
+        if canon not in installed:continue
+        if _levenshtein(nl,alias)<=(1 if len(alias)<=4 else 2):return canon
     return name
 
 
@@ -12969,142 +12969,131 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // NAME RECOGNITION  (exact → alias → fuzzy Levenshtein)
-    // ─────────────────────────────────────────────────────────────────────
-    const _NAME_ALIASES = {
-      // Atlis
+    // ═══════════════════════════════════════════════════════════════════════
+    // NAME RECOGNITION ENGINE  (alias → fuzzy → phonetic)
+    // ═══════════════════════════════════════════════════════════════════════
+    const _ALIASES = {
       "atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis",
       "otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis",
-      // Alex
       "alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex",
-      // Willow
       "willo":"Willow","willa":"Willow","wilco":"Willow",
-      // Ava
       "eva":"Ava","avah":"Ava",
-      // Orion
       "orian":"Orion","oreon":"Orion","arion":"Orion","orieon":"Orion","ryan":"Orion",
-      // Sunshine
       "sunny":"Sunshine","sunshyne":"Sunshine",
-      // Luna
       "loona":"Luna","lunah":"Luna","lena":"Luna",
     };
 
-    function _lev(a, b){
-      const m = a.length, n = b.length;
-      if(!m) return n; if(!n) return m;
-      let dp = Array.from({length:m+1},(_,i)=>i);
+    function _lev(a,b){
+      const m=a.length,n=b.length;
+      if(!m)return n; if(!n)return m;
+      let dp=Array.from({length:m+1},(_,i)=>i);
       for(let j=1;j<=n;j++){
-        let prev=dp[0]; dp[0]=j;
-        for(let i=1;i<=m;i++){
-          const t=dp[i];
-          dp[i]=a[i-1]===b[j-1]?prev:1+Math.min(prev,dp[i-1],dp[i]);
-          prev=t;
-        }
+        let prev=dp[0];dp[0]=j;
+        for(let i=1;i<=m;i++){const t=dp[i];dp[i]=a[i-1]===b[j-1]?prev:1+Math.min(prev,dp[i-1],dp[i]);prev=t;}
       }
       return dp[m];
     }
 
-    function _resolveSpokenWord(w){
-      // Strip punctuation / possessives from the spoken word
-      w = (w||"").toLowerCase().replace(/[''s,.!?;:]+$/,"").trim();
-      if(!w) return null;
-      const inst = (state&&state.installed) ? state.installed : {};
-
-      // 1. exact installed name (case-insensitive)
-      for(const k of Object.keys(inst)){
-        if(k.toLowerCase()===w) return k;
-      }
-      // 2. alias map
-      const a = _NAME_ALIASES[w];
-      if(a && inst[a]) return a;
-
-      // 3. fuzzy against installed names  (1 edit ≤4 chars, 2 edits otherwise)
+    function _resolveWord(raw){
+      const w=(raw||"").toLowerCase().replace(/['',;:.!?]+$/,"").trim();
+      if(!w||w.length<2)return null;
+      const inst=(state&&state.installed)?state.installed:{};
+      // 1. exact
+      for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}
+      // 2. alias
+      const al=_ALIASES[w]; if(al&&inst[al])return al;
+      // 3. fuzzy against installed names
       for(const k of Object.keys(inst)){
         const kl=k.toLowerCase();
-        if(_lev(w,kl) <= (kl.length<=4?1:2)) return k;
+        if(_lev(w,kl)<=(kl.length<=4?1:2))return k;
       }
       // 4. fuzzy against alias keys
-      for(const [alias,canon] of Object.entries(_NAME_ALIASES)){
-        if(!inst[canon]) continue;
-        if(_lev(w,alias) <= (alias.length<=4?1:2)) return canon;
+      for(const [alias,canon] of Object.entries(_ALIASES)){
+        if(!inst[canon])continue;
+        if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;
       }
       return null;
     }
 
+    // Scan text for first teammate name mention. Returns {name,idx} or null.
     function findFirstNameMention(text){
-      if(!text) return null;
-      const lower = text.toLowerCase();
-      const words = lower.split(/\s+/);
-      let best = null, pos = 0;
+      if(!text)return null;
+      const lower=text.toLowerCase();
+      const words=lower.split(/\s+/);
+      let best=null,pos=0;
       for(let i=0;i<words.length;i++){
-        const w = words[i];
-        const wi = lower.indexOf(w, pos);
-        const hit = _resolveSpokenWord(w);
-        if(hit){
-          if(!best || wi<best.idx) best={name:hit, idx:wi};
-        }
-        // also try two-word phrase  e.g. "sun shine"
+        const w=words[i];
+        const wi=lower.indexOf(w,pos);
+        const hit=_resolveWord(w);
+        if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};
         if(i+1<words.length){
-          const phrase = w+" "+words[i+1];
-          const ph = _resolveSpokenWord(phrase.replace(/\s/g,""));
-          if(ph && (!best || wi<best.idx)) best={name:ph, idx:wi};
+          const phrase=w+words[i+1];  // "sunshine" from "sun shine" etc
+          const ph=_resolveWord(phrase);
+          if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};
         }
-        if(wi>=0) pos=wi+w.length;
+        if(wi>=0)pos=wi+w.length;
       }
       return best;
     }
 
-    function removeNameOnce(text, canonName){
-      if(!text||!canonName) return text;
-      // Remove the canonical name AND every alias that maps to it
-      const targets = [canonName.toLowerCase()];
-      for(const [alias,canon] of Object.entries(_NAME_ALIASES)){
-        if(canon===canonName) targets.push(alias);
-      }
-      let out = text;
+    // Remove teammate name (and all its aliases) from text.
+    function removeNameOnce(text,canonName){
+      if(!text||!canonName)return text;
+      const targets=[canonName.toLowerCase()];
+      for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}
+      let out=text;
       for(const t of targets){
-        const rx = new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");
-        out = out.replace(rx,"");
+        const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");
+        out=out.replace(rx,"");
       }
       return out.replace(/\s+/g," ").trim();
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // ALWAYS-LISTEN ENGINE
-    // ─────────────────────────────────────────────────────────────────────
-    // Design goals:
-    //  • Every spoken word appears in the box immediately (interim + final)
-    //  • Saying a name switches the seat and clears that word from the box
-    //  • No ignore-windows, no watermark drift, no baseline subtraction
-    //  • Mic auto-restarts silently on onend; nothing is lost
+    // ═══════════════════════════════════════════════════════════════════════
+    // ALWAYS-LISTEN ENGINE  —  clean rewrite
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // What broke before:
+    //   • 900 ms ignore window dropped real speech on every mic restart
+    //   • watermark (_alwaysLastProcIdx) skipped results when resultIndex
+    //     was ahead, losing whole words
+    //   • alwaysBaseText + alwaysFinalText + alwaysInterimText stacked up
+    //     and doubled text in the box
+    //   • removeNameOnce only stripped the canonical name, not what was spoken
+    //   • group send button IDs ("sendGroup","conveneBtn") don't exist in HTML
+    //
+    // New design:
+    //   • One plain string buffer (_buf) — what the user has said this phrase
+    //   • Every onresult event: append new finals to _buf, show _buf+interim
+    //   • Name detected in interim or finals → switch seat, strip name, done
+    //   • onend: snapshot box → _buf, restart immediately with no delay
+    //   • Auto-send: 2 s silence → click the real button (#conveneAll or #sendFollow)
 
-    let _buf = "";   // current sentence accumulator (finals only)
+    let _buf = "";          // confirmed finals for current phrase
+    let _nameDebounce = 0;  // timestamp of last seat switch
 
     function currentAlwaysTarget(){
-      return (alwaysMode==="group") ? $("opPrompt") : $("followMsg");
+      return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
     }
     function currentAlwaysStatusEl(){
-      return (alwaysMode==="group") ? $("micStatusGroup") : $("micStatusDm");
+      return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
     }
-    function _setStatus(msg){
-      const s = currentAlwaysStatusEl();
-      if(s) s.innerText = msg;
+    function _alwaysSetStatus(msg){
+      const s=currentAlwaysStatusEl(); if(s)s.innerText=msg;
     }
+
     function resetAlwaysBuffers(){
-      _buf = "";
-      alwaysFinalText   = "";
-      alwaysInterimText = "";
-      alwaysFinalBaseline = "";
-      // preserve whatever is already in the box
-      const t = currentAlwaysTarget();
-      alwaysBaseText = (t&&t.value) ? t.value.trim() : "";
+      _buf="";
+      alwaysFinalText=""; alwaysInterimText=""; alwaysFinalBaseline="";
+      const t=currentAlwaysTarget();
+      alwaysBaseText=(t&&t.value)?t.value.trim():"";
     }
+
     function stopAlwaysListening(){
-      alwaysOn = false;
-      $("micStatusGroup") && ($("micStatusGroup").innerText="Mic: idle");
-      $("micStatusDm")    && ($("micStatusDm").innerText="Mic: idle");
-      if(window._alwaysAutoSendTimer){ clearTimeout(window._alwaysAutoSendTimer); window._alwaysAutoSendTimer=null; }
+      alwaysOn=false;
+      if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";
+      if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";
+      if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       try{
         if(alwaysRec){
           alwaysRec.onresult=null; alwaysRec.onerror=null; alwaysRec.onend=null;
@@ -13116,152 +13105,137 @@ function makeSeat(defn, idx){
     }
 
     async function startAlwaysListening(mode){
-      if(!speechSupported()){ showToast("🎤 "+micHelpText()); return; }
+      if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
 
-      alwaysMode = mode||"dm";
-      alwaysOn   = true;
+      alwaysMode=mode||"dm";
+      alwaysOn=true;
       updateAlwaysButtons();
       resetAlwaysBuffers();
 
-      const okPerm = await ensureMicPermission();
-      if(!okPerm){
-        alwaysOn=false; updateAlwaysButtons();
-        showToast("🎤 Microphone blocked — "+micHelpText()); return;
-      }
+      const okPerm=await ensureMicPermission();
+      if(!okPerm){alwaysOn=false;updateAlwaysButtons();showToast("🎤 Microphone blocked — "+micHelpText());return;}
 
-      _setStatus("Mic: always listening");
+      _alwaysSetStatus("Mic: always listening");
 
-      function _makeRec(){
-        const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
-        const r  = new SR();
-        r.lang           = "en-US";
-        r.interimResults = true;
-        r.continuous     = true;
-        r.maxAlternatives = 1;
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      const rec=new SR();
+      rec.lang="en-US";
+      rec.interimResults=true;
+      rec.continuous=true;
+      rec.maxAlternatives=1;
+      alwaysRec=rec;
 
-        r.onresult = async (ev)=>{
-          // ── Collect fresh text from this event ─────────────────
-          let newFinal="", interim="";
-          for(let i=ev.resultIndex; i<ev.results.length; i++){
-            const t = ev.results[i][0].transcript||"";
-            if(ev.results[i].isFinal) newFinal += t+" ";
-            else interim += t;
+      rec.onresult=async(ev)=>{
+        // ── Collect fresh text from this batch ──────────────────────────
+        let newFinals="", interim="";
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          const t=(ev.results[i][0].transcript||"");
+          if(ev.results[i].isFinal) newFinals+=t+" ";
+          else interim+=t;
+        }
+        newFinals=newFinals.trim();
+        interim=interim.trim();
+
+        // Append to buffer
+        if(newFinals) _buf=(_buf+" "+newFinals).trim();
+
+        // ── Name detection: interim first (fastest), then finals, then full buf ──
+        const hit=findFirstNameMention(interim)||findFirstNameMention(newFinals)||findFirstNameMention(_buf);
+
+        if(hit){
+          const now=Date.now();
+          if(now-_nameDebounce>600){
+            _nameDebounce=now;
+
+            // Strip name from everything
+            _buf=removeNameOnce(_buf,hit.name);
+            const cleanInterim=removeNameOnce(interim,hit.name);
+
+            // Put remaining text in current box before switching
+            const tBefore=currentAlwaysTarget();
+            if(tBefore)tBefore.value=_buf;
+
+            // Switch seat
+            try{await selectSeat(hit.name);}catch(_){}
+            try{forceSeatSelectUI(hit.name);}catch(_){}
+
+            // Fill new seat's box with any remaining text
+            const tAfter=currentAlwaysTarget();
+            if(tAfter)tAfter.value=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
+
+            return;
           }
-          newFinal = newFinal.trim();
-          interim  = interim.trim();
+        }
 
-          // Append confirmed finals to buffer
-          if(newFinal) _buf = (_buf+" "+newFinal).trim();
+        // ── Normal update: show everything heard ─────────────────────────
+        const display=(_buf+(interim?" "+interim:"")).trim();
+        const tgt=currentAlwaysTarget();
+        if(tgt)tgt.value=display;
+        alwaysFinalText=_buf;
+        alwaysInterimText=interim;
 
-          // ── Name detection ──────────────────────────────────────
-          // Check interim first (fastest response), then finals
-          const hit = findFirstNameMention(interim) || findFirstNameMention(newFinal) || findFirstNameMention(_buf);
-
-          if(hit){
-            const now=Date.now();
-            if(now-lastNameSwitchAt > 500){
-              lastNameSwitchAt=now;
-
-              // Strip the name from the buffer
-              _buf = removeNameOnce(_buf, hit.name);
-              // Strip it from interim too
-              const cleanInterim = removeNameOnce(interim, hit.name);
-
-              // Update the box before switching so the new seat starts clean
-              const tBefore = currentAlwaysTarget();
-              if(tBefore) tBefore.value = _buf;
-
-              // Switch seat
-              try{ await selectSeat(hit.name); }catch(_){}
-              try{ forceSeatSelectUI(hit.name); }catch(_){}
-
-              // After switch, fill box with remaining text
-              const tAfter = currentAlwaysTarget();
-              if(tAfter) tAfter.value = (_buf+(cleanInterim?" "+cleanInterim:"")).trim();
-              return;
+        // ── Auto-send after 2 s of silence ───────────────────────────────
+        if(newFinals){
+          if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
+          window._alwaysAutoSendTimer=setTimeout(async()=>{
+            if(!alwaysOn)return;
+            const t2=currentAlwaysTarget();
+            const msg=(t2?t2.value:"").trim();
+            if(!msg)return;
+            // Reset buffer before send so mic keeps listening cleanly
+            _buf="";
+            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
+            if(t2)t2.value="";
+            if(alwaysMode==="dm"){
+              // Click the real Send button so all existing guards run
+              const btn=$("sendFollow");
+              if(btn)btn.click();
+            }else{
+              // Click the real group Send button
+              const btn=$("conveneAll");
+              if(btn)btn.click();
             }
-          }
+          },2000);
+        }
+      };
 
-          // ── Normal update: show everything heard so far ─────────
-          const tgt = currentAlwaysTarget();
-          if(tgt) tgt.value = (_buf+(interim?" "+interim:"")).trim();
+      rec.onerror=(e)=>{
+        const et=(e&&e.error)||"";
+        if(et==="no-speech"||et==="aborted")return;  // normal — onend will restart
+        _alwaysSetStatus("Mic: error");
+        try{stopAlwaysListening();}catch(_){}
+        const msg={
+          "not-allowed":"Microphone access denied. Allow it in browser site settings.",
+          "audio-capture":"No microphone found. Please connect one.",
+          "service-not-allowed":"Speech recognition requires HTTPS.",
+          "network":"Network error during speech recognition.",
+        }[et]||("Speech error: "+(et||"unknown"));
+        try{showToast("🎤 "+msg);}catch(_){}
+      };
 
-          // ── Auto-send: 2 s after speech goes quiet ──────────────
-          if(newFinal){
-            if(window._alwaysAutoSendTimer) clearTimeout(window._alwaysAutoSendTimer);
-            window._alwaysAutoSendTimer = setTimeout(async ()=>{
-              if(!alwaysOn) return;
-              const t2 = currentAlwaysTarget();
-              if(!t2) return;
-              const msg = t2.value.trim();
-              if(!msg) return;
-              _buf=""; t2.value="";
-              alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
-              if(alwaysMode==="dm"){
-                if(typeof sendFollow==="function") await sendFollow();
-              }else{
-                if(typeof conveneAll==="function") await conveneAll();
-                else{
-                  const btn=$("sendGroup")||$("conveneBtn");
-                  if(btn) btn.click();
-                }
-              }
-            }, 2000);
-          }
-        };
+      rec.onend=()=>{
+        if(!alwaysOn)return;
+        // Snapshot whatever is in the box into _buf so nothing is lost across restart
+        const t=currentAlwaysTarget();
+        if(t)_buf=t.value.trim();
+        _alwaysSetStatus("Mic: always listening");
+        // Restart immediately — no delay, no ignore window
+        try{rec.start();}catch(e){stopAlwaysListening();}
+      };
 
-        r.onerror=(e)=>{
-          const et=(e&&e.error)||"";
-          if(et==="no-speech"||et==="aborted") return; // normal — onend restarts
-          _setStatus("Mic: error");
-          try{ stopAlwaysListening(); }catch(_){}
-          const msg={
-            "not-allowed":"Microphone access denied. Allow mic in browser site settings.",
-            "audio-capture":"No microphone found. Please connect one.",
-            "service-not-allowed":"Speech recognition blocked. Use HTTPS.",
-            "network":"Network error during speech recognition.",
-          }[et]||("Speech error: "+(et||"unknown"));
-          try{ showToast("🎤 "+msg); }catch(_){}
-        };
-
-        r.onend=()=>{
-          if(!alwaysOn) return;
-          // Preserve box text across restart
-          const t=currentAlwaysTarget();
-          if(t) _buf = t.value.trim();
-          _setStatus("Mic: always listening");
-          // Restart immediately — no delay, no ignore window
-          try{ r.start(); }catch(e){ stopAlwaysListening(); }
-        };
-
-        return r;
-      }
-
-      alwaysRec = _makeRec();
-      try{
-        alwaysRec.start();
-      }catch(e){
+      try{rec.start();}catch(e){
         stopAlwaysListening();
         showToast("🎤 Could not start mic — check site permissions and try again");
       }
     }
 
-    $("alwaysListenGroupBtn").onclick = () => {
-      if(alwaysOn && alwaysMode === "group"){
-        stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("group");
-      }
+    $("alwaysListenGroupBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="group"){stopAlwaysListening();}
+      else{stopAlwaysListening();startAlwaysListening("group");}
     };
-
-    $("alwaysListenDmBtn").onclick = () => {
-      if(alwaysOn && alwaysMode === "dm"){
-        stopAlwaysListening();
-      }else{
-        stopAlwaysListening();
-        startAlwaysListening("dm");
-      }
+    $("alwaysListenDmBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="dm"){stopAlwaysListening();}
+      else{stopAlwaysListening();startAlwaysListening("dm");}
     };
 
 
@@ -23744,13 +23718,12 @@ ADD_UI_POLISH_V8 = r'''
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    // Use the shared recognition engine — aliases + fuzzy matching
     const hit = findFirstNameMention(s);
     if(hit){
       try{
-        if(typeof window.selectSeat==="function") window.selectSeat(hit.name);
-        else if(typeof window.forceSeatSelectUI==="function") window.forceSeatSelectUI(hit.name);
-        if(typeof window.forceSeatSelectUI==="function") window.forceSeatSelectUI(hit.name);
+        if(typeof window.selectSeat==="function")window.selectSeat(hit.name);
+        else if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);
+        if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);
       }catch(_){}
       return true;
     }
