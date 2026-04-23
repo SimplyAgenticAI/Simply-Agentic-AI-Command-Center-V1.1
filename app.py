@@ -10202,8 +10202,8 @@ label         { font-size: 14px !important; }
 .wcal-col-header .wd { font-size:12px; color:rgba(180,200,240,.85); text-transform:uppercase; letter-spacing:.06em; }
 .wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(230,238,255,.95); line-height:1.1; }
 .wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:12px; font-weight:600; cursor:pointer; z-index:3; transition:filter 0.15s; min-height:22px; box-sizing:border-box; }
-.wcal-event:hover { filter:brightness(1.15); box-shadow:0 2px 12px rgba(0,0,0,.4); }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:12px; font-weight:600; cursor:grab; z-index:3; transition:filter 0.15s, box-shadow 0.15s, opacity 0.15s; min-height:22px; box-sizing:border-box; user-select:none; }
+.wcal-event:hover { filter:brightness(1.2); box-shadow:0 3px 16px rgba(0,0,0,.5), 0 0 0 1px rgba(196,181,253,.18); transform:translateY(-1px); transition:filter 0.12s, box-shadow 0.12s, transform 0.12s; }
 .wcal-event.is-done { opacity:.72; }
 .wcal-event.is-done .wcal-event-title { text-decoration:line-through; text-decoration-color:currentColor; text-decoration-thickness:2px; }
 /* Check circle — always visible, pinned top-left */
@@ -10241,7 +10241,7 @@ label         { font-size: 14px !important; }
 .shimmer-line.wide{width:70%;} .shimmer-line.med{width:45%;} .shimmer-line.short{width:25%;margin-bottom:0;}
 .wcal-event-title { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; transition:text-decoration .18s; }
 .wcal-event-time { font-size:11px; opacity:.75; padding-left:0; }
-.wcal-now-line { position:absolute; left:0; right:0; height:2px; background:#ef4444; z-index:6; pointer-events:none; }
+.wcal-now-line { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,#ef4444,rgba(239,68,68,.3)); z-index:6; pointer-events:none; box-shadow:0 0 6px rgba(239,68,68,.5); }
 .wcal-now-dot { position:absolute; left:-4px; top:-4px; width:10px; height:10px; border-radius:50%; background:#ef4444; }
 /* Sidebar mini-month */
 .wcal-mini-month { font-size:11px; }
@@ -17277,170 +17277,188 @@ function wcalPlayActivationSound(){
 }
 
 // ── Drag-and-drop for calendar tasks & events ──────────────────
-// mousemove + mouseup are wired ONCE at module level (not inside wcalDragWireGrid)
-// so repeated grid re-renders never accumulate duplicate document listeners.
+// IMPORTANT: mousemove + mouseup listeners live here at module scope — wired ONCE.
+// wcalDragWireGrid() only wires mousedown on each event block.
+// This prevents duplicate API calls caused by re-renders accumulating listeners.
 const wcalDrag={
   active:false, el:null, tip:null,
   etype:null, tid:null, eid:null,
   origDate:null, origStart:null, origDur:30,
-  clickOffsetPx:0,
-  startY:0, startX:0,
+  clickOffsetPx:0, startY:0, startX:0,
   _targetDate:null, _targetMins:null,
-  _saving:false,   // guard: prevents double-save if mouseup fires twice
+  _suppressNextClick:false,
 };
 
-// ── Singleton mousemove handler ───────────────────────────────
-document.addEventListener('mousemove',function(e){
-  if(!wcalDrag.el) return;
-  const dy=Math.abs(e.clientY-wcalDrag.startY);
-  const dx=Math.abs(e.clientX-wcalDrag.startX);
-  if(!wcalDrag.active && dy<6 && dx<6) return;
+(function(){
+  // ── mousemove ────────────────────────────────────────────────
+  document.addEventListener('mousemove', function(e){
+    if(!wcalDrag.el) return;
+    const dy=Math.abs(e.clientY-wcalDrag.startY);
+    const dx=Math.abs(e.clientX-wcalDrag.startX);
+    if(!wcalDrag.active && dy<5 && dx<5) return;
 
-  const wrap=document.getElementById('wcalGridWrap');
-  if(!wrap) return;
+    const wrap=document.getElementById('wcalGridWrap');
+    if(!wrap) return;
 
-  if(!wcalDrag.active){
-    wcalDrag.active=true;
-    wcalDrag.el.style.opacity='0.5';
-    wcalDrag.el.style.zIndex='20';
-    wcalDrag.el.style.cursor='grabbing';
-    wcalDrag.el.style.pointerEvents='none';
-    wcalDrag._suppressNextClick=true;
-    const tip=document.createElement('div');
-    tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
-    document.body.appendChild(tip);
-    wcalDrag.tip=tip;
-  }
-
-  const wrapRect=wrap.getBoundingClientRect();
-  const scrolled=wrap.scrollTop;
-
-  // Find the grid from the dragged element's current parent chain
-  const grid=document.getElementById('wcalGrid');
-  if(!grid) return;
-  const cols=grid.querySelectorAll('.wcal-day-col');
-  let targetCol=null, targetDate=null;
-  cols.forEach(col=>{
-    const r=col.getBoundingClientRect();
-    if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
-  });
-  if(!targetCol){
-    const dayArea=grid.querySelector('[data-date]');
-    if(dayArea){
-      const r=dayArea.getBoundingClientRect();
-      if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
+    if(!wcalDrag.active){
+      wcalDrag.active=true;
+      wcalDrag.el.style.opacity='0.45';
+      wcalDrag.el.style.zIndex='20';
+      wcalDrag.el.style.cursor='grabbing';
+      wcalDrag.el.style.pointerEvents='none';
+      wcalDrag._suppressNextClick=true;
+      const tip=document.createElement('div');
+      tip.style.cssText='position:fixed;background:#1e1b4b;color:#c4b5fd;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;z-index:9999;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.5);white-space:nowrap;';
+      document.body.appendChild(tip);
+      wcalDrag.tip=tip;
     }
-  }
-  if(!targetCol||!targetDate) return;
 
-  const rawY=(e.clientY-wrapRect.top)+scrolled-wcalDrag.clickOffsetPx;
-  const startMins=Math.max(0,Math.min(Math.round(rawY/15)*15,23*60));
+    const grid=document.getElementById('wcalGrid');
+    if(!grid) return;
+    const wrapRect=wrap.getBoundingClientRect();
+    const scrolled=wrap.scrollTop;
 
-  const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
-  if(origCol && targetCol!==origCol) targetCol.appendChild(wcalDrag.el);
-  wcalDrag.el.style.top=startMins+'px';
-  wcalDrag.el.style.left='3px';
-  wcalDrag.el.style.right='3px';
-  wcalDrag.el.style.position='absolute';
-
-  if(wcalDrag.tip){
-    const hh=Math.floor(startMins/60),mm=startMins%60;
-    const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
-    wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
-    wcalDrag.tip.style.left=(e.clientX+14)+'px';
-    wcalDrag.tip.style.top=(e.clientY-26)+'px';
-  }
-
-  wcalDrag._targetDate=targetDate;
-  wcalDrag._targetMins=startMins;
-});
-
-// ── Singleton mouseup handler ─────────────────────────────────
-document.addEventListener('mouseup',async function(e){
-  if(!wcalDrag.el) return;
-  const wasDragging=wcalDrag.active;
-
-  // Restore element styles immediately
-  wcalDrag.el.style.opacity='';
-  wcalDrag.el.style.zIndex='';
-  wcalDrag.el.style.cursor='';
-  wcalDrag.el.style.pointerEvents='';
-
-  if(wcalDrag._suppressNextClick){
-    wcalDrag._suppressNextClick=false;
-    const el2=wcalDrag.el;
-    const suppressHandler=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppressHandler,true); };
-    wcalDrag.el.addEventListener('click',suppressHandler,true);
-  }
-
-  if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
-
-  const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
-  const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
-  const {etype,tid,eid,origDate,origStart,origDur}=wcalDrag;
-
-  // Reset state BEFORE any await so a second mouseup event is a no-op
-  Object.assign(wcalDrag,{active:false,el:null,tip:null,_targetDate:null,_targetMins:null,_saving:false});
-
-  if(!wasDragging||targetMins==null) return;
-
-  const newHH=Math.floor(targetMins/60),newMM=targetMins%60;
-  const newStart=pad2(newHH)+':'+pad2(newMM);
-  if(newStart===origStart && targetDate===origDate) return;
-
-  if(etype==='task'){
-    try{
-      const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({date:targetDate,start:newStart})
-      });
-      const d=await res.json();
-      if(!d.ok) throw new Error(d.error||'Move failed');
-      // Update base task in-memory (via _rawTasks) then re-expand — no extra fetch needed
-      if(cal._rawTasks){
-        const base=cal._rawTasks.find(t=>t.id===tid);
-        if(base){ base.date=targetDate; base.start=newStart; }
-        cal.tasks=wcalExpandRecurring(cal._rawTasks);
-      } else {
-        // Fallback: update the first matching task object directly
-        const t=cal.tasks.find(x=>x.id===tid&&!x._isRecurInstance);
-        if(t){ t.date=targetDate; t.start=newStart; }
+    const cols=grid.querySelectorAll('.wcal-day-col');
+    let targetCol=null, targetDate=null;
+    cols.forEach(col=>{
+      const r=col.getBoundingClientRect();
+      if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=col; targetDate=col.dataset.date; }
+    });
+    if(!targetCol){
+      const dayArea=grid.querySelector('[data-date]');
+      if(dayArea){
+        const r=dayArea.getBoundingClientRect();
+        if(e.clientX>=r.left && e.clientX<=r.right){ targetCol=dayArea; targetDate=dayArea.dataset.date; }
       }
-      showToast('Task moved');
-      wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
-    }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
+    }
+    if(!targetCol||!targetDate) return;
 
-  } else {
-    let ev=null;
-    Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
-      if((e2.id||e2.summary||'')===eid) ev=e2;
-    }));
-    if(!ev){ wcalRefresh(); return; }
-    const newStartDt=new Date(targetDate+'T'+newStart+':00');
-    const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
-    const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
-    let resend=false;
-    if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
-    try{
-      if(!ev.id) throw new Error('No event ID — refresh and try again');
-      const res=await fetch('/api/calendar/move_event',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({event_id:ev.id,start:newStartDt.toISOString(),end:newEndDt.toISOString(),timezone:cal.tz,resend})
-      });
-      const d=await res.json();
-      if(!d.ok) throw new Error(d.error||'Move failed');
-      showToast('Event moved'+(resend?' · Invite resent':''));
-      await wcalFetchCurrentRange(); wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
-    }catch(err){ showToast('Move failed: '+err.message); wcalRefresh(); }
-  }
-});
+    const rawY=(e.clientY-wrapRect.top)+scrolled-wcalDrag.clickOffsetPx;
+    const startMins=Math.max(0, Math.min(Math.round(rawY/15)*15, 23*60));
 
-// ── Wire mousedown on each event element (called after every render) ──
+    const origCol=wcalDrag.el.closest('.wcal-day-col,[data-date]');
+    if(origCol && targetCol!==origCol) targetCol.appendChild(wcalDrag.el);
+    wcalDrag.el.style.top=startMins+'px';
+    wcalDrag.el.style.left='3px';
+    wcalDrag.el.style.right='3px';
+    wcalDrag.el.style.position='absolute';
+
+    if(wcalDrag.tip){
+      const hh=Math.floor(startMins/60), mm=startMins%60;
+      const ampm=hh<12?'AM':'PM'; const h12=hh%12||12;
+      wcalDrag.tip.textContent=pad2(h12)+':'+pad2(mm)+' '+ampm+(targetDate!==wcalDrag.origDate?' · '+targetDate:'');
+      wcalDrag.tip.style.left=(e.clientX+14)+'px';
+      wcalDrag.tip.style.top=(e.clientY-26)+'px';
+    }
+    wcalDrag._targetDate=targetDate;
+    wcalDrag._targetMins=startMins;
+  });
+
+  // ── mouseup ──────────────────────────────────────────────────
+  document.addEventListener('mouseup', async function(e){
+    if(!wcalDrag.el) return;
+    const wasDragging=wcalDrag.active;
+
+    wcalDrag.el.style.opacity='';
+    wcalDrag.el.style.zIndex='';
+    wcalDrag.el.style.cursor='';
+    wcalDrag.el.style.pointerEvents='';
+
+    if(wcalDrag._suppressNextClick){
+      wcalDrag._suppressNextClick=false;
+      const el2=wcalDrag.el;
+      const suppress=function(ev){ ev.stopImmediatePropagation(); el2.removeEventListener('click',suppress,true); };
+      wcalDrag.el.addEventListener('click',suppress,true);
+    }
+
+    if(wcalDrag.tip){ try{wcalDrag.tip.remove();}catch(_){} wcalDrag.tip=null; }
+
+    // Snapshot what we need then NULL OUT wcalDrag.el IMMEDIATELY
+    // so any re-entrant mouseup (browser quirk) is a no-op
+    const targetDate=wcalDrag._targetDate||wcalDrag.origDate;
+    const targetMins=wcalDrag._targetMins!=null?wcalDrag._targetMins:null;
+    const {etype,tid,eid,origDate,origStart,origDur}=wcalDrag;
+    // ---- reset before any await ----
+    wcalDrag.active=false; wcalDrag.el=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
+
+    if(!wasDragging||targetMins==null) return;
+
+    const newHH=Math.floor(targetMins/60), newMM=targetMins%60;
+    const newStart=pad2(newHH)+':'+pad2(newMM);
+    if(newStart===origStart && targetDate===origDate) return;
+
+    // ── OVERLAP CHECK: block move if another task already occupies this slot ──
+    if(etype==='task'){
+      const dur=origDur||30;
+      const newEnd=targetMins+dur;
+      const conflict=cal.tasks.find(t=>
+        t.id!==tid &&
+        !t.done &&
+        t.date===targetDate &&
+        (function(){
+          const [th,tm]=(t.start||'09:00').split(':').map(Number);
+          const tStart=th*60+tm;
+          const tEnd=tStart+(t.duration||30);
+          return newEnd>tStart && targetMins<tEnd;
+        })()
+      );
+      if(conflict){
+        showToast('⚠ Time slot taken by "'+((conflict.title||'task').slice(0,28))+'". Choose another time.');
+        wcalRefresh();
+        return;
+      }
+    }
+
+    if(etype==='task'){
+      try{
+        const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({date:targetDate, start:newStart})
+        });
+        const d=await res.json();
+        if(!d.ok) throw new Error(d.error||'Move failed');
+        // Update the base task in _rawTasks then re-expand — never mutate expanded instances
+        if(cal._rawTasks){
+          const base=cal._rawTasks.find(t=>t.id===tid);
+          if(base){ base.date=targetDate; base.start=newStart; }
+          cal.tasks=wcalExpandRecurring(cal._rawTasks);
+        }
+        showToast('Task moved');
+        wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
+      }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
+
+    } else {
+      let ev=null;
+      Object.values(cal.events).forEach(arr=>arr.forEach(e2=>{
+        if((e2.id||e2.summary||'')===eid) ev=e2;
+      }));
+      if(!ev){ wcalRefresh(); return; }
+      const newStartDt=new Date(targetDate+'T'+newStart+':00');
+      const newEndDt=new Date(newStartDt.getTime()+origDur*60000);
+      const hasAttendees=Array.isArray(ev.attendees)&&ev.attendees.length>0;
+      let resend=false;
+      if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
+      try{
+        if(!ev.id) throw new Error('No event ID — refresh and try again');
+        const res=await fetch('/api/calendar/move_event',{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({event_id:ev.id, start:newStartDt.toISOString(), end:newEndDt.toISOString(), timezone:cal.tz, resend})
+        });
+        const d=await res.json();
+        if(!d.ok) throw new Error(d.error||'Move failed');
+        showToast('Event moved'+(resend?' · Invite resent':''));
+        await wcalFetchCurrentRange(); wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
+      }catch(err){ showToast('Move failed: '+err.message); wcalRefresh(); }
+    }
+  });
+})();
+
+// wcalDragWireGrid: ONLY wires mousedown. Called after each render.
 function wcalDragWireGrid(grid){
   grid.querySelectorAll('.wcal-event').forEach(el=>{
     if(el._wcalDragWired) return;
     el._wcalDragWired=true;
-    el.addEventListener('mousedown',function(e){
+    el.addEventListener('mousedown', function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
       const etype=el.dataset.etype;
@@ -17448,12 +17466,11 @@ function wcalDragWireGrid(grid){
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
-      const elRect=el.getBoundingClientRect();
       const wrapEl=document.getElementById('wcalGridWrap');
       const wrapTop=wrapEl?wrapEl.getBoundingClientRect().top:0;
       const wrapScroll=wrapEl?wrapEl.scrollTop:0;
       const clickOffsetPx=(e.clientY-wrapTop)+wrapScroll-parseFloat(el.style.top||'0');
-      let origStart='09:00',origDur=30;
+      let origStart='09:00', origDur=30;
       if(etype==='task'){
         const task=cal.tasks.find(t=>t.id===tid);
         if(task){ origStart=task.start||'09:00'; origDur=task.duration||30; }
@@ -17475,8 +17492,51 @@ function wcalDragWireGrid(grid){
       wcalDrag.clickOffsetPx=clickOffsetPx;
       wcalDrag.startY=e.clientY; wcalDrag.startX=e.clientX;
       wcalDrag.tip=null; wcalDrag._targetDate=null; wcalDrag._targetMins=null;
-      wcalDrag._saving=false;
     });
+  });
+}
+
+
+// ── Overlap layout: assign column positions to overlapping tasks/events ──
+function wcalLayoutOverlaps(items){
+  // items: [{top, height, el_style_setter}] — sorted by top
+  // Returns items with {left, width} as percentage strings
+  if(!items.length) return items;
+  items.sort((a,b)=>a.top-b.top);
+  const cols=[];  // cols[i] = end-time of last item in column i
+  items.forEach(item=>{
+    let placed=false;
+    for(let c=0;c<cols.length;c++){
+      if(item.top>=cols[c]){
+        item._col=c; item._colCount=cols.length;
+        cols[c]=item.top+item.height;
+        placed=true; break;
+      }
+    }
+    if(!placed){ item._col=cols.length; cols.push(item.top+item.height); }
+  });
+  const total=cols.length;
+  items.forEach(item=>{ item._totalCols=total; });
+  return items;
+}
+
+function wcalApplyOverlapLayout(col){
+  const els=Array.from(col.querySelectorAll('.wcal-event'));
+  if(els.length<2) return;
+  const items=els.map(el=>({
+    el,
+    top:parseFloat(el.style.top)||0,
+    height:parseFloat(el.style.height)||28,
+  }));
+  wcalLayoutOverlaps(items);
+  const total=items.reduce((m,x)=>Math.max(m,x._totalCols||1),1);
+  if(total<=1) return;
+  items.forEach(item=>{
+    const w=(100/total);
+    const l=(item._col||0)*w;
+    item.el.style.left=l+'%';
+    item.el.style.right=(100-(l+w))+'%';
+    item.el.style.width='auto';
   });
 }
 
@@ -17548,6 +17608,8 @@ function wcalRenderWeek(){
   grid.innerHTML=html;
   // Wire drag-and-drop
   wcalDragWireGrid(grid);
+  // Apply overlap side-by-side layout for each day column
+  grid.querySelectorAll('.wcal-day-col').forEach(col=>wcalApplyOverlapLayout(col));
   // Double-click on day column → open create popover at clicked time
   grid.querySelectorAll('.wcal-day-col').forEach(col=>{
     col.addEventListener('dblclick',function(e){
@@ -17610,6 +17672,9 @@ function wcalRenderDay(){
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
   // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
+  // Apply overlap layout for day view
+  const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
+  if(dayCol) wcalApplyOverlapLayout(dayCol);
   // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
