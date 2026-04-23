@@ -15698,7 +15698,8 @@ const cal = {
   m: (new Date()).getMonth(),
   selected: null,
   events: {},   // keyed by YYYY-MM-DD, Google Calendar events
-  tasks: [],    // local tasks array
+  tasks: [],    // local tasks array (expanded, includes recurring instances)
+  _rawTasks: [], // base tasks before recurring expansion — always kept in sync
   gcalMeta: {}, // event_id → {on_complete_teammate, on_complete_client_name, on_complete_client_email, done}
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
   view: "week",
@@ -17397,12 +17398,16 @@ const wcalDrag={
         });
         const d=await res.json();
         if(!d.ok) throw new Error(d.error||'Move failed');
-        // Update the base task in _rawTasks then re-expand — never mutate expanded instances
-        if(cal._rawTasks){
-          const base=cal._rawTasks.find(t=>t.id===tid);
-          if(base){ base.date=targetDate; base.start=newStart; }
-          cal.tasks=wcalExpandRecurring(cal._rawTasks);
+        // Update base task in _rawTasks (always initialized) then re-expand
+        const rawBase=cal._rawTasks.find(t=>t.id===tid);
+        if(rawBase){ rawBase.date=targetDate; rawBase.start=newStart; }
+        else {
+          // Fallback: task not in _rawTasks yet — rebuild from cal.tasks base records
+          cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
+          const fb=cal._rawTasks.find(t=>t.id===tid);
+          if(fb){ fb.date=targetDate; fb.start=newStart; }
         }
+        cal.tasks=wcalExpandRecurring(cal._rawTasks);
         showToast('Task moved');
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
