@@ -3043,6 +3043,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     try:
         _active = _get_active_client(_op_user or "anon") or {}
         if isinstance(_active, dict) and _active:
+            _overdue_note = ""
+            try:
+                _nf = (_active.get("next_followup") or "").strip()
+                if _nf and _nf < datetime.utcnow().strftime("%Y-%m-%d"):
+                    _overdue_note = f"\n⚠ OVERDUE FOLLOW-UP: {(_active.get('name') or 'This client')} had a follow-up due on {_nf}. Mention this proactively if relevant.\n"
+            except Exception:
+                _overdue_note = ""
             client_block = (
                 "\n\nACTIVE CLIENT (memory profile)\n"
                 f"Client name: {(_active.get('name') or '').strip()}\n"
@@ -3050,6 +3057,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                 f"Phone: {(_active.get('phone') or '').strip()}\n"
                 f"Company: {(_active.get('company') or '').strip()}\n"
                 f"Notes: {(_active.get('notes') or '').strip()}\n"
+                f"{_overdue_note}"
             )
     except Exception:
         client_block = ""
@@ -4893,6 +4901,18 @@ def _api_followup_impl(data):
     try:
         uname = _get_session_username()
         _mark_onboarding_step(uname, "first_prompt", True)
+    except Exception:
+        pass
+
+    # Auto-tag active CRM contact based on this conversation (non-blocking)
+    try:
+        _auto_tag_active_client_async(uname, msg, text)
+    except Exception:
+        pass
+
+    # Extract shared memory from DM conversations too (non-blocking)
+    try:
+        _extract_shared_memory_async(uname, msg, {name: text})
     except Exception:
         pass
 
@@ -12406,6 +12426,26 @@ function makeSeat(defn, idx){
           content.appendChild(actions);
         }else{
           content.innerText = raw;
+          // Feature 2: CRM name detection — if response mentions a known contact, show quick-open button
+          if(m.role !== "user" && raw && (crmCache.clients||[]).length){
+            const rawLower = raw.toLowerCase();
+            const hit = (crmCache.clients||[]).find(c => {
+              const n = (c.name||"").trim();
+              return n.length > 2 && rawLower.includes(n.toLowerCase());
+            });
+            if(hit){
+              const crmBtn = document.createElement("button");
+              crmBtn.className = "btn btnMini";
+              crmBtn.style.cssText = "margin-top:7px;display:block;font-size:11px;";
+              crmBtn.innerText = "📋 Open " + (hit.name||"contact") + " in CRM";
+              crmBtn.onclick = ()=>{
+                const crmTab = document.getElementById("crmTabClients");
+                if(crmTab) crmTab.click();
+                setTimeout(()=>{ try{ crmOpenClientEditor(hit.id); }catch(_){} }, 250);
+              };
+              content.appendChild(crmBtn);
+            }
+          }
         }
 
         if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
@@ -17787,6 +17827,75 @@ async function wcalAddTask(){
     setTimeout(()=>{ if(st) st.innerText=''; },2000);
   }catch(e){ if(st) st.innerText=e.message||'Failed'; }
 }
+
+// ── Feature 5: Auto-suggest teammate when task title is typed ──
+(function(){
+  const KEYWORD_MAP = [
+    {words:['email','outreach','follow','message','write','draft','reply','send'],hints:['email','outreach','write','draft']},
+    {words:['design','graphic','logo','image','visual','banner','poster','brand'],hints:['design','visual','creative','graphic']},
+    {words:['strategy','plan','playbook','growth','funnel','marketing','campaign'],hints:['strategy','marketing','growth','plan']},
+    {words:['content','post','social','copy','caption','blog','script'],hints:['content','social','copy','media']},
+    {words:['sales','close','pitch','proposal','quote','deal','lead'],hints:['sales','close','pitch','lead']},
+    {words:['research','analyze','report','data','audit','review'],hints:['research','analyze','data','audit']},
+  ];
+  function _suggestTeammate(title){
+    if(!title||!state||!state.installed) return null;
+    const tl=title.toLowerCase();
+    const installed=state.installed;
+    let bestName=null, bestScore=0;
+    for(const {words} of KEYWORD_MAP){
+      const matched=words.filter(w=>tl.includes(w));
+      if(!matched.length) continue;
+      for(const name of Object.keys(installed)){
+        const defn=installed[name];
+        const hay=((defn.job_title||'')+' '+(defn.mission||'')+' '+(defn.responsibilities||[]).join(' ')).toLowerCase();
+        const score=matched.filter(w=>hay.includes(w)).length + matched.length*0.1;
+        if(score>bestScore){bestScore=score;bestName=name;}
+      }
+    }
+    return bestScore>0?bestName:null;
+  }
+  function _wireTaskTitleSuggest(){
+    const inp=document.getElementById('wcalTaskTitle');
+    if(!inp||inp._autoAssignWired) return;
+    inp._autoAssignWired=true;
+    let _t=null;
+    inp.addEventListener('input',function(){
+      clearTimeout(_t);
+      _t=setTimeout(()=>{
+        const hint=_suggestTeammate(inp.value);
+        let pill=document.getElementById('wcalAutoAssignPill');
+        if(hint){
+          if(!pill){
+            pill=document.createElement('div');
+            pill.id='wcalAutoAssignPill';
+            pill.style.cssText='font-size:11px;color:#a5b4fc;margin-top:3px;cursor:pointer;padding:2px 0;';
+            inp.parentElement.insertBefore(pill,inp.nextSibling);
+          }
+          pill.innerHTML='⚡ Suggested: <b>'+hint+'</b> <span style="opacity:.6;font-size:10px;">(will auto-assign on complete)</span>';
+          pill._suggestedName=hint;
+          pill.onclick=()=>{
+            // store for when the task detail panel opens — pre-fill on_complete_teammate
+            window._wcalPendingAutoAssign=hint;
+            pill.style.color='#6ee7b7';
+            pill.innerHTML='✓ <b>'+hint+'</b> will be assigned';
+          };
+        } else if(pill){
+          pill.remove();
+          window._wcalPendingAutoAssign=null;
+        }
+      },400);
+    });
+  }
+  // Wire on calendar open and on DOMContentLoaded
+  document.addEventListener('DOMContentLoaded',_wireTaskTitleSuggest);
+  setTimeout(_wireTaskTitleSuggest, 1800);
+  // Re-wire whenever the task add panel is shown
+  const _origWcalToggle=window.wcalToggleAddForm;
+  if(typeof _origWcalToggle==='function'){
+    window.wcalToggleAddForm=function(){_origWcalToggle.apply(this,arguments);setTimeout(_wireTaskTitleSuggest,100);};
+  }
+})();
 
 // ── Populate teammate dropdown in detail panel ─────────────────
 async function wcalPopulateTeammateDropdown(selectId, selectedValue){
@@ -25343,6 +25452,45 @@ def api_dashboard():
 # =============================================================================
 
 # ── SHARED TEAM MEMORY EXTRACTION ────────────────────────────────────────────
+
+def _auto_tag_active_client_async(username: str, msg: str, response: str) -> None:
+    """Fire-and-forget: ask LLM to suggest 1-2 CRM tags from this conversation and merge them in."""
+    def _worker():
+        try:
+            with app.app_context():
+                active = _get_active_client(username) or {}
+                if not isinstance(active, dict) or not active.get("id"):
+                    return
+                system = (
+                    "You are a CRM tagging assistant. Given a conversation snippet, suggest 1-2 short "
+                    "lowercase hyphenated tags that describe the contact's intent or status. "
+                    "Return ONLY a JSON array of strings, no explanation. Example: [\"hot-lead\",\"needs-proposal\"]. "
+                    "If nothing meaningful applies, return []."
+                )
+                user_msg = f"Message: {msg[:300]}\nResponse: {response[:400]}"
+                raw = call_llm(system, [{"role": "user", "content": user_msg}], temperature=0.1)
+                raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+                suggested = json.loads(raw)
+                if not isinstance(suggested, list) or not suggested:
+                    return
+                new_tags = [str(t).strip().lower()[:30] for t in suggested if t][:2]
+                if not new_tags:
+                    return
+                crm = _crm_load(username)
+                clients = crm.get("clients") or {}
+                client_id = active.get("id")
+                if client_id not in clients:
+                    return
+                existing = clients[client_id].get("tags") or []
+                merged = list(dict.fromkeys(existing + [t for t in new_tags if t not in existing]))[:10]
+                clients[client_id]["tags"] = merged
+                clients[client_id]["updated_at"] = now_iso()
+                crm["clients"] = clients
+                _crm_save(username, crm)
+        except Exception:
+            pass
+    threading.Thread(target=_worker, daemon=True).start()
+
 
 def _extract_shared_memory_async(username: str, prompt: str, outputs: Dict[str, str]) -> None:
     """Fire-and-forget background thread: extract facts from convene outputs."""
