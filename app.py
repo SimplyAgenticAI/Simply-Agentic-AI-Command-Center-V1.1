@@ -10698,7 +10698,7 @@ label         { font-size: 14px !important; }
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
-                <button class="btn btnMini" id="alwaysListenGroupBtn">Always listen</button>
+                <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
@@ -10724,7 +10724,7 @@ label         { font-size: 14px !important; }
 
             <div class="opRow">
               <div class="tiny" id="opStatus">Ready</div>
-              <div class="tiny" id="opHint">Say a teammate name while always listening to switch seats instantly.</div>
+              <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
             </div>
             <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
@@ -10801,7 +10801,7 @@ label         { font-size: 14px !important; }
             <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
             <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
             <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
-            <button class="btn btnMini" id="alwaysListenDmBtn">👂 Listen</button>
+            <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
           </div>
@@ -12992,12 +12992,12 @@ function makeSeat(defn, idx){
       if(g){
         const on = alwaysOn && alwaysMode === "group";
         g.classList.toggle("btnPrimary", on);
-        g.innerText = on ? "Always listening: On" : "Always listen";
+        g.innerText = on ? "Voice Mode: On" : "Voice Mode";
       }
       if(d){
         const on = alwaysOn && alwaysMode === "dm";
         d.classList.toggle("btnPrimary", on);
-        d.innerText = on ? "Always listening: On" : "Always listen";
+        d.innerText = on ? "Voice Mode: On" : "Voice Mode";
       }
     }
 
@@ -13210,7 +13210,7 @@ function makeSeat(defn, idx){
         alwaysOn=false;updateAlwaysButtons();
         showToast("🎤 Microphone blocked — "+micHelpText());return;
       }
-      _setAlwaysStatus("Mic: always listening");
+      _setAlwaysStatus("Mic: active");
 
       const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new SR();
@@ -13245,28 +13245,25 @@ function makeSeat(defn, idx){
             _nameDebounce=now;
             _switching=true; // block all box writes and onend snapshots
 
-            // Strip the name from everything before it ever enters _buf or the box
-            const cleanFinals=removeNameOnce(newFinals,hit.name);
-            const cleanInterim=removeNameOnce(interim,hit.name);
-            const cleanBuf=removeNameOnce(_buf,hit.name);
-            const leftover=(cleanBuf+" "+cleanFinals+" "+cleanInterim).replace(/\s+/g," ").trim();
-
-            // Wipe the box immediately — name must never appear
+            // Wipe EVERYTHING immediately — name must never appear, nothing carries over
             const tBefore=currentAlwaysTarget();
             if(tBefore) tBefore.value="";
             _buf="";
+            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
+
+            // Cancel any pending auto-send from the previous box
+            if(window._alwaysAutoSendTimer){ clearTimeout(window._alwaysAutoSendTimer); window._alwaysAutoSendTimer=null; }
 
             // Switch seat
             try{ await selectSeat(hit.name); }catch(_){}
             try{ forceSeatSelectUI(hit.name); }catch(_){}
-            _setAlwaysStatus("Mic: always listening → "+hit.name);
+            _setAlwaysStatus("Mic: active → "+hit.name);
 
-            // Write only the clean leftover into the new box
-            _buf=leftover;
+            // New box starts completely fresh
             const tAfter=currentAlwaysTarget();
-            if(tAfter) tAfter.value=_buf;
-            alwaysFinalText=_buf;
-            alwaysInterimText="";
+            if(tAfter) tAfter.value="";
+            _buf="";
+            alwaysFinalText=""; alwaysInterimText="";
 
             _switching=false; // lower guard
             return;
@@ -13324,7 +13321,7 @@ function makeSeat(defn, idx){
           const t=currentAlwaysTarget();
           if(t)_buf=t.value.trim();
         }
-        _setAlwaysStatus("Mic: always listening");
+        _setAlwaysStatus("Mic: active");
         try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
 
