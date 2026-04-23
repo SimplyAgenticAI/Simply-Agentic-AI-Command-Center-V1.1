@@ -405,6 +405,22 @@ def _get_claude_client_for_user(u: Optional[Dict[str, Any]] = None) -> Optional[
 def _is_claude_model(model: str) -> bool:
     return (model or "").lower().startswith("claude")
 
+def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = None) -> str:
+    """Resolve which model to use for a teammate response.
+    Priority: teammate preferred_model > user global_default_model > server MODEL env var.
+    Images and TTS always bypass this and use OpenAI directly."""
+    # 1. Teammate-level override
+    tm_model = (defn.get("preferred_model") or "").strip()
+    if tm_model:
+        return tm_model
+    # 2. User global default
+    if u:
+        global_model = ((u.get("settings") or {}).get("global_default_model") or "").strip()
+        if global_model:
+            return global_model
+    # 3. Server default
+    return MODEL
+
 app = Flask(__name__)
 
 # -----------------------------
@@ -4293,13 +4309,16 @@ def api_get_user_settings():
         "user": smtp.get("user", ""),
         "from_name": smtp.get("from_name", "")
     }
+    global_default_model = (settings.get("global_default_model") or "").strip()
+
     return jsonify({
         "ok": True,
         "settings": {
-            "has_openai_key":   bool(key),
-            "openai_key_hint":  key_hint,
-            "has_claude_key":   bool(claude_key),
-            "claude_key_hint":  claude_key_hint,
+            "has_openai_key":        bool(key),
+            "openai_key_hint":       key_hint,
+            "has_claude_key":        bool(claude_key),
+            "claude_key_hint":       claude_key_hint,
+            "global_default_model":  global_default_model,
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -4328,6 +4347,7 @@ def api_set_user_settings():
     openai_key = openai_key_in.strip()
     claude_key_in = (data.get("claude_key") or "")
     claude_key = claude_key_in.strip()
+    global_default_model = (data.get("global_default_model") or "").strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -4348,6 +4368,8 @@ def api_set_user_settings():
         rec["settings"]["openai_key"] = openai_key
     if claude_key and len(claude_key) >= 20:
         rec["settings"]["claude_key"] = claude_key
+    if global_default_model:
+        rec["settings"]["global_default_model"] = global_default_model
     # if user leaves blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
@@ -4770,8 +4792,9 @@ def _api_convene_impl(data):
         msgs.extend(thread)
         msgs.append({"role": "user", "content": user_content})
 
+        _convene_model = _resolve_model_for_user(defn, current_user())
         try:
-            text = call_llm(sys, msgs, temperature=0.65)
+            text = call_llm(sys, msgs, temperature=0.65, model=_convene_model)
         except Exception as e:
             status, msg = _classify_openai_error(e)
             append_log("convene_error", {"where": name, "error": str(e)})
@@ -4918,22 +4941,21 @@ def _api_followup_impl(data):
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    preferred_model = (defn.get("preferred_model") or "").strip() or None
-    _pm = preferred_model or MODEL
+    _resolved_model = _resolve_model_for_user(defn, current_user())
     _tool_log: List[Dict[str, Any]] = []
 
-    # Tool calling: skip for o1/o3 series (they don't support the tools param)
-    _supports_tools = not any(_pm.startswith(p) for p in ("o1", "o3", "o4"))
+    # Tool calling: skip for o1/o3/o4/claude series (unsupported tools param)
+    _supports_tools = not any(_resolved_model.startswith(p) for p in ("o1", "o3", "o4", "claude"))
     if _supports_tools:
         try:
             text, _tool_log = call_llm_with_tools(
-                sys, msgs, temperature=0.65, model=preferred_model,
+                sys, msgs, temperature=0.65, model=_resolved_model,
                 username=uname, u=current_user() or {}
             )
         except Exception:
-            text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
+            text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
     else:
-        text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
+        text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread, uname)
@@ -9426,12 +9448,17 @@ label         { font-size: 14px !important; }
                     <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
                     <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
                       <option value="">Default (global model)</option>
+                      <optgroup label="── OpenAI (GPT) ──">
                       <option value="gpt-4o">gpt-4o — balanced</option>
                       <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; cheap</option>
                       <option value="gpt-4-turbo">gpt-4-turbo — high quality</option>
-                      <option value="o1-mini">o1-mini — deep reasoning</option>
                       <option value="o3-mini">o3-mini — advanced reasoning</option>
-                      <option value="gpt-4.5-preview">gpt-4.5-preview</option>
+                      </optgroup>
+                      <optgroup label="── Anthropic (Claude) ──">
+                      <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                      <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                      <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                      </optgroup>
                     </select>
                   </div>
                   <div>
@@ -9596,6 +9623,25 @@ label         { font-size: 14px !important; }
                 </div>
                 <input id="claudeKey" type="text" placeholder="sk-ant-... (leave blank to keep saved key)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="claude_api_key_field" data-lpignore="true" data-1p-ignore="true" />
                 <div class="tiny" style="margin-top:4px;opacity:.7;">Used when a teammate is set to a claude-* model. Get your key at console.anthropic.com</div>
+
+                <div style="margin-top:14px;border-top:1px solid rgba(42,58,106,.4);padding-top:14px;">
+                  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <label style="margin:0;flex:1;">Default AI Model</label>
+                    <span class="tiny" style="opacity:.6;">applies to all teammates unless overridden</span>
+                  </div>
+                  <select id="globalDefaultModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                    <option value="gpt-4o">GPT-4o — balanced (default)</option>
+                    <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                    <option value="o3-mini">o3-mini — advanced reasoning</option>
+                    <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                    <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                    <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                  </select>
+                  <div class="tiny" style="margin-top:6px;opacity:.7;">
+                    Images and voice always use GPT regardless of this setting. Claude models require your Anthropic key above.
+                  </div>
+                </div>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -14386,6 +14432,9 @@ Challenge weak assumptions. Surface risks.`;
           $("claudeKey").value = "";
           $("claudeKey").placeholder = claudeHint ? ("Saved (" + claudeHint + ") — paste new to replace") : "sk-ant-...";
         }
+        if($("globalDefaultModel") && s.global_default_model){
+          $("globalDefaultModel").value = s.global_default_model;
+        }
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
@@ -18486,6 +18535,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const payload = {
         openai_key: keyVal,
         claude_key: claudeKeyVal,
+        global_default_model: ($("globalDefaultModel")?.value || "").trim(),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -26175,8 +26225,8 @@ def api_followup_stream():
     thread = load_thread(name, uname)
     thread = thread[-14:] if len(thread) > 14 else thread
 
-    preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
-    oai_client      = get_openai_client()
+    preferred_model = _resolve_model_for_user(defn, current_user())
+    oai_client      = get_openai_client() if not _is_claude_model(preferred_model) else None
 
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
@@ -26184,7 +26234,14 @@ def api_followup_stream():
     def generate():
         parts = []
         try:
-            stream = oai_client.chat.completions.create(
+            if _is_claude_model(preferred_model):
+                # Claude doesn't support streaming the same way — fall back to non-streaming
+                complete_text = call_llm(sys_prompt, list(thread) + [{"role": "user", "content": user_content if isinstance(user_content, str) else str(user_content)}], temperature=0.65, model=preferred_model)
+                parts = [complete_text]
+                yield "data: " + json.dumps({"token": complete_text}) + "\n\n"
+                stream = None
+            else:
+              stream = oai_client.chat.completions.create(
                 model=preferred_model,
                 messages=[{"role": "system", "content": sys_prompt}]
                          + list(thread)
@@ -26192,8 +26249,9 @@ def api_followup_stream():
                 temperature=0.65,
                 stream=True,
                 timeout=90,
-            )
-            for chunk in stream:
+              )
+            if stream is not None:
+              for chunk in stream:
                 if not chunk.choices:
                     continue
                 token = getattr(chunk.choices[0].delta, "content", None) or ""
