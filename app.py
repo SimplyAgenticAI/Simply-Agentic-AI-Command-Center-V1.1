@@ -12969,9 +12969,9 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // NAME RECOGNITION ENGINE  (alias → fuzzy → phonetic)
-    // ═══════════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // NAME RECOGNITION  (alias → fuzzy Levenshtein)
+    // ═══════════════════════════════════════════════════════════════
     const _ALIASES = {
       "atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis",
       "otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis",
@@ -12995,27 +12995,20 @@ function makeSeat(defn, idx){
     }
 
     function _resolveWord(raw){
-      const w=(raw||"").toLowerCase().replace(/['',;:.!?]+$/,"").trim();
+      const w=(raw||"").toLowerCase().replace(/[''\u2018\u2019,;:.!?]+$/,"").trim();
       if(!w||w.length<2)return null;
       const inst=(state&&state.installed)?state.installed:{};
-      // 1. exact
       for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}
-      // 2. alias
       const al=_ALIASES[w]; if(al&&inst[al])return al;
-      // 3. fuzzy against installed names
-      for(const k of Object.keys(inst)){
-        const kl=k.toLowerCase();
-        if(_lev(w,kl)<=(kl.length<=4?1:2))return k;
-      }
-      // 4. fuzzy against alias keys
-      for(const [alias,canon] of Object.entries(_ALIASES)){
+      for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}
+      for(const[alias,canon]of Object.entries(_ALIASES)){
         if(!inst[canon])continue;
         if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;
       }
       return null;
     }
 
-    // Scan text for first teammate name mention. Returns {name,idx} or null.
+    // Returns {name, idx} of first teammate name found, or null.
     function findFirstNameMention(text){
       if(!text)return null;
       const lower=text.toLowerCase();
@@ -13027,8 +13020,7 @@ function makeSeat(defn, idx){
         const hit=_resolveWord(w);
         if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};
         if(i+1<words.length){
-          const phrase=w+words[i+1];  // "sunshine" from "sun shine" etc
-          const ph=_resolveWord(phrase);
+          const ph=_resolveWord(w+words[i+1]);
           if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};
         }
         if(wi>=0)pos=wi+w.length;
@@ -13036,7 +13028,7 @@ function makeSeat(defn, idx){
       return best;
     }
 
-    // Remove teammate name (and all its aliases) from text.
+    // Strip the canonical name AND all aliases that map to it from text.
     function removeNameOnce(text,canonName){
       if(!text||!canonName)return text;
       const targets=[canonName.toLowerCase()];
@@ -13049,28 +13041,18 @@ function makeSeat(defn, idx){
       return out.replace(/\s+/g," ").trim();
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // ALWAYS-LISTEN ENGINE  —  clean rewrite
-    // ═══════════════════════════════════════════════════════════════════════
-    //
-    // What broke before:
-    //   • 900 ms ignore window dropped real speech on every mic restart
-    //   • watermark (_alwaysLastProcIdx) skipped results when resultIndex
-    //     was ahead, losing whole words
-    //   • alwaysBaseText + alwaysFinalText + alwaysInterimText stacked up
-    //     and doubled text in the box
-    //   • removeNameOnce only stripped the canonical name, not what was spoken
-    //   • group send button IDs ("sendGroup","conveneBtn") don't exist in HTML
-    //
-    // New design:
-    //   • One plain string buffer (_buf) — what the user has said this phrase
-    //   • Every onresult event: append new finals to _buf, show _buf+interim
-    //   • Name detected in interim or finals → switch seat, strip name, done
-    //   • onend: snapshot box → _buf, restart immediately with no delay
-    //   • Auto-send: 2 s silence → click the real button (#conveneAll or #sendFollow)
+    // ═══════════════════════════════════════════════════════════════
+    // ALWAYS-LISTEN ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    // Rules:
+    //  1. Every spoken word fills the box immediately (interim + final).
+    //  2. Saying a name → switch seat, strip name, keep rest in box.
+    //  3. Auto-send calls the API directly — no modals, no guards.
+    //  4. onend restarts immediately, no delay, no ignore window.
+    //  5. Buffer preserved across mic restarts so nothing is lost.
 
     let _buf = "";          // confirmed finals for current phrase
-    let _nameDebounce = 0;  // timestamp of last seat switch
+    let _nameDebounce = 0;
 
     function currentAlwaysTarget(){
       return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
@@ -13078,17 +13060,15 @@ function makeSeat(defn, idx){
     function currentAlwaysStatusEl(){
       return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
     }
-    function _alwaysSetStatus(msg){
+    function _setAlwaysStatus(msg){
       const s=currentAlwaysStatusEl(); if(s)s.innerText=msg;
     }
-
     function resetAlwaysBuffers(){
       _buf="";
       alwaysFinalText=""; alwaysInterimText=""; alwaysFinalBaseline="";
       const t=currentAlwaysTarget();
       alwaysBaseText=(t&&t.value)?t.value.trim():"";
     }
-
     function stopAlwaysListening(){
       alwaysOn=false;
       if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";
@@ -13096,12 +13076,83 @@ function makeSeat(defn, idx){
       if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       try{
         if(alwaysRec){
-          alwaysRec.onresult=null; alwaysRec.onerror=null; alwaysRec.onend=null;
+          alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;
           alwaysRec.stop();
         }
       }catch(_){}
       alwaysRec=null;
       updateAlwaysButtons();
+    }
+
+    // ── Voice-triggered send — calls API directly, no modals ────────────
+    async function _voiceSendDm(msg, seat){
+      if(!msg||!seat) return;
+      // Show thinking state
+      try{ setSeatLive(seat,"thinking"); }catch(_){}
+      try{ setOpStatus("Sending…"); }catch(_){}
+      try{
+        const res=await fetch("/api/followup",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({name:seat, message:msg,
+                               file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
+                               lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})
+        });
+        const data=await res.json();
+        if(data.ok){
+          try{ setSeatLive(seat,"done"); }catch(_){}
+          try{ setOpStatus("Done"); }catch(_){}
+          try{ $("followMsg").value=""; }catch(_){}
+          try{ await refreshThread(); }catch(_){}
+          if(data.email_draft){ try{ applyEmailDraft(data.email_draft,seat); }catch(_){} }
+          if(data.job_id){ try{ pollImageJob(data.job_id,seat); }catch(_){} }
+        }else{
+          try{ setSeatLive(seat,"waiting"); }catch(_){}
+          try{ setOpStatus("Error"); }catch(_){}
+          try{ showToast("⚠️ "+( data.error||"Send failed")); }catch(_){}
+        }
+      }catch(e){
+        try{ setSeatLive(seat,"waiting"); }catch(_){}
+        try{ showToast("⚠️ Send failed: "+String(e)); }catch(_){}
+      }
+    }
+
+    async function _voiceSendGroup(msg){
+      if(!msg) return;
+      const reg=state?.registry||null;
+      const order=(reg?.active_order&&reg.active_order.length)?reg.active_order:(reg?.installed_order||[]);
+      if(!order||!order.length){
+        try{ showToast("⚠️ No teammates at the table"); }catch(_){} return;
+      }
+      order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
+      try{ setOpStatus("Sending to all…"); }catch(_){}
+      try{ $("opPrompt").value=""; }catch(_){}
+      const outputs={},drafts={},images={};
+      for(const n of order){
+        try{
+          const res=await fetch("/api/followup",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:n, message:msg,
+                                 file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})
+          });
+          const data=await res.json();
+          if(data.ok){
+            outputs[n]=data.response||"";
+            if(data.email_draft)drafts[n]=data.email_draft;
+            if(data.image_url)images[n]=data.image_url;
+            try{ renderGroupReplies(outputs,drafts,images); }catch(_){}
+            try{ setSeatLive(n,"done"); }catch(_){}
+          }else{
+            try{ setSeatLive(n,"waiting"); }catch(_){}
+          }
+        }catch(_){
+          try{ setSeatLive(n,"waiting"); }catch(_){}
+        }
+      }
+      try{ lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
+      try{ setOpStatus("Complete"); }catch(_){}
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
     }
 
     async function startAlwaysListening(mode){
@@ -13113,9 +13164,11 @@ function makeSeat(defn, idx){
       resetAlwaysBuffers();
 
       const okPerm=await ensureMicPermission();
-      if(!okPerm){alwaysOn=false;updateAlwaysButtons();showToast("🎤 Microphone blocked — "+micHelpText());return;}
-
-      _alwaysSetStatus("Mic: always listening");
+      if(!okPerm){
+        alwaysOn=false;updateAlwaysButtons();
+        showToast("🎤 Microphone blocked — "+micHelpText());return;
+      }
+      _setAlwaysStatus("Mic: always listening");
 
       const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new SR();
@@ -13126,7 +13179,7 @@ function makeSeat(defn, idx){
       alwaysRec=rec;
 
       rec.onresult=async(ev)=>{
-        // ── Collect fresh text from this batch ──────────────────────────
+        // Collect fresh text from this event
         let newFinals="", interim="";
         for(let i=ev.resultIndex;i<ev.results.length;i++){
           const t=(ev.results[i][0].transcript||"");
@@ -13136,64 +13189,69 @@ function makeSeat(defn, idx){
         newFinals=newFinals.trim();
         interim=interim.trim();
 
-        // Append to buffer
+        // Add confirmed words to buffer
         if(newFinals) _buf=(_buf+" "+newFinals).trim();
 
-        // ── Name detection: interim first (fastest), then finals, then full buf ──
-        const hit=findFirstNameMention(interim)||findFirstNameMention(newFinals)||findFirstNameMention(_buf);
+        // ── Name detection: interim (fastest) → newFinals → full buffer ──
+        const hit=findFirstNameMention(interim)
+               ||findFirstNameMention(newFinals)
+               ||findFirstNameMention(_buf);
 
         if(hit){
           const now=Date.now();
           if(now-_nameDebounce>600){
             _nameDebounce=now;
 
-            // Strip name from everything
+            // Strip name from buffer and interim
             _buf=removeNameOnce(_buf,hit.name);
             const cleanInterim=removeNameOnce(interim,hit.name);
 
-            // Put remaining text in current box before switching
+            // Show remaining text in current box before switching
             const tBefore=currentAlwaysTarget();
             if(tBefore)tBefore.value=_buf;
 
             // Switch seat
-            try{await selectSeat(hit.name);}catch(_){}
-            try{forceSeatSelectUI(hit.name);}catch(_){}
+            try{ await selectSeat(hit.name); }catch(_){}
+            try{ forceSeatSelectUI(hit.name); }catch(_){}
+            _setAlwaysStatus("Mic: always listening → "+hit.name);
 
-            // Fill new seat's box with any remaining text
+            // Put leftover text into the new seat's box
             const tAfter=currentAlwaysTarget();
-            if(tAfter)tAfter.value=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
-
+            const leftover=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
+            if(tAfter)tAfter.value=leftover;
+            // Keep buf in sync with what's in the box
+            _buf=leftover;
             return;
           }
         }
 
-        // ── Normal update: show everything heard ─────────────────────────
+        // ── Normal update: show everything heard so far ────────────────
         const display=(_buf+(interim?" "+interim:"")).trim();
         const tgt=currentAlwaysTarget();
         if(tgt)tgt.value=display;
         alwaysFinalText=_buf;
         alwaysInterimText=interim;
 
-        // ── Auto-send after 2 s of silence ───────────────────────────────
+        // ── Auto-send: 2 s after last final result ─────────────────────
         if(newFinals){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
             if(!alwaysOn)return;
-            const t2=currentAlwaysTarget();
-            const msg=(t2?t2.value:"").trim();
+            // Snapshot the message NOW before clearing anything
+            const tgt2=currentAlwaysTarget();
+            const msg=(tgt2?tgt2.value:"").trim();
             if(!msg)return;
-            // Reset buffer before send so mic keeps listening cleanly
+            // Clear box and buffer so mic keeps listening cleanly
             _buf="";
             alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
-            if(t2)t2.value="";
+            if(tgt2)tgt2.value="";
+            // Send directly via API — no modals, no validation popups
             if(alwaysMode==="dm"){
-              // Click the real Send button so all existing guards run
-              const btn=$("sendFollow");
-              if(btn)btn.click();
+              const seat=window.selectedSeat||selectedSeat||"";
+              if(seat) await _voiceSendDm(msg,seat);
+              else showToast("⚠️ Say a teammate name first to select them");
             }else{
-              // Click the real group Send button
-              const btn=$("conveneAll");
-              if(btn)btn.click();
+              await _voiceSendGroup(msg);
             }
           },2000);
         }
@@ -13201,43 +13259,41 @@ function makeSeat(defn, idx){
 
       rec.onerror=(e)=>{
         const et=(e&&e.error)||"";
-        if(et==="no-speech"||et==="aborted")return;  // normal — onend will restart
-        _alwaysSetStatus("Mic: error");
-        try{stopAlwaysListening();}catch(_){}
+        if(et==="no-speech"||et==="aborted")return;
+        _setAlwaysStatus("Mic: error");
+        try{ stopAlwaysListening(); }catch(_){}
         const msg={
           "not-allowed":"Microphone access denied. Allow it in browser site settings.",
           "audio-capture":"No microphone found. Please connect one.",
           "service-not-allowed":"Speech recognition requires HTTPS.",
           "network":"Network error during speech recognition.",
         }[et]||("Speech error: "+(et||"unknown"));
-        try{showToast("🎤 "+msg);}catch(_){}
+        try{ showToast("🎤 "+msg); }catch(_){}
       };
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        // Snapshot whatever is in the box into _buf so nothing is lost across restart
+        // Snapshot box → buffer so nothing is lost across the restart
         const t=currentAlwaysTarget();
         if(t)_buf=t.value.trim();
-        _alwaysSetStatus("Mic: always listening");
-        // Restart immediately — no delay, no ignore window
-        try{rec.start();}catch(e){stopAlwaysListening();}
+        _setAlwaysStatus("Mic: always listening");
+        try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
 
-      try{rec.start();}catch(e){
+      try{ rec.start(); }catch(e){
         stopAlwaysListening();
         showToast("🎤 Could not start mic — check site permissions and try again");
       }
     }
 
     $("alwaysListenGroupBtn").onclick=()=>{
-      if(alwaysOn&&alwaysMode==="group"){stopAlwaysListening();}
+      if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();
       else{stopAlwaysListening();startAlwaysListening("group");}
     };
     $("alwaysListenDmBtn").onclick=()=>{
-      if(alwaysOn&&alwaysMode==="dm"){stopAlwaysListening();}
+      if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();
       else{stopAlwaysListening();startAlwaysListening("dm");}
     };
-
 
     // ===== NAV BAR DROPDOWN JS =====
     window.saToggleDrop = function saToggleDrop(dropId){
@@ -23718,13 +23774,10 @@ ADD_UI_POLISH_V8 = r'''
     const seats = qa(".seat[data-name]").map(el => el.getAttribute("data-name"));
     if(!seats.length) return false;
 
-    const hit = findFirstNameMention(s);
+    const hit=findFirstNameMention(s);
     if(hit){
-      try{
-        if(typeof window.selectSeat==="function")window.selectSeat(hit.name);
-        else if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);
-        if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);
-      }catch(_){}
+      try{if(typeof window.selectSeat==="function")window.selectSeat(hit.name);}catch(_){}
+      try{if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);}catch(_){}
       return true;
     }
     return false;
