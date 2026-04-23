@@ -15699,7 +15699,7 @@ const cal = {
   selected: null,
   events: {},   // keyed by YYYY-MM-DD, Google Calendar events
   tasks: [],    // local tasks array (expanded, includes recurring instances)
-  _rawTasks: [], // base tasks before recurring expansion — always kept in sync
+  _rawTasks: [], // base tasks before expansion — always initialized, never undefined
   gcalMeta: {}, // event_id → {on_complete_teammate, on_complete_client_name, on_complete_client_email, done}
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
   view: "week",
@@ -17398,16 +17398,17 @@ const wcalDrag={
         });
         const d=await res.json();
         if(!d.ok) throw new Error(d.error||'Move failed');
-        // Update base task in _rawTasks (always initialized) then re-expand
-        const rawBase=cal._rawTasks.find(t=>t.id===tid);
-        if(rawBase){ rawBase.date=targetDate; rawBase.start=newStart; }
-        else {
-          // Fallback: task not in _rawTasks yet — rebuild from cal.tasks base records
-          cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
-          const fb=cal._rawTasks.find(t=>t.id===tid);
-          if(fb){ fb.date=targetDate; fb.start=newStart; }
+        // Always update _rawTasks then re-expand — _rawTasks is always an array (initialized in cal)
+        {
+          let base=cal._rawTasks.find(t=>t.id===tid);
+          if(!base){
+            // Rebuild _rawTasks from cal.tasks if it somehow got out of sync
+            cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
+            base=cal._rawTasks.find(t=>t.id===tid);
+          }
+          if(base){ base.date=targetDate; base.start=newStart; }
+          cal.tasks=wcalExpandRecurring(cal._rawTasks);
         }
-        cal.tasks=wcalExpandRecurring(cal._rawTasks);
         showToast('Task moved');
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
@@ -17446,9 +17447,11 @@ function wcalDragWireGrid(grid){
     el.addEventListener('mousedown', function(e){
       if(e.button!==0) return;
       if(e.target.closest('.wcal-event-check,.wcal-meet-badge,a,.wcal-recur-badge')) return;
-      const etype=el.dataset.etype;
+      const _rawEtype=el.dataset.etype;
       const tid=el.dataset.tid?decodeURIComponent(el.dataset.tid):'';
       const eid=el.dataset.eid?decodeURIComponent(el.dataset.eid):'';
+      // GCal tasks render with data-etype="task" but no data-tid — route them as events
+      const etype=(_rawEtype==='task'&&!tid&&eid)?'event':_rawEtype;
       const col=el.closest('.wcal-day-col,[data-date]');
       const origDate=col?col.dataset.date:'';
       const wrapEl=document.getElementById('wcalGridWrap');
