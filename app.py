@@ -5546,6 +5546,15 @@ def api_cal_tasks_update(task_id: str):
             for field in ("title", "date", "start", "priority", "description", "recurring", "on_complete_teammate", "on_complete_client_email", "on_complete_client_name"):
                 if field in payload:
                     t[field] = (payload[field] or "").strip()
+            # Per-instance start time overrides for recurring tasks
+            # instance_start_override: {instance_date: "HH:MM"} — only moves that specific day
+            if "instance_start_override" in payload:
+                iso = (payload.get("instance_date") or "").strip()
+                new_time = (payload.get("instance_start_override") or "").strip()
+                if iso and new_time:
+                    overrides = t.get("start_overrides") or {}
+                    overrides[iso] = new_time
+                    t["start_overrides"] = overrides
             if "recur_days" in payload:
                 rd = payload["recur_days"]
                 t["recur_days"] = [int(d) for d in rd if str(d).isdigit() or isinstance(d, int)] if isinstance(rd, list) else []
@@ -15831,9 +15840,13 @@ function wcalExpandRecurring(tasks){
           // Per-date done tracking: check done_dates set, fall back to legacy done flag
           const doneDates = t.done_dates || [];
           const isDone = doneDates.includes(instanceDate) || (t.done && instanceDate <= (t.completed_at||'').slice(0,10));
+          // Apply per-instance start time override if one exists for this date
+          const startOverrides = t.start_overrides || {};
+          const instanceStart = startOverrides[instanceDate] || t.start;
           expanded.push(Object.assign({}, t, {
             id: t.id,
             date: instanceDate,
+            start: instanceStart,
             _isRecurInstance: instanceDate !== t.date,
             done: isDone,
           }));
@@ -15965,7 +15978,8 @@ function wcalEventHtml(ev, extraStyle=''){
   const durMins=Math.max(30,(endDate-startDate)/60000);
   const top=startMins; const height=Math.max(28,durMins);
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-  const title=(ev.summary||'Event').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const _evRawTitle=(ev.summary||'Event');
+  const title=(wcalCleanDescription(_evRawTitle)||_evRawTitle).replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
@@ -16023,7 +16037,9 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const meta=(cal.gcalMeta||{})[evKey]||{};
   const isDone=_evDone.has(evKey)||(!!meta.done);
   const doneCls=isDone?' is-done':'';
-  const title=(meta.title||ev.summary||'Task').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const _rawTitle=(meta.title||ev.summary||'Task');
+  const title=wcalCleanDescription(_rawTitle)||_rawTitle;
+  const titleEsc=title.replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const isRecur=!!(ev.recurringEventId)||!!(ev._recurring)||(ev.is_motion_task===true);
   const recurBadge=isRecur?'<span class="wcal-recur-badge" title="Recurring">&#x21bb;</span>':'';
@@ -16034,10 +16050,10 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   const zoomBadge=(ev.location&&ev.location.includes('zoom.us'))?` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵</a>`:'';
   const joinBadge=meetBadge||zoomBadge;
   // Use data-etype="task" so both task types share one CSS tree, one glow, one toggle
-  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="task" data-tdate="${(ev.start||'').slice(0,10)}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
+  let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="task" data-tdate="${(ev.start||'').slice(0,10)}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${titleEsc}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
   if(isRecur) h+=recurBadge;
-  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span>${joinBadge}</div>`;
+  h+=`<div class="wcal-event-row"><span class="wcal-event-title">${titleEsc}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
   h+='</div>';
   return h;
@@ -16453,7 +16469,10 @@ function wcalShowTaskDetail(task){
       </div>
     </div>
     <div>
-      <div class="wcal-detail-label">Repeats</div>
+      <div class="wcal-detail-label" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Repeats</span>
+        <button onclick="wcalQuickToggleRecurring()" style="font-size:10px;padding:2px 8px;border-radius:5px;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.12);color:#c4b5fd;cursor:pointer;font-weight:600;" title="Swap between recurring and one-time">⇄ Swap</button>
+      </div>
       <select class="wcal-detail-field" id="detRecurring" onchange="wcalToggleRecurDays(this.value,'detDayPicker')">
         <option value="none" ${(task.recurring||'none')==='none'?'selected':''}>Does not repeat</option>
         <option value="daily" ${task.recurring==='daily'?'selected':''}>Every day</option>
@@ -16914,6 +16933,21 @@ async function wcalToggleTaskById(id,done){
     showToast(done?'✓ Task complete':'Task marked todo');
   }catch(e){ showToast('Update failed'); }
 }
+
+// Quick toggle: recurring ↔ one-time in the detail panel
+window.wcalQuickToggleRecurring = function(){
+  const sel = document.getElementById('detRecurring');
+  const picker = document.getElementById('detDayPicker');
+  if(!sel) return;
+  const isRecurring = sel.value !== 'none';
+  if(isRecurring){
+    sel.value = 'none';
+  } else {
+    sel.value = 'weekdays';
+  }
+  if(picker) picker.style.display = sel.value === 'none' ? 'none' : 'flex';
+  showToast(sel.value === 'none' ? 'Set to one-time task' : 'Set to recurring (weekdays)');
+};
 
 window.wcalDetSaveTask = async function(taskId){
   const st=document.getElementById('detStatus'); if(st) st.innerText='Saving...';
@@ -17400,27 +17434,33 @@ const wcalDrag={
 
     if(etype==='task'){
       try{
-        // For recurring tasks, only update the start time — never the anchor date.
-        // Changing the anchor date shifts every instance in the series.
         let base=cal._rawTasks.find(t=>t.id===tid);
         if(!base){
           cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
           base=cal._rawTasks.find(t=>t.id===tid);
         }
         const isRecurring=base&&(base.recurring&&base.recurring!=='none');
-        const payload=isRecurring
-          ? {start:newStart}
-          : {date:targetDate, start:newStart};
+        let payload;
+        if(isRecurring){
+          // Per-instance override — only moves THIS specific date, never touches other days
+          payload={instance_start_override:newStart, instance_date:origDate};
+        } else {
+          payload={date:targetDate, start:newStart};
+        }
         const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify(payload)
         });
         const d=await res.json();
         if(!d.ok) throw new Error(d.error||'Move failed');
-        // Update in-memory base task then re-expand
+        // Update in-memory immediately — no re-fetch needed
         if(base){
-          base.start=newStart;
-          if(!isRecurring) base.date=targetDate;
+          if(isRecurring){
+            if(!base.start_overrides) base.start_overrides={};
+            base.start_overrides[origDate]=newStart;
+          } else {
+            base.date=targetDate; base.start=newStart;
+          }
         }
         cal.tasks=wcalExpandRecurring(cal._rawTasks);
         showToast('Task moved');
