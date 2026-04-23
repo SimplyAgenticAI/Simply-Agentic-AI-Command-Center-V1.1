@@ -10180,6 +10180,14 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
+/* ── Global scrollbar styling — dark, minimal, matches interface ── */
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
+::-webkit-scrollbar-thumb { background:rgba(80,110,200,.35); border-radius:10px; }
+::-webkit-scrollbar-thumb:hover { background:rgba(124,58,237,.55); }
+::-webkit-scrollbar-corner { background:transparent; }
+* { scrollbar-width:thin; scrollbar-color:rgba(80,110,200,.35) transparent; }
+
 .wcal-sidebar { width:230px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
@@ -17392,23 +17400,29 @@ const wcalDrag={
 
     if(etype==='task'){
       try{
+        // For recurring tasks, only update the start time — never the anchor date.
+        // Changing the anchor date shifts every instance in the series.
+        let base=cal._rawTasks.find(t=>t.id===tid);
+        if(!base){
+          cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
+          base=cal._rawTasks.find(t=>t.id===tid);
+        }
+        const isRecurring=base&&(base.recurring&&base.recurring!=='none');
+        const payload=isRecurring
+          ? {start:newStart}
+          : {date:targetDate, start:newStart};
         const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
           method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({date:targetDate, start:newStart})
+          body:JSON.stringify(payload)
         });
         const d=await res.json();
         if(!d.ok) throw new Error(d.error||'Move failed');
-        // Always update _rawTasks then re-expand — _rawTasks is always an array (initialized in cal)
-        {
-          let base=cal._rawTasks.find(t=>t.id===tid);
-          if(!base){
-            // Rebuild _rawTasks from cal.tasks if it somehow got out of sync
-            cal._rawTasks=cal.tasks.filter(t=>!t._isRecurInstance);
-            base=cal._rawTasks.find(t=>t.id===tid);
-          }
-          if(base){ base.date=targetDate; base.start=newStart; }
-          cal.tasks=wcalExpandRecurring(cal._rawTasks);
+        // Update in-memory base task then re-expand
+        if(base){
+          base.start=newStart;
+          if(!isRecurring) base.date=targetDate;
         }
+        cal.tasks=wcalExpandRecurring(cal._rawTasks);
         showToast('Task moved');
         wcalRefresh(); wcalRenderMiniMonth(); wcalRenderUpcoming();
       }catch(err){ showToast('Move failed: '+(err.message||err)); wcalRefresh(); }
