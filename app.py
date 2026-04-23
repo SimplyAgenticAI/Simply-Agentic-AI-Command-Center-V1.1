@@ -9165,7 +9165,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
-            <button class="saDropItem" id="siteReviewerBtn">🔍 Site Reviewer</button>
+            <button class="saDropItem" id="siteReviewerBtn">Site Reviewer</button>
           </div>
         </div>
 
@@ -12970,424 +12970,113 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // NAME RECOGNITION ENGINE
-    // ═══════════════════════════════════════════════════════════════
-    const _ALIASES = {
-      "atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis",
-      "otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis",
-      "alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex",
-      "willo":"Willow","willa":"Willow","wilco":"Willow",
-      "eva":"Ava","avah":"Ava",
-      "orian":"Orion","oreon":"Orion","arion":"Orion","orieon":"Orion","ryan":"Orion",
-      "sunny":"Sunshine","sunshyne":"Sunshine",
-      "loona":"Luna","lunah":"Luna","lena":"Luna",
-    };
-    function _lev(a,b){
-      const m=a.length,n=b.length;if(!m)return n;if(!n)return m;
-      let dp=Array.from({length:m+1},(_,i)=>i);
-      for(let j=1;j<=n;j++){let prev=dp[0];dp[0]=j;for(let i=1;i<=m;i++){const t=dp[i];dp[i]=a[i-1]===b[j-1]?prev:1+Math.min(prev,dp[i-1],dp[i]);prev=t;}}
-      return dp[m];
-    }
-    function _resolveWord(raw){
-      const w=(raw||"").toLowerCase().replace(/[''`,.!?;:]+$/,"").trim();
-      if(!w||w.length<2)return null;
-      const inst=(state&&state.installed)?state.installed:{};
-      for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}
-      const al=_ALIASES[w];if(al&&inst[al])return al;
-      for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}
-      for(const[alias,canon]of Object.entries(_ALIASES)){
-        if(!inst[canon])continue;
-        if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;
-      }
-      return null;
-    }
-    function findFirstNameMention(text){
-      if(!text)return null;
-      const lower=text.toLowerCase();
-      const words=lower.split(/\s+/);
-      let best=null,pos=0;
-      for(let i=0;i<words.length;i++){
-        const w=words[i];
-        const wi=lower.indexOf(w,pos);
-        const hit=_resolveWord(w);
-        if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};
-        if(i+1<words.length){const ph=_resolveWord(w+words[i+1]);if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};}
-        if(wi>=0)pos=wi+w.length;
-      }
-      return best;
-    }
-    function removeNameOnce(text,canonName){
-      if(!text||!canonName)return text;
-      const targets=[canonName.toLowerCase()];
-      for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}
-      let out=text;
-      for(const t of targets){const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");out=out.replace(rx,"");}
-      return out.replace(/\s+/g," ").trim();
-    }
+    const _ALIASES={"atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis","otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis","alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex","willo":"Willow","willa":"Willow","wilco":"Willow","eva":"Ava","avah":"Ava","orian":"Orion","oreon":"Orion","arion":"Orion","orieon":"Orion","ryan":"Orion","sunny":"Sunshine","sunshyne":"Sunshine","loona":"Luna","lunah":"Luna","lena":"Luna"};
+    function _lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let dp=Array.from({length:m+1},(_,i)=>i);for(let j=1;j<=n;j++){let p=dp[0];dp[0]=j;for(let i=1;i<=m;i++){const t=dp[i];dp[i]=a[i-1]===b[j-1]?p:1+Math.min(p,dp[i-1],dp[i]);p=t;}}return dp[m];}
+    function _resolveWord(raw){const w=(raw||"").toLowerCase().replace(/[''`,.!?;:]+$/,"").trim();if(!w||w.length<2)return null;const inst=(state&&state.installed)?state.installed:{};for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}const al=_ALIASES[w];if(al&&inst[al])return al;for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}for(const[alias,canon]of Object.entries(_ALIASES)){if(!inst[canon])continue;if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;}return null;}
+    function findFirstNameMention(text){if(!text)return null;const lower=text.toLowerCase();const words=lower.split(/\s+/);let best=null,pos=0;for(let i=0;i<words.length;i++){const w=words[i];const wi=lower.indexOf(w,pos);const hit=_resolveWord(w);if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};if(i+1<words.length){const ph=_resolveWord(w+words[i+1]);if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};}if(wi>=0)pos=wi+w.length;}return best;}
+    function removeNameOnce(text,canonName){if(!text||!canonName)return text;const targets=[canonName.toLowerCase()];for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}let out=text;for(const t of targets){const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");out=out.replace(rx,"");}return out.replace(/\s+/g," ").trim();}
 
-    // ═══════════════════════════════════════════════════════════════
     // ALWAYS-LISTEN ENGINE
-    // ═══════════════════════════════════════════════════════════════
     let _buf="";
     let _nameDebounce=0;
-
-    function currentAlwaysTarget(){return (alwaysMode==="group")?$("opPrompt"):$("followMsg");}
-    function currentAlwaysStatusEl(){return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");}
+    function currentAlwaysTarget(){return(alwaysMode==="group")?$("opPrompt"):$("followMsg");}
+    function currentAlwaysStatusEl(){return(alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");}
     function _alwaysSetStatus(m){const s=currentAlwaysStatusEl();if(s)s.innerText=m;}
-    function resetAlwaysBuffers(){
-      _buf="";alwaysFinalText="";alwaysInterimText="";alwaysFinalBaseline="";
-      const t=currentAlwaysTarget();alwaysBaseText=(t&&t.value)?t.value.trim():"";
-    }
-    function stopAlwaysListening(){
-      alwaysOn=false;
-      if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";
-      if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";
-      if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
-      try{if(alwaysRec){alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;alwaysRec.stop();}}catch(_){}
-      alwaysRec=null;updateAlwaysButtons();
-    }
+    function resetAlwaysBuffers(){_buf="";alwaysFinalText="";alwaysInterimText="";alwaysFinalBaseline="";const t=currentAlwaysTarget();alwaysBaseText=(t&&t.value)?t.value.trim():"";}
+    function stopAlwaysListening(){alwaysOn=false;if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}try{if(alwaysRec){alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;alwaysRec.stop();}}catch(_){}alwaysRec=null;updateAlwaysButtons();}
 
-    // Direct API send — no modals, no validation popups
-    async function _voiceSendDm(msg,seat){
-      if(!msg||!seat)return;
-      try{setSeatLive(seat,"thinking");}catch(_){}
-      try{setOpStatus("Sending…");}catch(_){}
-      try{
-        const res=await fetch("/api/followup",{
-          method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({name:seat,message:msg,
-            file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
-            lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})
-        });
-        const data=await res.json();
-        if(data.ok){
-          try{setSeatLive(seat,"done");}catch(_){}
-          try{setOpStatus("Done");}catch(_){}
-          try{$("followMsg").value="";}catch(_){}
-          try{await refreshThread();}catch(_){}
-          if(data.email_draft){try{applyEmailDraft(data.email_draft,seat);}catch(_){}}
-          if(data.job_id){try{pollImageJob(data.job_id,seat);}catch(_){}}
-          if(window.onboardingRefresh){try{await window.onboardingRefresh();}catch(_){}}
-        }else{
-          try{setSeatLive(seat,"waiting");}catch(_){}
-          try{setOpStatus("Error");}catch(_){}
-          try{showToast("⚠️ "+(data.error||"Send failed"));}catch(_){}
-        }
-      }catch(e){
-        try{setSeatLive(seat,"waiting");}catch(_){}
-        try{showToast("⚠️ Send failed: "+String(e));}catch(_){}
-      }
-    }
+    async function _voiceSendDm(msg,seat){if(!msg||!seat)return;try{setSeatLive(seat,"thinking");}catch(_){}try{setOpStatus("Sending\u2026");}catch(_){}try{const res=await fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:seat,message:msg,file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})});const data=await res.json();if(data.ok){try{setSeatLive(seat,"done");}catch(_){}try{setOpStatus("Done");}catch(_){}try{$("followMsg").value="";}catch(_){}try{await refreshThread();}catch(_){}if(data.email_draft){try{applyEmailDraft(data.email_draft,seat);}catch(_){}}if(data.job_id){try{pollImageJob(data.job_id,seat);}catch(_){}}if(window.onboardingRefresh){try{await window.onboardingRefresh();}catch(_){}}}else{try{setSeatLive(seat,"waiting");}catch(_){}try{setOpStatus("Error");}catch(_){}try{showToast("\u26a0\ufe0f "+(data.error||"Send failed"));}catch(_){}}}catch(e){try{setSeatLive(seat,"waiting");}catch(_){}try{showToast("\u26a0\ufe0f Send failed: "+String(e));}catch(_){}}}
 
-    async function _voiceSendGroup(msg){
-      if(!msg)return;
-      const reg=state&&state.registry?state.registry:null;
-      const order=(reg&&reg.active_order&&reg.active_order.length)?reg.active_order:((reg&&reg.installed_order)||[]);
-      if(!order||!order.length){try{showToast("⚠️ No teammates at the table");}catch(_){}return;}
-      order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
-      try{setOpStatus("Sending to all…");}catch(_){}
-      const outputs={},drafts={},images={};
-      for(const n of order){
-        try{
-          const res=await fetch("/api/followup",{
-            method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({name:n,message:msg,
-              file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})
-          });
-          const data=await res.json();
-          if(data.ok){
-            outputs[n]=data.response||"";
-            if(data.email_draft)drafts[n]=data.email_draft;
-            if(data.image_url)images[n]=data.image_url;
-            try{renderGroupReplies(outputs,drafts,images);}catch(_){}
-            try{setSeatLive(n,"done");}catch(_){}
-          }else{try{setSeatLive(n,"waiting");}catch(_){}}
-        }catch(_){try{setSeatLive(n,"waiting");}catch(_){}}
-      }
-      try{lastGroupOutputs=outputs;renderGroupReplies(outputs,drafts,images);}catch(_){}
-      try{setOpStatus("Complete");}catch(_){}
-      try{if(window.onboardingRefresh)await window.onboardingRefresh();}catch(_){}
-      try{if(typeof groupFileIds!=="undefined"){groupFileIds=[];renderAttachList("groupAttachList",groupFileIds);}}catch(_){}
-    }
+    async function _voiceSendGroup(msg){if(!msg)return;const reg=(state&&state.registry)?state.registry:null;const order=(reg&&reg.active_order&&reg.active_order.length)?reg.active_order:((reg&&reg.installed_order)||[]);if(!order||!order.length){try{showToast("\u26a0\ufe0f No teammates at the table");}catch(_){}return;}order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});try{setOpStatus("Sending to all\u2026");}catch(_){}const outputs={},drafts={},images={};for(const n of order){try{const res=await fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:n,message:msg,file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})});const data=await res.json();if(data.ok){outputs[n]=data.response||"";if(data.email_draft)drafts[n]=data.email_draft;if(data.image_url)images[n]=data.image_url;try{renderGroupReplies(outputs,drafts,images);}catch(_){}try{setSeatLive(n,"done");}catch(_){}}else{try{setSeatLive(n,"waiting");}catch(_){}}}catch(_){try{setSeatLive(n,"waiting");}catch(_){}}}try{lastGroupOutputs=outputs;renderGroupReplies(outputs,drafts,images);}catch(_){}try{setOpStatus("Complete");}catch(_){}try{if(window.onboardingRefresh)await window.onboardingRefresh();}catch(_){}try{if(typeof groupFileIds!=="undefined"){groupFileIds=[];renderAttachList("groupAttachList",groupFileIds);}}catch(_){}}
 
-    async function startAlwaysListening(mode){
-      if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
-      alwaysMode=mode||"dm";alwaysOn=true;updateAlwaysButtons();resetAlwaysBuffers();
-      const okPerm=await ensureMicPermission();
-      if(!okPerm){alwaysOn=false;updateAlwaysButtons();showToast("🎤 Microphone blocked — "+micHelpText());return;}
-      _alwaysSetStatus("Mic: always listening");
-
-      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-      const rec=new SR();
-      rec.lang="en-US";rec.interimResults=true;rec.continuous=true;rec.maxAlternatives=1;
-      alwaysRec=rec;
-
-      rec.onresult=async(ev)=>{
-        let newFinals="",interim="";
-        for(let i=ev.resultIndex;i<ev.results.length;i++){
-          const t=(ev.results[i][0].transcript||"");
-          if(ev.results[i].isFinal)newFinals+=t+" ";
-          else interim+=t;
-        }
-        newFinals=newFinals.trim();interim=interim.trim();
-        if(newFinals)_buf=(_buf+" "+newFinals).trim();
-
-        // Name detection: interim first (fastest response)
+    async function startAlwaysListening(mode){if(!speechSupported()){showToast("\ud83c\udfa4 "+micHelpText());return;}alwaysMode=mode||"dm";alwaysOn=true;updateAlwaysButtons();resetAlwaysBuffers();const okPerm=await ensureMicPermission();if(!okPerm){alwaysOn=false;updateAlwaysButtons();showToast("\ud83c\udfa4 Microphone blocked \u2014 "+micHelpText());return;}_alwaysSetStatus("Mic: always listening");const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;rec.maxAlternatives=1;alwaysRec=rec;
+      rec.onresult=async(ev)=>{let newFinals="",interim="";for(let i=ev.resultIndex;i<ev.results.length;i++){const t=(ev.results[i][0].transcript||"");if(ev.results[i].isFinal)newFinals+=t+" ";else interim+=t;}newFinals=newFinals.trim();interim=interim.trim();if(newFinals)_buf=(_buf+" "+newFinals).trim();
         const hit=findFirstNameMention(interim)||findFirstNameMention(newFinals)||findFirstNameMention(_buf);
-        if(hit){
-          const now=Date.now();
-          if(now-_nameDebounce>500){
-            _nameDebounce=now;
-            _buf=removeNameOnce(_buf,hit.name);
-            const cleanInterim=removeNameOnce(interim,hit.name);
-            const tBefore=currentAlwaysTarget();if(tBefore)tBefore.value=_buf;
-            try{await selectSeat(hit.name);}catch(_){}
-            try{forceSeatSelectUI(hit.name);}catch(_){}
-            _alwaysSetStatus("Mic: listening → "+hit.name);
-            const tAfter=currentAlwaysTarget();
-            const leftover=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
-            if(tAfter)tAfter.value=leftover;
-            _buf=leftover;
-            return;
-          }
-        }
+        if(hit){const now=Date.now();if(now-_nameDebounce>500){_nameDebounce=now;_buf=removeNameOnce(_buf,hit.name);const ci=removeNameOnce(interim,hit.name);const tB=currentAlwaysTarget();if(tB)tB.value=_buf;try{await selectSeat(hit.name);}catch(_){}try{forceSeatSelectUI(hit.name);}catch(_){}_alwaysSetStatus("Mic: listening \u2192 "+hit.name);const tA=currentAlwaysTarget();const lo=(_buf+(ci?" "+ci:"")).trim();if(tA)tA.value=lo;_buf=lo;return;}}
+        const display=(_buf+(interim?" "+interim:"")).trim();const tgt=currentAlwaysTarget();if(tgt)tgt.value=display;alwaysFinalText=_buf;alwaysInterimText=interim;
+        if(newFinals){if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=setTimeout(async()=>{if(!alwaysOn)return;const t2=currentAlwaysTarget();const msg=(t2?t2.value:"").trim();if(!msg)return;_buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";if(t2)t2.value="";if(alwaysMode==="dm"){const seat=window.selectedSeat||selectedSeat||"";if(seat)await _voiceSendDm(msg,seat);else{if(t2)t2.value=msg;_buf=msg;showToast("Say a teammate name first, then your message");}}else{await _voiceSendGroup(msg);}},2000);}};  
+      rec.onerror=(e)=>{const et=(e&&e.error)||"";if(et==="no-speech"||et==="aborted")return;_alwaysSetStatus("Mic: error");try{stopAlwaysListening();}catch(_){}const m={"not-allowed":"Microphone access denied. Allow it in browser settings.","audio-capture":"No microphone found.","service-not-allowed":"Speech recognition needs HTTPS.","network":"Network error."}[et]||("Speech error: "+(et||"unknown"));try{showToast("\ud83c\udfa4 "+m);}catch(_){}};  
+      rec.onend=()=>{if(!alwaysOn)return;const t=currentAlwaysTarget();if(t)_buf=t.value.trim();_alwaysSetStatus("Mic: always listening");try{rec.start();}catch(e){stopAlwaysListening();}};  
+      try{rec.start();}catch(e){stopAlwaysListening();showToast("\ud83c\udfa4 Could not start mic \u2014 check site permissions");}}
 
-        // Normal: fill box with everything heard
-        const display=(_buf+(interim?" "+interim:"")).trim();
-        const tgt=currentAlwaysTarget();if(tgt)tgt.value=display;
-        alwaysFinalText=_buf;alwaysInterimText=interim;
+    $("alwaysListenGroupBtn").onclick=()=>{if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();else{stopAlwaysListening();startAlwaysListening("group");}};  
+    $("alwaysListenDmBtn").onclick=()=>{if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();else{stopAlwaysListening();startAlwaysListening("dm");}};  
 
-        // Auto-send 2 s after last final word
-        if(newFinals){
-          if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
-          window._alwaysAutoSendTimer=setTimeout(async()=>{
-            if(!alwaysOn)return;
-            const t2=currentAlwaysTarget();
-            const msg=(t2?t2.value:"").trim();
-            if(!msg)return;
-            // Snapshot msg, then clear
-            _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
-            if(t2)t2.value="";
-            if(alwaysMode==="dm"){
-              const seat=window.selectedSeat||selectedSeat||"";
-              if(seat)await _voiceSendDm(msg,seat);
-              else{if(t2)t2.value=msg;_buf=msg;showToast("Say a teammate name first, then your message");}
-            }else{
-              await _voiceSendGroup(msg);
-            }
-          },2000);
-        }
-      };
-
-      rec.onerror=(e)=>{
-        const et=(e&&e.error)||"";
-        if(et==="no-speech"||et==="aborted")return;
-        _alwaysSetStatus("Mic: error");
-        try{stopAlwaysListening();}catch(_){}
-        const m={"not-allowed":"Microphone access denied. Allow it in browser settings.",
-          "audio-capture":"No microphone found.",
-          "service-not-allowed":"Speech recognition needs HTTPS.",
-          "network":"Network error."}[et]||("Speech error: "+(et||"unknown"));
-        try{showToast("🎤 "+m);}catch(_){}
-      };
-
-      rec.onend=()=>{
-        if(!alwaysOn)return;
-        const t=currentAlwaysTarget();if(t)_buf=t.value.trim();
-        _alwaysSetStatus("Mic: always listening");
-        try{rec.start();}catch(e){stopAlwaysListening();}
-      };
-
-      try{rec.start();}catch(e){stopAlwaysListening();showToast("🎤 Could not start mic — check site permissions");}
-    }
-
-    $("alwaysListenGroupBtn").onclick=()=>{
-      if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();
-      else{stopAlwaysListening();startAlwaysListening("group");}
-    };
-    $("alwaysListenDmBtn").onclick=()=>{
-      if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();
-      else{stopAlwaysListening();startAlwaysListening("dm");}
+    // ===== SITE REVIEWER =====
+    window.showSiteReviewerModal=function(){
+      if(document.getElementById('siteReviewerOverlay'))return;
+      const ov=document.createElement('div');
+      ov.id='siteReviewerOverlay';
+      ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(5,10,30,.88);display:flex;align-items:center;justify-content:center;padding:16px;';
+      const types=['Full Review','Landing Page','Sales Funnel','Homepage','E-commerce','Agency / Service'];
+      const radios=types.map((t,i)=>'<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#94a3b8;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.25);border-radius:8px;padding:4px 10px;"><input type="radio" name="srType" value="'+t+'" '+(i===0?'checked':'')+'> '+t+'</label>').join('');
+      ov.innerHTML='<div style="background:#0d1530;border:1px solid rgba(124,58,237,.5);border-radius:18px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:26px;position:relative;box-shadow:0 24px 80px rgba(0,0,0,.7);">'
+        +'<button onclick="document.getElementById('siteReviewerOverlay').remove()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">&#x2715;</button>'
+        +'<div style="font-size:18px;font-weight:800;color:#f3e8ff;margin-bottom:4px;">&#x1F50D; Site Reviewer</div>'
+        +'<div style="font-size:12px;color:#64748b;margin-bottom:18px;">Score, audit and get quick wins for any public website</div>'
+        +'<div style="display:flex;gap:8px;margin-bottom:12px;"><input id="srUrl" type="url" placeholder="https://yoursite.com" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;"/><button id="srBtn" onclick="runSiteReview()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;border-radius:10px;padding:10px 18px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">Analyse</button></div>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">'+radios+'</div>'
+        +'<div id="srStatus" style="display:none;text-align:center;padding:20px;color:#94a3b8;font-size:13px;"><div style="width:26px;height:26px;border:3px solid rgba(124,58,237,.3);border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px;"></div><div id="srMsg">Fetching page&hellip;</div></div>'
+        +'<div id="srOut" style="display:none;">'
+        +'<div style="text-align:center;margin-bottom:16px;"><svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(124,58,237,.2)" stroke-width="9"/><circle id="srRing" cx="50" cy="50" r="42" fill="none" stroke="#7c3aed" stroke-width="9" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round" transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 1.2s ease;"/></svg><div id="srNum" style="font-size:38px;font-weight:900;color:#f3e8ff;margin-top:-68px;line-height:100px;">-</div></div>'
+        +'<div id="srCats" style="margin-bottom:16px;"></div>'
+        +'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;"><button id="srT0" onclick="srTab(0)" style="background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.6);border-radius:8px;padding:5px 12px;color:#c4b5fd;font-size:12px;font-weight:600;cursor:pointer;">&#x26A1; Quick Wins</button><button id="srT1" onclick="srTab(1)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x2705; Strengths</button><button id="srT2" onclick="srTab(2)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x26A0; Weaknesses</button><button id="srT3" onclick="srTab(3)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x1F5FA; Improvements</button></div>'
+        +'<div id="srContent" style="font-size:13px;color:#cbd5e1;line-height:1.7;min-height:60px;"></div>'
+        +'<div style="display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(80,100,180,.15);"><button onclick="srCopy()" style="background:rgba(255,255,255,.06);border:1px solid rgba(80,100,180,.3);border-radius:8px;padding:6px 12px;color:#94a3b8;font-size:12px;cursor:pointer;">&#x1F4CB; Copy report</button><button onclick="srSend()" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:6px 12px;color:#c4b5fd;font-size:12px;cursor:pointer;">&#x1F4AC; Send to teammate</button></div></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+      setTimeout(()=>{const el=document.getElementById('srUrl');if(el)el.focus();},100);
     };
 
+    let _srRpt='';
+    let _srData={};
+    const _srKeys=['wins','strengths','weaknesses','improvements'];
+    const _srColors={wins:'#f59e0b',strengths:'#10b981',weaknesses:'#ef4444',improvements:'#3b82f6'};
 
-    // ═══════════════════════════════════════════════════════════════
-    // SITE REVIEWER TOOL
-    // ═══════════════════════════════════════════════════════════════
-    window.showSiteReviewerModal = function showSiteReviewerModal(){
-      const overlay = document.createElement("div");
-      overlay.id = "siteReviewerOverlay";
-      overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(5,10,30,.85);display:flex;align-items:center;justify-content:center;padding:20px;";
-      overlay.innerHTML = `
-        <div style="background:#0d1530;border:1px solid rgba(124,58,237,.5);border-radius:18px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;padding:28px 28px 24px;position:relative;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-          <button onclick="document.getElementById('siteReviewerOverlay').remove()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">✕</button>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
-            <span style="font-size:26px;">🔍</span>
-            <div>
-              <div style="font-size:18px;font-weight:800;color:#f3e8ff;">Site Reviewer</div>
-              <div style="font-size:12px;color:#64748b;">Score, analyse and get quick wins for any website or landing page</div>
-            </div>
-          </div>
-
-          <div style="margin-bottom:16px;">
-            <label style="display:block;font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:6px;">Website URL</label>
-            <div style="display:flex;gap:8px;">
-              <input id="srUrl" type="url" placeholder="https://yoursite.com" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;" />
-              <button id="srAnalyseBtn" onclick="runSiteReview()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;border-radius:10px;padding:10px 20px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">Analyse Site</button>
-            </div>
-            <div style="font-size:11px;color:#475569;margin-top:5px;">The reviewer fetches your public page and runs a deep AI audit — give it 20-30 seconds.</div>
-          </div>
-
-          <div id="srReviewType" style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-            <label style="font-size:12px;font-weight:600;color:#94a3b8;width:100%;margin-bottom:2px;">Review focus</label>
-            ${["Full Review","Landing Page","Sales Funnel","Homepage","E-commerce","Agency / Service"].map((t,i)=>
-              `<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#94a3b8;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.25);border-radius:8px;padding:5px 10px;">
-                <input type="radio" name="srType" value="${t}" ${i===0?"checked":""} style="accent-color:#7c3aed;"> ${t}
-              </label>`
-            ).join("")}
-          </div>
-
-          <div id="srStatus" style="display:none;text-align:center;padding:24px;color:#94a3b8;font-size:13px;">
-            <div style="width:28px;height:28px;border:3px solid rgba(124,58,237,.3);border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>
-            <div id="srStatusMsg">Fetching page…</div>
-          </div>
-
-          <div id="srResults" style="display:none;">
-            <!-- Score ring -->
-            <div style="text-align:center;margin-bottom:20px;">
-              <svg width="110" height="110" viewBox="0 0 110 110">
-                <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(124,58,237,.2)" stroke-width="10"/>
-                <circle id="srScoreRing" cx="55" cy="55" r="46" fill="none" stroke="#7c3aed" stroke-width="10"
-                  stroke-dasharray="289" stroke-dashoffset="289" stroke-linecap="round"
-                  transform="rotate(-90 55 55)" style="transition:stroke-dashoffset 1s ease;"/>
-              </svg>
-              <div id="srScoreNum" style="font-size:40px;font-weight:900;color:#f3e8ff;margin-top:-78px;line-height:110px;">—</div>
-              <div id="srScoreLabel" style="font-size:12px;color:#94a3b8;margin-top:4px;">Overall Score</div>
-            </div>
-
-            <!-- Category bars -->
-            <div id="srCategories" style="margin-bottom:20px;"></div>
-
-            <!-- Tabs -->
-            <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid rgba(80,100,180,.2);padding-bottom:10px;">
-              ${[["srTabStrengths","💪 Strengths"],["srTabWeaknesses","⚠️ Weaknesses"],["srTabWins","⚡ Quick Wins"],["srTabImprovements","🗺️ Improvements"]].map(([id,label],i)=>
-                `<button id="${id}" onclick="srShowTab('${id}')" style="background:${i===0?"rgba(124,58,237,.3)":"rgba(255,255,255,.05)"};border:1px solid ${i===0?"rgba(124,58,237,.6)":"rgba(80,100,180,.2)"};border-radius:8px;padding:5px 12px;color:${i===0?"#c4b5fd":"#64748b"};font-size:12px;font-weight:600;cursor:pointer;">${label}</button>`
-              ).join("")}
-            </div>
-            <div id="srTabContent" style="font-size:13px;color:#cbd5e1;line-height:1.7;"></div>
-
-            <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(80,100,180,.15);display:flex;gap:8px;flex-wrap:wrap;">
-              <button onclick="srCopyReport()" style="background:rgba(255,255,255,.06);border:1px solid rgba(80,100,180,.3);border-radius:8px;padding:7px 14px;color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy full report</button>
-              <button onclick="srSendToTeammate()" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:7px 14px;color:#c4b5fd;font-size:12px;cursor:pointer;">💬 Send to active teammate</button>
-            </div>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(overlay);
-      overlay.addEventListener("click",e=>{if(e.target===overlay)overlay.remove();});
+    window.srTab=function(idx){
+      for(let i=0;i<4;i++){const b=document.getElementById('srT'+i);if(!b)continue;const on=(i===idx);b.style.background=on?'rgba(124,58,237,.3)':'rgba(255,255,255,.05)';b.style.borderColor=on?'rgba(124,58,237,.6)':'rgba(80,100,180,.2)';b.style.color=on?'#c4b5fd':'#64748b';}
+      const key=_srKeys[idx]||'wins';
+      const items=(_srData[key]||[]);
+      const el=document.getElementById('srContent');if(!el)return;
+      if(!items.length){el.innerHTML='<div style="color:#475569;font-style:italic;padding:10px;">Nothing to show.</div>';return;}
+      el.innerHTML=items.map(it=>'<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 11px;background:rgba(255,255,255,.03);border-radius:8px;border-left:3px solid '+(_srColors[key]||'#7c3aed')+';"><span style="font-size:15px;flex-shrink:0;">'+(it.icon||'\u2022')+'</span><div><div style="font-weight:600;color:#e2e8f0;margin-bottom:1px;">'+(it.title||'')+'</div><div style="color:#94a3b8;font-size:12px;">'+(it.detail||'')+'</div></div></div>').join('');
     };
 
-    let _srLastReport = "";
-    let _srTabData = {};
-
-    window.srShowTab = function srShowTab(tabId){
-      ["srTabStrengths","srTabWeaknesses","srTabWins","srTabImprovements"].forEach(id=>{
-        const btn=$x(id);
-        if(!btn)return;
-        const active=(id===tabId);
-        btn.style.background=active?"rgba(124,58,237,.3)":"rgba(255,255,255,.05)";
-        btn.style.borderColor=active?"rgba(124,58,237,.6)":"rgba(80,100,180,.2)";
-        btn.style.color=active?"#c4b5fd":"#64748b";
-      });
-      const content=$x("srTabContent");
-      if(!content)return;
-      const key={srTabStrengths:"strengths",srTabWeaknesses:"weaknesses",srTabWins:"wins",srTabImprovements:"improvements"}[tabId];
-      const items=_srTabData[key]||[];
-      if(!items.length){content.innerHTML="<div style='color:#475569;font-style:italic;'>Nothing here yet.</div>";return;}
-      content.innerHTML=items.map(item=>`
-        <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px;border-left:3px solid ${{strengths:"#10b981",weaknesses:"#ef4444",wins:"#f59e0b",improvements:"#3b82f6"}[key]||"#7c3aed"};">
-          <span style="font-size:16px;flex-shrink:0;">${item.icon||"•"}</span>
-          <div><div style="font-weight:600;color:#e2e8f0;margin-bottom:2px;">${escapeHtml(item.title||"")}</div><div style="color:#94a3b8;font-size:12px;">${escapeHtml(item.detail||"")}</div></div>
-        </div>`).join("");
-    };
-
-    function $x(id){return document.getElementById(id);}
-
-    window.runSiteReview = async function runSiteReview(){
-      const url=($x("srUrl")||{}).value?.trim();
-      if(!url||!url.startsWith("http")){showToast("⚠️ Enter a valid URL starting with http:// or https://");return;}
-      const typeEl=document.querySelector("input[name='srType']:checked");
-      const reviewType=typeEl?typeEl.value:"Full Review";
-      const status=$x("srStatus"),results=$x("srResults"),btn=$x("srAnalyseBtn");
-      if(status)status.style.display="block";
-      if(results)results.style.display="none";
-      if(btn){btn.disabled=true;btn.textContent="Analysing…";}
-
-      const msgs=[
-        "Fetching page content…","Reading page structure…",
-        "Running AI audit…","Scoring categories…","Building your report…"
-      ];
-      let mi=0;
-      const ticker=setInterval(()=>{const el=$x("srStatusMsg");if(el)el.textContent=msgs[Math.min(mi++,msgs.length-1)];},4000);
-
+    window.runSiteReview=async function(){
+      const urlEl=document.getElementById('srUrl');if(!urlEl)return;
+      const url=(urlEl.value||'').trim();
+      if(!url||!url.startsWith('http')){window.showToast('\u26a0\ufe0f Enter a full URL starting with https://');return;}
+      const checked=document.querySelector('input[name="srType"]:checked');
+      const reviewType=checked?checked.value:'Full Review';
+      const st=document.getElementById('srStatus'),out=document.getElementById('srOut'),btn=document.getElementById('srBtn');
+      if(st)st.style.display='block';
+      if(out)out.style.display='none';
+      if(btn){btn.disabled=true;btn.textContent='Analysing\u2026';}
+      const msgs=['Fetching page\u2026','Reading structure\u2026','Running AI audit\u2026','Scoring categories\u2026','Building report\u2026'];
+      let mi=0;const tick=setInterval(()=>{const m=document.getElementById('srMsg');if(m)m.textContent=msgs[Math.min(mi++,msgs.length-1)];},4500);
       try{
-        const res=await fetch("/api/site_review",{
-          method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({url,review_type:reviewType})
-        });
+        const res=await fetch('/api/site_review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,review_type:reviewType})});
         const data=await res.json();
-        clearInterval(ticker);
-        if(!data.ok){if(status)status.style.display="none";if(btn){btn.disabled=false;btn.textContent="Analyse Site";}showToast("⚠️ "+(data.error||"Review failed"));return;}
-
-        _srLastReport=data.report_text||"";
-        _srTabData=data.tabs||{};
-
-        // Animate score
+        clearInterval(tick);
+        if(st)st.style.display='none';
+        if(btn){btn.disabled=false;btn.textContent='Analyse';}
+        if(!data.ok){window.showToast('\u26a0\ufe0f '+(data.error||'Review failed'));return;}
+        _srRpt=data.report_text||'';
+        _srData=data.tabs||{};
         const score=Math.max(0,Math.min(100,parseInt(data.score)||0));
-        const numEl=$x("srScoreNum"),ringEl=$x("srScoreRing"),labelEl=$x("srScoreLabel");
-        if(numEl)numEl.textContent=score;
-        if(ringEl){const offset=289-(289*(score/100));ringEl.style.strokeDashoffset=offset;ringEl.style.stroke=score>=75?"#10b981":score>=50?"#f59e0b":"#ef4444";}
-        if(labelEl)labelEl.textContent=score>=80?"Excellent 🌟":score>=65?"Good 👍":score>=50?"Average ⚠️":"Needs Work 🔧";
-
-        // Category bars
-        const cats=$x("srCategories");
-        if(cats&&data.categories){
-          cats.innerHTML=(data.categories||[]).map(c=>`
-            <div style="margin-bottom:8px;">
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;margin-bottom:3px;">
-                <span>${escapeHtml(c.name)}</span><span style="font-weight:700;color:#e2e8f0;">${c.score}/100</span>
-              </div>
-              <div style="background:rgba(255,255,255,.07);border-radius:99px;height:6px;">
-                <div style="width:${c.score}%;height:6px;border-radius:99px;background:${c.score>=75?"#10b981":c.score>=50?"#f59e0b":"#ef4444"};transition:width 1s ease;"></div>
-              </div>
-            </div>`).join("");
-        }
-
-        if(status)status.style.display="none";
-        if(results)results.style.display="block";
-        if(btn){btn.disabled=false;btn.textContent="Analyse Site";}
-        srShowTab("srTabWins");  // default to quick wins
-      }catch(e){
-        clearInterval(ticker);
-        if(status)status.style.display="none";
-        if(btn){btn.disabled=false;btn.textContent="Analyse Site";}
-        showToast("⚠️ Review failed: "+String(e));
-      }
+        const num=document.getElementById('srNum');if(num)num.textContent=score;
+        const ring=document.getElementById('srRing');if(ring){const off=264-(264*(score/100));ring.style.strokeDashoffset=off;ring.style.stroke=score>=75?'#10b981':score>=50?'#f59e0b':'#ef4444';}
+        const cats=document.getElementById('srCats');
+        if(cats&&data.categories){cats.innerHTML=(data.categories||[]).map(c=>'<div style="margin-bottom:7px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;margin-bottom:2px;"><span>'+c.name+'</span><span style="font-weight:700;color:#e2e8f0;">'+c.score+'/100</span></div><div style="background:rgba(255,255,255,.07);border-radius:99px;height:5px;"><div style="width:'+c.score+'%;height:5px;border-radius:99px;background:'+(c.score>=75?'#10b981':c.score>=50?'#f59e0b':'#ef4444')+';transition:width 1s ease;"></div></div></div>').join('');}
+        if(out)out.style.display='block';
+        window.srTab(0);
+      }catch(e){clearInterval(tick);if(st)st.style.display='none';if(btn){btn.disabled=false;btn.textContent='Analyse';}window.showToast('\u26a0\ufe0f Failed: '+String(e));}
     };
 
-    window.srCopyReport = function srCopyReport(){
-      if(!_srLastReport){showToast("No report to copy yet");return;}
-      navigator.clipboard.writeText(_srLastReport).then(()=>showToast("📋 Report copied!")).catch(()=>showToast("Copy failed"));
-    };
-    window.srSendToTeammate = function srSendToTeammate(){
-      if(!_srLastReport){showToast("Run a review first");return;}
-      const seat=window.selectedSeat||"";
-      if(!seat){showToast("Select a teammate first");return;}
-      const box=$("followMsg");
-      if(box){box.value="Here is a site review report. Please analyse it and give me your top recommendations:\n\n"+_srLastReport;box.focus();}
-      document.getElementById("siteReviewerOverlay")&&document.getElementById("siteReviewerOverlay").remove();
-    };
+    window.srCopy=function(){if(!_srRpt){window.showToast('Run a review first');return;}navigator.clipboard.writeText(_srRpt).then(()=>window.showToast('\ud83d\udccb Report copied!')).catch(()=>window.showToast('Copy failed'));};
+    window.srSend=function(){if(!_srRpt){window.showToast('Run a review first');return;}const seat=window.selectedSeat||'';if(!seat){window.showToast('Select a teammate first');return;}const box=document.getElementById('followMsg');if(box){box.value='Here is a site audit report. Give me your top recommendations:\n\n'+_srRpt;box.focus();}const ov=document.getElementById('siteReviewerOverlay');if(ov)ov.remove();};
+    // ===== END SITE REVIEWER =====
 
     // ===== NAV BAR DROPDOWN JS =====
     window.saToggleDrop = function saToggleDrop(dropId){
@@ -15138,7 +14827,6 @@ async function crmFetchTasks(){
     if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
     if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
     if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
-    if($("siteReviewerBtn")) $("siteReviewerBtn").onclick = ()=> showSiteReviewerModal();
     if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = ()=> openOperatorProfileModal();
 
     // CRM tab binds (safe if missing)
@@ -20964,51 +20652,32 @@ def api_account_delete():
 # SITE REVIEWER
 # =========================
 
-def _fetch_page_text(url: str, max_chars: int = 12000) -> tuple:
-    """Fetch a public URL and return (text, title, error)."""
-    import requests as _req
+def _site_review_fetch(url: str) -> tuple:
+    """Fetch a public page, return (text, title, error_or_empty)."""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticBot/1.0; +https://simplyagentic.ai)",
-            "Accept": "text/html,application/xhtml+xml,*/*",
-        }
+        import requests as _req
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticReviewer/1.0)"}
         r = _req.get(url, headers=headers, timeout=20, allow_redirects=True)
         if r.status_code >= 400:
             return "", "", f"Page returned HTTP {r.status_code}"
-        raw_html = r.text or ""
+        html = r.text or ""
         title = ""
-        body_text = ""
+        text = ""
         if BeautifulSoup:
-            soup = BeautifulSoup(raw_html, "html.parser")
-            # Title
+            soup = BeautifulSoup(html, "html.parser")
             t = soup.find("title")
             title = t.get_text(strip=True) if t else ""
-            # Remove scripts/styles/nav/footer noise
-            for tag in soup(["script","style","nav","footer","header","noscript","svg","img"]):
+            for tag in soup(["script","style","nav","footer","noscript","svg"]):
                 tag.decompose()
-            body_text = soup.get_text(separator=" ", strip=True)
+            text = soup.get_text(separator=" ", strip=True)
         else:
             import re as _re
-            body_text = _re.sub(r"<[^>]+>", " ", raw_html)
-        # Collapse whitespace
+            text = _re.sub(r"<[^>]+>", " ", html)
         import re as _re
-        body_text = _re.sub(r"\s+", " ", body_text).strip()
-        return body_text[:max_chars], title, ""
+        text = _re.sub(r"\s+", " ", text).strip()
+        return text[:12000], title, ""
     except Exception as e:
         return "", "", f"Could not fetch page: {e}"
-
-
-def _parse_site_review_json(raw: str) -> dict:
-    """Parse JSON from AI response, tolerating markdown fences."""
-    import re as _re
-    text = (raw or "").strip()
-    m = _re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if m:
-        text = m.group(1).strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        return {}
 
 
 @app.post("/api/site_review")
@@ -21016,31 +20685,28 @@ def api_site_review():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     review_type = (data.get("review_type") or "Full Review").strip()
-
     if not url or not url.startswith("http"):
-        return jsonify({"ok": False, "error": "Invalid URL. Must start with http:// or https://"}), 400
+        return jsonify({"ok": False, "error": "Invalid URL"}), 400
 
-    # Fetch the page
-    page_text, page_title, fetch_err = _fetch_page_text(url)
-    if fetch_err and not page_text:
-        return jsonify({"ok": False, "error": fetch_err}), 400
+    page_text, page_title, err = _site_review_fetch(url)
+    if err and not page_text:
+        return jsonify({"ok": False, "error": err}), 400
 
-    page_summary = f"URL: {url}\nTitle: {page_title}\n\nPage content (first 10,000 chars):\n{page_text[:10000]}"
-
-    system_prompt = (
-        "You are an elite digital marketing and conversion rate optimisation (CRO) expert. "
-        "You analyse websites, landing pages and sales funnels with surgical precision. "
-        "You always return ONLY valid JSON — no markdown outside the JSON, no preamble, no explanation."
+    system = (
+        "You are an expert in conversion rate optimisation, digital marketing and UX. "
+        "Analyse the page below and return ONLY a valid JSON object — no markdown fences, no preamble."
     )
+    prompt = f"""Review this {review_type}:
+URL: {url}
+Title: {page_title}
+Content: {page_text[:9000]}
 
-    user_prompt = f"""Analyse this {review_type} and return a JSON report with this exact structure:
-
+Return JSON with this exact structure:
 {{
-  "score": <integer 0-100 overall quality score>,
+  "score": <0-100 integer>,
   "categories": [
     {{"name": "Clarity & Messaging", "score": <0-100>}},
     {{"name": "Visual Design", "score": <0-100>}},
@@ -21049,66 +20715,47 @@ def api_site_review():
     {{"name": "Mobile & Speed", "score": <0-100>}},
     {{"name": "SEO Basics", "score": <0-100>}}
   ],
-  "strengths": [
-    {{"icon": "✅", "title": "short title", "detail": "specific explanation"}},
-    ... (3-5 items)
-  ],
-  "weaknesses": [
-    {{"icon": "❌", "title": "short title", "detail": "specific explanation"}},
-    ... (3-5 items)
-  ],
-  "wins": [
-    {{"icon": "⚡", "title": "Quick win title", "detail": "Exact change to make and expected impact"}},
-    ... (4-6 items, ordered by effort/impact)
-  ],
-  "improvements": [
-    {{"icon": "🗺️", "title": "Strategic improvement", "detail": "Detailed recommendation with rationale"}},
-    ... (3-5 items)
-  ]
+  "strengths": [{{"icon":"✅","title":"...","detail":"..."}}],
+  "weaknesses": [{{"icon":"❌","title":"...","detail":"..."}}],
+  "wins": [{{"icon":"⚡","title":"...","detail":"exact change + expected impact"}}],
+  "improvements": [{{"icon":"🗺️","title":"...","detail":"..."}}]
 }}
-
-Page to review:
-{page_summary}
-
-Return ONLY the JSON object. Be specific, honest and actionable."""
+wins = 4-6 quick changes ordered by effort vs impact.
+strengths, weaknesses, improvements = 3-5 items each.
+Be specific and honest. Return ONLY the JSON."""
 
     try:
-        raw = call_llm(system_prompt, [{"role": "user", "content": user_prompt}], temperature=0.3)
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.3)
     except Exception as e:
         return jsonify({"ok": False, "error": f"AI analysis failed: {e}"}), 500
 
-    parsed = _parse_site_review_json(raw)
-    if not parsed:
-        return jsonify({"ok": False, "error": "AI returned an unexpected response. Please try again."}), 500
+    # Parse JSON — strip any accidental markdown fences
+    import re as _re
+    clean = (raw or "").strip()
+    m = _re.search(r"```(?:json)?\s*([\s\S]*?)```", clean)
+    if m:
+        clean = m.group(1).strip()
+    try:
+        parsed = json.loads(clean)
+    except Exception:
+        return jsonify({"ok": False, "error": "AI returned unexpected format. Please try again."}), 500
 
-    score = int(parsed.get("score") or 0)
+    score = max(0, min(100, int(parsed.get("score") or 0)))
 
-    # Build plain-text report for copy/export
-    lines = [
-        f"SITE REVIEW — {url}",
-        f"Review type: {review_type}",
-        f"Overall Score: {score}/100",
-        "",
-    ]
+    lines = [f"SITE REVIEW — {url}", f"Type: {review_type}", f"Score: {score}/100", ""]
     for c in (parsed.get("categories") or []):
         lines.append(f"  {c.get('name','')}: {c.get('score','')}/100")
-    lines += ["", "STRENGTHS"]
-    for s in (parsed.get("strengths") or []):
-        lines.append(f"  • {s.get('title','')}: {s.get('detail','')}")
-    lines += ["", "WEAKNESSES"]
-    for w in (parsed.get("weaknesses") or []):
-        lines.append(f"  • {w.get('title','')}: {w.get('detail','')}")
-    lines += ["", "QUICK WINS"]
-    for qw in (parsed.get("wins") or []):
-        lines.append(f"  ⚡ {qw.get('title','')}: {qw.get('detail','')}")
-    lines += ["", "STRATEGIC IMPROVEMENTS"]
-    for imp in (parsed.get("improvements") or []):
-        lines.append(f"  🗺️ {imp.get('title','')}: {imp.get('detail','')}")
-
+    for section, label in [("strengths","STRENGTHS"),("weaknesses","WEAKNESSES"),("wins","QUICK WINS"),("improvements","IMPROVEMENTS")]:
+        lines += ["", label]
+        for item in (parsed.get(section) or []):
+            lines.append(f"  {item.get('icon','')} {item.get('title','')}: {item.get('detail','')}")
     report_text = "\n".join(lines)
 
-    append_log("site_review", {"url": url, "review_type": review_type, "score": score,
-                                "user": (u.get("username") if isinstance(u, dict) else "")})
+    try:
+        append_log("site_review", {"url": url, "score": score,
+                                    "user": (u.get("username") if isinstance(u, dict) else "")})
+    except Exception:
+        pass
 
     return jsonify({
         "ok": True,
@@ -24034,11 +23681,7 @@ ADD_UI_POLISH_V8 = r'''
     if(!seats.length) return false;
 
     const hit=findFirstNameMention(s);
-    if(hit){
-      try{if(typeof window.selectSeat==="function")window.selectSeat(hit.name);}catch(_){}
-      try{if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);}catch(_){}
-      return true;
-    }
+    if(hit){try{if(typeof window.selectSeat==="function")window.selectSeat(hit.name);}catch(_){}try{if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);}catch(_){}return true;}
     return false;
   }
 
