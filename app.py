@@ -10328,21 +10328,17 @@ label         { font-size: 14px !important; }
   color: #f5f3ff !important;
   border-left: 3px solid rgba(196,181,253,.7) !important;
   border-radius: 4px 6px 6px 4px;
-  backdrop-filter: blur(4px);
-  animation: prioGlowHigh 2.4s ease-in-out infinite;
+  backdrop-filter: blur(2px);
 }
 .wcal-event[data-etype="task"].task-prio-high {
-  background: rgba(109,40,217,.18) !important;
   animation: prioGlowHigh 2.4s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-medium {
-  background: rgba(120,53,15,.18) !important;
-  animation: prioGlowMed 3.6s ease-in-out infinite;
   color: #fef9c3 !important;
   border-left-color: rgba(234,179,8,.7) !important;
+  animation: prioGlowMed 3.6s ease-in-out infinite;
 }
 .wcal-event[data-etype="task"].task-prio-low {
-  background: rgba(6,78,59,.18) !important;
   color: #d1fae5 !important;
   border-left-color: rgba(16,185,129,.7) !important;
   animation: prioGlowLow 3.6s ease-in-out infinite;
@@ -10565,9 +10561,9 @@ label         { font-size: 14px !important; }
 @keyframes wcalCheckBurst{0%{transform:scale(1)}30%{transform:scale(1.6)}65%{transform:scale(.88)}100%{transform:scale(1)}}
 @keyframes wcalRecurSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
-@keyframes prioGlowHigh{0%,100%{box-shadow:0 0 6px 1px rgba(139,92,246,.08)}50%{box-shadow:0 0 18px 6px rgba(139,92,246,.38),0 0 38px 12px rgba(139,92,246,.12)}}
-@keyframes prioGlowMed{0%,100%{box-shadow:0 0 6px 1px rgba(234,179,8,.08)}50%{box-shadow:0 0 16px 5px rgba(234,179,8,.32),0 0 32px 10px rgba(234,179,8,.10)}}
-@keyframes prioGlowLow{0%,100%{box-shadow:0 0 6px 1px rgba(16,185,129,.08)}50%{box-shadow:0 0 16px 5px rgba(16,185,129,.32),0 0 32px 10px rgba(16,185,129,.10)}}
+@keyframes prioGlowHigh{0%,100%{box-shadow:0 0 6px 1px rgba(139,92,246,.10);background:rgba(109,40,217,.18)}50%{box-shadow:0 0 22px 8px rgba(139,92,246,.55),0 0 44px 16px rgba(139,92,246,.20);background:rgba(139,92,246,.42)}}
+@keyframes prioGlowMed{0%,100%{box-shadow:0 0 6px 1px rgba(234,179,8,.10);background:rgba(120,53,15,.18)}50%{box-shadow:0 0 20px 7px rgba(234,179,8,.50),0 0 38px 14px rgba(234,179,8,.18);background:rgba(180,100,10,.40)}}
+@keyframes prioGlowLow{0%,100%{box-shadow:0 0 6px 1px rgba(16,185,129,.10);background:rgba(6,78,59,.18)}50%{box-shadow:0 0 20px 7px rgba(16,185,129,.50),0 0 38px 14px rgba(16,185,129,.18);background:rgba(16,130,80,.40)}}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
