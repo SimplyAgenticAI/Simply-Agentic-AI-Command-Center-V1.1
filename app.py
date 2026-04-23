@@ -1221,20 +1221,44 @@ def _auth_guard():
     if u:
         user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
     # Use only the user's own key — never fall back to the server key
-    g.openai_client = OpenAI(api_key=(user_key or ""))
+    # Store the raw key on g so get_openai_client can check it reliably
+    g._openai_user_key = user_key
+    g.openai_client = OpenAI(api_key=(user_key or "no-key-set"))
 
     return None
 
 def get_openai_client():
+    """Returns the per-request OpenAI client for conversation (GPT models).
+    Raises clearly if the user has no OpenAI key set."""
     c = getattr(g, "openai_client", None)
-    if c and c.api_key:
+    key = getattr(g, "_openai_user_key", "").strip() if hasattr(g, "_openai_user_key") else ""
+    if c and key:
         return c
-    # No valid user key — raise so the user sees a clear message instead of
-    # silently billing the server owner
     raise RuntimeError(
         "No OpenAI API key found for your account. "
         "Go to Settings and paste your OpenAI API key (sk-...) to use GPT models."
     )
+
+def _get_openai_client_for_media(u: Optional[Dict[str, Any]] = None) -> "OpenAI":
+    """Always-OpenAI client for TTS and image generation.
+    Works even when the user's conversation model is Claude.
+    Checks g._openai_user_key first (request context), then user settings."""
+    key = ""
+    # Try request-context key first (fastest path)
+    try:
+        key = getattr(g, "_openai_user_key", "").strip()
+    except Exception:
+        key = ""
+    # Fall back to reading from user settings dict
+    if not key and u:
+        key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    if not key:
+        raise RuntimeError(
+            "Image generation and voice require an OpenAI API key. "
+            "Go to Settings and add your OpenAI key (sk-...) — "
+            "these features always use GPT even when your teammates use Claude."
+        )
+    return OpenAI(api_key=key)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
@@ -3367,10 +3391,8 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
 
 
 def _get_openai_client_for_username(username: str):
-    """
-    Background jobs cannot rely on Flask request/g context.
-    Build an OpenAI client directly from the user's saved settings, with a global-key fallback.
-    """
+    """Background jobs (image gen, task emails) need OpenAI regardless of conversation model.
+    Reads the user's own openai_key — no server fallback."""
     key = ""
     try:
         users = load_users()
@@ -3381,8 +3403,9 @@ def _get_openai_client_for_username(username: str):
         key = ""
     if not key:
         raise RuntimeError(
-            "No OpenAI API key found for this account. "
-            "Go to Settings and paste your OpenAI API key (sk-...) to use GPT models."
+            "Image generation requires an OpenAI API key. "
+            "Go to Settings and add your OpenAI key (sk-...) — "
+            "images always use GPT even when your teammates use Claude."
         )
     return OpenAI(api_key=key)
 
@@ -9616,6 +9639,7 @@ label         { font-size: 14px !important; }
                   <span id="openaiKeyStatus" style="font-size:11px;font-weight:600;"></span>
                 </div>
                 <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved key)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <div class="tiny" style="margin-top:4px;opacity:.7;">Required for image generation and voice (TTS) even when teammates use Claude.</div>
 
                 <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px;margin-top:10px;">
                   <label style="margin:0;flex:1;">Anthropic (Claude) API Key</label>
@@ -26226,7 +26250,12 @@ def api_followup_stream():
     thread = thread[-14:] if len(thread) > 14 else thread
 
     preferred_model = _resolve_model_for_user(defn, current_user())
-    oai_client      = get_openai_client() if not _is_claude_model(preferred_model) else None
+    # For Claude models we don't need an OAI client for conversation,
+    # but TTS buttons still use _get_openai_client_for_media separately
+    try:
+        oai_client = get_openai_client() if not _is_claude_model(preferred_model) else None
+    except RuntimeError:
+        oai_client = None  # Claude path — no OAI needed for conversation
 
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
@@ -26327,7 +26356,7 @@ def api_tts():
         return jsonify({"ok": False, "error": "Missing text"}), 400
 
     try:
-        oai  = get_openai_client()
+        oai  = _get_openai_client_for_media(u)
         resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
         return Response(
             resp.content,
@@ -26337,6 +26366,8 @@ def api_tts():
                 "Content-Disposition":  "inline; filename=speech.mp3",
             },
         )
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
