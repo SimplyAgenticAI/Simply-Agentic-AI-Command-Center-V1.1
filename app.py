@@ -10561,9 +10561,9 @@ label         { font-size: 14px !important; }
 @keyframes wcalCheckBurst{0%{transform:scale(1)}30%{transform:scale(1.6)}65%{transform:scale(.88)}100%{transform:scale(1)}}
 @keyframes wcalRecurSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .wcal-ripple-ring{position:absolute;top:50%;left:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;pointer-events:none;z-index:10;animation:wcalRipple .52s ease-out forwards;}
-@keyframes prioGlowHigh{0%,100%{box-shadow:0 0 3px 1px rgba(139,92,246,.06)}50%{box-shadow:0 0 7px 2px rgba(139,92,246,.18)}}
-@keyframes prioGlowMed{0%,100%{box-shadow:0 0 3px 1px rgba(234,179,8,.06)}50%{box-shadow:0 0 7px 2px rgba(234,179,8,.16)}}
-@keyframes prioGlowLow{0%,100%{box-shadow:0 0 3px 1px rgba(16,185,129,.06)}50%{box-shadow:0 0 7px 2px rgba(16,185,129,.16)}}
+@keyframes prioGlowHigh{0%{box-shadow:0 0 0px 0px rgba(139,92,246,0)}50%{box-shadow:0 0 10px 4px rgba(139,92,246,.28)}100%{box-shadow:0 0 0px 0px rgba(139,92,246,0)}}
+@keyframes prioGlowMed{0%{box-shadow:0 0 0px 0px rgba(234,179,8,0)}50%{box-shadow:0 0 10px 4px rgba(234,179,8,.25)}100%{box-shadow:0 0 0px 0px rgba(234,179,8,0)}}
+@keyframes prioGlowLow{0%{box-shadow:0 0 0px 0px rgba(16,185,129,0)}50%{box-shadow:0 0 10px 4px rgba(16,185,129,.25)}100%{box-shadow:0 0 0px 0px rgba(16,185,129,0)}}
 .wcp-tabs{display:flex;gap:5px;margin-bottom:2px;}
 .wcp-tab{flex:1;padding:5px;border-radius:7px;border:1px solid rgba(42,58,106,.6);background:rgba(14,22,48,.7);color:rgba(148,163,184,.7);font-size:11px;font-weight:700;cursor:pointer;text-align:center;}
 .wcp-tab.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:#c4b5fd;}
