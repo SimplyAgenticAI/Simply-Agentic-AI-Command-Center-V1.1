@@ -13093,6 +13093,7 @@ function makeSeat(defn, idx){
 
     let _buf = "";          // confirmed finals for current phrase
     let _nameDebounce = 0;
+    let _switching = false; // raised during seat switch — blocks ALL box writes and onend snapshots
 
     function currentAlwaysTarget(){
       return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
@@ -13105,6 +13106,7 @@ function makeSeat(defn, idx){
     }
     function resetAlwaysBuffers(){
       _buf="";
+      _switching=false;
       alwaysFinalText=""; alwaysInterimText=""; alwaysFinalBaseline="";
       const t=currentAlwaysTarget();
       alwaysBaseText=(t&&t.value)?t.value.trim():"";
@@ -13219,6 +13221,9 @@ function makeSeat(defn, idx){
       alwaysRec=rec;
 
       rec.onresult=async(ev)=>{
+        // Drop everything while a seat switch is in flight
+        if(_switching) return;
+
         // Collect fresh text from this event
         let newFinals="", interim="";
         for(let i=ev.resultIndex;i<ev.results.length;i++){
@@ -13229,43 +13234,47 @@ function makeSeat(defn, idx){
         newFinals=newFinals.trim();
         interim=interim.trim();
 
-        // Add confirmed words to buffer
-        if(newFinals) _buf=(_buf+" "+newFinals).trim();
-
-        // ── Name detection: interim (fastest) → newFinals → full buffer ──
+        // ── Name detection BEFORE adding to buffer — check raw text first ──
         const hit=findFirstNameMention(interim)
                ||findFirstNameMention(newFinals)
-               ||findFirstNameMention(_buf);
+               ||findFirstNameMention((_buf+" "+newFinals).trim());
 
         if(hit){
           const now=Date.now();
           if(now-_nameDebounce>600){
             _nameDebounce=now;
+            _switching=true; // block all box writes and onend snapshots
 
-            // Strip name from buffer and interim
-            _buf=removeNameOnce(_buf,hit.name);
+            // Strip the name from everything before it ever enters _buf or the box
+            const cleanFinals=removeNameOnce(newFinals,hit.name);
             const cleanInterim=removeNameOnce(interim,hit.name);
+            const cleanBuf=removeNameOnce(_buf,hit.name);
+            const leftover=(cleanBuf+" "+cleanFinals+" "+cleanInterim).replace(/\s+/g," ").trim();
 
-            // Show remaining text in current box before switching
+            // Wipe the box immediately — name must never appear
             const tBefore=currentAlwaysTarget();
-            if(tBefore)tBefore.value=_buf;
+            if(tBefore) tBefore.value="";
+            _buf="";
 
             // Switch seat
             try{ await selectSeat(hit.name); }catch(_){}
             try{ forceSeatSelectUI(hit.name); }catch(_){}
             _setAlwaysStatus("Mic: always listening → "+hit.name);
 
-            // Put leftover text into the new seat's box
-            const tAfter=currentAlwaysTarget();
-            const leftover=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
-            if(tAfter)tAfter.value=leftover;
-            // Keep buf in sync with what's in the box
+            // Write only the clean leftover into the new box
             _buf=leftover;
+            const tAfter=currentAlwaysTarget();
+            if(tAfter) tAfter.value=_buf;
+            alwaysFinalText=_buf;
+            alwaysInterimText="";
+
+            _switching=false; // lower guard
             return;
           }
         }
 
-        // ── Normal update: show everything heard so far ────────────────
+        // ── Normal update: name not detected, add to buffer and show ──────
+        if(newFinals) _buf=(_buf+" "+newFinals).trim();
         const display=(_buf+(interim?" "+interim:"")).trim();
         const tgt=currentAlwaysTarget();
         if(tgt)tgt.value=display;
@@ -13277,15 +13286,12 @@ function makeSeat(defn, idx){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
             if(!alwaysOn)return;
-            // Snapshot the message NOW before clearing anything
             const tgt2=currentAlwaysTarget();
             const msg=(tgt2?tgt2.value:"").trim();
             if(!msg)return;
-            // Clear box and buffer so mic keeps listening cleanly
             _buf="";
             alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
             if(tgt2)tgt2.value="";
-            // Send directly via API — no modals, no validation popups
             if(alwaysMode==="dm"){
               const seat=window.selectedSeat||selectedSeat||"";
               if(seat) await _voiceSendDm(msg,seat);
@@ -13313,9 +13319,11 @@ function makeSeat(defn, idx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        // Snapshot box → buffer so nothing is lost across the restart
-        const t=currentAlwaysTarget();
-        if(t)_buf=t.value.trim();
+        // Only snapshot box → buffer when NOT switching seats (prevents name re-entering buf)
+        if(!_switching){
+          const t=currentAlwaysTarget();
+          if(t)_buf=t.value.trim();
+        }
         _setAlwaysStatus("Mic: always listening");
         try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
