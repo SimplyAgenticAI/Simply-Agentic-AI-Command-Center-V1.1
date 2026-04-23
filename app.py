@@ -9165,7 +9165,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
-            <button class="saDropItem" id="siteReviewerBtn">Site Reviewer</button>
           </div>
         </div>
 
@@ -12970,113 +12969,331 @@ function makeSeat(defn, idx){
       return Object.keys(installed || {});
     }
 
-    // NAME RECOGNITION ENGINE
-    const _ALIASES={"atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis","otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis","alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex","willo":"Willow","willa":"Willow","wilco":"Willow","eva":"Ava","avah":"Ava","orian":"Orion","oreon":"Orion","arion":"Orion","orieon":"Orion","ryan":"Orion","sunny":"Sunshine","sunshyne":"Sunshine","loona":"Luna","lunah":"Luna","lena":"Luna"};
-    function _lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let dp=Array.from({length:m+1},(_,i)=>i);for(let j=1;j<=n;j++){let p=dp[0];dp[0]=j;for(let i=1;i<=m;i++){const t=dp[i];dp[i]=a[i-1]===b[j-1]?p:1+Math.min(p,dp[i-1],dp[i]);p=t;}}return dp[m];}
-    function _resolveWord(raw){const w=(raw||"").toLowerCase().replace(/[''`,.!?;:]+$/,"").trim();if(!w||w.length<2)return null;const inst=(state&&state.installed)?state.installed:{};for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}const al=_ALIASES[w];if(al&&inst[al])return al;for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}for(const[alias,canon]of Object.entries(_ALIASES)){if(!inst[canon])continue;if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;}return null;}
-    function findFirstNameMention(text){if(!text)return null;const lower=text.toLowerCase();const words=lower.split(/\s+/);let best=null,pos=0;for(let i=0;i<words.length;i++){const w=words[i];const wi=lower.indexOf(w,pos);const hit=_resolveWord(w);if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};if(i+1<words.length){const ph=_resolveWord(w+words[i+1]);if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};}if(wi>=0)pos=wi+w.length;}return best;}
-    function removeNameOnce(text,canonName){if(!text||!canonName)return text;const targets=[canonName.toLowerCase()];for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}let out=text;for(const t of targets){const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");out=out.replace(rx,"");}return out.replace(/\s+/g," ").trim();}
+    // ═══════════════════════════════════════════════════════════════
+    // NAME RECOGNITION  (alias → fuzzy Levenshtein)
+    // ═══════════════════════════════════════════════════════════════
+    const _ALIASES = {
+      "atlas":"Atlis","atliss":"Atlis","altas":"Atlis","altis":"Atlis",
+      "otlis":"Atlis","otlas":"Atlis","alice":"Atlis","atlis":"Atlis",
+      "alec":"Alex","alek":"Alex","alexis":"Alex","alexander":"Alex",
+      "willo":"Willow","willa":"Willow","wilco":"Willow",
+      "eva":"Ava","avah":"Ava",
+      "orian":"Orion","oreon":"Orion","arion":"Orion","orieon":"Orion","ryan":"Orion",
+      "sunny":"Sunshine","sunshyne":"Sunshine",
+      "loona":"Luna","lunah":"Luna","lena":"Luna",
+    };
 
+    function _lev(a,b){
+      const m=a.length,n=b.length;
+      if(!m)return n; if(!n)return m;
+      let dp=Array.from({length:m+1},(_,i)=>i);
+      for(let j=1;j<=n;j++){
+        let prev=dp[0];dp[0]=j;
+        for(let i=1;i<=m;i++){const t=dp[i];dp[i]=a[i-1]===b[j-1]?prev:1+Math.min(prev,dp[i-1],dp[i]);prev=t;}
+      }
+      return dp[m];
+    }
+
+    function _resolveWord(raw){
+      const w=(raw||"").toLowerCase().replace(/[''\u2018\u2019,;:.!?]+$/,"").trim();
+      if(!w||w.length<2)return null;
+      const inst=(state&&state.installed)?state.installed:{};
+      for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}
+      const al=_ALIASES[w]; if(al&&inst[al])return al;
+      for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}
+      for(const[alias,canon]of Object.entries(_ALIASES)){
+        if(!inst[canon])continue;
+        if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;
+      }
+      return null;
+    }
+
+    // Returns {name, idx} of first teammate name found, or null.
+    function findFirstNameMention(text){
+      if(!text)return null;
+      const lower=text.toLowerCase();
+      const words=lower.split(/\s+/);
+      let best=null,pos=0;
+      for(let i=0;i<words.length;i++){
+        const w=words[i];
+        const wi=lower.indexOf(w,pos);
+        const hit=_resolveWord(w);
+        if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};
+        if(i+1<words.length){
+          const ph=_resolveWord(w+words[i+1]);
+          if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};
+        }
+        if(wi>=0)pos=wi+w.length;
+      }
+      return best;
+    }
+
+    // Strip the canonical name AND all aliases that map to it from text.
+    function removeNameOnce(text,canonName){
+      if(!text||!canonName)return text;
+      const targets=[canonName.toLowerCase()];
+      for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}
+      let out=text;
+      for(const t of targets){
+        const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");
+        out=out.replace(rx,"");
+      }
+      return out.replace(/\s+/g," ").trim();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // ALWAYS-LISTEN ENGINE
-    let _buf="";
-    let _nameDebounce=0;
-    function currentAlwaysTarget(){return(alwaysMode==="group")?$("opPrompt"):$("followMsg");}
-    function currentAlwaysStatusEl(){return(alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");}
-    function _alwaysSetStatus(m){const s=currentAlwaysStatusEl();if(s)s.innerText=m;}
-    function resetAlwaysBuffers(){_buf="";alwaysFinalText="";alwaysInterimText="";alwaysFinalBaseline="";const t=currentAlwaysTarget();alwaysBaseText=(t&&t.value)?t.value.trim():"";}
-    function stopAlwaysListening(){alwaysOn=false;if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}try{if(alwaysRec){alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;alwaysRec.stop();}}catch(_){}alwaysRec=null;updateAlwaysButtons();}
+    // ═══════════════════════════════════════════════════════════════
+    // Rules:
+    //  1. Every spoken word fills the box immediately (interim + final).
+    //  2. Saying a name → switch seat, strip name, keep rest in box.
+    //  3. Auto-send calls the API directly — no modals, no guards.
+    //  4. onend restarts immediately, no delay, no ignore window.
+    //  5. Buffer preserved across mic restarts so nothing is lost.
 
-    async function _voiceSendDm(msg,seat){if(!msg||!seat)return;try{setSeatLive(seat,"thinking");}catch(_){}try{setOpStatus("Sending\u2026");}catch(_){}try{const res=await fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:seat,message:msg,file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})});const data=await res.json();if(data.ok){try{setSeatLive(seat,"done");}catch(_){}try{setOpStatus("Done");}catch(_){}try{$("followMsg").value="";}catch(_){}try{await refreshThread();}catch(_){}if(data.email_draft){try{applyEmailDraft(data.email_draft,seat);}catch(_){}}if(data.job_id){try{pollImageJob(data.job_id,seat);}catch(_){}}if(window.onboardingRefresh){try{await window.onboardingRefresh();}catch(_){}}}else{try{setSeatLive(seat,"waiting");}catch(_){}try{setOpStatus("Error");}catch(_){}try{showToast("\u26a0\ufe0f "+(data.error||"Send failed"));}catch(_){}}}catch(e){try{setSeatLive(seat,"waiting");}catch(_){}try{showToast("\u26a0\ufe0f Send failed: "+String(e));}catch(_){}}}
+    let _buf = "";          // confirmed finals for current phrase
+    let _nameDebounce = 0;
 
-    async function _voiceSendGroup(msg){if(!msg)return;const reg=(state&&state.registry)?state.registry:null;const order=(reg&&reg.active_order&&reg.active_order.length)?reg.active_order:((reg&&reg.installed_order)||[]);if(!order||!order.length){try{showToast("\u26a0\ufe0f No teammates at the table");}catch(_){}return;}order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});try{setOpStatus("Sending to all\u2026");}catch(_){}const outputs={},drafts={},images={};for(const n of order){try{const res=await fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:n,message:msg,file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})});const data=await res.json();if(data.ok){outputs[n]=data.response||"";if(data.email_draft)drafts[n]=data.email_draft;if(data.image_url)images[n]=data.image_url;try{renderGroupReplies(outputs,drafts,images);}catch(_){}try{setSeatLive(n,"done");}catch(_){}}else{try{setSeatLive(n,"waiting");}catch(_){}}}catch(_){try{setSeatLive(n,"waiting");}catch(_){}}}try{lastGroupOutputs=outputs;renderGroupReplies(outputs,drafts,images);}catch(_){}try{setOpStatus("Complete");}catch(_){}try{if(window.onboardingRefresh)await window.onboardingRefresh();}catch(_){}try{if(typeof groupFileIds!=="undefined"){groupFileIds=[];renderAttachList("groupAttachList",groupFileIds);}}catch(_){}}
-
-    async function startAlwaysListening(mode){if(!speechSupported()){showToast("\ud83c\udfa4 "+micHelpText());return;}alwaysMode=mode||"dm";alwaysOn=true;updateAlwaysButtons();resetAlwaysBuffers();const okPerm=await ensureMicPermission();if(!okPerm){alwaysOn=false;updateAlwaysButtons();showToast("\ud83c\udfa4 Microphone blocked \u2014 "+micHelpText());return;}_alwaysSetStatus("Mic: always listening");const SR=window.SpeechRecognition||window.webkitSpeechRecognition;const rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;rec.maxAlternatives=1;alwaysRec=rec;
-      rec.onresult=async(ev)=>{let newFinals="",interim="";for(let i=ev.resultIndex;i<ev.results.length;i++){const t=(ev.results[i][0].transcript||"");if(ev.results[i].isFinal)newFinals+=t+" ";else interim+=t;}newFinals=newFinals.trim();interim=interim.trim();if(newFinals)_buf=(_buf+" "+newFinals).trim();
-        const hit=findFirstNameMention(interim)||findFirstNameMention(newFinals)||findFirstNameMention(_buf);
-        if(hit){const now=Date.now();if(now-_nameDebounce>500){_nameDebounce=now;_buf=removeNameOnce(_buf,hit.name);const ci=removeNameOnce(interim,hit.name);const tB=currentAlwaysTarget();if(tB)tB.value=_buf;try{await selectSeat(hit.name);}catch(_){}try{forceSeatSelectUI(hit.name);}catch(_){}_alwaysSetStatus("Mic: listening \u2192 "+hit.name);const tA=currentAlwaysTarget();const lo=(_buf+(ci?" "+ci:"")).trim();if(tA)tA.value=lo;_buf=lo;return;}}
-        const display=(_buf+(interim?" "+interim:"")).trim();const tgt=currentAlwaysTarget();if(tgt)tgt.value=display;alwaysFinalText=_buf;alwaysInterimText=interim;
-        if(newFinals){if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=setTimeout(async()=>{if(!alwaysOn)return;const t2=currentAlwaysTarget();const msg=(t2?t2.value:"").trim();if(!msg)return;_buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";if(t2)t2.value="";if(alwaysMode==="dm"){const seat=window.selectedSeat||selectedSeat||"";if(seat)await _voiceSendDm(msg,seat);else{if(t2)t2.value=msg;_buf=msg;showToast("Say a teammate name first, then your message");}}else{await _voiceSendGroup(msg);}},2000);}};  
-      rec.onerror=(e)=>{const et=(e&&e.error)||"";if(et==="no-speech"||et==="aborted")return;_alwaysSetStatus("Mic: error");try{stopAlwaysListening();}catch(_){}const m={"not-allowed":"Microphone access denied. Allow it in browser settings.","audio-capture":"No microphone found.","service-not-allowed":"Speech recognition needs HTTPS.","network":"Network error."}[et]||("Speech error: "+(et||"unknown"));try{showToast("\ud83c\udfa4 "+m);}catch(_){}};  
-      rec.onend=()=>{if(!alwaysOn)return;const t=currentAlwaysTarget();if(t)_buf=t.value.trim();_alwaysSetStatus("Mic: always listening");try{rec.start();}catch(e){stopAlwaysListening();}};  
-      try{rec.start();}catch(e){stopAlwaysListening();showToast("\ud83c\udfa4 Could not start mic \u2014 check site permissions");}}
-
-    $("alwaysListenGroupBtn").onclick=()=>{if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();else{stopAlwaysListening();startAlwaysListening("group");}};  
-    $("alwaysListenDmBtn").onclick=()=>{if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();else{stopAlwaysListening();startAlwaysListening("dm");}};  
-
-    // ===== SITE REVIEWER =====
-    window.showSiteReviewerModal=function(){
-      if(document.getElementById('siteReviewerOverlay'))return;
-      const ov=document.createElement('div');
-      ov.id='siteReviewerOverlay';
-      ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(5,10,30,.88);display:flex;align-items:center;justify-content:center;padding:16px;';
-      const types=['Full Review','Landing Page','Sales Funnel','Homepage','E-commerce','Agency / Service'];
-      const radios=types.map((t,i)=>'<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#94a3b8;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.25);border-radius:8px;padding:4px 10px;"><input type="radio" name="srType" value="'+t+'" '+(i===0?'checked':'')+'> '+t+'</label>').join('');
-      ov.innerHTML='<div style="background:#0d1530;border:1px solid rgba(124,58,237,.5);border-radius:18px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:26px;position:relative;box-shadow:0 24px 80px rgba(0,0,0,.7);">'
-        +'<button onclick="document.getElementById('siteReviewerOverlay').remove()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">&#x2715;</button>'
-        +'<div style="font-size:18px;font-weight:800;color:#f3e8ff;margin-bottom:4px;">&#x1F50D; Site Reviewer</div>'
-        +'<div style="font-size:12px;color:#64748b;margin-bottom:18px;">Score, audit and get quick wins for any public website</div>'
-        +'<div style="display:flex;gap:8px;margin-bottom:12px;"><input id="srUrl" type="url" placeholder="https://yoursite.com" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;"/><button id="srBtn" onclick="runSiteReview()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;border-radius:10px;padding:10px 18px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">Analyse</button></div>'
-        +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">'+radios+'</div>'
-        +'<div id="srStatus" style="display:none;text-align:center;padding:20px;color:#94a3b8;font-size:13px;"><div style="width:26px;height:26px;border:3px solid rgba(124,58,237,.3);border-top-color:#7c3aed;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px;"></div><div id="srMsg">Fetching page&hellip;</div></div>'
-        +'<div id="srOut" style="display:none;">'
-        +'<div style="text-align:center;margin-bottom:16px;"><svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="rgba(124,58,237,.2)" stroke-width="9"/><circle id="srRing" cx="50" cy="50" r="42" fill="none" stroke="#7c3aed" stroke-width="9" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round" transform="rotate(-90 50 50)" style="transition:stroke-dashoffset 1.2s ease;"/></svg><div id="srNum" style="font-size:38px;font-weight:900;color:#f3e8ff;margin-top:-68px;line-height:100px;">-</div></div>'
-        +'<div id="srCats" style="margin-bottom:16px;"></div>'
-        +'<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;"><button id="srT0" onclick="srTab(0)" style="background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.6);border-radius:8px;padding:5px 12px;color:#c4b5fd;font-size:12px;font-weight:600;cursor:pointer;">&#x26A1; Quick Wins</button><button id="srT1" onclick="srTab(1)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x2705; Strengths</button><button id="srT2" onclick="srTab(2)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x26A0; Weaknesses</button><button id="srT3" onclick="srTab(3)" style="background:rgba(255,255,255,.05);border:1px solid rgba(80,100,180,.2);border-radius:8px;padding:5px 12px;color:#64748b;font-size:12px;font-weight:600;cursor:pointer;">&#x1F5FA; Improvements</button></div>'
-        +'<div id="srContent" style="font-size:13px;color:#cbd5e1;line-height:1.7;min-height:60px;"></div>'
-        +'<div style="display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(80,100,180,.15);"><button onclick="srCopy()" style="background:rgba(255,255,255,.06);border:1px solid rgba(80,100,180,.3);border-radius:8px;padding:6px 12px;color:#94a3b8;font-size:12px;cursor:pointer;">&#x1F4CB; Copy report</button><button onclick="srSend()" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:6px 12px;color:#c4b5fd;font-size:12px;cursor:pointer;">&#x1F4AC; Send to teammate</button></div></div></div>';
-      document.body.appendChild(ov);
-      ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
-      setTimeout(()=>{const el=document.getElementById('srUrl');if(el)el.focus();},100);
-    };
-
-    let _srRpt='';
-    let _srData={};
-    const _srKeys=['wins','strengths','weaknesses','improvements'];
-    const _srColors={wins:'#f59e0b',strengths:'#10b981',weaknesses:'#ef4444',improvements:'#3b82f6'};
-
-    window.srTab=function(idx){
-      for(let i=0;i<4;i++){const b=document.getElementById('srT'+i);if(!b)continue;const on=(i===idx);b.style.background=on?'rgba(124,58,237,.3)':'rgba(255,255,255,.05)';b.style.borderColor=on?'rgba(124,58,237,.6)':'rgba(80,100,180,.2)';b.style.color=on?'#c4b5fd':'#64748b';}
-      const key=_srKeys[idx]||'wins';
-      const items=(_srData[key]||[]);
-      const el=document.getElementById('srContent');if(!el)return;
-      if(!items.length){el.innerHTML='<div style="color:#475569;font-style:italic;padding:10px;">Nothing to show.</div>';return;}
-      el.innerHTML=items.map(it=>'<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 11px;background:rgba(255,255,255,.03);border-radius:8px;border-left:3px solid '+(_srColors[key]||'#7c3aed')+';"><span style="font-size:15px;flex-shrink:0;">'+(it.icon||'\u2022')+'</span><div><div style="font-weight:600;color:#e2e8f0;margin-bottom:1px;">'+(it.title||'')+'</div><div style="color:#94a3b8;font-size:12px;">'+(it.detail||'')+'</div></div></div>').join('');
-    };
-
-    window.runSiteReview=async function(){
-      const urlEl=document.getElementById('srUrl');if(!urlEl)return;
-      const url=(urlEl.value||'').trim();
-      if(!url||!url.startsWith('http')){window.showToast('\u26a0\ufe0f Enter a full URL starting with https://');return;}
-      const checked=document.querySelector('input[name="srType"]:checked');
-      const reviewType=checked?checked.value:'Full Review';
-      const st=document.getElementById('srStatus'),out=document.getElementById('srOut'),btn=document.getElementById('srBtn');
-      if(st)st.style.display='block';
-      if(out)out.style.display='none';
-      if(btn){btn.disabled=true;btn.textContent='Analysing\u2026';}
-      const msgs=['Fetching page\u2026','Reading structure\u2026','Running AI audit\u2026','Scoring categories\u2026','Building report\u2026'];
-      let mi=0;const tick=setInterval(()=>{const m=document.getElementById('srMsg');if(m)m.textContent=msgs[Math.min(mi++,msgs.length-1)];},4500);
+    function currentAlwaysTarget(){
+      return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
+    }
+    function currentAlwaysStatusEl(){
+      return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
+    }
+    function _setAlwaysStatus(msg){
+      const s=currentAlwaysStatusEl(); if(s)s.innerText=msg;
+    }
+    function resetAlwaysBuffers(){
+      _buf="";
+      alwaysFinalText=""; alwaysInterimText=""; alwaysFinalBaseline="";
+      const t=currentAlwaysTarget();
+      alwaysBaseText=(t&&t.value)?t.value.trim():"";
+    }
+    function stopAlwaysListening(){
+      alwaysOn=false;
+      if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";
+      if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";
+      if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       try{
-        const res=await fetch('/api/site_review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:url,review_type:reviewType})});
-        const data=await res.json();
-        clearInterval(tick);
-        if(st)st.style.display='none';
-        if(btn){btn.disabled=false;btn.textContent='Analyse';}
-        if(!data.ok){window.showToast('\u26a0\ufe0f '+(data.error||'Review failed'));return;}
-        _srRpt=data.report_text||'';
-        _srData=data.tabs||{};
-        const score=Math.max(0,Math.min(100,parseInt(data.score)||0));
-        const num=document.getElementById('srNum');if(num)num.textContent=score;
-        const ring=document.getElementById('srRing');if(ring){const off=264-(264*(score/100));ring.style.strokeDashoffset=off;ring.style.stroke=score>=75?'#10b981':score>=50?'#f59e0b':'#ef4444';}
-        const cats=document.getElementById('srCats');
-        if(cats&&data.categories){cats.innerHTML=(data.categories||[]).map(c=>'<div style="margin-bottom:7px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;margin-bottom:2px;"><span>'+c.name+'</span><span style="font-weight:700;color:#e2e8f0;">'+c.score+'/100</span></div><div style="background:rgba(255,255,255,.07);border-radius:99px;height:5px;"><div style="width:'+c.score+'%;height:5px;border-radius:99px;background:'+(c.score>=75?'#10b981':c.score>=50?'#f59e0b':'#ef4444')+';transition:width 1s ease;"></div></div></div>').join('');}
-        if(out)out.style.display='block';
-        window.srTab(0);
-      }catch(e){clearInterval(tick);if(st)st.style.display='none';if(btn){btn.disabled=false;btn.textContent='Analyse';}window.showToast('\u26a0\ufe0f Failed: '+String(e));}
-    };
+        if(alwaysRec){
+          alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;
+          alwaysRec.stop();
+        }
+      }catch(_){}
+      alwaysRec=null;
+      updateAlwaysButtons();
+    }
 
-    window.srCopy=function(){if(!_srRpt){window.showToast('Run a review first');return;}navigator.clipboard.writeText(_srRpt).then(()=>window.showToast('\ud83d\udccb Report copied!')).catch(()=>window.showToast('Copy failed'));};
-    window.srSend=function(){if(!_srRpt){window.showToast('Run a review first');return;}const seat=window.selectedSeat||'';if(!seat){window.showToast('Select a teammate first');return;}const box=document.getElementById('followMsg');if(box){box.value='Here is a site audit report. Give me your top recommendations:\n\n'+_srRpt;box.focus();}const ov=document.getElementById('siteReviewerOverlay');if(ov)ov.remove();};
-    // ===== END SITE REVIEWER =====
+    // ── Voice-triggered send — calls API directly, no modals ────────────
+    async function _voiceSendDm(msg, seat){
+      if(!msg||!seat) return;
+      // Show thinking state
+      try{ setSeatLive(seat,"thinking"); }catch(_){}
+      try{ setOpStatus("Sending…"); }catch(_){}
+      try{
+        const res=await fetch("/api/followup",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({name:seat, message:msg,
+                               file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
+                               lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})
+        });
+        const data=await res.json();
+        if(data.ok){
+          try{ setSeatLive(seat,"done"); }catch(_){}
+          try{ setOpStatus("Done"); }catch(_){}
+          try{ $("followMsg").value=""; }catch(_){}
+          try{ await refreshThread(); }catch(_){}
+          if(data.email_draft){ try{ applyEmailDraft(data.email_draft,seat); }catch(_){} }
+          if(data.job_id){ try{ pollImageJob(data.job_id,seat); }catch(_){} }
+        }else{
+          try{ setSeatLive(seat,"waiting"); }catch(_){}
+          try{ setOpStatus("Error"); }catch(_){}
+          try{ showToast("⚠️ "+( data.error||"Send failed")); }catch(_){}
+        }
+      }catch(e){
+        try{ setSeatLive(seat,"waiting"); }catch(_){}
+        try{ showToast("⚠️ Send failed: "+String(e)); }catch(_){}
+      }
+    }
+
+    async function _voiceSendGroup(msg){
+      if(!msg) return;
+      const reg=state?.registry||null;
+      const order=(reg?.active_order&&reg.active_order.length)?reg.active_order:(reg?.installed_order||[]);
+      if(!order||!order.length){
+        try{ showToast("⚠️ No teammates at the table"); }catch(_){} return;
+      }
+      order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
+      try{ setOpStatus("Sending to all…"); }catch(_){}
+      try{ $("opPrompt").value=""; }catch(_){}
+      const outputs={},drafts={},images={};
+      for(const n of order){
+        try{
+          const res=await fetch("/api/followup",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:n, message:msg,
+                                 file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})
+          });
+          const data=await res.json();
+          if(data.ok){
+            outputs[n]=data.response||"";
+            if(data.email_draft)drafts[n]=data.email_draft;
+            if(data.image_url)images[n]=data.image_url;
+            try{ renderGroupReplies(outputs,drafts,images); }catch(_){}
+            try{ setSeatLive(n,"done"); }catch(_){}
+          }else{
+            try{ setSeatLive(n,"waiting"); }catch(_){}
+          }
+        }catch(_){
+          try{ setSeatLive(n,"waiting"); }catch(_){}
+        }
+      }
+      try{ lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
+      try{ setOpStatus("Complete"); }catch(_){}
+      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+    }
+
+    async function startAlwaysListening(mode){
+      if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
+
+      alwaysMode=mode||"dm";
+      alwaysOn=true;
+      updateAlwaysButtons();
+      resetAlwaysBuffers();
+
+      const okPerm=await ensureMicPermission();
+      if(!okPerm){
+        alwaysOn=false;updateAlwaysButtons();
+        showToast("🎤 Microphone blocked — "+micHelpText());return;
+      }
+      _setAlwaysStatus("Mic: always listening");
+
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      const rec=new SR();
+      rec.lang="en-US";
+      rec.interimResults=true;
+      rec.continuous=true;
+      rec.maxAlternatives=1;
+      alwaysRec=rec;
+
+      rec.onresult=async(ev)=>{
+        // Collect fresh text from this event
+        let newFinals="", interim="";
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          const t=(ev.results[i][0].transcript||"");
+          if(ev.results[i].isFinal) newFinals+=t+" ";
+          else interim+=t;
+        }
+        newFinals=newFinals.trim();
+        interim=interim.trim();
+
+        // Add confirmed words to buffer
+        if(newFinals) _buf=(_buf+" "+newFinals).trim();
+
+        // ── Name detection: interim (fastest) → newFinals → full buffer ──
+        const hit=findFirstNameMention(interim)
+               ||findFirstNameMention(newFinals)
+               ||findFirstNameMention(_buf);
+
+        if(hit){
+          const now=Date.now();
+          if(now-_nameDebounce>600){
+            _nameDebounce=now;
+
+            // Strip name from buffer and interim
+            _buf=removeNameOnce(_buf,hit.name);
+            const cleanInterim=removeNameOnce(interim,hit.name);
+
+            // Show remaining text in current box before switching
+            const tBefore=currentAlwaysTarget();
+            if(tBefore)tBefore.value=_buf;
+
+            // Switch seat
+            try{ await selectSeat(hit.name); }catch(_){}
+            try{ forceSeatSelectUI(hit.name); }catch(_){}
+            _setAlwaysStatus("Mic: always listening → "+hit.name);
+
+            // Put leftover text into the new seat's box
+            const tAfter=currentAlwaysTarget();
+            const leftover=(_buf+(cleanInterim?" "+cleanInterim:"")).trim();
+            if(tAfter)tAfter.value=leftover;
+            // Keep buf in sync with what's in the box
+            _buf=leftover;
+            return;
+          }
+        }
+
+        // ── Normal update: show everything heard so far ────────────────
+        const display=(_buf+(interim?" "+interim:"")).trim();
+        const tgt=currentAlwaysTarget();
+        if(tgt)tgt.value=display;
+        alwaysFinalText=_buf;
+        alwaysInterimText=interim;
+
+        // ── Auto-send: 2 s after last final result ─────────────────────
+        if(newFinals){
+          if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
+          window._alwaysAutoSendTimer=setTimeout(async()=>{
+            if(!alwaysOn)return;
+            // Snapshot the message NOW before clearing anything
+            const tgt2=currentAlwaysTarget();
+            const msg=(tgt2?tgt2.value:"").trim();
+            if(!msg)return;
+            // Clear box and buffer so mic keeps listening cleanly
+            _buf="";
+            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
+            if(tgt2)tgt2.value="";
+            // Send directly via API — no modals, no validation popups
+            if(alwaysMode==="dm"){
+              const seat=window.selectedSeat||selectedSeat||"";
+              if(seat) await _voiceSendDm(msg,seat);
+              else showToast("⚠️ Say a teammate name first to select them");
+            }else{
+              await _voiceSendGroup(msg);
+            }
+          },2000);
+        }
+      };
+
+      rec.onerror=(e)=>{
+        const et=(e&&e.error)||"";
+        if(et==="no-speech"||et==="aborted")return;
+        _setAlwaysStatus("Mic: error");
+        try{ stopAlwaysListening(); }catch(_){}
+        const msg={
+          "not-allowed":"Microphone access denied. Allow it in browser site settings.",
+          "audio-capture":"No microphone found. Please connect one.",
+          "service-not-allowed":"Speech recognition requires HTTPS.",
+          "network":"Network error during speech recognition.",
+        }[et]||("Speech error: "+(et||"unknown"));
+        try{ showToast("🎤 "+msg); }catch(_){}
+      };
+
+      rec.onend=()=>{
+        if(!alwaysOn)return;
+        // Snapshot box → buffer so nothing is lost across the restart
+        const t=currentAlwaysTarget();
+        if(t)_buf=t.value.trim();
+        _setAlwaysStatus("Mic: always listening");
+        try{ rec.start(); }catch(e){ stopAlwaysListening(); }
+      };
+
+      try{ rec.start(); }catch(e){
+        stopAlwaysListening();
+        showToast("🎤 Could not start mic — check site permissions and try again");
+      }
+    }
+
+    $("alwaysListenGroupBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();
+      else{stopAlwaysListening();startAlwaysListening("group");}
+    };
+    $("alwaysListenDmBtn").onclick=()=>{
+      if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();
+      else{stopAlwaysListening();startAlwaysListening("dm");}
+    };
 
     // ===== NAV BAR DROPDOWN JS =====
     window.saToggleDrop = function saToggleDrop(dropId){
@@ -20647,129 +20864,6 @@ def api_account_delete():
     return jsonify({"ok": True, "message": "Account and data deleted successfully."})
 
 
-
-# =========================
-# SITE REVIEWER
-# =========================
-
-def _site_review_fetch(url: str) -> tuple:
-    """Fetch a public page, return (text, title, error_or_empty)."""
-    try:
-        import requests as _req
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticReviewer/1.0)"}
-        r = _req.get(url, headers=headers, timeout=20, allow_redirects=True)
-        if r.status_code >= 400:
-            return "", "", f"Page returned HTTP {r.status_code}"
-        html = r.text or ""
-        title = ""
-        text = ""
-        if BeautifulSoup:
-            soup = BeautifulSoup(html, "html.parser")
-            t = soup.find("title")
-            title = t.get_text(strip=True) if t else ""
-            for tag in soup(["script","style","nav","footer","noscript","svg"]):
-                tag.decompose()
-            text = soup.get_text(separator=" ", strip=True)
-        else:
-            import re as _re
-            text = _re.sub(r"<[^>]+>", " ", html)
-        import re as _re
-        text = _re.sub(r"\s+", " ", text).strip()
-        return text[:12000], title, ""
-    except Exception as e:
-        return "", "", f"Could not fetch page: {e}"
-
-
-@app.post("/api/site_review")
-def api_site_review():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    data = request.get_json(silent=True) or {}
-    url = (data.get("url") or "").strip()
-    review_type = (data.get("review_type") or "Full Review").strip()
-    if not url or not url.startswith("http"):
-        return jsonify({"ok": False, "error": "Invalid URL"}), 400
-
-    page_text, page_title, err = _site_review_fetch(url)
-    if err and not page_text:
-        return jsonify({"ok": False, "error": err}), 400
-
-    system = (
-        "You are an expert in conversion rate optimisation, digital marketing and UX. "
-        "Analyse the page below and return ONLY a valid JSON object — no markdown fences, no preamble."
-    )
-    prompt = f"""Review this {review_type}:
-URL: {url}
-Title: {page_title}
-Content: {page_text[:9000]}
-
-Return JSON with this exact structure:
-{{
-  "score": <0-100 integer>,
-  "categories": [
-    {{"name": "Clarity & Messaging", "score": <0-100>}},
-    {{"name": "Visual Design", "score": <0-100>}},
-    {{"name": "Trust & Credibility", "score": <0-100>}},
-    {{"name": "Call to Action", "score": <0-100>}},
-    {{"name": "Mobile & Speed", "score": <0-100>}},
-    {{"name": "SEO Basics", "score": <0-100>}}
-  ],
-  "strengths": [{{"icon":"✅","title":"...","detail":"..."}}],
-  "weaknesses": [{{"icon":"❌","title":"...","detail":"..."}}],
-  "wins": [{{"icon":"⚡","title":"...","detail":"exact change + expected impact"}}],
-  "improvements": [{{"icon":"🗺️","title":"...","detail":"..."}}]
-}}
-wins = 4-6 quick changes ordered by effort vs impact.
-strengths, weaknesses, improvements = 3-5 items each.
-Be specific and honest. Return ONLY the JSON."""
-
-    try:
-        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.3)
-    except Exception as e:
-        return jsonify({"ok": False, "error": f"AI analysis failed: {e}"}), 500
-
-    # Parse JSON — strip any accidental markdown fences
-    import re as _re
-    clean = (raw or "").strip()
-    m = _re.search(r"```(?:json)?\s*([\s\S]*?)```", clean)
-    if m:
-        clean = m.group(1).strip()
-    try:
-        parsed = json.loads(clean)
-    except Exception:
-        return jsonify({"ok": False, "error": "AI returned unexpected format. Please try again."}), 500
-
-    score = max(0, min(100, int(parsed.get("score") or 0)))
-
-    lines = [f"SITE REVIEW — {url}", f"Type: {review_type}", f"Score: {score}/100", ""]
-    for c in (parsed.get("categories") or []):
-        lines.append(f"  {c.get('name','')}: {c.get('score','')}/100")
-    for section, label in [("strengths","STRENGTHS"),("weaknesses","WEAKNESSES"),("wins","QUICK WINS"),("improvements","IMPROVEMENTS")]:
-        lines += ["", label]
-        for item in (parsed.get(section) or []):
-            lines.append(f"  {item.get('icon','')} {item.get('title','')}: {item.get('detail','')}")
-    report_text = "\n".join(lines)
-
-    try:
-        append_log("site_review", {"url": url, "score": score,
-                                    "user": (u.get("username") if isinstance(u, dict) else "")})
-    except Exception:
-        pass
-
-    return jsonify({
-        "ok": True,
-        "score": score,
-        "categories": parsed.get("categories") or [],
-        "tabs": {
-            "strengths":    parsed.get("strengths") or [],
-            "weaknesses":   parsed.get("weaknesses") or [],
-            "wins":         parsed.get("wins") or [],
-            "improvements": parsed.get("improvements") or [],
-        },
-        "report_text": report_text,
-    })
-
 @app.get("/")
 def index():
     _uname = _get_session_username()
@@ -23681,7 +23775,11 @@ ADD_UI_POLISH_V8 = r'''
     if(!seats.length) return false;
 
     const hit=findFirstNameMention(s);
-    if(hit){try{if(typeof window.selectSeat==="function")window.selectSeat(hit.name);}catch(_){}try{if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);}catch(_){}return true;}
+    if(hit){
+      try{if(typeof window.selectSeat==="function")window.selectSeat(hit.name);}catch(_){}
+      try{if(typeof window.forceSeatSelectUI==="function")window.forceSeatSelectUI(hit.name);}catch(_){}
+      return true;
+    }
     return false;
   }
 
