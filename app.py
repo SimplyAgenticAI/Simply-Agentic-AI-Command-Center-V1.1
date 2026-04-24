@@ -631,6 +631,22 @@ def _image_job_get(job_id: str) -> Dict[str, Any]:
     with IMAGE_JOBS_LOCK:
         return dict(IMAGE_JOBS.get(job_id) or {})
 
+def _image_jobs_evict_old(max_age_hours: int = 2) -> None:
+    """[UPGRADE 1] Remove done/error image jobs older than max_age_hours to prevent unbounded memory growth."""
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        with IMAGE_JOBS_LOCK:
+            stale = [
+                jid for jid, job in IMAGE_JOBS.items()
+                if job.get("status") in ("done", "error")
+                and job.get("created_at")
+                and datetime.fromisoformat(str(job["created_at"]).replace("Z", "")) < cutoff
+            ]
+            for jid in stale:
+                IMAGE_JOBS.pop(jid, None)
+    except Exception:
+        pass
+
 def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note: str, username: str = "") -> None:
     try:
         uname = username or _get_session_username()
@@ -665,6 +681,7 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}", username=username)
 
 def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
+    _image_jobs_evict_old()  # [UPGRADE 1] sweep stale jobs on every new creation
     job_id = uuid.uuid4().hex
     _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
     t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
@@ -1372,6 +1389,22 @@ def _task_log_path_for_user(username: Optional[str]) -> Path:
     TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
     return TASK_LOG_DIR / f"{_safe_name(username or 'anon')}.jsonl"
 
+def _prune_task_log(path: Path, keep: int = 4000, cap: int = 5000) -> None:
+    """[UPGRADE 2] If the JSONL log exceeds `cap` lines, trim to the most recent `keep` lines.
+    Uses an atomic rename so a mid-write crash never corrupts the file."""
+    try:
+        if not path.exists() or path.stat().st_size < 512 * 1024:
+            return  # skip if under 512 KB — no need to prune yet
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if len(lines) <= cap:
+            return
+        trimmed = "\n".join(lines[-keep:]) + "\n"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(trimmed, encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        pass
+
 def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", status: str = "success") -> None:
     """Append-only task log. One JSON object per line (JSONL)."""
     try:
@@ -1389,6 +1422,7 @@ def append_task_log(action: str, record: Dict[str, Any], teammate: str = "", sta
         }
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        _prune_task_log(path)  # [UPGRADE 2] auto-prune if file has grown too large
     except Exception:
         # Task logging must never break core flows
         pass
@@ -2209,8 +2243,42 @@ def load_thread(teammate_name: str, username: str = "") -> List[Dict[str, str]]:
     return load_json(thread_path(teammate_name, username), [])
 
 
+def _truncate_thread_with_note(thread: List[Dict[str, Any]], max_messages: int = 14) -> List[Dict[str, Any]]:
+    """[UPGRADE 3] Instead of silently dropping old messages, prepend a brief context note
+    so the AI knows earlier conversation existed. Keeps max_messages most recent turns."""
+    if len(thread) <= max_messages:
+        return thread
+    dropped = thread[:-max_messages]
+    kept    = thread[-max_messages:]
+    # Build a compact topic summary from the dropped messages (no API call — pure text)
+    topics: List[str] = []
+    for m in dropped:
+        role    = (m.get("role") or "").strip()
+        content = str(m.get("content") or "").strip()
+        if role == "user" and content:
+            snippet = content[:120].replace("\n", " ")
+            topics.append(snippet)
+    topic_str = "; ".join(topics[:6]) if topics else "earlier exchanges"
+    note = (
+        f"[Context note: {len(dropped)} earlier message(s) in this conversation were trimmed for length. "
+        f"Topics covered included: {topic_str}]"
+    )
+    return [{"role": "user", "content": note}, {"role": "assistant", "content": "Understood — I'll keep that prior context in mind."}] + kept
+
+
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = "") -> None:
     save_json(thread_path(teammate_name, username), msgs)
+    # [UPGRADE 4] Track last_used_at on the teammate's registry entry — additive, never breaks reads
+    try:
+        uname = username or _get_session_username()
+        reg   = load_registry(uname)
+        installed = reg.get("installed") or {}
+        if teammate_name in installed and isinstance(installed[teammate_name], dict):
+            installed[teammate_name]["last_used_at"] = now_iso()
+            reg["installed"] = installed
+            save_registry(reg, uname)
+    except Exception:
+        pass  # tracking must never break saves
 
 
 def _normalize_lines_to_list(val: Any) -> List[str]:
@@ -4879,7 +4947,7 @@ def _api_followup_impl(data):
         uname = "anon"
 
     thread = load_thread(name, uname)
-    thread = thread[-14:] if len(thread) > 14 else thread
+    thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
 
     latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids, uname)
 
@@ -25720,6 +25788,11 @@ def _render_thread_html(teammate: str, thread: List[Dict[str, Any]], title: str 
 
 @app.get("/api/export/thread/<n>")
 def api_export_thread(n: str):
+    """[UPGRADE 5] Export a conversation thread as HTML (default), JSON, or plain text.
+    Usage: /api/export/thread/Alex?format=html  (default)
+           /api/export/thread/Alex?format=json
+           /api/export/thread/Alex?format=txt
+    """
     from flask import Response
     u = current_user()
     if not u:
@@ -25728,6 +25801,37 @@ def api_export_thread(n: str):
     if not thread:
         return jsonify({"ok": False, "error": "No messages to export"}), 400
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", n)[:40]
+    fmt = (request.args.get("format") or "html").strip().lower()
+
+    if fmt == "json":
+        payload = {
+            "teammate": n,
+            "exported_at": now_iso(),
+            "message_count": len(thread),
+            "messages": thread,
+        }
+        return Response(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            mimetype="application/json",
+            headers={"Content-Disposition": f"attachment; filename={safe_name}_conversation.json"},
+        )
+
+    if fmt == "txt":
+        lines: List[str] = [f"Conversation with {n}", f"Exported: {now_iso()[:10]}", "=" * 60, ""]
+        for m in thread:
+            role    = (m.get("role") or "user").strip()
+            content = str(m.get("content") or "").strip()
+            speaker = "You" if role == "user" else n
+            lines.append(f"[{speaker}]")
+            lines.append(content)
+            lines.append("")
+        return Response(
+            "\n".join(lines),
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={safe_name}_conversation.txt"},
+        )
+
+    # Default: HTML
     return Response(_render_thread_html(n, thread), mimetype="text/html",
                     headers={"Content-Disposition": f"attachment; filename={safe_name}_conversation.html"})
 
@@ -26366,7 +26470,7 @@ def api_followup_stream():
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
     thread = load_thread(name, uname)
-    thread = thread[-14:] if len(thread) > 14 else thread
+    thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
     oai_client      = get_openai_client()
