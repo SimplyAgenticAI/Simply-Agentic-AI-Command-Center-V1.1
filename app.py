@@ -8566,6 +8566,7 @@ HTML = r"""
     }
 
     .tiny{ font-size: 12px; color:var(--muted); }
+    .modalForm .tiny{ font-size: 13px; }
 
     .overlay{
       position:fixed; inset:0; display:none;
@@ -8651,39 +8652,50 @@ HTML = r"""
     }
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
-    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
     /* All modal content: centered column, comfortable reading width */
-    .modalForm .modalInner{ max-width:680px; margin:0 auto; }
+    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
     /* 2-column field pairs inside the centered column */
-    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; align-items:start; }
+    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
     .formGrid2 .spanFull{ grid-column:1/-1; }
-    /* Tool results area — slightly wider than the form so output has room to breathe */
-    .toolResults{ max-width:860px; margin:20px auto 0; }
+    /* Tool results area — wider than the form so output has room */
+    .toolResults{ max-width:1000px; margin:24px auto 0; }
     /* Hint text above forms */
-    .toolHint{ font-size:12px; color:#64748b; margin-bottom:16px; line-height:1.6; text-align:center; }
+    .toolHint{ font-size:14px; color:#64748b; margin-bottom:20px; line-height:1.65; text-align:center; }
     /* Run / action bar */
-    .toolRunBar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:16px; justify-content:center; }
+    .toolRunBar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:20px; justify-content:center; }
     .modalForm label{
       display:block;
-      font-size: 11px;
+      font-size: 13px;
       color: var(--muted);
-      margin: 0 0 6px 0;
+      margin: 0 0 8px 0;
       font-weight: 700;
       letter-spacing: .2px;
     }
-    .modalForm input, .modalForm textarea{
+    .modalForm input, .modalForm textarea, .modalForm select{
       width:100%;
       border-radius: 12px;
       border:1px solid rgba(42,58,106,.9);
       background: rgba(11,16,36,.92);
       color: var(--text);
-      padding:10px;
+      padding:13px 14px;
       outline:none;
-      font-size:13px;
-      line-height:1.3;
+      font-size:15px;
+      line-height:1.4;
     }
-    .modalForm textarea{ height: 96px; resize: vertical; }
-    .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; justify-content:center; }
+    .modalForm textarea{ height: 140px; resize: vertical; }
+    .modalForm select{ padding:12px 14px; }
+    /* Bigger buttons inside modals */
+    .modalForm .btn, .modalForm .btnPrimary{
+      padding:12px 22px;
+      font-size:15px;
+      border-radius:12px;
+    }
+    .modalForm .btnMini{
+      padding:8px 14px;
+      font-size:13px;
+    }
+    .modalForm .actions{ display:flex; gap:12px; flex-wrap:wrap; margin-top:18px; align-items:center; justify-content:center; }
 
     .imgPreview{
       width:100%;
@@ -9777,7 +9789,7 @@ label         { font-size: 14px !important; }
                   <div class="grid" style="margin-top:14px;">
                     <div>
                       <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
-                      <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                      <select id="editPreferredModel" style="width:100%;">
                         <option value="">Default (global model)</option>
                         <optgroup label="OpenAI (GPT)">
                           <option value="gpt-4o">GPT-4o — balanced</option>
@@ -9794,7 +9806,7 @@ label         { font-size: 14px !important; }
                     </div>
                     <div>
                       <label>TTS Voice <span class="tiny" style="opacity:.6;">(speak responses aloud)</span></label>
-                      <select id="editTtsVoice" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                      <select id="editTtsVoice" style="width:100%;">
                         <option value="alloy">Alloy — neutral</option>
                         <option value="echo">Echo — male, clear</option>
                         <option value="fable">Fable — storytelling</option>
@@ -9959,7 +9971,7 @@ label         { font-size: 14px !important; }
 
                     <div>
                       <label>Default AI Model <span class="tiny" style="opacity:.6;font-weight:400;">(all teammates unless overridden)</span></label>
-                      <select id="globalDefaultModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                      <select id="globalDefaultModel" style="width:100%;">
                         <optgroup label="OpenAI (GPT)">
                           <option value="gpt-4o">GPT-4o — balanced</option>
                           <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
@@ -10053,7 +10065,7 @@ label         { font-size: 14px !important; }
     <label style="margin-top:12px;">Subject</label>
     <input class="field" id="emailSubject" placeholder="Subject"/>
     <label style="margin-top:12px;">Body</label>
-    <textarea class="field" id="emailBody" style="height:320px;" placeholder="Email body"></textarea>
+    <textarea class="field" id="emailBody" style="height:400px;" placeholder="Email body"></textarea>
     <div class="toolRunBar">
       <button class="btn" id="draftWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendEmailBtn">✅ Approve and send</button>
@@ -10069,7 +10081,7 @@ label         { font-size: 14px !important; }
       <div><label>To</label><input class="field" id="smsTo" placeholder="+1..."/></div>
     </div>
     <label style="margin-top:12px;">Message</label>
-    <textarea class="field" id="smsBody" style="height:280px;" placeholder="Text message body"></textarea>
+    <textarea class="field" id="smsBody" style="height:360px;" placeholder="Text message body"></textarea>
     <div class="toolRunBar">
       <button class="btn" id="draftSmsWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendSmsBtn">✅ Approve and send text</button>
@@ -10098,8 +10110,8 @@ label         { font-size: 14px !important; }
         </select>
       </div>
     </div>
-    <label style="margin-top:14px;">Lead context</label>
-    <textarea id="leadHandoffContext" style="height:240px;" readonly></textarea>
+    <label style="margin-top:18px;">Lead context</label>
+    <textarea id="leadHandoffContext" style="height:300px;" readonly></textarea>
     <div class="toolRunBar">
       <button class="btn" id="leadHandoffCancel">Cancel</button>
       <button class="btn btnPrimary" id="leadHandoffGenerate">✍️ Write draft</button>
@@ -10246,9 +10258,9 @@ label         { font-size: 14px !important; }
   <div class="modalInner">
   <div class="toolHint" style="text-align:center;">Set the current session objective so the whole team aligns around one goal. Every teammate will reference this when responding.</div>
   <label>Objective</label>
-  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" style="font-size:15px;padding:12px;" />
-  <label style="margin-top:14px;">Context</label>
-  <textarea id="sessionObjectiveContext" style="height:480px;" placeholder="What matters most right now, what success looks like, and any constraints the team should know about."></textarea>
+  <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
+  <label style="margin-top:18px;">Context</label>
+  <textarea id="sessionObjectiveContext" style="height:520px;" placeholder="What matters most right now, what success looks like, and any constraints the team should know about."></textarea>
   <div class="actions" style="justify-content:center;margin-top:14px;">
     <button class="btn" id="sessionObjectiveCloseBtn">Close</button>
     <button class="btn btnPrimary" id="sessionObjectiveSaveBtn">Save objective</button>
@@ -10367,7 +10379,7 @@ label         { font-size: 14px !important; }
       </div>
       <div style="margin-top:10px;">
         <label>Notes</label>
-        <textarea id="crmNotes" style="height:140px;" placeholder="Notes..."></textarea>
+        <textarea id="crmNotes" style="height:180px;" placeholder="Notes..."></textarea>
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn" id="crmCancelEdit">Cancel</button>
@@ -10407,10 +10419,10 @@ label         { font-size: 14px !important; }
         </div>
         <div><label>Value</label><input id="crmAudienceValue" placeholder="e.g. realtor" /></div>
       </div>
-      <label style="margin-top:14px;">Subject</label>
+      <label style="margin-top:18px;">Subject</label>
       <input id="crmEmailSubject" placeholder="Quick update" />
       <label style="margin-top:12px;">Message</label>
-      <textarea id="crmEmailBody" style="height:260px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
+      <textarea id="crmEmailBody" style="height:340px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
       <div class="tiny" style="margin-top:6px;opacity:.7;">Use {name} or {first_name} for personalisation.</div>
       <div class="toolRunBar">
         <button class="btn" id="crmBroadcastDryRun">Dry run</button>
@@ -10437,8 +10449,8 @@ label         { font-size: 14px !important; }
         <input id="crmSmsAudienceValue" placeholder="vip, Lead, or client_123" />
       </div>
     </div>
-    <label style="margin-top:14px;">Message</label>
-    <textarea id="crmSmsBody" style="height:220px;" placeholder="Write your text message..."></textarea>
+    <label style="margin-top:18px;">Message</label>
+    <textarea id="crmSmsBody" style="height:300px;" placeholder="Write your text message..."></textarea>
     <div class="toolRunBar">
       <button class="btn" id="crmSmsDryRun">Dry run</button>
       <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
@@ -10545,7 +10557,7 @@ label         { font-size: 14px !important; }
         <div><label>End</label><input id="crmCalEnd" type="datetime-local" /></div>
       </div>
       <label style="margin-top:12px;">Description / Notes</label>
-      <textarea id="crmCalDesc" style="height:160px;" placeholder="Notes..."></textarea>
+      <textarea id="crmCalDesc" style="height:220px;" placeholder="Notes..."></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
       </div>
@@ -10588,7 +10600,7 @@ label         { font-size: 14px !important; }
         </div>
       </div>
       <label style="margin-top:14px;">Seed rows (optional)</label>
-      <textarea id="leadLabInput" style="height:120px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+      <textarea id="leadLabInput" style="height:180px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
       <div class="toolRunBar">
         <button class="btn" id="leadLabSampleBtn">Sample</button>
         <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
@@ -10618,8 +10630,8 @@ label         { font-size: 14px !important; }
       </div>
       <label style="margin-top:14px;">Audience</label>
       <input id="socialStudioAudience" placeholder="solo real estate agents" />
-      <label style="margin-top:12px;">Offer / angle</label>
-      <textarea id="socialStudioOffer" style="height:140px;" placeholder="What do you sell and why should people care?"></textarea>
+      <label style="margin-top:18px;">Offer / angle</label>
+      <textarea id="socialStudioOffer" style="height:200px;" placeholder="What do you sell and why should people care?"></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
       </div>
@@ -10634,10 +10646,10 @@ label         { font-size: 14px !important; }
       <div class="toolHint">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
       <label>Who do you help?</label>
       <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
-      <label style="margin-top:12px;">What result do you help them get?</label>
+      <label style="margin-top:18px;">What result do you help them get?</label>
       <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
-      <label style="margin-top:12px;">How do you deliver it?</label>
-      <textarea id="offerBuilderMethod" style="height:160px;" placeholder="Describe your process, service, or product."></textarea>
+      <label style="margin-top:18px;">How do you deliver it?</label>
+      <textarea id="offerBuilderMethod" style="height:220px;" placeholder="Describe your process, service, or product."></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
       </div>
@@ -10667,8 +10679,8 @@ label         { font-size: 14px !important; }
           </select>
         </div>
       </div>
-      <label style="margin-top:14px;">Business context</label>
-      <textarea id="playbookContext" style="height:160px;" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+      <label style="margin-top:18px;">Business context</label>
+      <textarea id="playbookContext" style="height:220px;" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
       </div>
