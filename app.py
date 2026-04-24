@@ -18638,15 +18638,25 @@ window.wcalDeleteNotes = async function(evId){
 
 // Render parsed markdown-ish notes into HTML
 function wcalRenderNotesMd(text){
-  return text
-    .replace(/^## (.+)$/gm, '<h3 style="color:#c4b5fd;font-size:13px;font-weight:700;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;">$1</h3>')
-    .replace(/^- \[(.+?)\] (.+)$/gm, '<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:#a78bfa;min-width:80px;font-size:12px;">[$1]</span><span style="font-size:13px;">$2</span></div>')
-    .replace(/^- (.+)$/gm, '<div style="padding:3px 0 3px 12px;font-size:13px;border-left:2px solid rgba(196,181,253,.3);margin-left:4px;">$1</div>')
-    .replace(/
-
-/g, '<br>')
-    .replace(/
-/g, '');
+  if(!text) return '';
+  var lines = text.split('\n');
+  var out = [];
+  for(var i=0;i<lines.length;i++){
+    var l = lines[i];
+    if(/^## (.+)$/.test(l)){
+      out.push('<h3 style="color:#c4b5fd;font-size:13px;font-weight:700;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;">' + l.replace(/^## /,'') + '</h3>');
+    } else if(/^- \[(.+?)\] (.+)$/.test(l)){
+      var m = l.match(/^- \[(.+?)\] (.+)$/);
+      out.push('<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:#a78bfa;min-width:80px;font-size:12px;">['+m[1]+']</span><span style="font-size:13px;">'+m[2]+'</span></div>');
+    } else if(/^- (.+)$/.test(l)){
+      out.push('<div style="padding:3px 0 3px 12px;font-size:13px;border-left:2px solid rgba(196,181,253,.3);margin-left:4px;">'+l.slice(2)+'</div>');
+    } else if(l.trim()===''){
+      out.push('<br>');
+    } else {
+      out.push('<span style="font-size:13px;">'+l+'</span>');
+    }
+  }
+  return out.join('');
 }
 
 // Show the full notes modal overlay — built with DOM, never innerHTML with user data
