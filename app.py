@@ -8652,20 +8652,17 @@ HTML = r"""
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    /* Centered content wrapper */
-    .modalForm .modalInner{ max-width:1060px; margin:0 auto; }
-    /* Reusable 2-column form layout with proper gap — replaces height:10px spacer divs */
-    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px 22px; align-items:start; }
+    /* All modal content: centered column, comfortable reading width */
+    .modalForm .modalInner{ max-width:680px; margin:0 auto; }
+    /* 2-column field pairs inside the centered column */
+    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; align-items:start; }
     .formGrid2 .spanFull{ grid-column:1/-1; }
-    /* ── Consistent tool split layout (inputs left, results right) ── */
-    .toolSplit{ display:grid; grid-template-columns:340px 1fr; gap:0 24px; align-items:start; }
-    .toolPanel{ border-right:1px solid rgba(42,58,106,.45); padding-right:22px; }
-    .toolOutput{ min-width:0; }
-    .toolOutput:empty::before{ content:"Results will appear here."; color:#475569; font-size:13px; }
-    .toolRunBar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px; }
-    .toolHint{ font-size:11px; color:#475569; margin-bottom:14px; line-height:1.5; }
-    /* Wider panel variant for tools that need more input space */
-    .toolSplitWide{ display:grid; grid-template-columns:420px 1fr; gap:0 24px; align-items:start; }
+    /* Tool results area — slightly wider than the form so output has room to breathe */
+    .toolResults{ max-width:860px; margin:20px auto 0; }
+    /* Hint text above forms */
+    .toolHint{ font-size:12px; color:#64748b; margin-bottom:16px; line-height:1.6; text-align:center; }
+    /* Run / action bar */
+    .toolRunBar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:16px; justify-content:center; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -8686,7 +8683,7 @@ HTML = r"""
       line-height:1.3;
     }
     .modalForm textarea{ height: 96px; resize: vertical; }
-    .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; justify-content:flex-end; }
+    .modalForm .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; align-items:center; justify-content:center; }
 
     .imgPreview{
       width:100%;
@@ -10047,17 +10044,17 @@ label         { font-size: 14px !important; }
 
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="modalInner">
-    <div class="toolHint">When a teammate drafts an email, fields auto-fill here. You approve before sending. Sending is always manual.</div>
-    <div class="tiny" id="smtpStatus" style="margin-bottom:10px;">SMTP: checking...</div>
-    <div class="formGrid2" style="margin-bottom:10px;">
+    <div class="toolHint">When a teammate drafts an email, fields auto-fill here. Review and approve before sending.</div>
+    <div class="tiny" id="smtpStatus" style="margin-bottom:10px;text-align:center;"></div>
+    <div class="formGrid2">
       <div><label>From</label><input class="field" id="emailFrom" placeholder="From" readonly/></div>
       <div><label>To</label><input class="field" id="emailTo" placeholder="name@email.com"/></div>
     </div>
-    <label>Subject</label>
-    <input class="field" id="emailSubject" placeholder="Subject" style="margin-bottom:10px;"/>
-    <label>Body</label>
-    <textarea class="field" id="emailBody" style="height:400px" placeholder="Email body"></textarea>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+    <label style="margin-top:12px;">Subject</label>
+    <input class="field" id="emailSubject" placeholder="Subject"/>
+    <label style="margin-top:12px;">Body</label>
+    <textarea class="field" id="emailBody" style="height:320px;" placeholder="Email body"></textarea>
+    <div class="toolRunBar">
       <button class="btn" id="draftWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendEmailBtn">✅ Approve and send</button>
     </div>
@@ -10066,60 +10063,48 @@ label         { font-size: 14px !important; }
 
 <div class="modalForm" id="smsConsoleForm" style="display:none;">
   <div class="modalInner">
-    <div class="toolHint">When a teammate drafts a text message, fields auto-fill here. You approve before sending. Sending is always manual.</div>
-    <div class="formGrid2" style="margin-bottom:10px;">
+    <div class="toolHint">When a teammate drafts a text message, fields auto-fill here. Review and approve before sending.</div>
+    <div class="formGrid2">
       <div><label>From</label><input class="field" id="smsFrom" placeholder="From" readonly/></div>
       <div><label>To</label><input class="field" id="smsTo" placeholder="+1..."/></div>
     </div>
-    <label>Message</label>
-    <textarea class="field" id="smsBody" style="height:360px" placeholder="Text message body"></textarea>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+    <label style="margin-top:12px;">Message</label>
+    <textarea class="field" id="smsBody" style="height:280px;" placeholder="Text message body"></textarea>
+    <div class="toolRunBar">
       <button class="btn" id="draftSmsWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendSmsBtn">✅ Approve and send text</button>
     </div>
-    <div class="tiny" id="smsConsoleStatus" style="margin-top:8px;"></div>
+    <div class="tiny" id="smsConsoleStatus" style="margin-top:8px;text-align:center;"></div>
   </div>
 </div>
 
 <div class="modalForm" id="leadHandoffForm" style="display:none;">
   <div class="modalInner">
     <div class="toolHint">Choose who should write the outreach — the app will open the matching console with the draft pre-loaded.</div>
-    <div class="formGrid2" style="margin-bottom:14px;">
-      <div>
-        <label>Teammate</label>
-        <select id="leadHandoffTeammate"></select>
-      </div>
-      <div>
-        <label>Channel</label>
-        <input id="leadHandoffChannel" readonly />
-      </div>
-      <div>
-        <label>Goal</label>
+    <div class="formGrid2">
+      <div><label>Teammate</label><select id="leadHandoffTeammate"></select></div>
+      <div><label>Channel</label><input id="leadHandoffChannel" readonly /></div>
+      <div><label>Goal</label>
         <select id="leadHandoffGoal">
-          <option value="intro">Intro</option>
-          <option value="follow_up">Follow up</option>
-          <option value="offer">Offer</option>
-          <option value="nurture">Nurture</option>
+          <option value="intro">Intro</option><option value="follow_up">Follow up</option>
+          <option value="offer">Offer</option><option value="nurture">Nurture</option>
           <option value="book_call">Book call</option>
         </select>
       </div>
-      <div>
-        <label>Tone</label>
+      <div><label>Tone</label>
         <select id="leadHandoffTone">
-          <option value="warm">Warm</option>
-          <option value="professional">Professional</option>
-          <option value="direct">Direct</option>
-          <option value="casual">Casual</option>
+          <option value="warm">Warm</option><option value="professional">Professional</option>
+          <option value="direct">Direct</option><option value="casual">Casual</option>
         </select>
       </div>
     </div>
-    <label>Lead context</label>
-    <textarea id="leadHandoffContext" style="height:360px;" readonly></textarea>
-    <div class="actions" style="justify-content:flex-end;margin-top:12px;">
+    <label style="margin-top:14px;">Lead context</label>
+    <textarea id="leadHandoffContext" style="height:240px;" readonly></textarea>
+    <div class="toolRunBar">
       <button class="btn" id="leadHandoffCancel">Cancel</button>
       <button class="btn btnPrimary" id="leadHandoffGenerate">✍️ Write draft</button>
     </div>
-    <div class="tiny" id="leadHandoffStatus" style="margin-top:8px;"></div>
+    <div class="tiny" id="leadHandoffStatus" style="margin-top:8px;text-align:center;"></div>
   </div>
 </div>
 
@@ -10410,75 +10395,55 @@ label         { font-size: 14px !important; }
 
   <!-- Broadcast -->
   <div id="crmViewBroadcast" style="display:none;">
-    <div class="toolSplit">
-      <!-- LEFT: audience + subject -->
-      <div class="toolPanel">
-        <div class="toolHint">Send an email to a filtered segment of your clients. Always do a dry run first to confirm recipients.</div>
-        <div class="formGrid2">
-          <div>
-            <label>Audience</label>
-            <select id="crmAudience">
-              <option value="all">All clients</option>
-              <option value="tag">Tag</option>
-              <option value="stage">Pipeline stage</option>
-              <option value="status">Status</option>
-              <option value="selected">Selected client IDs</option>
-            </select>
-          </div>
-          <div>
-            <label>Value</label>
-            <input id="crmAudienceValue" placeholder="e.g. realtor" />
-          </div>
+    <div class="modalInner">
+      <div class="toolHint">Send an email to a filtered segment of your clients. Always do a dry run first to confirm recipients.</div>
+      <div class="formGrid2">
+        <div><label>Audience</label>
+          <select id="crmAudience">
+            <option value="all">All clients</option><option value="tag">Tag</option>
+            <option value="stage">Pipeline stage</option><option value="status">Status</option>
+            <option value="selected">Selected client IDs</option>
+          </select>
         </div>
-        <label style="margin-top:12px;">Subject</label>
-        <input id="crmEmailSubject" placeholder="Quick update" />
-        <div class="toolRunBar">
-          <button class="btn" id="crmBroadcastDryRun">Dry run</button>
-          <button class="btn btnPrimary" id="crmBroadcastSend">Send broadcast</button>
-        </div>
-        <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;"></div>
+        <div><label>Value</label><input id="crmAudienceValue" placeholder="e.g. realtor" /></div>
       </div>
-      <!-- RIGHT: message body -->
-      <div class="toolOutput">
-        <label>Message</label>
-        <textarea id="crmEmailBody" style="height:480px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
-        <div class="tiny" style="margin-top:6px;opacity:.7;">Use {name} or {first_name} for personalisation.</div>
+      <label style="margin-top:14px;">Subject</label>
+      <input id="crmEmailSubject" placeholder="Quick update" />
+      <label style="margin-top:12px;">Message</label>
+      <textarea id="crmEmailBody" style="height:260px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
+      <div class="tiny" style="margin-top:6px;opacity:.7;">Use {name} or {first_name} for personalisation.</div>
+      <div class="toolRunBar">
+        <button class="btn" id="crmBroadcastDryRun">Dry run</button>
+        <button class="btn btnPrimary" id="crmBroadcastSend">Send broadcast</button>
       </div>
+      <div class="tiny" id="crmBroadcastStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
   </div>
 
 
 <!-- Broadcast SMS -->
 <div id="crmViewBroadcastSMS" style="display:none;">
-  <div class="toolSplit">
-    <div class="toolPanel">
-      <div class="toolHint">Send a broadcast text message to a filtered segment of your clients.</div>
-      <div class="formGrid2">
-        <div>
-          <label>Audience</label>
-          <select id="crmSmsAudience">
-            <option value="all">All clients</option>
-            <option value="tag">Tag</option>
-            <option value="stage">Pipeline stage</option>
-            <option value="status">Status</option>
-            <option value="selected">Selected IDs</option>
-          </select>
-        </div>
-        <div>
-          <label>Value (tag / stage / IDs)</label>
-          <input id="crmSmsAudienceValue" placeholder="vip, Lead, or client_123" />
-        </div>
+  <div class="modalInner">
+    <div class="toolHint">Send a broadcast text message to a filtered segment of your clients.</div>
+    <div class="formGrid2">
+      <div><label>Audience</label>
+        <select id="crmSmsAudience">
+          <option value="all">All clients</option><option value="tag">Tag</option>
+          <option value="stage">Pipeline stage</option><option value="status">Status</option>
+          <option value="selected">Selected IDs</option>
+        </select>
       </div>
-      <div class="toolRunBar">
-        <button class="btn" id="crmSmsDryRun">Dry run</button>
-        <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
+      <div><label>Value (tag / stage / IDs)</label>
+        <input id="crmSmsAudienceValue" placeholder="vip, Lead, or client_123" />
       </div>
-      <div class="tiny" id="crmSmsStatus" style="margin-top:8px;"></div>
     </div>
-    <div class="toolOutput">
-      <label>Message</label>
-      <textarea id="crmSmsBody" style="height:420px;" placeholder="Write your text message..."></textarea>
+    <label style="margin-top:14px;">Message</label>
+    <textarea id="crmSmsBody" style="height:220px;" placeholder="Write your text message..."></textarea>
+    <div class="toolRunBar">
+      <button class="btn" id="crmSmsDryRun">Dry run</button>
+      <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
     </div>
+    <div class="tiny" id="crmSmsStatus" style="margin-top:8px;text-align:center;"></div>
   </div>
 </div>
 
@@ -10572,195 +10537,152 @@ label         { font-size: 14px !important; }
 
   <!-- Calendar -->
   <div id="crmViewCalendar" style="display:none;">
-    <div class="toolHint">Create a calendar event (uses your Google Calendar connection if enabled).</div>
-    <div class="formGrid2">
-      <div style="grid-column:1/-1;"><label>Title</label><input id="crmCalTitle" placeholder="Client check-in" /></div>
-      <div><label>Start</label><input id="crmCalStart" type="datetime-local" /></div>
-      <div><label>End</label><input id="crmCalEnd" type="datetime-local" /></div>
+    <div class="modalInner">
+      <div class="toolHint">Create a calendar event using your Google Calendar connection.</div>
+      <label>Title</label><input id="crmCalTitle" placeholder="Client check-in" />
+      <div class="formGrid2" style="margin-top:12px;">
+        <div><label>Start</label><input id="crmCalStart" type="datetime-local" /></div>
+        <div><label>End</label><input id="crmCalEnd" type="datetime-local" /></div>
+      </div>
+      <label style="margin-top:12px;">Description / Notes</label>
+      <textarea id="crmCalDesc" style="height:160px;" placeholder="Notes..."></textarea>
+      <div class="toolRunBar">
+        <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
+      </div>
+      <div class="tiny" id="crmCalStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
-    <label style="margin-top:12px;">Description / Notes</label>
-    <textarea id="crmCalDesc" style="height:200px;" placeholder="Notes..."></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn btnPrimary" id="crmCreateEventBtn">Create event</button>
-    </div>
-    <div class="tiny" id="crmCalStatus" style="margin-top:8px;"></div>
   </div>
 
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
-    <div class="toolSplitWide">
-      <!-- LEFT: inputs -->
-      <div class="toolPanel">
-        <div class="toolHint">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
-        <div class="formGrid2">
-          <div>
-            <label>Target niche</label>
-            <input id="leadLabNiche" placeholder="real estate agents" />
-          </div>
-          <div>
-            <label>Location</label>
-            <input id="leadLabLocation" placeholder="New Jersey" />
-          </div>
-          <div>
-            <label>Lead count</label>
-            <select id="leadLabCount">
-              <option value="10">10</option>
-              <option value="25" selected>25</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-          </div>
-          <div>
-            <label>Search mode</label>
-            <select id="leadLabMode">
-              <option value="balanced" selected>Balanced</option>
-              <option value="broad">Broad</option>
-              <option value="precision">Precision</option>
-            </select>
-          </div>
-          <div>
-            <label>Specific areas</label>
-            <input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" />
-          </div>
-          <div>
-            <label>Contact filter</label>
-            <select id="leadLabRequireContact">
-              <option value="phone_or_email" selected>Phone or email preferred</option>
-              <option value="phone">Phone only</option>
-              <option value="email">Email only</option>
-              <option value="any">Any public lead</option>
-            </select>
-          </div>
-          <div>
-            <label>Minimum score</label>
-            <select id="leadLabMinScore">
-              <option value="30">30</option>
-              <option value="40" selected>40</option>
-              <option value="50">50</option>
-              <option value="60">60</option>
-            </select>
-          </div>
+    <div class="modalInner">
+      <div class="toolHint">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
+      <div class="formGrid2">
+        <div><label>Target niche</label><input id="leadLabNiche" placeholder="real estate agents" /></div>
+        <div><label>Location</label><input id="leadLabLocation" placeholder="New Jersey" /></div>
+        <div><label>Lead count</label>
+          <select id="leadLabCount">
+            <option value="10">10</option><option value="25" selected>25</option>
+            <option value="50">50</option><option value="100">100</option>
+          </select>
         </div>
-        <label style="margin-top:12px;">Seed rows (optional)</label>
-        <textarea id="leadLabInput" style="height:130px" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
-        <div class="toolRunBar">
-          <button class="btn" id="leadLabSampleBtn">Sample</button>
-          <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
-          <div class="tiny" id="leadLabStatus"></div>
+        <div><label>Search mode</label>
+          <select id="leadLabMode">
+            <option value="balanced" selected>Balanced</option>
+            <option value="broad">Broad</option><option value="precision">Precision</option>
+          </select>
+        </div>
+        <div><label>Specific areas</label><input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" /></div>
+        <div><label>Contact filter</label>
+          <select id="leadLabRequireContact">
+            <option value="phone_or_email" selected>Phone or email preferred</option>
+            <option value="phone">Phone only</option><option value="email">Email only</option>
+            <option value="any">Any public lead</option>
+          </select>
+        </div>
+        <div><label>Minimum score</label>
+          <select id="leadLabMinScore">
+            <option value="30">30</option><option value="40" selected>40</option>
+            <option value="50">50</option><option value="60">60</option>
+          </select>
         </div>
       </div>
-      <!-- RIGHT: results -->
-      <div class="toolOutput" id="leadLabResults"></div>
+      <label style="margin-top:14px;">Seed rows (optional)</label>
+      <textarea id="leadLabInput" style="height:120px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
+      <div class="toolRunBar">
+        <button class="btn" id="leadLabSampleBtn">Sample</button>
+        <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
+      </div>
+      <div class="tiny" id="leadLabStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
+    <div class="toolResults" id="leadLabResults"></div>
   </div>
 
   <!-- Social Studio -->
   <div id="crmViewSocialStudio" style="display:none;">
-    <div class="toolSplit">
-      <!-- LEFT: inputs -->
-      <div class="toolPanel">
-        <div class="toolHint">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
-        <div class="formGrid2">
-          <div>
-            <label>Platform</label>
-            <select id="socialStudioPlatform">
-              <option value="Facebook">Facebook</option>
-              <option value="LinkedIn">LinkedIn</option>
-              <option value="Instagram">Instagram</option>
-              <option value="X">X</option>
-            </select>
-          </div>
-          <div>
-            <label>Asset set</label>
-            <select id="socialStudioAsset">
-              <option value="content_pack">Content pack</option>
-              <option value="dm_pack">DM pack</option>
-              <option value="comment_pack">Comment pack</option>
-              <option value="launch_pack">Launch pack</option>
-            </select>
-          </div>
+    <div class="modalInner">
+      <div class="toolHint">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
+      <div class="formGrid2">
+        <div><label>Platform</label>
+          <select id="socialStudioPlatform">
+            <option value="Facebook">Facebook</option><option value="LinkedIn">LinkedIn</option>
+            <option value="Instagram">Instagram</option><option value="X">X</option>
+          </select>
         </div>
-        <label style="margin-top:12px;">Audience</label>
-        <input id="socialStudioAudience" placeholder="solo real estate agents" />
-        <label style="margin-top:12px;">Offer / angle</label>
-        <textarea id="socialStudioOffer" rows="7" placeholder="What do you sell and why should people care?"></textarea>
-        <div class="toolRunBar">
-          <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
-          <div class="tiny" id="socialStudioStatus"></div>
+        <div><label>Asset set</label>
+          <select id="socialStudioAsset">
+            <option value="content_pack">Content pack</option><option value="dm_pack">DM pack</option>
+            <option value="comment_pack">Comment pack</option><option value="launch_pack">Launch pack</option>
+          </select>
         </div>
       </div>
-      <!-- RIGHT: results -->
-      <div class="toolOutput" id="socialStudioResults"></div>
+      <label style="margin-top:14px;">Audience</label>
+      <input id="socialStudioAudience" placeholder="solo real estate agents" />
+      <label style="margin-top:12px;">Offer / angle</label>
+      <textarea id="socialStudioOffer" style="height:140px;" placeholder="What do you sell and why should people care?"></textarea>
+      <div class="toolRunBar">
+        <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
+      </div>
+      <div class="tiny" id="socialStudioStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
+    <div class="toolResults" id="socialStudioResults"></div>
   </div>
 
   <!-- Offer Builder -->
   <div id="crmViewOfferBuilder" style="display:none;">
-    <div class="toolSplit">
-      <!-- LEFT: inputs -->
-      <div class="toolPanel">
-        <div class="toolHint">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
-        <label>Who do you help?</label>
-        <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
-        <label style="margin-top:12px;">What result do you help them get?</label>
-        <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
-        <label style="margin-top:12px;">How do you deliver it?</label>
-        <textarea id="offerBuilderMethod" rows="8" placeholder="Describe your process, service, or product."></textarea>
-        <div class="toolRunBar">
-          <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
-          <div class="tiny" id="offerBuilderStatus"></div>
-        </div>
+    <div class="modalInner">
+      <div class="toolHint">Build a cleaner offer, stronger positioning, and ready-to-use copy in one place.</div>
+      <label>Who do you help?</label>
+      <input id="offerBuilderAudience" placeholder="entrepreneurs using social media to get clients" />
+      <label style="margin-top:12px;">What result do you help them get?</label>
+      <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
+      <label style="margin-top:12px;">How do you deliver it?</label>
+      <textarea id="offerBuilderMethod" style="height:160px;" placeholder="Describe your process, service, or product."></textarea>
+      <div class="toolRunBar">
+        <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
       </div>
-      <!-- RIGHT: results -->
-      <div class="toolOutput" id="offerBuilderResults"></div>
+      <div class="tiny" id="offerBuilderStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
+    <div class="toolResults" id="offerBuilderResults"></div>
   </div>
 
   <!-- Playbooks -->
   <div id="crmViewPlaybooks" style="display:none;">
-    <div class="toolSplit">
-      <!-- LEFT: inputs -->
-      <div class="toolPanel">
-        <div class="toolHint">Generate step-by-step action plans for growth goals without leaving the command center.</div>
-        <div class="formGrid2">
-          <div>
-            <label>Goal</label>
-            <select id="playbookGoal">
-              <option value="get_clients">Get clients</option>
-              <option value="grow_audience">Grow audience</option>
-              <option value="launch_offer">Launch an offer</option>
-              <option value="reactivate_leads">Reactivate old leads</option>
-              <option value="book_calls">Book more calls</option>
-            </select>
-          </div>
-          <div>
-            <label>Timeline</label>
-            <select id="playbookTimeline">
-              <option value="7 days">7 days</option>
-              <option value="14 days">14 days</option>
-              <option value="30 days">30 days</option>
-              <option value="90 days">90 days</option>
-            </select>
-          </div>
+    <div class="modalInner">
+      <div class="toolHint">Generate step-by-step action plans for growth goals without leaving the command center.</div>
+      <div class="formGrid2">
+        <div><label>Goal</label>
+          <select id="playbookGoal">
+            <option value="get_clients">Get clients</option>
+            <option value="grow_audience">Grow audience</option>
+            <option value="launch_offer">Launch an offer</option>
+            <option value="reactivate_leads">Reactivate old leads</option>
+            <option value="book_calls">Book more calls</option>
+          </select>
         </div>
-        <label style="margin-top:12px;">Business context</label>
-        <textarea id="playbookContext" rows="8" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
-        <div class="toolRunBar">
-          <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
-          <div class="tiny" id="playbookStatus"></div>
-        </div>
-        <div id="savedPlaybooksSection" style="margin-top:24px;border-top:1px solid rgba(42,58,106,.4);padding-top:16px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-            <div style="font-size:13px;font-weight:800;color:#c4b5fd;">Saved Playbooks</div>
-            <button class="btn btnMini" onclick="wcalLoadSavedPlaybooks()" id="refreshPlaybooksBtn" style="font-size:11px;">Refresh</button>
-          </div>
-          <div id="savedPlaybooksList" style="display:flex;flex-direction:column;gap:8px;">
-            <div class="tiny" style="opacity:.6;">No saved playbooks yet. Generate a playbook and save it.</div>
-          </div>
+        <div><label>Timeline</label>
+          <select id="playbookTimeline">
+            <option value="7 days">7 days</option><option value="14 days">14 days</option>
+            <option value="30 days">30 days</option><option value="90 days">90 days</option>
+          </select>
         </div>
       </div>
-      <!-- RIGHT: results -->
-      <div class="toolOutput" id="playbookResults"></div>
+      <label style="margin-top:14px;">Business context</label>
+      <textarea id="playbookContext" style="height:160px;" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+      <div class="toolRunBar">
+        <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
+      </div>
+      <div class="tiny" id="playbookStatus" style="margin-top:8px;text-align:center;"></div>
+    </div>
+    <div class="toolResults" id="playbookResults"></div>
+    <div class="toolResults" id="savedPlaybooksSection" style="margin-top:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:14px;font-weight:800;color:#c4b5fd;">Saved Playbooks</div>
+        <button class="btn btnMini" onclick="wcalLoadSavedPlaybooks()" id="refreshPlaybooksBtn">Refresh</button>
+      </div>
+      <div id="savedPlaybooksList" style="display:flex;flex-direction:column;gap:8px;">
+        <div class="tiny" style="opacity:.6;">No saved playbooks yet. Generate a playbook and save it.</div>
+      </div>
     </div>
   </div>
 </div>
