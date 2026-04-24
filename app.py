@@ -16819,14 +16819,39 @@ function wcalShowTaskDetail(task){
       <button class="wcal-det-btn danger" onclick="wcalDetDeleteTask('${task.id}')">Delete</button>
     </div>
     <div class="wcal-status" id="detStatus"></div>
+    
+    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
+        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
+      </div>
+      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
+        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
+        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
+          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
+        </div>
+      </div>
+      <div class="wcal-detail-label">Assign notetaker</div>
+      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
+        <option value="">— Pick a teammate —</option>
+      </select>
+      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
+      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
+      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
+      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
+    </div>
   `;
   if(typeLbl){ typeLbl.innerText=(task.recurring&&task.recurring!=='none')?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentTask=task; panel._currentEvent=null;
-  // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
+  wcalPopulateTeammateDropdown('detNotetaker', task.notetaker||'');
+  wcalLoadExistingNotes(task.id||'');
+  wcalWireNotetakerButtons(task.id||'');
 }
 
 // ── Toggle a gcal event between event/task display type ────────
@@ -16959,6 +16984,29 @@ function wcalShowGcalTaskDetail(ev){
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
+    
+    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
+        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
+      </div>
+      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
+        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
+        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
+          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
+        </div>
+      </div>
+      <div class="wcal-detail-label">Assign notetaker</div>
+      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
+        <option value="">— Pick a teammate —</option>
+      </select>
+      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
+      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
+      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
+      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
+    </div>
   `;
   const isRecurring=(storedRecurring!=='none');
   if(typeLbl){ typeLbl.innerText=isRecurring?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
@@ -16978,9 +17026,9 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
-  // Wire notetaker dropdown and load existing notes
   wcalPopulateTeammateDropdown('detNotetaker', meta.notetaker||'');
   wcalLoadExistingNotes(evId);
+  wcalWireNotetakerButtons(evId);
 }
 
 function wcalShowEventDetail(ev){
@@ -17102,32 +17150,28 @@ function wcalShowEventDetail(ev){
     </div>
     <div class="wcal-status" id="detStatus"></div>
 
-    <!-- ── NOTETAKER SECTION ───────────────────────────────────────────── -->
-    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.1);padding-top:16px;">
+
+    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-size:13px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
+        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
         <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
       </div>
-      <div id="detNotesExisting" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
-        <div style="font-size:11px;color:#a78bfa;margin-bottom:6px;font-weight:600;" id="detNotesExistingLabel">📝 Notes on file</div>
-        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:80px;overflow:hidden;"></div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn btnMini" onclick="wcalViewExistingNotes('${evIdSafe}')" style="font-size:11px;">👁 View Full Notes</button>
-          <button class="btn btnMini" onclick="wcalDeleteNotes('${evIdSafe}')" style="font-size:11px;opacity:.6;">🗑 Delete</button>
+      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
+        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
+        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
+          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
         </div>
       </div>
-      <div id="detNotetakerForm">
-        <div class="wcal-detail-label">Assign notetaker teammate</div>
-        <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:10px;">
-          <option value="">— Pick a teammate —</option>
-        </select>
-        <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(from Google Meet captions, Zoom export, or type notes)</span></div>
-        <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste your meeting transcript here…&#10;&#10;Tip: In Google Meet, click ⋮ → Transcript to get captions.&#10;In Zoom, find the transcript in your meeting folder." style="min-height:110px;margin-bottom:10px;"></textarea>
-        <button class="wcal-det-btn primary" id="detProcessNotesBtn" onclick="wcalProcessNotes('${evIdSafe}')">
-          ✨ Generate Meeting Notes
-        </button>
-        <div id="detNotesStatus" style="font-size:12px;margin-top:8px;min-height:18px;"></div>
-      </div>
+      <div class="wcal-detail-label">Assign notetaker</div>
+      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
+        <option value="">— Pick a teammate —</option>
+      </select>
+      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
+      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
+      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
+      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
     </div>
   `;
   const isRecurring=(storedRecurring!=='none');
@@ -17138,6 +17182,9 @@ function wcalShowEventDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
+  wcalPopulateTeammateDropdown('detNotetaker', meta.notetaker||'');
+  wcalLoadExistingNotes(evId);
+  wcalWireNotetakerButtons(evId);
 }
 // Toggle done on a Google Calendar event
 window.wcalDetToggleEvDone = async function(evId){
@@ -18576,64 +18623,76 @@ async function wcalLoadExistingNotes(evId){
   }
 }
 
-// Process transcript and generate notes
-window.wcalProcessNotes = async function(evId){
-  const btn        = document.getElementById('detProcessNotesBtn');
-  const status     = document.getElementById('detNotesStatus');
-  const teammate   = (document.getElementById('detNotetaker')||{}).value||'';
-  const transcript = (document.getElementById('detTranscript')||{}).value||'';
-  const titleEl    = document.getElementById('detTitle');
-  const dateEl     = document.getElementById('detDate');
-  const title      = titleEl ? titleEl.value : 'Meeting';
-  const date       = dateEl  ? dateEl.value  : new Date().toISOString().slice(0,10);
+// Wire all notetaker buttons for a given event/task id — called after innerHTML renders
+window.wcalWireNotetakerButtons = function(evId){
+  // Generate Notes button
+  var genBtn = document.getElementById('detProcessNotesBtn');
+  if(genBtn){
+    genBtn.onclick = async function(){
+      var teammate   = (document.getElementById('detNotetaker')||{}).value||'';
+      var transcript = (document.getElementById('detTranscript')||{}).value||'';
+      var title      = (document.getElementById('detTitle')||{}).value||'Meeting';
+      var date       = (document.getElementById('detDate')||{}).value||new Date().toISOString().slice(0,10);
+      var status     = document.getElementById('detNotesStatus');
 
-  if(!teammate){ if(status) status.innerHTML='<span style="color:#f87171;">⚠️ Pick a teammate first.</span>'; return; }
-  if(!transcript.trim()){ if(status) status.innerHTML='<span style="color:#f87171;">⚠️ Paste a transcript first.</span>'; return; }
+      if(!teammate){
+        if(status){ status.style.color='#f87171'; status.textContent='⚠️ Pick a teammate first.'; } return;
+      }
+      if(!transcript.trim()){
+        if(status){ status.style.color='#f87171'; status.textContent='⚠️ Paste a transcript first.'; } return;
+      }
 
-  if(btn){ btn.disabled=true; btn.textContent='✨ Generating notes…'; }
-  if(status) status.innerHTML='<span style="opacity:.7;">Your teammate is reading the transcript…</span>';
+      genBtn.disabled=true; genBtn.textContent='✨ Generating…';
+      if(status){ status.style.color='#a78bfa'; status.textContent='Your teammate is reading the transcript…'; }
 
-  try{
-    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId), {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ teammate, transcript, meeting_title:title, meeting_date:date })
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'Failed');
-
-    if(status) status.innerHTML='<span style="color:#6ee7b7;">✅ Notes saved! Opening…</span>';
-    // Show the full notes immediately
-    setTimeout(()=>{ wcalShowFullNotes(data.note); }, 400);
-    // Refresh the existing banner
-    wcalLoadExistingNotes(evId);
-    // Clear transcript field
-    const ta = document.getElementById('detTranscript');
-    if(ta) ta.value='';
-  }catch(e){
-    if(status) status.innerHTML='<span style="color:#f87171;">❌ '+e.message+'</span>';
-  }finally{
-    if(btn){ btn.disabled=false; btn.textContent='✨ Generate Meeting Notes'; }
+      try{
+        var res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId),{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({teammate:teammate, transcript:transcript, meeting_title:title, meeting_date:date})
+        });
+        var data = await res.json();
+        if(!data.ok) throw new Error(data.error||'Failed');
+        if(status){ status.style.color='#6ee7b7'; status.textContent='✅ Notes saved!'; }
+        setTimeout(function(){ wcalShowFullNotes(data.note); }, 300);
+        wcalLoadExistingNotes(evId);
+        wcalWireNotetakerButtons(evId); // re-wire view/delete with fresh evId
+        var ta = document.getElementById('detTranscript');
+        if(ta) ta.value='';
+      }catch(e){
+        if(status){ status.style.color='#f87171'; status.textContent='❌ '+e.message; }
+      }finally{
+        genBtn.disabled=false; genBtn.textContent='✨ Generate Notes';
+      }
+    };
   }
-};
 
-// View existing full notes for an event
-window.wcalViewExistingNotes = async function(evId){
-  try{
-    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
-    const data = await res.json();
-    if(data.ok && data.note) wcalShowFullNotes(data.note);
-    else showToast('No notes found for this event.','error');
-  }catch(e){ showToast('Could not load notes.','error'); }
-};
+  // View button
+  var viewBtn = document.getElementById('detViewNotesBtn');
+  if(viewBtn){
+    viewBtn.onclick = async function(){
+      try{
+        var res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
+        var data = await res.json();
+        if(data.ok && data.note) wcalShowFullNotes(data.note);
+        else if(typeof showToast==='function') showToast('No notes found.','error');
+      }catch(e){ if(typeof showToast==='function') showToast('Could not load notes.','error'); }
+    };
+  }
 
-// Delete notes for an event
-window.wcalDeleteNotes = async function(evId){
-  if(!confirm('Delete meeting notes for this event? This cannot be undone.')) return;
-  try{
-    await fetch('/api/calendar/notes/'+encodeURIComponent(evId), {method:'DELETE'});
-    wcalLoadExistingNotes(evId);
-    showToast('Notes deleted.');
-  }catch(e){ showToast('Could not delete notes.','error'); }
+  // Delete button
+  var delBtn = document.getElementById('detDeleteNotesBtn');
+  if(delBtn){
+    delBtn.onclick = async function(){
+      if(!confirm('Delete meeting notes for this event?')) return;
+      try{
+        await fetch('/api/calendar/notes/'+encodeURIComponent(evId),{method:'DELETE'});
+        wcalLoadExistingNotes(evId);
+        var existing = document.getElementById('detNotesExisting');
+        if(existing) existing.style.display='none';
+        if(typeof showToast==='function') showToast('Notes deleted.');
+      }catch(e){ if(typeof showToast==='function') showToast('Could not delete.','error'); }
+    };
+  }
 };
 
 // Render parsed markdown-ish notes into HTML
