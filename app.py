@@ -12395,6 +12395,8 @@ function makeSeat(defn, idx){
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
+      window.lastSeatAssistantText = "";
+      window.renderThread = renderThread;
       lastImageState = imageState || lastImageState || {};
       const box = $("thread");
       box.innerHTML = "";
@@ -13071,33 +13073,45 @@ function makeSeat(defn, idx){
     }
 
     $("talkGroupBtn").onclick = function() {
-      var text = (typeof _combineGroupOutputs === "function") ? _combineGroupOutputs() : "";
+      var btn = $("talkGroupBtn");
+      // Toggle stop if already playing
+      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
+      var text = (typeof window._combineGroupOutputs === "function")
+        ? window._combineGroupOutputs()
+        : (typeof _combineGroupOutputs === "function" ? _combineGroupOutputs() : "");
       if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No group reply to speak yet — run a round table prompt first.", "error");
+        if(typeof showToast==="function") showToast("No group reply to speak — run a round table prompt first.", "error");
         return;
       }
       var voice = "alloy";
       try{
-        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[window.selectedSeat||""]||{};
+        var seat = window.selectedSeat || selectedSeat || "";
+        var installed = ((window._saStateCache||{}).installed) || (state&&state.installed) || {};
+        var tm = installed[seat] || {};
         voice = tm.tts_voice || "alloy";
       }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkGroupBtn"));
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, btn);
+      else if(typeof showToast==="function") showToast("TTS not ready yet — please wait a moment.", "error");
     };
 
     $("talkDmBtn").onclick = function() {
-      var text = (typeof lastSeatAssistantText !== "undefined" ? lastSeatAssistantText : "") ||
-                 (typeof window.lastSeatAssistantText !== "undefined" ? window.lastSeatAssistantText : "");
+      var btn = $("talkDmBtn");
+      // Toggle stop if already playing
+      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
+      var text = window.lastSeatAssistantText || lastSeatAssistantText || "";
       if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No teammate reply to speak yet — send a message first.", "error");
+        if(typeof showToast==="function") showToast("No teammate reply to speak — send a message first.", "error");
         return;
       }
       var voice = "alloy";
       try{
-        var seat = window.selectedSeat || "";
-        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[seat]||{};
+        var seat = window.selectedSeat || selectedSeat || "";
+        var installed = ((window._saStateCache||{}).installed) || (state&&state.installed) || {};
+        var tm = installed[seat] || {};
         voice = tm.tts_voice || "alloy";
       }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkDmBtn"));
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, btn);
+      else if(typeof showToast==="function") showToast("TTS not ready yet — please wait a moment.", "error");
     };
 
     // ----- Lighting Mode (ADD v1) -----
@@ -13333,7 +13347,7 @@ function makeSeat(defn, idx){
           try{ setSeatLive(n,"waiting"); }catch(_){}
         }
       }
-      try{ lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
+      try{ lastGroupOutputs=outputs; window.lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
       try{ setOpStatus("Complete"); }catch(_){}
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
     }
@@ -13647,6 +13661,7 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
+      window.lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
       // Show Save to Playbooks when there are group replies
       var savePbBtn = document.getElementById('saveToPlaybooksBtn');
@@ -14002,6 +14017,7 @@ async function pollImageJob(jobId, seatName){
       if(keys.length === 0) return "";
       return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
     }
+    window._combineGroupOutputs = _combineGroupOutputs;
 
     async function runTacticalPass(pass, ctx){
       const context = (ctx || "seat");
