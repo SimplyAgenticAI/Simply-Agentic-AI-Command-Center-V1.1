@@ -8652,8 +8652,11 @@ HTML = r"""
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    /* Centered content wrapper — use class="modalInner" inside any modalForm for growth-playbook-style centering */
-    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
+    /* Centered content wrapper */
+    .modalForm .modalInner{ max-width:1060px; margin:0 auto; }
+    /* Reusable 2-column form layout with proper gap — replaces height:10px spacer divs */
+    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px 22px; align-items:start; }
+    .formGrid2 .spanFull{ grid-column:1/-1; }
     .modalForm label{
       display:block;
       font-size: 11px;
@@ -9729,91 +9732,79 @@ label         { font-size: 14px !important; }
 
               <div class="modalForm" id="modalForm">
                 <div class="modalInner">
-                <div class="tiny" id="editHint" style="margin-bottom:10px;text-align:center;">
-                  Update responsibilities, rules, and goals for this teammate. Name stays locked.
-                </div>
-
-                <div style="margin-bottom:10px;">
-                  <label>Name</label>
-                  <input id="editName" placeholder="Teammate name" readonly />
-                </div>
-
-                <div class="grid">
-                  <div>
-                    <label>Job Title</label>
-                    <input id="editJobTitle" placeholder="Job title"/>
+                  <div class="tiny" id="editHint" style="margin-bottom:12px;text-align:center;">
+                    Update responsibilities, rules, and goals for this teammate. Name stays locked.
                   </div>
-                  <div>
-                    <label>Version</label>
-                    <input id="editVersion" placeholder="v1.0"/>
+
+                  <!-- Row 1: Name + Job Title + Version -->
+                  <div class="grid" style="grid-template-columns:2fr 2fr 1fr;gap:10px;margin-bottom:12px;">
+                    <div><label>Name</label><input id="editName" placeholder="Teammate name" readonly /></div>
+                    <div><label>Job Title</label><input id="editJobTitle" placeholder="Job title"/></div>
+                    <div><label>Version</label><input id="editVersion" placeholder="v1.0"/></div>
                   </div>
-                </div>
 
-                <div style="height:10px"></div>
-
-                <label>Mission</label>
-                <textarea id="editMission" placeholder="Mission"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Goal</label>
-                <textarea id="editGoal" placeholder="Goal"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Thinking Style</label>
-                <textarea id="editThinking" placeholder="Thinking style"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Responsibilities (one per line)</label>
-                <textarea id="editResponsibilities" placeholder="One responsibility per line"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Will Not Do (one per line)</label>
-                <textarea id="editWillNotDo" placeholder="One rule per line"></textarea>
-
-                <div style="height:10px"></div>
-
-                <div class="grid">
-                  <div>
-                    <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
-                    <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
-                      <option value="">Default (global model)</option>
-                      <optgroup label="OpenAI (GPT)">
-                        <option value="gpt-4o">GPT-4o — balanced</option>
-                        <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
-                        <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
-                        <option value="o3-mini">o3-mini — advanced reasoning</option>
-                      </optgroup>
-                      <optgroup label="Anthropic (Claude)">
-                        <option value="claude-opus-4-5">Claude Opus — most capable</option>
-                        <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
-                        <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
-                      </optgroup>
-                    </select>
+                  <!-- Row 2: Left col (Mission + Goal + Thinking) / Right col (Responsibilities + Will Not Do) -->
+                  <div class="formGrid2">
+                    <div>
+                      <label>Mission</label>
+                      <textarea id="editMission" placeholder="Mission" style="height:90px;"></textarea>
+                    </div>
+                    <div style="grid-row:span 3;">
+                      <label>Responsibilities (one per line)</label>
+                      <textarea id="editResponsibilities" placeholder="One responsibility per line" style="height:210px;"></textarea>
+                    </div>
+                    <div>
+                      <label>Goal</label>
+                      <textarea id="editGoal" placeholder="Goal" style="height:90px;"></textarea>
+                    </div>
+                    <div>
+                      <label>Thinking Style</label>
+                      <textarea id="editThinking" placeholder="Thinking style" style="height:90px;"></textarea>
+                    </div>
+                    <div class="spanFull">
+                      <label>Will Not Do (one per line)</label>
+                      <textarea id="editWillNotDo" placeholder="One rule per line" style="height:80px;"></textarea>
+                    </div>
                   </div>
-                  <div>
-                    <label>TTS Voice <span class="tiny" style="opacity:.6;">(speak responses aloud)</span></label>
-                    <select id="editTtsVoice" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
-                      <option value="alloy">Alloy — neutral</option>
-                      <option value="echo">Echo — male, clear</option>
-                      <option value="fable">Fable — storytelling</option>
-                      <option value="onyx">Onyx — deep male</option>
-                      <option value="nova">Nova — female, bright</option>
-                      <option value="shimmer">Shimmer — soft female</option>
-                    </select>
+
+                  <!-- Row 3: Model + Voice -->
+                  <div class="grid" style="margin-top:14px;">
+                    <div>
+                      <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
+                      <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                        <option value="">Default (global model)</option>
+                        <optgroup label="OpenAI (GPT)">
+                          <option value="gpt-4o">GPT-4o — balanced</option>
+                          <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                          <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                          <option value="o3-mini">o3-mini — advanced reasoning</option>
+                        </optgroup>
+                        <optgroup label="Anthropic (Claude)">
+                          <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                          <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                          <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                        </optgroup>
+                      </select>
+                    </div>
+                    <div>
+                      <label>TTS Voice <span class="tiny" style="opacity:.6;">(speak responses aloud)</span></label>
+                      <select id="editTtsVoice" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                        <option value="alloy">Alloy — neutral</option>
+                        <option value="echo">Echo — male, clear</option>
+                        <option value="fable">Fable — storytelling</option>
+                        <option value="onyx">Onyx — deep male</option>
+                        <option value="nova">Nova — female, bright</option>
+                        <option value="shimmer">Shimmer — soft female</option>
+                      </select>
+                    </div>
                   </div>
-                </div>
 
-                <div class="actions" style="justify-content:center;">
-                  <button class="btn" id="cancelEdit">Cancel</button>
-                  <button class="btn btnPrimary" id="saveEdit">Save changes</button>
-                  <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
-                </div>
-
-                <div class="tiny" id="editStatus" style="margin-top:10px;text-align:center;"></div>
+                  <div class="actions" style="justify-content:center;margin-top:14px;">
+                    <button class="btn" id="cancelEdit">Cancel</button>
+                    <button class="btn btnPrimary" id="saveEdit">Save changes</button>
+                    <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
+                  </div>
+                  <div class="tiny" id="editStatus" style="margin-top:10px;text-align:center;"></div>
                 </div>
               </div>
 
@@ -9864,57 +9855,47 @@ label         { font-size: 14px !important; }
 
               <div class="modalForm" id="createForm">
                 <div class="modalInner">
-                <div class="tiny" style="margin-bottom:10px;text-align:center;">
-                  Create a new teammate (name is locked after creation).
-                </div>
-
-                <div class="grid">
-                  <div>
-                    <label>Name</label>
-                    <input id="newName" placeholder="Teammate name"/>
+                  <div class="tiny" style="margin-bottom:12px;text-align:center;">
+                    Create a new teammate (name is locked after creation).
                   </div>
-                  <div>
-                    <label>Version</label>
-                    <input id="newVersion" placeholder="v1.0" value="v1.0"/>
+
+                  <!-- Row 1: Name + Job Title + Version -->
+                  <div class="grid" style="grid-template-columns:2fr 2fr 1fr;gap:10px;margin-bottom:12px;">
+                    <div><label>Name</label><input id="newName" placeholder="Teammate name"/></div>
+                    <div><label>Job Title</label><input id="newJobTitle" placeholder="Job title"/></div>
+                    <div><label>Version</label><input id="newVersion" placeholder="v1.0" value="v1.0"/></div>
                   </div>
-                </div>
 
-                <div style="height:10px"></div>
+                  <!-- Row 2: Left col (Mission + Goal + Thinking) / Right col (Responsibilities + Will Not Do) -->
+                  <div class="formGrid2">
+                    <div>
+                      <label>Mission</label>
+                      <textarea id="newMission" placeholder="Mission" style="height:90px;"></textarea>
+                    </div>
+                    <div style="grid-row:span 3;">
+                      <label>Responsibilities (one per line)</label>
+                      <textarea id="newResponsibilities" placeholder="One responsibility per line" style="height:210px;"></textarea>
+                    </div>
+                    <div>
+                      <label>Goal</label>
+                      <textarea id="newGoal" placeholder="Goal" style="height:90px;"></textarea>
+                    </div>
+                    <div>
+                      <label>Thinking Style</label>
+                      <textarea id="newThinking" placeholder="Thinking style" style="height:90px;"></textarea>
+                    </div>
+                    <div class="spanFull">
+                      <label>Will Not Do (one per line)</label>
+                      <textarea id="newWillNotDo" placeholder="One rule per line" style="height:80px;"></textarea>
+                    </div>
+                  </div>
 
-                <label>Job Title</label>
-                <input id="newJobTitle" placeholder="Job title"/>
-
-                <div style="height:10px"></div>
-
-                <label>Mission</label>
-                <textarea id="newMission" placeholder="Mission"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Goal</label>
-                <textarea id="newGoal" placeholder="Goal"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Thinking Style</label>
-                <textarea id="newThinking" placeholder="Thinking style"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Responsibilities (one per line)</label>
-                <textarea id="newResponsibilities" placeholder="One responsibility per line"></textarea>
-
-                <div style="height:10px"></div>
-
-                <label>Will Not Do (one per line)</label>
-                <textarea id="newWillNotDo" placeholder="One rule per line"></textarea>
-
-                <div class="actions" style="justify-content:center;">
-                  <button class="btn" id="cancelCreate">Cancel</button>
-                  <button class="btn btnPrimary" id="saveCreate">Create</button>
-                  <button class="btn btnPrimary" id="saveCreateExit">Create &amp; Exit</button>
-                </div>
-                <div class="tiny" id="createStatus" style="margin-top:10px;text-align:center;"></div>
+                  <div class="actions" style="justify-content:center;margin-top:14px;">
+                    <button class="btn" id="cancelCreate">Cancel</button>
+                    <button class="btn btnPrimary" id="saveCreate">Create</button>
+                    <button class="btn btnPrimary" id="saveCreateExit">Create &amp; Exit</button>
+                  </div>
+                  <div class="tiny" id="createStatus" style="margin-top:10px;text-align:center;"></div>
                 </div>
               </div>
 
@@ -9925,9 +9906,9 @@ label         { font-size: 14px !important; }
                 </div>
 
                 <label>Core framework (pillars and rules)</label>
-                <textarea id="frameworkText" style="height:520px;min-height:320px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
+                <textarea id="frameworkText" style="height:620px;min-height:400px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
 
-                <div class="actions" style="justify-content:center;">
+                <div class="actions" style="justify-content:center;margin-top:12px;">
                   <button class="btn" id="cancelFramework">Cancel</button>
                   <button class="btn" id="resetFramework">Reset to default</button>
                   <button class="btn btnPrimary" id="saveFramework">Save framework</button>
@@ -9940,115 +9921,111 @@ label         { font-size: 14px !important; }
 
               <div class="modalForm" id="settingsForm">
                 <div class="modalInner">
-                <div class="tiny" style="margin-bottom:10px;text-align:center;">
+                <div class="tiny" style="margin-bottom:12px;text-align:center;">
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
 
-                <div style="display:flex;align-items:center;justify-content:space-between;">
-                  <label style="margin:0;">OpenAI API Key</label>
-                  <span id="openaiKeyStatus" style="font-size:11px;font-weight:600;"></span>
-                </div>
-                <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
-                <div class="tiny" style="opacity:.7;margin-top:3px;">Required for GPT models, image generation, and voice — even when teammates use Claude.</div>
-                <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                  <button id="testVoiceBtn" class="btn" style="font-size:12px;padding:4px 12px;">🔍 Test OpenAI Voice</button>
-                  <span id="testVoiceResult" style="font-size:12px;font-family:monospace;"></span>
-                </div>
+                <div class="formGrid2">
 
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
-                  <label style="margin:0;">Anthropic (Claude) API Key</label>
-                  <span id="claudeKeyStatus" style="font-size:11px;font-weight:600;"></span>
-                </div>
-                <input id="claudeKey" type="text" placeholder="sk-ant-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="claude_api_key_field" data-lpignore="true" data-1p-ignore="true" />
-                <div class="tiny" style="opacity:.7;margin-top:3px;">Required for Claude models. Get yours at console.anthropic.com</div>
+                  <!-- LEFT: API Keys + Model -->
+                  <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <label style="margin:0;">OpenAI API Key</label>
+                        <span id="openaiKeyStatus" style="font-size:11px;font-weight:600;"></span>
+                      </div>
+                      <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" style="margin-top:6px;" />
+                      <div class="tiny" style="opacity:.7;margin-top:3px;">Required for GPT models, image generation, and voice.</div>
+                      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <button id="testVoiceBtn" class="btn" style="font-size:12px;padding:4px 12px;">🔍 Test Voice</button>
+                        <span id="testVoiceResult" style="font-size:12px;font-family:monospace;"></span>
+                      </div>
+                    </div>
 
-                <div style="margin-top:12px;border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
-                  <label>Default AI Model <span class="tiny" style="opacity:.6;font-weight:400;">(applies to all teammates unless overridden per-teammate)</span></label>
-                  <select id="globalDefaultModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
-                    <optgroup label="OpenAI (GPT)">
-                      <option value="gpt-4o">GPT-4o — balanced</option>
-                      <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
-                      <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
-                      <option value="o3-mini">o3-mini — advanced reasoning</option>
-                    </optgroup>
-                    <optgroup label="Anthropic (Claude)">
-                      <option value="claude-opus-4-5">Claude Opus — most capable</option>
-                      <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
-                      <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest &amp; cheapest</option>
-                    </optgroup>
-                  </select>
-                  <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
-                </div>
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;">
+                        <label style="margin:0;">Anthropic (Claude) API Key</label>
+                        <span id="claudeKeyStatus" style="font-size:11px;font-weight:600;"></span>
+                      </div>
+                      <input id="claudeKey" type="text" placeholder="sk-ant-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="claude_api_key_field" data-lpignore="true" data-1p-ignore="true" style="margin-top:6px;" />
+                      <div class="tiny" style="opacity:.7;margin-top:3px;">Required for Claude models. Get yours at console.anthropic.com</div>
+                    </div>
 
-                <!-- ── Save API Keys inline ─────────────────────────────────── -->
-                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
-                  <button id="saveApiKeysBtn" class="btn btnPrimary" style="padding:6px 18px;font-size:13px;">💾 Save API Keys</button>
-                  <span id="saveApiKeysStatus" style="font-size:12px;opacity:.8;"></span>
-                </div>
+                    <div>
+                      <label>Default AI Model <span class="tiny" style="opacity:.6;font-weight:400;">(all teammates unless overridden)</span></label>
+                      <select id="globalDefaultModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                        <optgroup label="OpenAI (GPT)">
+                          <option value="gpt-4o">GPT-4o — balanced</option>
+                          <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                          <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                          <option value="o3-mini">o3-mini — advanced reasoning</option>
+                        </optgroup>
+                        <optgroup label="Anthropic (Claude)">
+                          <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                          <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                          <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest &amp; cheapest</option>
+                        </optgroup>
+                      </select>
+                      <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
+                    </div>
 
-                <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
-
-                <div class="row2">
-                  <div>
-                    <div class="tiny" id="gmailOAuthStatus">Gmail: checking...</div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
-                      <button class="btn btnMini" id="gmailConnectBtn">Connect Gmail</button>
-                      <button class="btn btnMini" id="gmailDisconnectBtn">Disconnect Gmail</button>
+                    <div>
+                      <button id="saveApiKeysBtn" class="btn btnPrimary" style="padding:6px 18px;font-size:13px;">💾 Save API Keys</button>
+                      <span id="saveApiKeysStatus" style="font-size:12px;opacity:.8;margin-left:10px;"></span>
                     </div>
                   </div>
-                  <div>
-                    <div class="tiny" id="calendarOAuthStatus">Calendar: checking...</div>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
-                      <button class="btn btnMini" id="calendarConnectBtn">Connect Calendar</button>
-                      <button class="btn btnMini" id="calendarDisconnectBtn">Disconnect Calendar</button>
+
+                  <!-- RIGHT: Google Connections + SMTP + Twilio -->
+                  <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div>
+                      <div class="tiny" style="margin-bottom:8px;font-weight:700;color:#c4b5fd;">Google Connections</div>
+                      <div class="row2">
+                        <div>
+                          <div class="tiny" id="gmailOAuthStatus">Gmail: checking...</div>
+                          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                            <button class="btn btnMini" id="gmailConnectBtn">Connect Gmail</button>
+                            <button class="btn btnMini" id="gmailDisconnectBtn">Disconnect Gmail</button>
+                          </div>
+                        </div>
+                        <div>
+                          <div class="tiny" id="calendarOAuthStatus">Calendar: checking...</div>
+                          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                            <button class="btn btnMini" id="calendarConnectBtn">Connect Calendar</button>
+                            <button class="btn btnMini" id="calendarDisconnectBtn">Disconnect Calendar</button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="tiny" style="margin-top:6px;opacity:.7;">Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable.</div>
                     </div>
-                  </div>
-                </div>
 
-                <div class="tiny" style="margin-top:6px;">Tip: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable Google connect.</div>
+                    <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
+                      <div class="tiny" style="margin-bottom:8px;font-weight:700;color:#c4b5fd;">Email (SMTP)</div>
+                      <div class="grid" style="gap:8px;">
+                        <div><label>SMTP Host</label><input id="smtpHost" placeholder="smtp.gmail.com" /></div>
+                        <div><label>SMTP Port</label><input id="smtpPort" type="number" placeholder="587" /></div>
+                        <div><label>Username (from address)</label><input id="smtpUser" placeholder="you@example.com" /></div>
+                        <div><label>Password (app password)</label><input id="smtpPass" type="password" placeholder="••••••••" /></div>
+                      </div>
+                      <div style="margin-top:8px;"><label>From Name</label><input id="smtpFromName" placeholder="Your Name" /></div>
+                    </div>
 
-
-                <div class="tiny" style="margin-top:8px;">Email (SMTP) connection</div>
-
-                <label>SMTP Host</label>
-                <input id="smtpHost" placeholder="smtp.gmail.com" />
-
-                <label>SMTP Port</label>
-                <input id="smtpPort" type="number" placeholder="587" />
-
-                <label>SMTP Username (from address)</label>
-                <input id="smtpUser" placeholder="you@example.com" />
-
-                <label>SMTP Password (app password recommended)</label>
-                <input id="smtpPass" type="password" placeholder="••••••••" />
-
-                <label>From Name</label>
-                <input id="smtpFromName" placeholder="Your Name" />
-
-
-                <details style="margin-top:12px;">
-                  <summary style="cursor:pointer; user-select:none;">Twilio Connection (SMS)</summary>
-                  <div class="tiny" style="margin-top:8px; opacity:.9;">
-                    Used for Broadcast SMS in the Client Center. This is stored in your personal settings.
+                    <details style="border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
+                      <summary style="cursor:pointer;user-select:none;font-size:12px;font-weight:700;color:#c4b5fd;">Twilio (SMS)</summary>
+                      <div class="tiny" style="margin-top:8px;opacity:.9;">Used for Broadcast SMS in the Client Center.</div>
+                      <label>Account SID</label><input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                      <label>Auth Token</label><input id="twilioToken" type="password" placeholder="••••••••" />
+                      <label>From Number</label><input id="twilioFrom" placeholder="+15551234567" />
+                      <div class="actions" style="justify-content:flex-start;gap:8px;margin-top:8px;">
+                        <button class="btn btnMini" id="twilioLoadBtn">Load</button>
+                        <button class="btn btnMini" id="twilioSaveBtn">Save</button>
+                      </div>
+                      <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
+                    </details>
                   </div>
 
-                  <label>Twilio Account SID</label>
-                  <input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                </div><!-- end formGrid2 -->
 
-                  <label>Twilio Auth Token</label>
-                  <input id="twilioToken" type="password" placeholder="••••••••" />
-
-                  <label>Twilio From Number</label>
-                  <input id="twilioFrom" placeholder="+15551234567" />
-
-                  <div class="actions" style="justify-content:flex-start; gap:8px;">
-                    <button class="btn btnMini" id="twilioLoadBtn">Load</button>
-                    <button class="btn btnMini" id="twilioSaveBtn">Save</button>
-                  </div>
-                  <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
-                </details>
-
-                <div class="actions" style="justify-content:center;">
+                <div class="actions" style="justify-content:center;margin-top:16px;">
                   <button class="btn" id="cancelSettings">Cancel</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                   <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
@@ -10285,26 +10262,34 @@ label         { font-size: 14px !important; }
 
 <div class="modalForm" id="operatorProfileModalForm" style="display:none;">
   <div class="modalInner">
-  <div class="tiny" style="margin-bottom:10px;text-align:center;">Shared operator context that all teammates can reference.</div>
-  <div class="grid">
+  <div class="tiny" style="margin-bottom:12px;text-align:center;">Shared operator context that all teammates can reference.</div>
+  <div class="formGrid2">
     <div>
-      <label>Display name</label>
+      <label>Display Name</label>
       <input id="opm_display_name" placeholder="Operator" />
     </div>
     <div>
       <label>Audience</label>
       <input id="opm_audience" placeholder="Who you serve" />
     </div>
+    <div>
+      <label>Business</label>
+      <textarea id="opm_business" rows="5" placeholder="What your business does"></textarea>
+    </div>
+    <div>
+      <label>Offers</label>
+      <textarea id="opm_offers" rows="5" placeholder="What you sell"></textarea>
+    </div>
+    <div>
+      <label>Goals</label>
+      <textarea id="opm_goals" rows="4" placeholder="Current goals"></textarea>
+    </div>
+    <div>
+      <label>Notes</label>
+      <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
+    </div>
   </div>
-  <label style="margin-top:10px;">Business</label>
-  <textarea id="opm_business" rows="4" placeholder="What your business does"></textarea>
-  <label style="margin-top:10px;">Offers</label>
-  <textarea id="opm_offers" rows="4" placeholder="What you sell"></textarea>
-  <label style="margin-top:10px;">Goals</label>
-  <textarea id="opm_goals" rows="3" placeholder="Current goals"></textarea>
-  <label style="margin-top:10px;">Notes</label>
-  <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
-  <div class="actions" style="justify-content:center;">
+  <div class="actions" style="justify-content:center;margin-top:14px;">
     <button class="btn" id="operatorProfileCloseBtn">Close</button>
     <button class="btn btnPrimary" id="operatorProfileSaveBtn">Save</button>
     <button class="btn btnPrimary" id="operatorProfileSaveExitBtn">Save &amp; Exit</button>
