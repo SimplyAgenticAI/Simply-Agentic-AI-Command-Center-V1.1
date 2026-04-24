@@ -16820,9 +16820,6 @@ function wcalShowTaskDetail(task){
     </div>
     <div class="wcal-status" id="detStatus"></div>
     
-    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
         <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
       </div>
       <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
@@ -16849,9 +16846,6 @@ function wcalShowTaskDetail(task){
   panel._currentTask=task; panel._currentEvent=null;
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
-  wcalPopulateTeammateDropdown('detNotetaker', task.notetaker||'');
-  wcalLoadExistingNotes(task.id||'');
-  wcalWireNotetakerButtons(task.id||'');
 }
 
 // ── Toggle a gcal event between event/task display type ────────
@@ -16905,6 +16899,7 @@ function wcalShowGcalTaskDetail(ev){
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
+    ${(meetLink||(ev.location&&ev.location.includes('zoom.us')))?`<button class="wcal-join-btn" onclick="wcalNotetakerSetup('${evIdSafe}')" style="background:rgba(196,181,253,.15);border:1px solid rgba(196,181,253,.3);color:#c4b5fd;">🤖 Send Notetaker</button>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
@@ -16985,9 +16980,6 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div class="wcal-status" id="detStatus"></div>
     
-    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
         <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
       </div>
       <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
@@ -17026,9 +17018,6 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
-  wcalPopulateTeammateDropdown('detNotetaker', meta.notetaker||'');
-  wcalLoadExistingNotes(evId);
-  wcalWireNotetakerButtons(evId);
 }
 
 function wcalShowEventDetail(ev){
@@ -17058,6 +17047,7 @@ function wcalShowEventDetail(ev){
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${zoomLink?`<a class="wcal-join-btn wcal-join-zoom" href="${zoomLink.replace(/"/g,'&quot;')}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
+    ${(meetLink||zoomLink)?`<button class="wcal-join-btn" onclick="wcalNotetakerSetup('${evIdSafe}')" style="background:rgba(196,181,253,.15);border:1px solid rgba(196,181,253,.3);color:#c4b5fd;">🤖 Send Notetaker</button>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evIdSafe}')">
@@ -17151,9 +17141,6 @@ function wcalShowEventDetail(ev){
     <div class="wcal-status" id="detStatus"></div>
 
 
-    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;" id="detNotetakerSection">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <div style="font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
         <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
       </div>
       <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
@@ -17182,9 +17169,6 @@ function wcalShowEventDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
-  wcalPopulateTeammateDropdown('detNotetaker', meta.notetaker||'');
-  wcalLoadExistingNotes(evId);
-  wcalWireNotetakerButtons(evId);
 }
 // Toggle done on a Google Calendar event
 window.wcalDetToggleEvDone = async function(evId){
@@ -18597,265 +18581,43 @@ function wcalWireButtons(){
 // MEETING NOTETAKER
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Load existing notes for an event and show the preview banner if found
-async function wcalLoadExistingNotes(evId){
-  const existing = document.getElementById('detNotesExisting');
-  const preview  = document.getElementById('detNotesExistingPreview');
-  const label    = document.getElementById('detNotesExistingLabel');
-  if(!existing) return;
-  try{
-    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
-    const data = await res.json();
-    if(data.ok && data.note){
-      const n = data.note;
-      existing.style.display = 'block';
-      if(label) label.textContent = '📝 Notes by '+n.teammate+' · '+n.meeting_date;
-      if(preview){
-        // Show TL;DR section only as preview
-        const tldr = (n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim();
-        preview.textContent = tldr.slice(0,220)+(tldr.length>220?'…':'');
-      }
-    } else {
-      existing.style.display = 'none';
-    }
-  }catch(e){
-    existing.style.display = 'none';
-  }
-}
-
-// Wire all notetaker buttons for a given event/task id — called after innerHTML renders
-window.wcalWireNotetakerButtons = function(evId){
-  // Generate Notes button
-  var genBtn = document.getElementById('detProcessNotesBtn');
-  if(genBtn){
-    genBtn.onclick = async function(){
-      var teammate   = (document.getElementById('detNotetaker')||{}).value||'';
-      var transcript = (document.getElementById('detTranscript')||{}).value||'';
-      var title      = (document.getElementById('detTitle')||{}).value||'Meeting';
-      var date       = (document.getElementById('detDate')||{}).value||new Date().toISOString().slice(0,10);
-      var status     = document.getElementById('detNotesStatus');
-
-      if(!teammate){
-        if(status){ status.style.color='#f87171'; status.textContent='⚠️ Pick a teammate first.'; } return;
-      }
-      if(!transcript.trim()){
-        if(status){ status.style.color='#f87171'; status.textContent='⚠️ Paste a transcript first.'; } return;
-      }
-
-      genBtn.disabled=true; genBtn.textContent='✨ Generating…';
-      if(status){ status.style.color='#a78bfa'; status.textContent='Your teammate is reading the transcript…'; }
-
-      try{
-        var res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId),{
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({teammate:teammate, transcript:transcript, meeting_title:title, meeting_date:date})
-        });
-        var data = await res.json();
-        if(!data.ok) throw new Error(data.error||'Failed');
-        if(status){ status.style.color='#6ee7b7'; status.textContent='✅ Notes saved!'; }
-        setTimeout(function(){ wcalShowFullNotes(data.note); }, 300);
-        wcalLoadExistingNotes(evId);
-        wcalWireNotetakerButtons(evId); // re-wire view/delete with fresh evId
-        var ta = document.getElementById('detTranscript');
-        if(ta) ta.value='';
-      }catch(e){
-        if(status){ status.style.color='#f87171'; status.textContent='❌ '+e.message; }
-      }finally{
-        genBtn.disabled=false; genBtn.textContent='✨ Generate Notes';
-      }
-    };
-  }
-
-  // View button
-  var viewBtn = document.getElementById('detViewNotesBtn');
-  if(viewBtn){
-    viewBtn.onclick = async function(){
-      try{
-        var res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
-        var data = await res.json();
-        if(data.ok && data.note) wcalShowFullNotes(data.note);
-        else if(typeof showToast==='function') showToast('No notes found.','error');
-      }catch(e){ if(typeof showToast==='function') showToast('Could not load notes.','error'); }
-    };
-  }
-
-  // Delete button
-  var delBtn = document.getElementById('detDeleteNotesBtn');
-  if(delBtn){
-    delBtn.onclick = async function(){
-      if(!confirm('Delete meeting notes for this event?')) return;
-      try{
-        await fetch('/api/calendar/notes/'+encodeURIComponent(evId),{method:'DELETE'});
-        wcalLoadExistingNotes(evId);
-        var existing = document.getElementById('detNotesExisting');
-        if(existing) existing.style.display='none';
-        if(typeof showToast==='function') showToast('Notes deleted.');
-      }catch(e){ if(typeof showToast==='function') showToast('Could not delete.','error'); }
-    };
-  }
-};
-
-// Render parsed markdown-ish notes into HTML
-function wcalRenderNotesMd(text){
-  if(!text) return '';
-  var lines = text.split('\n');
-  var out = [];
-  for(var i=0;i<lines.length;i++){
-    var l = lines[i];
-    if(/^## (.+)$/.test(l)){
-      out.push('<h3 style="color:#c4b5fd;font-size:13px;font-weight:700;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;">' + l.replace(/^## /,'') + '</h3>');
-    } else if(/^- \[(.+?)\] (.+)$/.test(l)){
-      var m = l.match(/^- \[(.+?)\] (.+)$/);
-      out.push('<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:#a78bfa;min-width:80px;font-size:12px;">['+m[1]+']</span><span style="font-size:13px;">'+m[2]+'</span></div>');
-    } else if(/^- (.+)$/.test(l)){
-      out.push('<div style="padding:3px 0 3px 12px;font-size:13px;border-left:2px solid rgba(196,181,253,.3);margin-left:4px;">'+l.slice(2)+'</div>');
-    } else if(l.trim()===''){
-      out.push('<br>');
-    } else {
-      out.push('<span style="font-size:13px;">'+l+'</span>');
-    }
-  }
-  return out.join('');
-}
-
-// Show the full notes modal overlay — built with DOM, never innerHTML with user data
-window.wcalShowFullNotes = function(note){
-  const existing = document.getElementById('wcalNotesOverlay');
+// Called when user clicks "🤖 Send Notetaker" on a calendar event.
+// Shows a setup modal explaining Recall.ai integration.
+window.wcalNotetakerSetup = function(evId){
+  var existing = document.getElementById('wcalNotetakerModal');
   if(existing) existing.remove();
 
-  const overlay = document.createElement('div');
-  overlay.id = 'wcalNotesOverlay';
+  var overlay = document.createElement('div');
+  overlay.id = 'wcalNotetakerModal';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
 
-  // Build shell with safe static HTML
-  const shell = document.createElement('div');
-  shell.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:480px;width:100%;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.6);';
 
-  // Header
-  const hdr = document.createElement('div');
-  hdr.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);';
-  const hdrText = document.createElement('div');
-  const titleDiv = document.createElement('div');
-  titleDiv.style.cssText = 'font-size:17px;font-weight:700;color:#e6edff;';
-  titleDiv.textContent = note.meeting_title || 'Meeting Notes';
-  const metaDiv = document.createElement('div');
-  metaDiv.style.cssText = 'font-size:12px;color:#a78bfa;margin-top:3px;';
-  metaDiv.textContent = '📅 ' + (note.meeting_date||'') + '  ·  🤝 Notetaker: ' + (note.teammate||'');
-  hdrText.appendChild(titleDiv);
-  hdrText.appendChild(metaDiv);
-  const closeBtn = document.createElement('button');
-  closeBtn.textContent = '×';
-  closeBtn.style.cssText = 'background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
-  closeBtn.onclick = function(){ overlay.remove(); };
-  hdr.appendChild(hdrText);
-  hdr.appendChild(closeBtn);
+  box.innerHTML = [
+    '<div style="font-size:22px;margin-bottom:6px;">🤖 Send Notetaker to Call</div>',
+    '<div style="font-size:13px;color:#a78bfa;margin-bottom:20px;">Powered by Recall.ai</div>',
+    '<div style="font-size:14px;color:#d4dcff;line-height:1.7;margin-bottom:18px;">',
+    'To send a teammate bot into your Google Meet or Zoom call, this feature uses <strong>Recall.ai</strong> — ',
+    'a service that sends a real bot participant into your call to record and transcribe in real time.',
+    '</div>',
+    '<div style="background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#c4b5fd;line-height:1.7;">',
+    '<strong>How it works:</strong><br>',
+    '1. Sign up at <a href="https://recall.ai" target="_blank" style="color:#a78bfa;">recall.ai</a> and get an API key<br>',
+    '2. Add <code style="background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px;">RECALLAI_API_KEY</code> to your Render environment<br>',
+    '3. Come back and click Send Notetaker — the bot joins your call instantly<br>',
+    '4. When the call ends, your teammate auto-generates structured notes',
+    '</div>',
+    '<div style="display:flex;gap:10px;">',
+    '<a href="https://recall.ai" target="_blank" class="wcal-det-btn primary" style="text-decoration:none;text-align:center;flex:1;">Get Recall.ai API Key →</a>',
+    '<button id="wcalNotetakerClose" class="wcal-det-btn" style="flex:0 0 auto;">Close</button>',
+    '</div>',
+  ].join('');
 
-  // Body — rendered notes
-  const bodyDiv = document.createElement('div');
-  bodyDiv.style.cssText = 'flex:1;overflow-y:auto;padding:20px 24px;color:#d4dcff;line-height:1.7;';
-  bodyDiv.innerHTML = wcalRenderNotesMd(note.ai_notes||'');
-
-  // Transcript collapsible — use textContent for transcript (safe)
-  const det = document.createElement('details');
-  det.style.cssText = 'margin-top:24px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;';
-  const summ = document.createElement('summary');
-  summ.style.cssText = 'font-size:12px;color:#6b7280;cursor:pointer;user-select:none;';
-  summ.textContent = '📄 View original transcript';
-  const pre = document.createElement('pre');
-  pre.style.cssText = 'margin-top:10px;font-size:11px;color:#6b7280;white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto;';
-  pre.textContent = note.transcript || '';
-  det.appendChild(summ); det.appendChild(pre);
-  bodyDiv.appendChild(det);
-
-  // Footer
-  const ftr = document.createElement('div');
-  ftr.style.cssText = 'padding:14px 24px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:10px;';
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'btn btnMini';
-  copyBtn.textContent = '📋 Copy Notes';
-  copyBtn.onclick = function(){ wcalCopyNotes(note.event_id); };
-  const closeBtn2 = document.createElement('button');
-  closeBtn2.className = 'btn btnMini';
-  closeBtn2.textContent = 'Close';
-  closeBtn2.style.marginLeft = 'auto';
-  closeBtn2.onclick = function(){ overlay.remove(); };
-  ftr.appendChild(copyBtn); ftr.appendChild(closeBtn2);
-
-  shell.appendChild(hdr); shell.appendChild(bodyDiv); shell.appendChild(ftr);
-  overlay.appendChild(shell);
+  overlay.appendChild(box);
   document.body.appendChild(overlay);
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
-};
-
-// Copy notes to clipboard
-window.wcalCopyNotes = async function(evId){
-  try{
-    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
-    const data = await res.json();
-    if(data.ok && data.note){
-      await navigator.clipboard.writeText(data.note.ai_notes||'');
-      showToast('✅ Notes copied to clipboard!');
-    }
-  }catch(e){ showToast('Could not copy.','error'); }
-};
-
-// ── Notes History Modal ──────────────────────────────────────────────────────
-window._wcalNotesCache = {}; // safe store - avoids JSON in onclick attrs
-
-window.wcalShowNotesHistory = async function(){
-  const existing = document.getElementById('wcalNotesHistoryOverlay');
-  if(existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'wcalNotesHistoryOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
-
-  const inner = document.createElement('div');
-  inner.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);';
-  inner.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);"><div style="font-size:17px;font-weight:700;color:#e6edff;">📋 Meeting Notes History</div><button id="wcalNotesHistClose" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;line-height:1;">&times;</button></div><div id="wcalNotesHistoryBody" style="flex:1;overflow-y:auto;padding:16px 24px;"><div style="text-align:center;opacity:.5;padding:40px;">Loading notes…</div></div>';
-  overlay.appendChild(inner);
-  document.body.appendChild(overlay);
-
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
-  document.getElementById('wcalNotesHistClose').onclick = function(){ overlay.remove(); };
-
-  // Fetch all notes
-  try{
-    const res  = await fetch('/api/calendar/notes');
-    const data = await res.json();
-    const body = document.getElementById('wcalNotesHistoryBody');
-    if(!body) return;
-
-    const notes = data.notes||[];
-    if(notes.length===0){
-      body.innerHTML='<div style="text-align:center;opacity:.5;padding:60px;">No meeting notes yet.<br><span style="font-size:13px;">Open a calendar event and paste a transcript to get started.</span></div>';
-      return;
-    }
-
-    // Cache notes by event_id — never put JSON in onclick
-    notes.forEach(n=>{ window._wcalNotesCache[n.event_id] = n; });
-
-    body.innerHTML = '';
-    notes.forEach(function(n){
-      const card = document.createElement('div');
-      card.style.cssText = 'border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s;';
-      card.onmouseenter = function(){ card.style.borderColor='rgba(196,181,253,.35)'; };
-      card.onmouseleave = function(){ card.style.borderColor='rgba(255,255,255,.08)'; };
-      card.onclick = function(){ wcalShowFullNotes(window._wcalNotesCache[n.event_id]); };
-
-      const tldr = ((n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim()).slice(0,160);
-      const titleEl = document.createElement('div');
-      titleEl.innerHTML = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;"><div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;color:#e6edff;margin-bottom:4px;"></div><div style="font-size:11px;color:#a78bfa;"></div><div style="font-size:12px;color:#9ca3af;margin-top:6px;line-height:1.5;"></div></div><div style="font-size:20px;opacity:.3;flex-shrink:0;">→</div></div>';
-      titleEl.querySelector('div > div > div:nth-child(1)').textContent = n.meeting_title||'Untitled Meeting';
-      titleEl.querySelector('div > div > div:nth-child(2)').textContent = '📅 ' + n.meeting_date + '  ·  🤝 ' + n.teammate;
-      titleEl.querySelector('div > div > div:nth-child(3)').textContent = tldr + (tldr.length>=160?'…':'');
-      card.appendChild(titleEl);
-      body.appendChild(card);
-    });
-  }catch(e){
-    const body = document.getElementById('wcalNotesHistoryBody');
-    if(body) body.innerHTML='<div style="color:#f87171;padding:20px;">Failed to load notes: '+e.message+'</div>';
-  }
+  document.getElementById('wcalNotetakerClose').onclick = function(){ overlay.remove(); };
 };
 
 // ── showCalendarModal ──────────────────────────────────────────
