@@ -29,6 +29,11 @@ try:
 except Exception:
     BeautifulSoup = None
 
+try:
+    import anthropic as _anthropic_sdk
+except Exception:
+    _anthropic_sdk = None
+
 # Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
 # If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
 try:
@@ -46,7 +51,8 @@ load_dotenv()
 
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI v1.11")
 MODEL = os.getenv("MODEL", "gpt-4o")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
 
 # Uploads
@@ -381,6 +387,31 @@ def _get_global_openai_client():
     if client is None:
         client = OpenAI(api_key=(OPENAI_API_KEY or ""))
     return client
+
+def _get_claude_client_for_user(u):
+    """Returns Anthropic client using ONLY the user's own saved claude_key. Never falls back to server."""
+    if _anthropic_sdk is None:
+        return None
+    if not u:
+        return None
+    key = ((u.get("settings") or {}).get("claude_key") or "").strip()
+    if not key:
+        return None
+    return _anthropic_sdk.Anthropic(api_key=key)
+
+def _is_claude_model(model):
+    return (model or "").lower().startswith("claude")
+
+def _resolve_model_for_user(defn, u=None):
+    """Priority: teammate preferred_model > user global_default_model > server MODEL."""
+    tm = (defn.get("preferred_model") or "").strip()
+    if tm:
+        return tm
+    if u:
+        gm = ((u.get("settings") or {}).get("global_default_model") or "").strip()
+        if gm:
+            return gm
+    return MODEL
 
 app = Flask(__name__)
 
@@ -3162,8 +3193,8 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     return 500, "AI request failed. Check server logs for details."
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
-    """Robust OpenAI call with 45s timeout and image-content fallback.
-    Pass model= to override the global MODEL for per-teammate routing."""
+    """Routes to Claude or OpenAI based on model name.
+    claude-* models use Anthropic API. Everything else uses OpenAI."""
     def _text_only(msgs):
         out = []
         for m in msgs:
@@ -3173,9 +3204,34 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 c = " ".join(parts).strip()
             out.append({"role": m.get("role", "user"), "content": str(c)})
         return out
+
     use_model = (model or "").strip() or MODEL
-    client = get_openai_client()
     timeout = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
+
+    # ── Claude path ───────────────────────────────────────────────
+    if _is_claude_model(use_model):
+        try:
+            u = current_user()
+        except Exception:
+            u = None
+        claude = _get_claude_client_for_user(u)
+        if claude is None:
+            raise RuntimeError(
+                "This teammate uses Claude but no Anthropic API key is saved for your account. "
+                "Go to Settings and paste your Anthropic key (sk-ant-...)."
+            )
+        clean = _text_only(messages)
+        resp = claude.messages.create(
+            model=use_model,
+            max_tokens=4096,
+            system=system,
+            messages=clean,
+            temperature=temperature,
+        )
+        return (resp.content[0].text or "").strip()
+
+    # ── OpenAI path ───────────────────────────────────────────────
+    client = get_openai_client()
     sys_msg = [{"role": "system", "content": system}]
     try:
         resp = client.chat.completions.create(
@@ -4216,12 +4272,11 @@ def api_get_user_settings():
     smtp = (settings.get("smtp") or {})
 
     key = (settings.get("openai_key") or "").strip()
-    key_hint = ""
-    if key:
-        # show only last 4 chars to confirm something is saved, never return the key
-        key_hint = "••••" + key[-4:] if len(key) >= 4 else "••••"
+    key_hint = ("••••" + key[-4:]) if len(key) >= 4 else ("••••" if key else "")
 
-    # do not leak password
+    claude_key = (settings.get("claude_key") or "").strip()
+    claude_hint = ("••••" + claude_key[-4:]) if len(claude_key) >= 4 else ("••••" if claude_key else "")
+
     safe_smtp = {
         "host": smtp.get("host", ""),
         "port": smtp.get("port", 587),
@@ -4231,8 +4286,11 @@ def api_get_user_settings():
     return jsonify({
         "ok": True,
         "settings": {
-            "has_openai_key": bool(key),
-            "openai_key_hint": key_hint,
+            "has_openai_key":       bool(key),
+            "openai_key_hint":      key_hint,
+            "has_claude_key":       bool(claude_key),
+            "claude_key_hint":      claude_hint,
+            "global_default_model": (settings.get("global_default_model") or "").strip(),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp
         }
@@ -4257,8 +4315,9 @@ def api_set_user_settings():
 
 
     data = request.get_json(force=True) or {}
-    openai_key_in = (data.get("openai_key") or "")
-    openai_key = openai_key_in.strip()
+    openai_key = (data.get("openai_key") or "").strip()
+    claude_key = (data.get("claude_key") or "").strip()
+    global_default_model = (data.get("global_default_model") or "").strip()
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -4277,7 +4336,11 @@ def api_set_user_settings():
     rec.setdefault("settings", {})
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
-    # if user leaves it blank, do NOT overwrite the saved key
+    if claude_key and len(claude_key) >= 20:
+        rec["settings"]["claude_key"] = claude_key
+    if global_default_model:
+        rec["settings"]["global_default_model"] = global_default_model
+    # if user leaves blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -4699,8 +4762,9 @@ def _api_convene_impl(data):
         msgs.extend(thread)
         msgs.append({"role": "user", "content": user_content})
 
+        _convene_model = _resolve_model_for_user(defn, current_user())
         try:
-            text = call_llm(sys, msgs, temperature=0.65)
+            text = call_llm(sys, msgs, temperature=0.65, model=_convene_model)
         except Exception as e:
             status, msg = _classify_openai_error(e)
             append_log("convene_error", {"where": name, "error": str(e)})
@@ -4847,22 +4911,21 @@ def _api_followup_impl(data):
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    preferred_model = (defn.get("preferred_model") or "").strip() or None
-    _pm = preferred_model or MODEL
+    _resolved_model = _resolve_model_for_user(defn, current_user())
     _tool_log: List[Dict[str, Any]] = []
 
-    # Tool calling: skip for o1/o3 series (they don't support the tools param)
-    _supports_tools = not any(_pm.startswith(p) for p in ("o1", "o3", "o4"))
+    # Tool calling: skip for o1/o3/o4/claude (unsupported tools param)
+    _supports_tools = not any(_resolved_model.startswith(p) for p in ("o1", "o3", "o4", "claude"))
     if _supports_tools:
         try:
             text, _tool_log = call_llm_with_tools(
-                sys, msgs, temperature=0.65, model=preferred_model,
+                sys, msgs, temperature=0.65, model=_resolved_model,
                 username=uname, u=current_user() or {}
             )
         except Exception:
-            text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
+            text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
     else:
-        text = call_llm(sys, msgs, temperature=0.65, model=preferred_model)
+        text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread, uname)
@@ -9355,12 +9418,17 @@ label         { font-size: 14px !important; }
                     <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
                     <select id="editPreferredModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
                       <option value="">Default (global model)</option>
-                      <option value="gpt-4o">gpt-4o — balanced</option>
-                      <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; cheap</option>
-                      <option value="gpt-4-turbo">gpt-4-turbo — high quality</option>
-                      <option value="o1-mini">o1-mini — deep reasoning</option>
-                      <option value="o3-mini">o3-mini — advanced reasoning</option>
-                      <option value="gpt-4.5-preview">gpt-4.5-preview</option>
+                      <optgroup label="OpenAI (GPT)">
+                        <option value="gpt-4o">GPT-4o — balanced</option>
+                        <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                        <option value="o3-mini">o3-mini — advanced reasoning</option>
+                      </optgroup>
+                      <optgroup label="Anthropic (Claude)">
+                        <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                        <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                        <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                      </optgroup>
                     </select>
                   </div>
                   <div>
@@ -9513,8 +9581,37 @@ label         { font-size: 14px !important; }
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
 
-                <label>OpenAI API Key</label>
-                <input id="openaiKey" type="text" placeholder="sk-..." autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <label style="margin:0;">OpenAI API Key</label>
+                  <span id="openaiKeyStatus" style="font-size:11px;font-weight:600;"></span>
+                </div>
+                <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <div class="tiny" style="opacity:.7;margin-top:3px;">Required for GPT models, image generation, and voice — even when teammates use Claude.</div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+                  <label style="margin:0;">Anthropic (Claude) API Key</label>
+                  <span id="claudeKeyStatus" style="font-size:11px;font-weight:600;"></span>
+                </div>
+                <input id="claudeKey" type="text" placeholder="sk-ant-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="claude_api_key_field" data-lpignore="true" data-1p-ignore="true" />
+                <div class="tiny" style="opacity:.7;margin-top:3px;">Required for Claude models. Get yours at console.anthropic.com</div>
+
+                <div style="margin-top:12px;border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
+                  <label>Default AI Model <span class="tiny" style="opacity:.6;font-weight:400;">(applies to all teammates unless overridden per-teammate)</span></label>
+                  <select id="globalDefaultModel" style="width:100%;background:rgba(11,16,36,.92);color:var(--text);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:8px 10px;font-size:13px;">
+                    <optgroup label="OpenAI (GPT)">
+                      <option value="gpt-4o">GPT-4o — balanced</option>
+                      <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                      <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                      <option value="o3-mini">o3-mini — advanced reasoning</option>
+                    </optgroup>
+                    <optgroup label="Anthropic (Claude)">
+                      <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                      <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                      <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest &amp; cheapest</option>
+                    </optgroup>
+                  </select>
+                  <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
+                </div>
 
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
@@ -10713,7 +10810,7 @@ label         { font-size: 14px !important; }
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
+                <button class="btn btnMini" id="talkGroupBtn">🔊 Speak</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
@@ -10817,7 +10914,7 @@ label         { font-size: 14px !important; }
             <input type="file" id="dmFiles" multiple style="display:none" />
             <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
             <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
+            <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
             <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
@@ -12465,7 +12562,7 @@ function makeSeat(defn, idx){
           }
         }
 
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -12973,8 +13070,35 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
-    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+    $("talkGroupBtn").onclick = function() {
+      var text = (typeof _combineGroupOutputs === "function") ? _combineGroupOutputs() : "";
+      if(!text || !text.trim()){
+        if(typeof showToast==="function") showToast("No group reply to speak yet — run a round table prompt first.", "error");
+        return;
+      }
+      var voice = "alloy";
+      try{
+        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[window.selectedSeat||""]||{};
+        voice = tm.tts_voice || "alloy";
+      }catch(_){}
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkGroupBtn"));
+    };
+
+    $("talkDmBtn").onclick = function() {
+      var text = (typeof lastSeatAssistantText !== "undefined" ? lastSeatAssistantText : "") ||
+                 (typeof window.lastSeatAssistantText !== "undefined" ? window.lastSeatAssistantText : "");
+      if(!text || !text.trim()){
+        if(typeof showToast==="function") showToast("No teammate reply to speak yet — send a message first.", "error");
+        return;
+      }
+      var voice = "alloy";
+      try{
+        var seat = window.selectedSeat || "";
+        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[seat]||{};
+        voice = tm.tts_voice || "alloy";
+      }catch(_){}
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkDmBtn"));
+    };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -14299,7 +14423,25 @@ Challenge weak assumptions. Surface risks.`;
         // Never auto-fill the key. Show a hint only.
         const hint = s.openai_key_hint || "";
         $("openaiKey").value = "";
-        $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") paste new to replace") : "sk-...";
+        $("openaiKey").placeholder = hint ? ("Saved (" + hint + ") — paste new to replace") : "sk-...";
+        const oSt = $("openaiKeyStatus");
+        if(oSt) oSt.innerHTML = s.has_openai_key
+          ? '<span style="color:#6ee7b7;">&#10003; Connected</span>'
+          : '<span style="color:#f87171;">Not connected</span>';
+
+        const claudeHint = s.claude_key_hint || "";
+        if($("claudeKey")){
+          $("claudeKey").value = "";
+          $("claudeKey").placeholder = claudeHint ? ("Saved (" + claudeHint + ") — paste new to replace") : "sk-ant-...";
+        }
+        const cSt = $("claudeKeyStatus");
+        if(cSt) cSt.innerHTML = s.has_claude_key
+          ? '<span style="color:#6ee7b7;">&#10003; Connected</span>'
+          : '<span style="color:#f87171;">Not connected</span>';
+
+        if($("globalDefaultModel") && s.global_default_model){
+          $("globalDefaultModel").value = s.global_default_model;
+        }
         const smtp = s.smtp || {};
         $("smtpHost").value = smtp.host || "";
         $("smtpPort").value = smtp.port || 587;
@@ -18377,8 +18519,12 @@ $("settingsBtn").onclick = () => showSettingsModal();
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
+      const claudeKeyVal = ($("claudeKey") ? $("claudeKey").value : "").trim();
+      const globalModel = ($("globalDefaultModel") ? $("globalDefaultModel").value : "").trim();
       const payload = {
         openai_key: keyVal,
+        claude_key: claudeKeyVal,
+        global_default_model: globalModel,
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -20852,7 +20998,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({text: text.slice(0,2000), voice: voice||"alloy"})
       });
-      if(!resp.ok){ throw new Error("TTS request failed"); }
+      if(!resp.ok){
+        // Read the actual error message from the server
+        let errMsg = "TTS failed";
+        try{ const j=await resp.json(); errMsg=j.error||errMsg; }catch(_){}
+        throw new Error(errMsg);
+      }
       const blob = await resp.blob();
       const url  = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -26159,8 +26310,13 @@ def api_tts():
     if not text:
         return jsonify({"ok": False, "error": "Missing text"}), 400
 
+    # TTS always uses OpenAI — get the user's own key directly from settings
+    openai_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    if not openai_key:
+        return jsonify({"ok": False, "error": "Voice requires an OpenAI API key. Go to Settings and paste your OpenAI key (sk-...)."}), 400
+
     try:
-        oai  = get_openai_client()
+        oai  = OpenAI(api_key=openai_key)
         resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
         return Response(
             resp.content,
