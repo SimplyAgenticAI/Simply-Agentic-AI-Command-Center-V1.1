@@ -5553,6 +5553,142 @@ def api_gcal_event_type_toggle():
     return jsonify({"ok": True, "event_id": event_id, "gcal_item_type": new_type})
 
 
+
+# =========================
+# MEETING NOTES (Notetaker Feature)
+# =========================
+
+def _meeting_notes_path(username: str) -> Path:
+    d = DATA / "meeting_notes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{username}.json"
+
+def _load_meeting_notes(username: str) -> Dict[str, Any]:
+    return load_json(_meeting_notes_path(username), {}) or {}
+
+def _save_meeting_notes(username: str, data: Dict[str, Any]) -> None:
+    save_json(_meeting_notes_path(username), data)
+
+
+@app.get("/api/calendar/notes")
+def api_meeting_notes_list():
+    """Return all meeting notes for the current user."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    notes = _load_meeting_notes(uname)
+    # Return as list sorted by date desc
+    items = sorted(notes.values(), key=lambda x: x.get("meeting_date",""), reverse=True)
+    return jsonify({"ok": True, "notes": items})
+
+
+@app.get("/api/calendar/notes/<event_id>")
+def api_meeting_notes_get(event_id):
+    """Return notes for a specific event."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    notes = _load_meeting_notes(uname)
+    note = notes.get(event_id)
+    if not note: return jsonify({"ok": True, "note": None})
+    return jsonify({"ok": True, "note": note})
+
+
+@app.post("/api/calendar/notes/<event_id>")
+def api_meeting_notes_process(event_id):
+    """
+    Process a meeting transcript with a teammate and save structured notes.
+    Expects: { teammate, transcript, meeting_title, meeting_date }
+    """
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+
+    payload     = request.get_json(force=True) or {}
+    teammate    = (payload.get("teammate") or "").strip()
+    transcript  = (payload.get("transcript") or "").strip()
+    title       = (payload.get("meeting_title") or "Meeting").strip()
+    date        = (payload.get("meeting_date") or now_iso()[:10]).strip()
+
+    if not transcript:
+        return jsonify({"ok": False, "error": "Transcript is required"}), 400
+    if not teammate:
+        return jsonify({"ok": False, "error": "Teammate is required"}), 400
+
+    # Build the AI prompt
+    state   = load_json(DATA / "state.json", {})
+    tm_data = (state.get("installed") or {}).get(teammate, {})
+    tm_role = tm_data.get("role") or tm_data.get("prompt") or ""
+
+    system_prompt = f"""You are {teammate}, a professional AI teammate.{(' Your role: ' + tm_role) if tm_role else ''}
+
+You have just attended a meeting as a silent notetaker. Analyze the transcript and produce structured meeting notes in your voice and style.
+
+Return your notes in this EXACT format (use these exact section headers):
+
+## TL;DR
+2-3 sentence summary of the whole meeting.
+
+## Key Decisions
+Bullet list of decisions that were made. If none, write "None recorded."
+
+## Action Items
+Bullet list of action items, with owner name if mentioned. Format: "- [Owner] Action description". If none, write "None recorded."
+
+## Open Questions
+Bullet list of unresolved questions or items needing follow-up. If none, write "None recorded."
+
+## Full Summary
+A thorough paragraph-style summary of the meeting in your voice. Include context, tone, and anything noteworthy.
+
+Be concise but thorough. Do not invent information not present in the transcript."""
+
+    user_msg = f"Meeting: {title}\nDate: {date}\n\nTranscript:\n{transcript[:12000]}"
+
+    try:
+        oai_client = _get_openai_client_for_user(u)
+        resp = oai_client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_msg},
+            ],
+            max_tokens=1500,
+        )
+        ai_notes = resp.choices[0].message.content.strip()
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
+    # Save the note
+    notes = _load_meeting_notes(uname)
+    notes[event_id] = {
+        "event_id":      event_id,
+        "meeting_title": title,
+        "meeting_date":  date,
+        "teammate":      teammate,
+        "transcript":    transcript,
+        "ai_notes":      ai_notes,
+        "created_at":    now_iso(),
+        "updated_at":    now_iso(),
+    }
+    _save_meeting_notes(uname, notes)
+    append_log("meeting_notes_created", {"user": uname, "event_id": event_id, "teammate": teammate})
+    return jsonify({"ok": True, "note": notes[event_id]})
+
+
+@app.delete("/api/calendar/notes/<event_id>")
+def api_meeting_notes_delete(event_id):
+    """Delete notes for a specific event."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    notes = _load_meeting_notes(uname)
+    notes.pop(event_id, None)
+    _save_meeting_notes(uname, notes)
+    return jsonify({"ok": True})
+
+
 # =========================
 # LOCAL CALENDAR TASKS (stored per-user in DATA)
 # =========================
@@ -16842,6 +16978,9 @@ function wcalShowGcalTaskDetail(ev){
   _evPriority[evId]=storedPrio;
   wcalPopulateTeammateDropdown('detAutoTeammate', meta.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', meta.on_complete_client_email||'');
+  // Wire notetaker dropdown and load existing notes
+  wcalPopulateTeammateDropdown('detNotetaker', meta.notetaker||'');
+  wcalLoadExistingNotes(evId);
 }
 
 function wcalShowEventDetail(ev){
@@ -16962,6 +17101,34 @@ function wcalShowEventDetail(ev){
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
+
+    <!-- ── NOTETAKER SECTION ───────────────────────────────────────────── -->
+    <div style="margin-top:18px;border-top:1px solid rgba(255,255,255,.1);padding-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:#c4b5fd;letter-spacing:.03em;">🎙️ Meeting Notetaker</div>
+        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
+      </div>
+      <div id="detNotesExisting" style="display:none;margin-bottom:12px;padding:10px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
+        <div style="font-size:11px;color:#a78bfa;margin-bottom:6px;font-weight:600;" id="detNotesExistingLabel">📝 Notes on file</div>
+        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:80px;overflow:hidden;"></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btnMini" onclick="wcalViewExistingNotes('${evIdSafe}')" style="font-size:11px;">👁 View Full Notes</button>
+          <button class="btn btnMini" onclick="wcalDeleteNotes('${evIdSafe}')" style="font-size:11px;opacity:.6;">🗑 Delete</button>
+        </div>
+      </div>
+      <div id="detNotetakerForm">
+        <div class="wcal-detail-label">Assign notetaker teammate</div>
+        <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:10px;">
+          <option value="">— Pick a teammate —</option>
+        </select>
+        <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(from Google Meet captions, Zoom export, or type notes)</span></div>
+        <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste your meeting transcript here…&#10;&#10;Tip: In Google Meet, click ⋮ → Transcript to get captions.&#10;In Zoom, find the transcript in your meeting folder." style="min-height:110px;margin-bottom:10px;"></textarea>
+        <button class="wcal-det-btn primary" id="detProcessNotesBtn" onclick="wcalProcessNotes('${evIdSafe}')">
+          ✨ Generate Meeting Notes
+        </button>
+        <div id="detNotesStatus" style="font-size:12px;margin-top:8px;min-height:18px;"></div>
+      </div>
+    </div>
   `;
   const isRecurring=(storedRecurring!=='none');
   if(typeLbl){ typeLbl.innerText=isRecurring?'↻ EVENT':'📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
@@ -18376,6 +18543,213 @@ function wcalWireButtons(){
   const df=get('wcalAddDate'); if(df&&!df.value) df.value=ymd(new Date());
   const dtf=get('wcalTaskDate'); if(dtf&&!dtf.value) dtf.value=ymd(new Date());
 }
+
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEETING NOTETAKER
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Load existing notes for an event and show the preview banner if found
+async function wcalLoadExistingNotes(evId){
+  const existing = document.getElementById('detNotesExisting');
+  const preview  = document.getElementById('detNotesExistingPreview');
+  const label    = document.getElementById('detNotesExistingLabel');
+  if(!existing) return;
+  try{
+    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
+    const data = await res.json();
+    if(data.ok && data.note){
+      const n = data.note;
+      existing.style.display = 'block';
+      if(label) label.textContent = '📝 Notes by '+n.teammate+' · '+n.meeting_date;
+      if(preview){
+        // Show TL;DR section only as preview
+        const tldr = (n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim();
+        preview.textContent = tldr.slice(0,220)+(tldr.length>220?'…':'');
+      }
+    } else {
+      existing.style.display = 'none';
+    }
+  }catch(e){
+    existing.style.display = 'none';
+  }
+}
+
+// Process transcript and generate notes
+window.wcalProcessNotes = async function(evId){
+  const btn        = document.getElementById('detProcessNotesBtn');
+  const status     = document.getElementById('detNotesStatus');
+  const teammate   = (document.getElementById('detNotetaker')||{}).value||'';
+  const transcript = (document.getElementById('detTranscript')||{}).value||'';
+  const titleEl    = document.getElementById('detTitle');
+  const dateEl     = document.getElementById('detDate');
+  const title      = titleEl ? titleEl.value : 'Meeting';
+  const date       = dateEl  ? dateEl.value  : new Date().toISOString().slice(0,10);
+
+  if(!teammate){ if(status) status.innerHTML='<span style="color:#f87171;">⚠️ Pick a teammate first.</span>'; return; }
+  if(!transcript.trim()){ if(status) status.innerHTML='<span style="color:#f87171;">⚠️ Paste a transcript first.</span>'; return; }
+
+  if(btn){ btn.disabled=true; btn.textContent='✨ Generating notes…'; }
+  if(status) status.innerHTML='<span style="opacity:.7;">Your teammate is reading the transcript…</span>';
+
+  try{
+    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ teammate, transcript, meeting_title:title, meeting_date:date })
+    });
+    const data = await res.json();
+    if(!data.ok) throw new Error(data.error||'Failed');
+
+    if(status) status.innerHTML='<span style="color:#6ee7b7;">✅ Notes saved! Opening…</span>';
+    // Show the full notes immediately
+    setTimeout(()=>{ wcalShowFullNotes(data.note); }, 400);
+    // Refresh the existing banner
+    wcalLoadExistingNotes(evId);
+    // Clear transcript field
+    const ta = document.getElementById('detTranscript');
+    if(ta) ta.value='';
+  }catch(e){
+    if(status) status.innerHTML='<span style="color:#f87171;">❌ '+e.message+'</span>';
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='✨ Generate Meeting Notes'; }
+  }
+};
+
+// View existing full notes for an event
+window.wcalViewExistingNotes = async function(evId){
+  try{
+    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
+    const data = await res.json();
+    if(data.ok && data.note) wcalShowFullNotes(data.note);
+    else showToast('No notes found for this event.','error');
+  }catch(e){ showToast('Could not load notes.','error'); }
+};
+
+// Delete notes for an event
+window.wcalDeleteNotes = async function(evId){
+  if(!confirm('Delete meeting notes for this event? This cannot be undone.')) return;
+  try{
+    await fetch('/api/calendar/notes/'+encodeURIComponent(evId), {method:'DELETE'});
+    wcalLoadExistingNotes(evId);
+    showToast('Notes deleted.');
+  }catch(e){ showToast('Could not delete notes.','error'); }
+};
+
+// Render parsed markdown-ish notes into HTML
+function wcalRenderNotesMd(text){
+  return text
+    .replace(/^## (.+)$/gm, '<h3 style="color:#c4b5fd;font-size:13px;font-weight:700;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;">$1</h3>')
+    .replace(/^- \[(.+?)\] (.+)$/gm, '<div style="display:flex;gap:8px;padding:3px 0;"><span style="color:#a78bfa;min-width:80px;font-size:12px;">[$1]</span><span style="font-size:13px;">$2</span></div>')
+    .replace(/^- (.+)$/gm, '<div style="padding:3px 0 3px 12px;font-size:13px;border-left:2px solid rgba(196,181,253,.3);margin-left:4px;">$1</div>')
+    .replace(/
+
+/g, '<br>')
+    .replace(/
+/g, '');
+}
+
+// Show the full notes modal overlay
+window.wcalShowFullNotes = function(note){
+  // Remove any existing notes overlay
+  const existing = document.getElementById('wcalNotesOverlay');
+  if(existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'wcalNotesOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
+
+  overlay.innerHTML = `
+    <div style="background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);">
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#e6edff;">${note.meeting_title||'Meeting Notes'}</div>
+          <div style="font-size:12px;color:#a78bfa;margin-top:3px;">📅 ${note.meeting_date} &nbsp;·&nbsp; 🤝 Notetaker: <strong>${note.teammate}</strong></div>
+        </div>
+        <button onclick="document.getElementById('wcalNotesOverlay').remove()" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:20px 24px;color:#d4dcff;line-height:1.7;">
+        ${wcalRenderNotesMd(note.ai_notes||'')}
+        <details style="margin-top:24px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;">
+          <summary style="font-size:12px;color:#6b7280;cursor:pointer;user-select:none;">📄 View original transcript</summary>
+          <pre style="margin-top:10px;font-size:11px;color:#6b7280;white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto;">${(note.transcript||'').replace(/</g,'&lt;')}</pre>
+        </details>
+      </div>
+      <div style="padding:14px 24px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:10px;">
+        <button onclick="wcalCopyNotes('${note.event_id}')" class="btn btnMini">📋 Copy Notes</button>
+        <button onclick="document.getElementById('wcalNotesOverlay').remove()" class="btn btnMini" style="margin-left:auto;">Close</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+};
+
+// Copy notes to clipboard
+window.wcalCopyNotes = async function(evId){
+  try{
+    const res  = await fetch('/api/calendar/notes/'+encodeURIComponent(evId));
+    const data = await res.json();
+    if(data.ok && data.note){
+      await navigator.clipboard.writeText(data.note.ai_notes||'');
+      showToast('✅ Notes copied to clipboard!');
+    }
+  }catch(e){ showToast('Could not copy.','error'); }
+};
+
+// ── Notes History Modal ──────────────────────────────────────────────────────
+window.wcalShowNotesHistory = async function(){
+  const existing = document.getElementById('wcalNotesHistoryOverlay');
+  if(existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'wcalNotesHistoryOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);">
+        <div style="font-size:17px;font-weight:700;color:#e6edff;">📋 Meeting Notes History</div>
+        <button onclick="document.getElementById('wcalNotesHistoryOverlay').remove()" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
+      </div>
+      <div id="wcalNotesHistoryBody" style="flex:1;overflow-y:auto;padding:16px 24px;">
+        <div style="text-align:center;opacity:.5;padding:40px;">Loading notes…</div>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+
+  // Fetch all notes
+  try{
+    const res  = await fetch('/api/calendar/notes');
+    const data = await res.json();
+    const body = document.getElementById('wcalNotesHistoryBody');
+    if(!body) return;
+
+    const notes = data.notes||[];
+    if(notes.length===0){
+      body.innerHTML='<div style="text-align:center;opacity:.5;padding:60px;">No meeting notes yet.<br><span style="font-size:13px;">Open a calendar event and paste a transcript to get started.</span></div>';
+      return;
+    }
+
+    body.innerHTML = notes.map(n=>`
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s;" onclick="wcalShowFullNotes(${JSON.stringify(n).replace(/</g,'&lt;')})" onmouseover="this.style.borderColor='rgba(196,181,253,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;color:#e6edff;margin-bottom:4px;">${n.meeting_title||'Untitled Meeting'}</div>
+            <div style="font-size:11px;color:#a78bfa;">📅 ${n.meeting_date} &nbsp;·&nbsp; 🤝 ${n.teammate}</div>
+            <div style="font-size:12px;color:#9ca3af;margin-top:6px;line-height:1.5;">
+              ${((n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim()).slice(0,160)}…
+            </div>
+          </div>
+          <div style="font-size:20px;opacity:.3;flex-shrink:0;">→</div>
+        </div>
+      </div>`).join('');
+  }catch(e){
+    const body = document.getElementById('wcalNotesHistoryBody');
+    if(body) body.innerHTML='<div style="color:#f87171;padding:20px;">Failed to load notes: '+e.message+'</div>';
+  }
+};
 
 // ── showCalendarModal ──────────────────────────────────────────
 window.showCalendarModal=function showCalendarModal(){
