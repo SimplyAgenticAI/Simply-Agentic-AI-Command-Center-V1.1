@@ -12571,7 +12571,7 @@ function makeSeat(defn, idx){
           }
         }
 
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -13095,7 +13095,8 @@ function makeSeat(defn, idx){
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      var text = lastSeatAssistantText || "";
+      // Fall back to window.lastSeatAssistantText which the streaming IIFE writes to
+      var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
       if(!text.trim()){
         if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
         return;
