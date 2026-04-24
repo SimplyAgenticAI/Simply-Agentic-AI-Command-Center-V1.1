@@ -21078,94 +21078,100 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
     if(!text) return;
 
-    // Stop if already playing
-    if(_currentTtsAudio){
-      try{ _currentTtsAudio.pause(); }catch(_){}
-      _currentTtsAudio = null;
-      if(window._ttsSynthActive){ try{speechSynthesis.cancel();}catch(_){} window._ttsSynthActive=false; }
-      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
+    // If already playing, stop
+    if(window._saTtsPlaying){
+      window._saTtsPlaying = false;
+      try{ window._saTtsAudio.pause(); }catch(_){}
+      try{ speechSynthesis.cancel(); }catch(_){}
+      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
       return;
     }
 
-    function _resetBtn(){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; } }
-
+    window._saTtsPlaying = true;
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏳ Loading…"; }
-    let cancelled = false;
-    if(btn) btn._saTtsStop = ()=>{ cancelled=true; try{if(_currentTtsAudio){_currentTtsAudio.pause();_currentTtsAudio=null;}}catch(_){} try{speechSynthesis.cancel();}catch(_){} window._ttsSynthActive=false; _resetBtn(); };
 
-    // ── Try OpenAI TTS ───────────────────────────────────────────────────────
-    let openaiErrorMsg = null;
     try{
-      const resp = await fetch("/api/tts",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({text:text.slice(0,2000), voice:voice||"alloy"})
+      // Fetch audio from OpenAI via our server
+      var resp = await fetch("/api/tts", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text: text.slice(0,2000), voice: voice || "alloy"})
       });
-      if(cancelled){ _resetBtn(); return; }
-      if(resp.ok){
-        const blob = await resp.blob();
-        if(cancelled){ _resetBtn(); return; }
-        if(blob && blob.size > 200){
-          // Got real audio — play it
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio();
-          _currentTtsAudio = audio;
-          await new Promise(function(resolve){
-            audio.oncanplaythrough = function(){
-              if(cancelled){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; _resetBtn(); resolve(); return; }
-              if(btn){ btn.textContent="⏹ Stop"; }
-              var p = audio.play();
-              if(p) p.catch(function(){ resolve(); }); // autoplay blocked → fall through to browser voice
-            };
-            audio.onended  = function(){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); };
-            audio.onerror  = function(){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); };
-            audio.src = url;
-            audio.load();
-            // Safety timeout
-            setTimeout(function(){ if(_currentTtsAudio===audio){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); } }, 60000);
-          });
-          _resetBtn();
-          return; // ← success, done
+
+      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
+
+      if(!resp.ok){
+        var errJson = null;
+        try{ errJson = await resp.json(); }catch(_){}
+        throw new Error((errJson && errJson.error) || ("HTTP "+resp.status));
+      }
+
+      var arrayBuf = await resp.arrayBuffer();
+      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
+
+      if(!arrayBuf || arrayBuf.byteLength < 100){
+        throw new Error("Empty audio response");
+      }
+
+      // Use AudioContext — works even when autoplay policy blocks HTMLAudioElement
+      var AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if(!AudioCtx) throw new Error("No AudioContext");
+
+      var ctx = new AudioCtx();
+      // Resume required in some browsers after user gesture expires
+      if(ctx.state === "suspended") await ctx.resume();
+
+      var decoded = await ctx.decodeAudioData(arrayBuf);
+
+      if(!window._saTtsPlaying){ ctx.close(); if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
+
+      var source = ctx.createBufferSource();
+      source.buffer = decoded;
+      source.connect(ctx.destination);
+
+      if(btn){ btn.textContent="⏹ Stop"; }
+
+      // Allow stop mid-play
+      window._saTtsAudio = { pause: function(){ try{ source.stop(); }catch(_){} try{ ctx.close(); }catch(_){} } };
+
+      source.onended = function(){
+        window._saTtsPlaying = false;
+        window._saTtsAudio = null;
+        try{ ctx.close(); }catch(_){}
+        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+      };
+
+      source.start(0);
+
+    } catch(err) {
+      window._saTtsPlaying = false;
+      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+
+      // Show exact error and fall back to browser voice
+      var msg = err.message || "Unknown error";
+      console.error("[TTS] OpenAI failed:", msg);
+
+      if(window.speechSynthesis){
+        try{
+          speechSynthesis.cancel();
+          var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
+          var voices = speechSynthesis.getVoices();
+          var pick = voices.find(function(v){ return v.lang==="en-US"; }) || voices[0];
+          if(pick) utt.voice = pick;
+          if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
+          window._saTtsPlaying = true;
+          utt.onend = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
+          utt.onerror = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
+          speechSynthesis.speak(utt);
+          if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI: "+msg+")","error");
+        }catch(_){
+          window._saTtsPlaying = false;
+          if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
         }
-      }
-      // Non-ok or empty blob — capture exact error for the toast
-      try{
-        const j = await resp.clone().json().catch(()=>null);
-        openaiErrorMsg = (j && j.error) ? j.error : ("HTTP "+resp.status);
-      }catch(_){ openaiErrorMsg = "HTTP "+resp.status; }
-    }catch(netErr){
-      openaiErrorMsg = "Network: "+netErr.message;
-    }
-
-    if(cancelled){ _resetBtn(); return; }
-
-    // ── Browser Web Speech fallback ──────────────────────────────────────────
-    // Always runs when OpenAI fails — no key needed
-    if(window.speechSynthesis){
-      // Show the real OpenAI error so user knows what to fix
-      if(openaiErrorMsg && typeof showToast==="function"){
-        showToast("🤖 Browser voice (OpenAI failed: "+openaiErrorMsg+")","error");
-      }
-      try{
-        speechSynthesis.cancel();
-        window._ttsSynthActive = true;
-        var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
-        // Pick a decent English voice
-        var voices = speechSynthesis.getVoices();
-        var pick = voices.find(function(v){ return v.lang==="en-US" && v.localService; }) ||
-                   voices.find(function(v){ return v.lang.startsWith("en"); }) || voices[0];
-        if(pick) utt.voice = pick;
-        utt.rate=1; utt.pitch=1; utt.volume=1;
-        if(btn){ btn.textContent="⏹ Stop"; }
-        utt.onend = function(){ window._ttsSynthActive=false; _resetBtn(); };
-        utt.onerror = function(){ window._ttsSynthActive=false; _resetBtn(); };
-        speechSynthesis.speak(utt);
-        return; // don't reset btn — onend will do it
-      }catch(synthErr){
-        window._ttsSynthActive=false;
+      } else {
+        if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
       }
     }
-
-    _resetBtn();
   };
 
   /* Attach a 🔊 button to a rendered assistant message div */
