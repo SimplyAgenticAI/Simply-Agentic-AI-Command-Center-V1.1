@@ -3210,13 +3210,18 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     Returns (http_status, user_message)
     """
     s = (str(e) or "").lower()
-    if "incorrect api key" in s or "authentication" in s or ("401" in s and "api" in s and "key" in s):
-        return 401, "Invalid OpenAI API key. Open Settings and paste a valid key (sk-, sk-proj-, etc.)."
+    raw = str(e) or "Unknown error"
+    if "incorrect api key" in s or "invalid api key" in s or "authentication" in s or ("401" in s and "api" in s):
+        return 401, f"Invalid OpenAI API key: {raw}"
+    if "quota" in s or "insufficient_quota" in s or "exceeded your current quota" in s or "billing" in s:
+        return 402, f"OpenAI quota/billing issue: {raw}"
     if "model" in s and ("not found" in s or "does not exist" in s):
-        return 400, f"Model error. Your MODEL setting may be invalid. Current MODEL='{MODEL}'. Try setting MODEL to a known available model."
+        return 400, f"Model not found: {raw}"
     if "rate limit" in s or "429" in s:
-        return 429, "Rate limit hit. Try again in a moment."
-    return 500, "AI request failed. Check server logs for details."
+        return 429, f"Rate limit: {raw}"
+    if "connection" in s or "timeout" in s or "network" in s:
+        return 503, f"Network error reaching OpenAI: {raw}"
+    return 500, f"OpenAI error: {raw}"
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
     """Routes to Claude or OpenAI based on model name.
@@ -9614,6 +9619,10 @@ label         { font-size: 14px !important; }
                 </div>
                 <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" />
                 <div class="tiny" style="opacity:.7;margin-top:3px;">Required for GPT models, image generation, and voice — even when teammates use Claude.</div>
+                <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <button id="testVoiceBtn" class="btn" style="font-size:12px;padding:4px 12px;">🔍 Test OpenAI Voice</button>
+                  <span id="testVoiceResult" style="font-size:12px;font-family:monospace;"></span>
+                </div>
 
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
                   <label style="margin:0;">Anthropic (Claude) API Key</label>
@@ -13127,18 +13136,7 @@ function makeSeat(defn, idx){
       }
       var voice = "alloy";
       try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
-      if(typeof window.saTtsSpeak==="function"){
-        window.saTtsSpeak(text, voice, btn);
-      } else {
-        // saTtsSpeak not yet defined — try browser speech directly
-        if(window.speechSynthesis){
-          speechSynthesis.cancel();
-          var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
-          speechSynthesis.speak(utt);
-        } else {
-          if(typeof showToast==="function") showToast("Voice not ready — please refresh the page.","error");
-        }
-      }
+      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
 
     // ----- Lighting Mode (ADD v1) -----
@@ -18601,6 +18599,29 @@ $("settingsBtn").onclick = () => showSettingsModal();
       });
     })();
 
+    // ── Test Voice button ─────────────────────────────────────────────────────
+    (function(){
+      var btn = document.getElementById("testVoiceBtn");
+      var res = document.getElementById("testVoiceResult");
+      if(!btn) return;
+      btn.onclick = async function(){
+        btn.disabled=true; btn.textContent="Testing…";
+        if(res){ res.style.color=""; res.textContent="Calling OpenAI…"; }
+        try{
+          var r = await fetch("/api/tts/test");
+          var d = await r.json();
+          if(d.ok){
+            if(res){ res.style.color="#6ee7b7"; res.textContent="✅ Works! src="+d.source+" key="+d.key_hint+" bytes="+d.bytes; }
+          } else {
+            if(res){ res.style.color="#fca5a5"; res.textContent="❌ "+d.error+" (src="+d.source+", key="+d.key_hint+")"; }
+          }
+        }catch(e){
+          if(res){ res.style.color="#fca5a5"; res.textContent="❌ Network error: "+e.message; }
+        }
+        btn.disabled=false; btn.textContent="🔍 Test OpenAI Voice";
+      };
+    })();
+
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
@@ -21075,109 +21096,93 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
     if(!text) return;
 
-    // ── Stop if already playing ──────────────────────────────────────────────
+    // Stop if already playing
     if(_currentTtsAudio){
       try{ _currentTtsAudio.pause(); }catch(_){}
       _currentTtsAudio = null;
-      if(window._currentTtsUtterance){ try{ speechSynthesis.cancel(); }catch(_){} window._currentTtsUtterance=null; }
+      if(window._ttsSynthActive){ try{speechSynthesis.cancel();}catch(_){} window._ttsSynthActive=false; }
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
       return;
     }
 
-    function _resetBtn(){
-      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
-    }
-    function _stopAll(){
-      try{ if(_currentTtsAudio){ _currentTtsAudio.pause(); _currentTtsAudio=null; } }catch(_){}
-      try{ if(window._currentTtsUtterance){ speechSynthesis.cancel(); window._currentTtsUtterance=null; } }catch(_){}
-    }
-
-    // ── Browser Web Speech fallback (no API key needed) ──────────────────────
-    function _speakWithBrowser(txt, voiceName){
-      return new Promise(function(resolve, reject){
-        if(!window.speechSynthesis){ reject(new Error("no speechSynthesis")); return; }
-        speechSynthesis.cancel();
-        const utt = new SpeechSynthesisUtterance(txt.slice(0, 3000));
-        window._currentTtsUtterance = utt;
-        // try to pick a matching voice
-        try{
-          const voices = speechSynthesis.getVoices();
-          const map = {alloy:"en-US",echo:"en-GB",fable:"en-GB",onyx:"en-US",nova:"en-US",shimmer:"en-US"};
-          const lang = map[voiceName] || "en-US";
-          const match = voices.find(v=>v.lang===lang && !v.localService===false) ||
-                        voices.find(v=>v.lang.startsWith("en")) || voices[0];
-          if(match) utt.voice = match;
-        }catch(_){}
-        utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1.0;
-        utt.onend  = function(){ window._currentTtsUtterance=null; resolve(); };
-        utt.onerror = function(e){ window._currentTtsUtterance=null; reject(new Error(e.error||"speech error")); };
-        speechSynthesis.speak(utt);
-        if(btn){ btn._saTtsStop = ()=>{ speechSynthesis.cancel(); window._currentTtsUtterance=null; _resetBtn(); }; }
-      });
-    }
+    function _resetBtn(){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; } }
 
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏳ Loading…"; }
     let cancelled = false;
-    if(btn){ btn._saTtsStop = ()=>{ cancelled=true; _stopAll(); _resetBtn(); }; }
+    if(btn) btn._saTtsStop = ()=>{ cancelled=true; try{if(_currentTtsAudio){_currentTtsAudio.pause();_currentTtsAudio=null;}}catch(_){} try{speechSynthesis.cancel();}catch(_){} window._ttsSynthActive=false; _resetBtn(); };
 
-    // ── Try OpenAI TTS first ─────────────────────────────────────────────────
-    let openaiOk = false;
+    // ── Try OpenAI TTS ───────────────────────────────────────────────────────
+    let openaiErrorMsg = null;
     try{
       const resp = await fetch("/api/tts",{
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({text: text.slice(0,2000), voice: voice||"alloy"})
+        body: JSON.stringify({text:text.slice(0,2000), voice:voice||"alloy"})
       });
       if(cancelled){ _resetBtn(); return; }
-
       if(resp.ok){
         const blob = await resp.blob();
         if(cancelled){ _resetBtn(); return; }
-        if(blob.size > 100){
-          // Got real audio bytes — play them
+        if(blob && blob.size > 200){
+          // Got real audio — play it
           const url = URL.createObjectURL(blob);
           const audio = new Audio();
           _currentTtsAudio = audio;
-          openaiOk = true;
-          await new Promise(function(resolve, reject){
+          await new Promise(function(resolve){
             audio.oncanplaythrough = function(){
-              if(cancelled){ URL.revokeObjectURL(url); _currentTtsAudio=null; _resetBtn(); resolve(); return; }
-              if(btn) btn.textContent="⏹ Stop";
-              if(btn) btn._saTtsStop = ()=>{ cancelled=true; audio.pause(); URL.revokeObjectURL(url); _currentTtsAudio=null; _resetBtn(); };
-              const p = audio.play();
-              if(p) p.catch(function(){ resolve(); }); // autoplay blocked → fall through
+              if(cancelled){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; _resetBtn(); resolve(); return; }
+              if(btn){ btn.textContent="⏹ Stop"; }
+              var p = audio.play();
+              if(p) p.catch(function(){ resolve(); }); // autoplay blocked → fall through to browser voice
             };
-            audio.onended  = function(){ URL.revokeObjectURL(url); _currentTtsAudio=null; resolve(); };
-            audio.onerror  = function(){ URL.revokeObjectURL(url); _currentTtsAudio=null; reject(new Error("audio element error")); };
+            audio.onended  = function(){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); };
+            audio.onerror  = function(){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); };
             audio.src = url;
             audio.load();
-            setTimeout(function(){ if(!audio.readyState) reject(new Error("audio load timeout")); }, 8000);
+            // Safety timeout
+            setTimeout(function(){ if(_currentTtsAudio===audio){ try{URL.revokeObjectURL(url);}catch(_){} _currentTtsAudio=null; resolve(); } }, 60000);
           });
           _resetBtn();
-          return;
+          return; // ← success, done
         }
       }
-      // Non-ok response or tiny blob → log and fall through to browser TTS
-      let errMsg = "TTS API error";
-      try{ if(!resp.ok){ const j=await resp.clone().json(); errMsg=j.error||errMsg; } }catch(_){}
-      console.warn("[TTS] OpenAI TTS failed:", errMsg, "— falling back to browser speech");
+      // Non-ok or empty blob — capture exact error for the toast
+      try{
+        const j = await resp.clone().json().catch(()=>null);
+        openaiErrorMsg = (j && j.error) ? j.error : ("HTTP "+resp.status);
+      }catch(_){ openaiErrorMsg = "HTTP "+resp.status; }
     }catch(netErr){
-      console.warn("[TTS] OpenAI TTS network error:", netErr.message, "— falling back to browser speech");
+      openaiErrorMsg = "Network: "+netErr.message;
     }
 
     if(cancelled){ _resetBtn(); return; }
 
-    // ── Browser speech fallback ──────────────────────────────────────────────
+    // ── Browser Web Speech fallback ──────────────────────────────────────────
+    // Always runs when OpenAI fails — no key needed
     if(window.speechSynthesis){
-      if(btn) btn.textContent="🔊 Speaking…";
-      try{
-        await _speakWithBrowser(text, voice||"alloy");
-      }catch(e){
-        console.warn("[TTS] Browser speech also failed:", e.message);
-        if(typeof showToast==="function") showToast("⚠️ Voice unavailable. Check your OpenAI key in Settings or browser permissions.","error");
+      // Show the real OpenAI error so user knows what to fix
+      if(openaiErrorMsg && typeof showToast==="function"){
+        showToast("🤖 Browser voice (OpenAI failed: "+openaiErrorMsg+")","error");
       }
-    } else {
-      if(typeof showToast==="function") showToast("⚠️ Voice unavailable — no OpenAI key and browser speech not supported.","error");
+      try{
+        speechSynthesis.cancel();
+        window._ttsSynthActive = true;
+        var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
+        // Pick a decent English voice
+        var voices = speechSynthesis.getVoices();
+        var pick = voices.find(function(v){ return v.lang==="en-US" && v.localService; }) ||
+                   voices.find(function(v){ return v.lang.startsWith("en"); }) || voices[0];
+        if(pick) utt.voice = pick;
+        utt.rate=1; utt.pitch=1; utt.volume=1;
+        if(btn){ btn.textContent="⏹ Stop"; }
+        utt.onend = function(){ window._ttsSynthActive=false; _resetBtn(); };
+        utt.onerror = function(){ window._ttsSynthActive=false; _resetBtn(); };
+        speechSynthesis.speak(utt);
+        return; // don't reset btn — onend will do it
+      }catch(synthErr){
+        window._ttsSynthActive=false;
+      }
     }
+
     _resetBtn();
   };
 
@@ -26493,6 +26498,26 @@ def api_tts_debug():
         "key_starts_with_sk": openai_key.startswith("sk-") if openai_key else False,
         "settings_keys": list(settings.keys()),
     })
+
+
+@app.get("/api/tts/test")
+def api_tts_test():
+    """Live end-to-end TTS test — call this from the browser to see the exact error."""
+    u = current_user()
+    if not u: return jsonify({"ok":False,"error":"Not authenticated"}), 401
+    user_key   = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    server_key = (OPENAI_API_KEY or "").strip()
+    key        = user_key or server_key
+    source     = "user_settings" if user_key else ("env_var" if server_key else "none")
+    hint       = ("sk-..."+key[-4:]) if len(key)>=4 else "(none)"
+    if not key:
+        return jsonify({"ok":False,"error":"No OpenAI key found anywhere — set OPENAI_API_KEY in Render env or paste key in Settings","source":source,"key_hint":hint})
+    try:
+        from openai import OpenAI as _TOAI
+        r = _TOAI(api_key=key).audio.speech.create(model="tts-1",voice="alloy",input="Test.")
+        return jsonify({"ok":True,"source":source,"key_hint":hint,"bytes":len(r.content)})
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e),"source":source,"key_hint":hint})
 
 
 @app.post("/api/tts")
