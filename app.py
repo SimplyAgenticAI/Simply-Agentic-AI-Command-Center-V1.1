@@ -14883,6 +14883,7 @@ Challenge weak assumptions. Surface risks.`;
               </div>
             </div>
             <button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>
+            <button class="plDelBtn" style="border-color:rgba(100,116,139,.3);color:#94a3b8;background:rgba(255,255,255,.04);" onclick="plCopy('${p.id}',event)" title="Copy prompt text">📋</button>
             ${builtin}
           </div>`;
         }
@@ -14915,12 +14916,11 @@ Challenge weak assumptions. Surface risks.`;
         await window.selectSeat(tm);
       }
 
-      // 3. Fill the input and focus it — happens after seat switch so nothing overwrites it
-      const dmInput = $("followInput");
+      // 3. Fill the correct input (#followMsg) and focus it
+      const dmInput = $("followMsg");
       if(dmInput){
         dmInput.value = p.prompt;
         dmInput.focus();
-        // Scroll input into view on mobile
         try{ dmInput.scrollIntoView({behavior:"smooth", block:"nearest"}); }catch(_){}
       }
 
@@ -14928,6 +14928,30 @@ Challenge weak assumptions. Surface risks.`;
       try{ await fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
 
       showToast("✅ " + (p.title||"Prompt") + " loaded — edit if needed, then send");
+    };
+
+    window.plCopy = function(id, e){
+      if(e) e.stopPropagation();
+      const p = plFindPrompt(id);
+      if(!p) return;
+      try{
+        navigator.clipboard.writeText(p.prompt).then(()=>{
+          showToast("📋 Prompt copied to clipboard");
+        }).catch(()=>{
+          // Fallback for older browsers
+          const ta = document.createElement("textarea");
+          ta.value = p.prompt;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          showToast("📋 Copied!");
+        });
+      }catch(_){
+        showToast("Could not copy — try manually selecting the text.");
+      }
     };
 
     window.plDelete = async function(id, e){
