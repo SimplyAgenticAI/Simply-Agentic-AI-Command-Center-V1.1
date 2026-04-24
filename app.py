@@ -55,31 +55,13 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
 
-# ── Startup key diagnostic (prints to Render logs) ───────────────────────────
-def _startup_key_check():
-    key = (OPENAI_API_KEY or "").strip()
-    if not key:
-        print("[STARTUP] ⚠️  OPENAI_API_KEY is NOT SET in environment. TTS and GPT will fail.", flush=True)
-        return
-    hint = "sk-..." + key[-4:] if len(key) >= 4 else "???"
-    print(f"[STARTUP] OPENAI_API_KEY present: {hint} (len={len(key)})", flush=True)
-    if not key.startswith("sk-"):
-        print("[STARTUP] ⚠️  Key does not start with 'sk-' — may be invalid.", flush=True)
-    if " " in key or "\n" in key or "\r" in key:
-        print("[STARTUP] ⚠️  Key contains whitespace — strip it in Render env.", flush=True)
-    # Quick live test
-    try:
-        from openai import OpenAI as _OAI
-        _c = _OAI(api_key=key)
-        _r = _c.audio.speech.create(model="tts-1", voice="alloy", input="ok")
-        print(f"[STARTUP] ✅ TTS smoke test PASSED ({len(_r.content)} bytes)", flush=True)
-    except Exception as _e:
-        print(f"[STARTUP] ❌ TTS smoke test FAILED: {_e}", flush=True)
-
-try:
-    _startup_key_check()
-except Exception as _ke:
-    print(f"[STARTUP] key check error: {_ke}", flush=True)
+# ── Startup key presence check (no live API call — use /api/tts/test for that) ──
+_startup_key = (OPENAI_API_KEY or "").strip()
+if not _startup_key:
+    print("[STARTUP] ⚠️  OPENAI_API_KEY not set in environment.", flush=True)
+else:
+    _hint = "sk-..." + _startup_key[-4:] if len(_startup_key) >= 4 else "???"
+    print(f"[STARTUP] OPENAI_API_KEY present: {_hint} (len={len(_startup_key)})", flush=True)
 
 # Uploads
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "12"))
