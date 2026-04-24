@@ -4304,20 +4304,19 @@ def api_set_user_settings():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "preferred_ai", True)
-    except Exception:
-        pass
-
-
     data = request.get_json(force=True) or {}
     openai_key = (data.get("openai_key") or "").strip()
     claude_key = (data.get("claude_key") or "").strip()
     global_default_model = (data.get("global_default_model") or "").strip()
+
+    # onboarding_openai_key: mark OpenAI key step when a non-empty key is being saved
+    # NOTE: this must run AFTER parsing the request body so we check the NEW key, not the old one
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+        if openai_key:
+            _mark_onboarding_step(uname, "preferred_ai", True)
+    except Exception:
+        pass
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -4334,13 +4333,23 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-    if openai_key and len(openai_key) >= 20:
-        rec["settings"]["openai_key"] = openai_key
-    if claude_key and len(claude_key) >= 20:
-        rec["settings"]["claude_key"] = claude_key
+    # Always persist the key field so users can update or clear a stale key.
+    # If non-empty, still validate minimum length (20 chars) to reject obvious typos.
+    if openai_key:
+        if len(openai_key) >= 20:
+            rec["settings"]["openai_key"] = openai_key
+        # else: silently ignore obviously-wrong values but do not clear
+    else:
+        # User submitted blank — remove any stale key so TTS fails with a clear message
+        # rather than using an expired/wrong key from a previous Render env setup.
+        rec["settings"].pop("openai_key", None)
+    if claude_key:
+        if len(claude_key) >= 20:
+            rec["settings"]["claude_key"] = claude_key
+    else:
+        rec["settings"].pop("claude_key", None)
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
-    # if user leaves blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
