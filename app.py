@@ -10810,7 +10810,7 @@ label         { font-size: 14px !important; }
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
+                <button class="btn btnMini" id="talkGroupBtn">🔊 Speak</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
@@ -10914,7 +10914,7 @@ label         { font-size: 14px !important; }
             <input type="file" id="dmFiles" multiple style="display:none" />
             <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
             <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
+            <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
             <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
@@ -12562,7 +12562,7 @@ function makeSeat(defn, idx){
           }
         }
 
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -13070,8 +13070,35 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
-    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
+    $("talkGroupBtn").onclick = function() {
+      var text = (typeof _combineGroupOutputs === "function") ? _combineGroupOutputs() : "";
+      if(!text || !text.trim()){
+        if(typeof showToast==="function") showToast("No group reply to speak yet — run a round table prompt first.", "error");
+        return;
+      }
+      var voice = "alloy";
+      try{
+        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[window.selectedSeat||""]||{};
+        voice = tm.tts_voice || "alloy";
+      }catch(_){}
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkGroupBtn"));
+    };
+
+    $("talkDmBtn").onclick = function() {
+      var text = (typeof lastSeatAssistantText !== "undefined" ? lastSeatAssistantText : "") ||
+                 (typeof window.lastSeatAssistantText !== "undefined" ? window.lastSeatAssistantText : "");
+      if(!text || !text.trim()){
+        if(typeof showToast==="function") showToast("No teammate reply to speak yet — send a message first.", "error");
+        return;
+      }
+      var voice = "alloy";
+      try{
+        var seat = window.selectedSeat || "";
+        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[seat]||{};
+        voice = tm.tts_voice || "alloy";
+      }catch(_){}
+      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkDmBtn"));
+    };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
