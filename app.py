@@ -12395,8 +12395,6 @@ function makeSeat(defn, idx){
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
-      window.lastSeatAssistantText = "";
-      window.renderThread = renderThread;
       lastImageState = imageState || lastImageState || {};
       const box = $("thread");
       box.innerHTML = "";
@@ -12564,7 +12562,7 @@ function makeSeat(defn, idx){
           }
         }
 
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -13074,44 +13072,28 @@ function makeSeat(defn, idx){
 
     $("talkGroupBtn").onclick = function() {
       var btn = $("talkGroupBtn");
-      // Toggle stop if already playing
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      var text = (typeof window._combineGroupOutputs === "function")
-        ? window._combineGroupOutputs()
-        : (typeof _combineGroupOutputs === "function" ? _combineGroupOutputs() : "");
-      if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No group reply to speak — run a round table prompt first.", "error");
+      var keys = Object.keys(lastGroupOutputs || {});
+      var text = keys.length ? keys.map(function(k){ return k + ":\n" + (lastGroupOutputs[k]||""); }).join("\n\n---\n\n") : "";
+      if(!text.trim()){
+        if(typeof showToast==="function") showToast("No group reply yet — run a round table prompt first.", "error");
         return;
       }
       var voice = "alloy";
-      try{
-        var seat = window.selectedSeat || selectedSeat || "";
-        var installed = ((window._saStateCache||{}).installed) || (state&&state.installed) || {};
-        var tm = installed[seat] || {};
-        voice = tm.tts_voice || "alloy";
-      }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, btn);
-      else if(typeof showToast==="function") showToast("TTS not ready yet — please wait a moment.", "error");
+      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
+      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
-
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
-      // Toggle stop if already playing
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      var text = window.lastSeatAssistantText || lastSeatAssistantText || "";
-      if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No teammate reply to speak — send a message first.", "error");
+      var text = lastSeatAssistantText || "";
+      if(!text.trim()){
+        if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
         return;
       }
       var voice = "alloy";
-      try{
-        var seat = window.selectedSeat || selectedSeat || "";
-        var installed = ((window._saStateCache||{}).installed) || (state&&state.installed) || {};
-        var tm = installed[seat] || {};
-        voice = tm.tts_voice || "alloy";
-      }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, btn);
-      else if(typeof showToast==="function") showToast("TTS not ready yet — please wait a moment.", "error");
+      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
+      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
 
     // ----- Lighting Mode (ADD v1) -----
@@ -13347,7 +13329,7 @@ function makeSeat(defn, idx){
           try{ setSeatLive(n,"waiting"); }catch(_){}
         }
       }
-      try{ lastGroupOutputs=outputs; window.lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
+      try{ lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
       try{ setOpStatus("Complete"); }catch(_){}
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
     }
@@ -13661,7 +13643,6 @@ function makeSeat(defn, idx){
       }
 
       lastGroupOutputs = outputs;
-      window.lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
       // Show Save to Playbooks when there are group replies
       var savePbBtn = document.getElementById('saveToPlaybooksBtn');
@@ -14017,7 +13998,6 @@ async function pollImageJob(jobId, seatName){
       if(keys.length === 0) return "";
       return keys.map(k => k + ":\n" + (lastGroupOutputs[k] || "")).join("\n\n---\n\n");
     }
-    window._combineGroupOutputs = _combineGroupOutputs;
 
     async function runTacticalPass(pass, ctx){
       const context = (ctx || "seat");
@@ -21035,7 +21015,19 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!stopped) audio.play();
     }catch(e){
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      if(typeof showToast==="function") showToast("TTS error: "+(e.message||"unknown"),"error");
+      const msg = e.message||"unknown";
+      // No OpenAI key — open Settings so user can add it right now
+      if(msg.toLowerCase().includes("openai api key") || msg.toLowerCase().includes("openai_key") || msg.toLowerCase().includes("voice requires")){
+        if(typeof showSettingsModal==="function") showSettingsModal();
+        setTimeout(function(){
+          const keyField = document.getElementById("openaiKey");
+          if(keyField){ keyField.focus(); keyField.style.borderColor="#f87171"; keyField.placeholder="Paste your OpenAI key here (sk-...) — required for voice"; }
+          const keyStatus = document.getElementById("openaiKeyStatus");
+          if(keyStatus){ keyStatus.textContent="\\u26a0\\ufe0f Required for voice"; keyStatus.style.color="#f87171"; }
+        }, 200);
+      } else {
+        if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
+      }
     }
   };
 
@@ -26328,11 +26320,17 @@ def api_tts():
 
     # TTS always uses OpenAI — get the user's own key directly from settings
     openai_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    username = u.get("username", "unknown")
+    print(f"[TTS] user={username} key_present={bool(openai_key)} key_len={len(openai_key)} text_len={len(text)} voice={voice}", flush=True)
     if not openai_key:
+        print(f"[TTS] FAIL: no openai_key in settings for user={username}", flush=True)
         return jsonify({"ok": False, "error": "Voice requires an OpenAI API key. Go to Settings and paste your OpenAI key (sk-...)."}), 400
+
+    openai_key = openai_key.strip()
 
     try:
         oai  = OpenAI(api_key=openai_key)
+        print(f"[TTS] calling openai tts-1 voice={voice} text_preview={text[:60]!r}", flush=True)
         resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
         return Response(
             resp.content,
@@ -26343,6 +26341,7 @@ def api_tts():
             },
         )
     except Exception as exc:
+        print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
 
