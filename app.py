@@ -4476,6 +4476,285 @@ def api_set_pinned_features():
     return jsonify({"ok": True, "pinned_features": pinned})
 
 
+# =========================
+# OPERATOR QUICK NOTES (scratch pad)
+# =========================
+QUICK_NOTES_MAX_CHARS = 5000
+
+@app.get("/api/user/notes")
+def api_get_user_notes():
+    """Return the operator's quick notes scratch pad."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    notes = ((u.get("settings") or {}).get("quick_notes") or "").strip()
+    return jsonify({"ok": True, "notes": notes, "max_chars": QUICK_NOTES_MAX_CHARS})
+
+
+@app.post("/api/user/notes")
+def api_set_user_notes():
+    """Save the operator's quick notes scratch pad. Stored in user settings — no new files."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    notes   = str(payload.get("notes") or "")[:QUICK_NOTES_MAX_CHARS]
+    uname   = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    users   = load_users()
+    rec     = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    rec["settings"]["quick_notes"] = notes
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
+    return jsonify({"ok": True, "notes": notes, "char_count": len(notes), "max_chars": QUICK_NOTES_MAX_CHARS})
+
+
+# =============================================================================
+# PROMPT LIBRARY
+# Built-in prompts are hardcoded here — zero storage, always available.
+# User custom prompts + usage tracking live in DATA/prompt_library/{user}.json
+# =============================================================================
+
+PROMPT_LIBRARY: Dict[str, List[Dict[str, Any]]] = {
+    "Alex": [
+        {"id": "alex_001", "title": "Offer Audit",            "category": "Strategy",    "prompt": "Audit my current offer and tell me what's missing, unclear, or weak from a positioning standpoint. Be direct — I want the honest diagnosis, not encouragement."},
+        {"id": "alex_002", "title": "90-Day Strategy",        "category": "Strategy",    "prompt": "Build me a 90-day marketing strategy for my business and offer. Focus on the highest-leverage moves first. Assume I have limited time and need sequenced priorities, not a list of everything."},
+        {"id": "alex_003", "title": "Positioning Statement",  "category": "Positioning", "prompt": "Write a positioning statement for my offer that clearly differentiates me from competitors. It should speak directly to my ideal client's core problem and make the choice obvious."},
+        {"id": "alex_004", "title": "Objection Map",          "category": "Strategy",    "prompt": "Identify the top 3 objections my ideal client has before buying my offer and show me how to neutralize each one without being manipulative or dismissive."},
+        {"id": "alex_005", "title": "Value Ladder",           "category": "Offer Design","prompt": "Map out a complete value ladder for my business from a free entry point up to a premium offer. Show me the logical progression a client would take and what each level should deliver."},
+        {"id": "alex_006", "title": "Messaging Audit",        "category": "Positioning", "prompt": "Analyze my current messaging and tell me what audience it's actually attracting versus who I want to attract. Where is the gap and what's causing it?"},
+        {"id": "alex_007", "title": "Launch Strategy",        "category": "Campaigns",   "prompt": "Create a complete launch strategy for a new offer — from first announcement through to close. Include phases, key messages for each phase, and what I should avoid."},
+        {"id": "alex_008", "title": "Top Leverage Moves",     "category": "Strategy",    "prompt": "What are the 5 highest-leverage marketing moves I should make this month? Rank them by impact-to-effort ratio and explain your reasoning for each."},
+        {"id": "alex_009", "title": "Authority Narrative",    "category": "Positioning", "prompt": "Build a brand narrative that positions me as the authority in my niche. It should be grounded in what I've actually done — not inflated — and resonate with serious buyers."},
+        {"id": "alex_010", "title": "Competitor Breakdown",   "category": "Research",    "prompt": "Reverse-engineer the marketing strategy of a successful competitor or brand in my space. What is likely working, what are they optimizing for, and what can I learn from it?"},
+    ],
+    "Willow": [
+        {"id": "willow_001", "title": "Clarity Rewrite",       "category": "Editing",    "prompt": "Rewrite the following copy for maximum clarity without changing the meaning. Flag anything you changed and explain why: [paste your text here]"},
+        {"id": "willow_002", "title": "Language Audit",        "category": "Audit",      "prompt": "Audit the following message for any language that could be misunderstood, come across as pushy, or undermine trust. Mark each problem and explain what's wrong: [paste your text here]"},
+        {"id": "willow_003", "title": "Tone Variations",       "category": "Editing",    "prompt": "Give me 5 different ways to say the following message. Each version should maintain the exact same meaning but use a noticeably different tone. Label each tone: [paste your message here]"},
+        {"id": "willow_004", "title": "Simplify",              "category": "Editing",    "prompt": "Simplify the following paragraph so a non-expert can understand it immediately, without losing the core point or oversimplifying to the point of being vague: [paste your text here]"},
+        {"id": "willow_005", "title": "Credibility Check",     "category": "Audit",      "prompt": "Review the following content and flag any language that accidentally undermines my credibility, authority, or confidence. Show me the exact phrases and what to replace them with: [paste your text here]"},
+        {"id": "willow_006", "title": "Subject Line Rewrite",  "category": "Editing",    "prompt": "Rewrite this subject line 5 ways. Each version should use a different emotional hook but with no hype, no false urgency, and no clickbait. Show the original and all 5 rewrites: [paste subject line here]"},
+        {"id": "willow_007", "title": "Tighten This",          "category": "Editing",    "prompt": "Tighten the following message. Remove filler words, redundant sentences, and anything that doesn't earn its place. Keep the voice intact: [paste your text here]"},
+        {"id": "willow_008", "title": "Tone Consistency",      "category": "Audit",      "prompt": "Check the following content for tone consistency. Does it sound like the same person wrote all of it? Flag any shifts and tell me what's causing them: [paste your content here]"},
+        {"id": "willow_009", "title": "Plain Language",        "category": "Editing",    "prompt": "Translate the following technical or industry-specific concept into plain language my clients can understand immediately, without jargon or over-simplification: [paste concept here]"},
+        {"id": "willow_010", "title": "Most Damaging Line",    "category": "Audit",      "prompt": "Read the following copy and tell me: what is the single sentence or phrase doing the most damage to trust, clarity, or conversion? Show me what to fix and exactly how to fix it: [paste your text here]"},
+    ],
+    "Ava": [
+        {"id": "ava_001", "title": "Objection Research",   "category": "Research",    "prompt": "Research the top 5 objections people commonly have about [topic/offer/industry]. For each one, tell me what the evidence actually says — separate confirmed facts from assumptions."},
+        {"id": "ava_002", "title": "Misconceptions",       "category": "Research",    "prompt": "What are the most common misconceptions about [topic] in my market? What does the evidence actually show? Label each as confirmed, likely, or unclear."},
+        {"id": "ava_003", "title": "Known vs Assumed",     "category": "Analysis",    "prompt": "Summarize what is actually known versus what is commonly assumed about [topic]. Use three columns: Known (evidence-backed), Assumed (widely believed but unverified), and Unknown (open questions)."},
+        {"id": "ava_004", "title": "Knowledge Gaps",       "category": "Analysis",    "prompt": "Find the gaps in my understanding of [topic] based on this context: [describe what you know]. Tell me what questions I should be asking that I'm currently not asking."},
+        {"id": "ava_005", "title": "Steel Man",            "category": "Analysis",    "prompt": "What are the strongest arguments against the following position I hold? Present them as fairly and completely as possible. Do not argue for my side — I need the best version of the opposing view: [state your position]"},
+        {"id": "ava_006", "title": "Competitor Brief",     "category": "Research",    "prompt": "Build a knowledge brief on [competitor/industry/trend]. Stick to verifiable facts and clearly label anything that is inferred. I need signal, not noise."},
+        {"id": "ava_007", "title": "Strategy Evidence",    "category": "Research",    "prompt": "What does the available evidence say about the effectiveness of [strategy/tactic]? Separate strong evidence from anecdote. Tell me where the evidence is weak or missing."},
+        {"id": "ava_008", "title": "Assumption Audit",     "category": "Analysis",    "prompt": "Identify the assumptions embedded in the following plan or strategy. For each assumption, tell me whether it is validated, unvalidated, or untestable: [paste your plan here]"},
+        {"id": "ava_009", "title": "Leading Indicators",   "category": "Analysis",    "prompt": "What are the leading indicators I should be tracking to know whether [strategy/goal] is actually working? Separate leading indicators (predictive) from lagging indicators (results)."},
+        {"id": "ava_010", "title": "Key Insights",         "category": "Synthesis",   "prompt": "Synthesize what is currently known about [topic] into the 5 most important insights I need to act on. Label the confidence level of each insight and note what would change your conclusions."},
+    ],
+    "Orion": [
+        {"id": "orion_001", "title": "Process Map",          "category": "Workflow",    "prompt": "Map out all the manual steps in my current [process]. For each step, identify: (1) can it be automated, (2) should it stay manual, and (3) what breaks if it fails. Be specific."},
+        {"id": "orion_002", "title": "Onboarding System",    "category": "Systems",    "prompt": "Design a reliable client onboarding system that runs without requiring my direct involvement. Define the trigger, each automated step, what requires human input, and where the failure points are."},
+        {"id": "orion_003", "title": "Bottleneck Fix",       "category": "Audit",      "prompt": "Identify the 3 biggest bottlenecks in my current workflow based on this description: [describe your workflow]. For each bottleneck, explain what's causing it and the most reliable fix."},
+        {"id": "orion_004", "title": "Automation Plan",      "category": "Systems",    "prompt": "Build an automation plan for [specific process]. Structure it as: trigger → steps → outputs → failure modes → what to test before going live. Do not automate what hasn't worked manually first."},
+        {"id": "orion_005", "title": "Tools Audit",          "category": "Audit",      "prompt": "Audit my current tools and workflows based on this description: [describe your stack]. Identify gaps (missing tools), redundancies (duplicate functions), and failure risks (single points of failure)."},
+        {"id": "orion_006", "title": "Lead Pipeline",        "category": "Systems",    "prompt": "Design a lead-to-client pipeline that maximizes automation without losing the personal touch at critical decision points. Show me which stages should be automated and which must stay human."},
+        {"id": "orion_007", "title": "Scale Stress Test",    "category": "Audit",      "prompt": "If my business 10x'd in volume overnight, what would break first? Walk through my workflow and identify the 5 most fragile points that would fail under that load."},
+        {"id": "orion_008", "title": "SOP Builder",          "category": "Workflow",   "prompt": "Create a standard operating procedure for [task] that someone with no prior context could follow and complete correctly without asking me any questions. Include decision points and failure responses."},
+        {"id": "orion_009", "title": "Weekly Reporting",     "category": "Systems",    "prompt": "Design a weekly reporting system that tells me the true health of my business in under 5 minutes. What are the exact metrics, where does the data come from, and what does each number tell me?"},
+        {"id": "orion_010", "title": "Remove Myself",        "category": "Workflow",   "prompt": "What is the minimum viable set of automations I need to fully remove myself from [repeating task]? Define the exact trigger, tools, steps, and the first sign it's failing so I can catch it early."},
+    ],
+    "Sunshine": [
+        {"id": "sunshine_001", "title": "Call Prep",             "category": "Sales Calls", "prompt": "I'm about to get on a discovery call with [describe the prospect and context]. Help me prepare: what are the right questions to ask, what signals should I listen for, and what should I avoid doing on this call?"},
+        {"id": "sunshine_002", "title": "Objection Response",    "category": "Objections",  "prompt": "A prospect said: '[objection]'. Help me craft a response that is honest, calm, and non-pressuring. I do not want to overcome objections — I want to understand them and respond with integrity."},
+        {"id": "sunshine_003", "title": "Re-Engage Lost Lead",   "category": "Follow-Up",   "prompt": "Write a follow-up message for a lead who went quiet after showing genuine interest. The message should be natural, non-pushy, and give them an easy way to re-engage or opt out cleanly."},
+        {"id": "sunshine_004", "title": "Signal Analysis",       "category": "Analysis",    "prompt": "Analyze the following conversation and tell me what buying signals I may have missed, what hesitation signals I should have addressed, and what I should do next: [paste conversation]"},
+        {"id": "sunshine_005", "title": "Qualification Framework","category": "Systems",    "prompt": "Help me build a qualification framework for my offer. What are the 5 questions that reliably tell me whether someone is ready, willing, and able to buy — and what answers disqualify them?"},
+        {"id": "sunshine_006", "title": "Ethical Close",         "category": "Closing",     "prompt": "Design an ethical close sequence for [offer] that creates genuine urgency without manufactured pressure or false scarcity. Every element should be true and something I can stand behind."},
+        {"id": "sunshine_007", "title": "Think About It",        "category": "Objections",  "prompt": "A prospect said 'I need to think about it.' What is the ideal response that keeps the door open, respects their process, and helps me understand if there's a real concern underneath?"},
+        {"id": "sunshine_008", "title": "First Outreach",        "category": "Prospecting", "prompt": "Write a first outreach message for [describe lead type and context]. The goal is to open a genuine conversation — not pitch. It should feel like it was written specifically for them, not copied from a template."},
+        {"id": "sunshine_009", "title": "Follow-Up Sequence",    "category": "Follow-Up",   "prompt": "Build a 3-touch follow-up sequence for leads who expressed interest but didn't book. Each message should add value, respect their time, and make it easy to take the next step or gracefully exit."},
+        {"id": "sunshine_010", "title": "Lead Readiness",        "category": "Analysis",    "prompt": "Based on the following signals and context, help me identify which leads are most ready to move forward and which need more nurturing before I should present an offer: [describe leads and signals]"},
+    ],
+    "Luna": [
+        {"id": "luna_001", "title": "Visual Identity Brief",  "category": "Brand",      "prompt": "Design a complete visual identity brief for [brand/offer]. Cover: primary color palette with purpose, typography direction, visual mood, photography/illustration style, what to avoid, and the single visual impression it should leave."},
+        {"id": "luna_002", "title": "Content Direction",      "category": "Content",    "prompt": "Describe the complete visual direction for a [content type: post/ad/reel/thumbnail] about [topic] that is consistent with [describe the brand]. Be specific enough that a designer could execute it without asking questions."},
+        {"id": "luna_003", "title": "Visual Audit",           "category": "Audit",      "prompt": "Audit the following visual concept for hierarchy, clarity, and brand consistency. Tell me what's working, what's competing for attention, and what to change first: [describe the visual in detail]"},
+        {"id": "luna_004", "title": "5 Creative Directions",  "category": "Ideation",   "prompt": "Give me 5 distinctly different creative directions for a [content type] about [topic]. Each direction should have a different emotional tone, visual approach, and reason for existing. Do not blend them together."},
+        {"id": "luna_005", "title": "Image Gen Prompt",       "category": "Generation", "prompt": "Create a precise image generation prompt for a cinematic, high-quality hero image for [brand/offer/campaign]. Include: subject, composition, lighting, mood, color palette, style reference, and what to exclude."},
+        {"id": "luna_006", "title": "Scroll Stopper",         "category": "Content",    "prompt": "What specific visual elements would make [content type] stop the scroll immediately for [target audience]? Be tactical — describe composition choices, contrast decisions, focal point placement, and motion if applicable."},
+        {"id": "luna_007", "title": "Campaign Visual Arc",    "category": "Campaigns",  "prompt": "Design the visual storytelling arc for a [campaign/launch]. What does the audience see first, what builds in the middle, and what is the visual payoff at the end? Each phase should have a distinct visual signature."},
+        {"id": "luna_008", "title": "Authority Visual",       "category": "Brand",      "prompt": "Describe how to make [existing content type] look more visually authoritative and premium without a full redesign. Focus on the 3 highest-leverage changes I can make right now."},
+        {"id": "luna_009", "title": "Mood Board in Words",    "category": "Brand",      "prompt": "Create a detailed mood board brief in words for [brand direction/campaign]. Describe: the emotional territory, visual references (without naming copyrighted work), what the imagery should feel like, and explicitly what to exclude."},
+        {"id": "luna_010", "title": "Biggest Visual Mistake", "category": "Audit",      "prompt": "Based on this description of my current content and brand: [describe], what is the single biggest visual mistake I am making that is costing me credibility or attention? Show me exactly how to fix it."},
+    ],
+    "Atlis": [
+        {"id": "atlis_001", "title": "Rule Review",           "category": "Governance", "prompt": "Review the following instruction I am about to give to my team. Is it clear, unambiguous, internally consistent, and actually enforceable? Flag any problems and suggest a tighter version: [paste instruction]"},
+        {"id": "atlis_002", "title": "Role Drift Check",      "category": "Integrity",  "prompt": "I believe one of my teammates may be drifting from their defined role. Here is what happened: [describe the exchange or behavior]. Is this role drift? If so, what caused it and what is the correct response?"},
+        {"id": "atlis_003", "title": "Team Structure Audit",  "category": "Governance", "prompt": "Audit the current team structure. Are there any role overlaps where two teammates might give conflicting guidance? Are there any gaps where no teammate is responsible for something important?"},
+        {"id": "atlis_004", "title": "Rule Change Risk",      "category": "Governance", "prompt": "I want to change a core operating rule. Here is the current rule and my proposed change: [describe both]. What are the downstream risks, conflicts with other rules, and unintended consequences I should consider before making this change?"},
+        {"id": "atlis_005", "title": "Out-of-Role Response",  "category": "Integrity",  "prompt": "A teammate gave me advice or output that appears to be outside their defined role. Here is what happened: [describe]. How should I handle this to maintain system integrity without disrupting team function?"},
+        {"id": "atlis_006", "title": "Framework Review",      "category": "Governance", "prompt": "Review the following workflow or plan against the core operating framework. Identify any steps that violate the framework's principles, create role ambiguity, or bypass a required process: [paste workflow]"},
+        {"id": "atlis_007", "title": "Behavior Diagnosis",    "category": "Integrity",  "prompt": "I am seeing inconsistent or unexpected behavior from [teammate]. Here are examples: [describe]. Help me diagnose whether the root cause is a prompt issue, a memory conflict, a role boundary problem, or something else."},
+        {"id": "atlis_008", "title": "Request Check",         "category": "Integrity",  "prompt": "Before I send this request to [teammate], I want to verify it is within their role and appropriate for them to execute. Here is what I plan to ask: [describe request]. Is this appropriate? If not, who should handle it?"},
+        {"id": "atlis_009", "title": "Role Boundary Writer",  "category": "Governance", "prompt": "Help me write a clear, enforceable role boundary definition for a new custom teammate I am building. Their intended function is: [describe]. Write a mission, a responsibilities list, and a will-not-do list that leaves no ambiguity."},
+        {"id": "atlis_010", "title": "Scope Check",           "category": "Audit",      "prompt": "Run a quick integrity check across my current team usage. Based on this description of recent interactions: [describe], are any teammates being regularly used outside their designed scope? What are the risks and what should I correct?"},
+    ],
+}
+
+# Storage helpers for custom prompts + usage tracking
+PROMPT_LIBRARY_DIR = DATA / "prompt_library"
+PROMPT_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+
+def _prompt_library_path(username: str) -> Path:
+    return PROMPT_LIBRARY_DIR / f"{_safe_name(username or 'anon')}.json"
+
+def _load_user_prompt_data(username: str) -> Dict[str, Any]:
+    data = load_json(_prompt_library_path(username), {"custom": [], "usage": {}, "updated_at": None})
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("custom", [])
+    data.setdefault("usage", {})
+    if not isinstance(data["custom"], list):
+        data["custom"] = []
+    if not isinstance(data["usage"], dict):
+        data["usage"] = {}
+    return data
+
+def _save_user_prompt_data(username: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_prompt_library_path(username), data)
+
+def _build_prompt_response(username: str, teammate_filter: str = "") -> Dict[str, Any]:
+    """Merge built-ins with user usage counts and custom prompts, optionally filter by teammate."""
+    user_data = _load_user_prompt_data(username)
+    usage     = user_data.get("usage") or {}
+    custom    = user_data.get("custom") or []
+
+    result: Dict[str, Any] = {}
+
+    for tm, prompts in PROMPT_LIBRARY.items():
+        if teammate_filter and tm != teammate_filter:
+            continue
+        # Group built-ins by category with usage counts merged in
+        by_category: Dict[str, List[Dict[str, Any]]] = {}
+        for p in prompts:
+            cat = p.get("category", "General")
+            entry = dict(p)
+            entry["builtin"]   = True
+            entry["teammate"]  = tm
+            entry["use_count"] = int(usage.get(p["id"], 0))
+            by_category.setdefault(cat, []).append(entry)
+
+        # Attach user customs for this teammate
+        tm_customs = [c for c in custom if c.get("teammate") == tm]
+        for c in tm_customs:
+            cat = c.get("category", "Custom")
+            entry = dict(c)
+            entry["use_count"] = int(usage.get(c["id"], 0))
+            by_category.setdefault(cat, []).append(entry)
+
+        result[tm] = {
+            "teammate":   tm,
+            "categories": by_category,
+            "total":      len(prompts) + len(tm_customs),
+        }
+
+    return result
+
+
+@app.get("/api/prompts")
+def api_prompts_get():
+    """Return all prompts (built-in + custom) with usage counts.
+    Optional ?teammate=Alex to filter to a single teammate."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname    = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    teammate = (request.args.get("teammate") or "").strip()
+    data     = _build_prompt_response(uname, teammate_filter=teammate)
+    return jsonify({"ok": True, "prompts": data, "teammate_filter": teammate or None})
+
+
+@app.post("/api/prompts")
+def api_prompts_create():
+    """Save a new custom prompt to the user's prompt library."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    payload = request.get_json(force=True, silent=True) or {}
+
+    teammate = (payload.get("teammate") or "").strip()
+    title    = (payload.get("title")    or "").strip()[:80]
+    prompt   = (payload.get("prompt")   or "").strip()[:2000]
+    category = (payload.get("category") or "Custom").strip()[:40]
+
+    if not teammate:
+        return jsonify({"ok": False, "error": "teammate is required"}), 400
+    if not title:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not prompt:
+        return jsonify({"ok": False, "error": "prompt is required"}), 400
+
+    new_prompt = {
+        "id":         "custom_" + uuid.uuid4().hex[:12],
+        "teammate":   teammate,
+        "title":      title,
+        "prompt":     prompt,
+        "category":   category,
+        "builtin":    False,
+        "created_at": now_iso(),
+    }
+
+    data = _load_user_prompt_data(uname)
+    data["custom"].append(new_prompt)
+    # Cap at 200 custom prompts per user
+    if len(data["custom"]) > 200:
+        data["custom"] = data["custom"][-200:]
+    _save_user_prompt_data(uname, data)
+
+    return jsonify({"ok": True, "prompt": {**new_prompt, "use_count": 0}})
+
+
+@app.delete("/api/prompts/<prompt_id>")
+def api_prompts_delete(prompt_id: str):
+    """Delete a custom prompt. Built-in prompts cannot be deleted."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    # Protect built-ins
+    for prompts in PROMPT_LIBRARY.values():
+        if any(p["id"] == prompt_id for p in prompts):
+            return jsonify({"ok": False, "error": "Built-in prompts cannot be deleted."}), 403
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    data  = _load_user_prompt_data(uname)
+    before = len(data["custom"])
+    data["custom"] = [c for c in data["custom"] if c.get("id") != prompt_id]
+    if len(data["custom"]) == before:
+        return jsonify({"ok": False, "error": "Prompt not found"}), 404
+    # Clean up usage tracking for deleted prompt
+    data["usage"].pop(prompt_id, None)
+    _save_user_prompt_data(uname, data)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/prompts/<prompt_id>/use")
+def api_prompts_use(prompt_id: str):
+    """Record a prompt being used. Increments use_count for built-ins and custom prompts alike."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    data  = _load_user_prompt_data(uname)
+    data["usage"][prompt_id] = int(data["usage"].get(prompt_id, 0)) + 1
+    _save_user_prompt_data(uname, data)
+    return jsonify({"ok": True, "prompt_id": prompt_id, "use_count": data["usage"][prompt_id]})
+
+
 @app.get("/api/framework")
 def api_get_framework():
     return jsonify({"ok": True, "framework": load_core_framework()})
@@ -9320,6 +9599,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saTeamDrop">
             <button class="saDropItem" id="frameworkBtn">Core framework</button>
+            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
             <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
             <button class="saDropItem" id="createTeamBtn">Create teammate</button>
             <button class="saDropItem" id="installFullBtn">Install full team</button>
@@ -9400,6 +9680,7 @@ label         { font-size: 14px !important; }
 
       <div class="mobileDrawerGrid">
         <button class="btn" data-click="frameworkBtn">Core framework</button>
+        <button class="btn" data-click="promptLibraryBtn">📚 Prompt Library</button>
         <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
@@ -9850,6 +10131,62 @@ label         { font-size: 14px !important; }
     <button class="btn btnPrimary" id="leadHandoffGenerate">Write draft</button>
   </div>
   <div class="tiny" id="leadHandoffStatus"></div>
+</div>
+
+<div class="modalForm" id="promptLibraryForm" style="display:none;">
+  <div class="modalInner">
+    <style>
+      #plTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+      .plTab{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.08);color:#c4b5fd;transition:background .15s;}
+      .plTab.active{background:rgba(124,58,237,.5);color:#f3e8ff;border-color:rgba(124,58,237,.8);}
+      .plCat{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin:14px 0 6px;}
+      .plCard{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 13px;margin-bottom:7px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;transition:background .15s;}
+      .plCard:hover{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.4);}
+      .plCardBody{flex:1;min-width:0;}
+      .plCardTitle{font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;}
+      .plCardText{font-size:12px;color:#94a3b8;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:4px;}
+      .plCatBadge{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
+      .plUseBadge{font-size:10px;color:#64748b;}
+      .plUseBtn{flex-shrink:0;padding:5px 12px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.18);color:#c4b5fd;white-space:nowrap;}
+      .plUseBtn:hover{background:rgba(124,58,237,.4);}
+      .plDelBtn{flex-shrink:0;padding:4px 8px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#fca5a5;}
+      .plDelBtn:hover{background:rgba(239,68,68,.18);}
+      #plSaveForm{margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08);}
+      #plSaveForm label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px;margin-top:10px;}
+      #plSaveForm input,#plSaveForm textarea,#plSaveForm select{width:100%;background:rgba(11,16,36,.92);color:#e2e8f0;border:1px solid rgba(42,58,106,.9);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;}
+      #plSaveForm textarea{height:80px;resize:vertical;}
+      #plStatus{font-size:12px;margin-top:6px;color:#6ee7b7;min-height:14px;}
+    </style>
+
+    <!-- Teammate tabs -->
+    <div id="plTabs"></div>
+
+    <!-- Prompt cards -->
+    <div id="plCards" style="max-height:420px;overflow-y:auto;padding-right:4px;"></div>
+
+    <!-- Save custom prompt form -->
+    <div id="plSaveForm">
+      <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:2px;">➕ Save a Custom Prompt</div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:6px;">Saved prompts appear in the library for the teammate you choose.</div>
+      <label>Teammate</label>
+      <select id="plNewTeammate"></select>
+      <label>Title</label>
+      <input id="plNewTitle" placeholder="Short label, e.g. My Outreach Template" maxlength="80"/>
+      <label>Category</label>
+      <input id="plNewCategory" placeholder="e.g. Follow-Up, Strategy, Custom" maxlength="40" value="Custom"/>
+      <label>Prompt</label>
+      <textarea id="plNewPrompt" placeholder="Write your prompt here…" maxlength="2000"></textarea>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <button class="btn btnPrimary" id="plSaveBtn" style="font-size:13px;padding:8px 18px;">Save Prompt</button>
+        <div id="plStatus"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;text-align:right;">
+      <button class="btn" id="plCloseBtn" style="font-size:13px;">Close</button>
+    </div>
+  </div>
 </div>
 
 <div class="modalForm" id="sessionObjectiveForm" style="display:none;">
@@ -11269,6 +11606,7 @@ function applyModalPos(){
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
+      if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
     }
 
@@ -14462,6 +14800,188 @@ Challenge weak assumptions. Surface risks.`;
         $("frameworkStatus").innerText = "Load failed";
       }
     }
+
+    // ===== PROMPT LIBRARY =====
+    const TEAMMATE_ORDER = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
+    let plActiveTeammate = "";
+    let plAllData = {};
+
+    function showPromptLibraryModal(){
+      $("modalTitle").innerText = "📚 Prompt Library";
+      $("modalBody").innerText = "";
+      hideAllModalForms();
+      $("modalBody").style.display = "none";
+      $("promptLibraryForm").style.display = "block";
+      $("overlay").classList.add("show");
+      applyModalPos();
+      const sc = $("modalScroll");
+      if(sc) sc.scrollTop = 0;
+      loadPromptLibrary();
+    }
+
+    async function loadPromptLibrary(){
+      $("plCards").innerHTML = '<div style="color:#64748b;font-size:13px;padding:10px 0;">Loading…</div>';
+      try{
+        const res  = await fetch("/api/prompts");
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||"Load failed");
+        plAllData = data.prompts || {};
+        renderPlTabs();
+        // Default to active seat or first available
+        const firstTm = plActiveTeammate && plAllData[plActiveTeammate]
+          ? plActiveTeammate
+          : (selectedSeat && plAllData[selectedSeat] ? selectedSeat : (TEAMMATE_ORDER.find(t=>plAllData[t]) || Object.keys(plAllData)[0] || ""));
+        plActiveTeammate = firstTm;
+        renderPlCards(plActiveTeammate);
+        populatePlTeammateDropdown();
+      }catch(e){
+        $("plCards").innerHTML = '<div style="color:#fca5a5;font-size:13px;">Could not load prompts.</div>';
+      }
+    }
+
+    function renderPlTabs(){
+      const container = $("plTabs");
+      if(!container) return;
+      const teammates = TEAMMATE_ORDER.filter(t => plAllData[t]);
+      container.innerHTML = teammates.map(tm =>
+        `<button class="plTab${tm===plActiveTeammate?' active':''}" onclick="plSwitchTab('${tm}')">${tm}</button>`
+      ).join("");
+    }
+
+    window.plSwitchTab = function(tm){
+      plActiveTeammate = tm;
+      renderPlTabs();
+      renderPlCards(tm);
+    };
+
+    function renderPlCards(tm){
+      const container = $("plCards");
+      if(!container) return;
+      const tmData = plAllData[tm];
+      if(!tmData){ container.innerHTML = '<div style="color:#64748b;font-size:13px;">No prompts found.</div>'; return; }
+
+      const cats = tmData.categories || {};
+      let html = "";
+      // Built-in categories first, then Custom
+      const catKeys = Object.keys(cats).sort((a,b) => a==="Custom"?1:b==="Custom"?-1:a.localeCompare(b));
+      for(const cat of catKeys){
+        const prompts = cats[cat] || [];
+        if(!prompts.length) continue;
+        html += `<div class="plCat">${escapeHtml(cat)}</div>`;
+        for(const p of prompts){
+          const builtin = p.builtin ? "" : `<button class="plDelBtn" onclick="plDelete('${p.id}',event)" title="Delete">✕</button>`;
+          const uses    = p.use_count > 0 ? `<span class="plUseBadge">Used ${p.use_count}×</span>` : "";
+          html += `
+          <div class="plCard" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">
+            <div class="plCardBody">
+              <div class="plCardTitle">${escapeHtml(p.title)}</div>
+              <div class="plCardText">${escapeHtml((p.prompt||"").slice(0,120))}…</div>
+              <div class="plCardMeta">
+                <span class="plCatBadge">${escapeHtml(p.category||"")}</span>
+                ${uses}
+              </div>
+            </div>
+            <button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>
+            ${builtin}
+          </div>`;
+        }
+      }
+      container.innerHTML = html || '<div style="color:#64748b;font-size:13px;">No prompts yet.</div>';
+    }
+
+    // Map prompt id back to full text from plAllData
+    function plFindPrompt(id){
+      for(const tm of Object.keys(plAllData)){
+        const cats = (plAllData[tm]||{}).categories || {};
+        for(const prompts of Object.values(cats)){
+          const found = prompts.find(p=>p.id===id);
+          if(found) return found;
+        }
+      }
+      return null;
+    }
+
+    window.plUse = async function(id, tm, e){
+      if(e) e.stopPropagation();
+      const p = plFindPrompt(id);
+      if(!p) return;
+      // Fill the chat input (DM box for the teammate's seat)
+      const dmInput = $("followInput");
+      if(dmInput){
+        dmInput.value = p.prompt;
+        dmInput.focus();
+        // Switch seat to the teammate if they're available
+        if(tm && tm !== selectedSeat && typeof selectSeat === "function"){
+          selectSeat(tm);
+        }
+      }
+      // Track usage
+      try{ await fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
+      // Update local count for immediate feedback
+      const found = plFindPrompt(id);
+      if(found) found.use_count = (found.use_count||0)+1;
+      // Close the library
+      hideModal();
+      showToast("Prompt loaded — edit it then press Send");
+    };
+
+    window.plDelete = async function(id, e){
+      if(e) e.stopPropagation();
+      if(!confirm("Delete this custom prompt?")) return;
+      try{
+        const res  = await fetch("/api/prompts/"+encodeURIComponent(id),{method:"DELETE"});
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||"Delete failed");
+        showToast("Prompt deleted");
+        await loadPromptLibrary();
+      }catch(err){
+        showToast("Could not delete: "+(err.message||"error"));
+      }
+    };
+
+    function populatePlTeammateDropdown(){
+      const sel = $("plNewTeammate");
+      if(!sel) return;
+      const tms = TEAMMATE_ORDER.filter(t=>plAllData[t]);
+      sel.innerHTML = tms.map(t=>`<option value="${t}"${t===plActiveTeammate?" selected":""}>${t}</option>`).join("");
+    }
+
+    if($("plSaveBtn")){
+      $("plSaveBtn").onclick = async () => {
+        const tm       = ($("plNewTeammate")||{}).value || "";
+        const title    = ($("plNewTitle")||{}).value?.trim() || "";
+        const category = ($("plNewCategory")||{}).value?.trim() || "Custom";
+        const prompt   = ($("plNewPrompt")||{}).value?.trim() || "";
+        const status   = $("plStatus");
+        if(!tm||!title||!prompt){ if(status) status.innerText="Teammate, title, and prompt are required."; return; }
+        if(status) status.innerText = "Saving…";
+        try{
+          const res  = await fetch("/api/prompts",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({teammate:tm,title,category,prompt})
+          });
+          const data = await res.json();
+          if(!data.ok) throw new Error(data.error||"Save failed");
+          if($("plNewTitle"))    $("plNewTitle").value    = "";
+          if($("plNewPrompt"))   $("plNewPrompt").value   = "";
+          if($("plNewCategory")) $("plNewCategory").value = "Custom";
+          if(status) status.innerText = "✅ Saved!";
+          setTimeout(()=>{ if(status) status.innerText=""; },3000);
+          plActiveTeammate = tm;
+          await loadPromptLibrary();
+        }catch(err){
+          if(status) status.innerText = "Error: "+(err.message||"save failed");
+        }
+      };
+    }
+
+    if($("plCloseBtn")) $("plCloseBtn").onclick = () => hideModal();
+
+    $("promptLibraryBtn").onclick = () => {
+      showPromptLibraryModal();
+    };
+    // ===== END PROMPT LIBRARY =====
 
     $("frameworkBtn").onclick = async () => {
       showFrameworkModal();
