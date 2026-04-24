@@ -21003,16 +21003,26 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const blob = await resp.blob();
       const url  = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.preload = "auto";
       _currentTtsAudio = audio;
       audio.onended = ()=>{
         URL.revokeObjectURL(url); _currentTtsAudio=null;
         if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
       };
-      audio.onerror = ()=>{
+      audio.onerror = (ev)=>{
         URL.revokeObjectURL(url); _currentTtsAudio=null;
         if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+        if(typeof showToast==="function") showToast("Audio playback error","error");
       };
-      if(!stopped) audio.play();
+      if(!stopped){
+        try{
+          await audio.play();
+        }catch(playErr){
+          URL.revokeObjectURL(url); _currentTtsAudio=null;
+          if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+          if(typeof showToast==="function") showToast("Audio blocked: "+playErr.message,"error");
+        }
+      }
     }catch(e){
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
       const msg = e.message||"unknown";
