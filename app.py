@@ -55,6 +55,32 @@ OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
 
+# ── Startup key diagnostic (prints to Render logs) ───────────────────────────
+def _startup_key_check():
+    key = (OPENAI_API_KEY or "").strip()
+    if not key:
+        print("[STARTUP] ⚠️  OPENAI_API_KEY is NOT SET in environment. TTS and GPT will fail.", flush=True)
+        return
+    hint = "sk-..." + key[-4:] if len(key) >= 4 else "???"
+    print(f"[STARTUP] OPENAI_API_KEY present: {hint} (len={len(key)})", flush=True)
+    if not key.startswith("sk-"):
+        print("[STARTUP] ⚠️  Key does not start with 'sk-' — may be invalid.", flush=True)
+    if " " in key or "\n" in key or "\r" in key:
+        print("[STARTUP] ⚠️  Key contains whitespace — strip it in Render env.", flush=True)
+    # Quick live test
+    try:
+        from openai import OpenAI as _OAI
+        _c = _OAI(api_key=key)
+        _r = _c.audio.speech.create(model="tts-1", voice="alloy", input="ok")
+        print(f"[STARTUP] ✅ TTS smoke test PASSED ({len(_r.content)} bytes)", flush=True)
+    except Exception as _e:
+        print(f"[STARTUP] ❌ TTS smoke test FAILED: {_e}", flush=True)
+
+try:
+    _startup_key_check()
+except Exception as _ke:
+    print(f"[STARTUP] key check error: {_ke}", flush=True)
+
 # Uploads
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "12"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -4304,20 +4330,19 @@ def api_set_user_settings():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
-        if new_key:
-            _mark_onboarding_step(uname, "preferred_ai", True)
-    except Exception:
-        pass
-
-
     data = request.get_json(force=True) or {}
     openai_key = (data.get("openai_key") or "").strip()
     claude_key = (data.get("claude_key") or "").strip()
     global_default_model = (data.get("global_default_model") or "").strip()
+
+    # onboarding_openai_key: mark OpenAI key step when a non-empty key is being saved
+    # NOTE: this must run AFTER parsing the request body so we check the NEW key, not the old one
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+        if openai_key:
+            _mark_onboarding_step(uname, "preferred_ai", True)
+    except Exception:
+        pass
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -4334,13 +4359,15 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
+    # Only overwrite the stored key when a new non-empty value is submitted.
+    # The settings modal intentionally leaves the field blank (shows a hint),
+    # so a blank submission must never clear a working saved key.
     if openai_key and len(openai_key) >= 20:
         rec["settings"]["openai_key"] = openai_key
     if claude_key and len(claude_key) >= 20:
         rec["settings"]["claude_key"] = claude_key
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
-    # if user leaves blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -9613,6 +9640,12 @@ label         { font-size: 14px !important; }
                   <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
                 </div>
 
+                <!-- ── Save API Keys inline ─────────────────────────────────── -->
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+                  <button id="saveApiKeysBtn" class="btn btnPrimary" style="padding:6px 18px;font-size:13px;">💾 Save API Keys</button>
+                  <span id="saveApiKeysStatus" style="font-size:12px;opacity:.8;"></span>
+                </div>
+
                 <div class="tiny" style="margin-top:10px;">Google Connections (easy connect)</div>
 
                 <div class="row2">
@@ -13071,33 +13104,41 @@ function makeSeat(defn, idx){
     }
 
     $("talkGroupBtn").onclick = function() {
-      var text = (typeof _combineGroupOutputs === "function") ? _combineGroupOutputs() : "";
-      if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No group reply to speak yet — run a round table prompt first.", "error");
+      var btn = $("talkGroupBtn");
+      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
+      var keys = Object.keys(lastGroupOutputs || {});
+      var text = keys.length ? keys.map(function(k){ return k + ":\n" + (lastGroupOutputs[k]||""); }).join("\n\n---\n\n") : "";
+      if(!text.trim()){
+        if(typeof showToast==="function") showToast("No group reply yet — run a round table prompt first.", "error");
         return;
       }
       var voice = "alloy";
-      try{
-        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[window.selectedSeat||""]||{};
-        voice = tm.tts_voice || "alloy";
-      }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkGroupBtn"));
+      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
+      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
-
     $("talkDmBtn").onclick = function() {
-      var text = (typeof lastSeatAssistantText !== "undefined" ? lastSeatAssistantText : "") ||
-                 (typeof window.lastSeatAssistantText !== "undefined" ? window.lastSeatAssistantText : "");
-      if(!text || !text.trim()){
-        if(typeof showToast==="function") showToast("No teammate reply to speak yet — send a message first.", "error");
+      var btn = $("talkDmBtn");
+      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
+      // Fall back to window.lastSeatAssistantText which the streaming IIFE writes to
+      var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
+      if(!text.trim()){
+        if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
         return;
       }
       var voice = "alloy";
-      try{
-        var seat = window.selectedSeat || "";
-        var tm = ((window._saStateCache&&window._saStateCache.installed)||{})[seat]||{};
-        voice = tm.tts_voice || "alloy";
-      }catch(_){}
-      if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(text, voice, $("talkDmBtn"));
+      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
+      if(typeof window.saTtsSpeak==="function"){
+        window.saTtsSpeak(text, voice, btn);
+      } else {
+        // saTtsSpeak not yet defined — try browser speech directly
+        if(window.speechSynthesis){
+          speechSynthesis.cancel();
+          var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
+          speechSynthesis.speak(utt);
+        } else {
+          if(typeof showToast==="function") showToast("Voice not ready — please refresh the page.","error");
+        }
+      }
     };
 
     // ----- Lighting Mode (ADD v1) -----
@@ -18516,6 +18557,50 @@ try{
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
+    // ── Save API Keys button — saves ONLY the key fields, ignores blank fields ──
+    (function(){
+      const btn = document.getElementById("saveApiKeysBtn");
+      if(!btn) return;
+      btn.addEventListener("click", async function(){
+        const st = document.getElementById("saveApiKeysStatus");
+        const oKey = (document.getElementById("openaiKey")  ? document.getElementById("openaiKey").value  : "").trim();
+        const cKey = (document.getElementById("claudeKey")  ? document.getElementById("claudeKey").value  : "").trim();
+        if(!oKey && !cKey){
+          if(st) st.textContent = "⚠️ Paste at least one key first.";
+          return;
+        }
+        if(st){ st.textContent = "Saving…"; st.style.color = ""; }
+        try{
+          const payload = {};
+          if(oKey) payload.openai_key  = oKey;
+          if(cKey) payload.claude_key  = cKey;
+          const res  = await fetch("/api/user/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          const data = await res.json();
+          if(data.ok){
+            if(st){ st.textContent = "✅ Keys saved!"; st.style.color = "#6ee7b7"; }
+            // Clear the field and update status indicators
+            if(oKey && document.getElementById("openaiKey")){
+              document.getElementById("openaiKey").value = "";
+              document.getElementById("openaiKey").placeholder = "Saved — paste new key to replace";
+            }
+            if(cKey && document.getElementById("claudeKey")){
+              document.getElementById("claudeKey").value = "";
+              document.getElementById("claudeKey").placeholder = "Saved — paste new key to replace";
+            }
+            const oSt = document.getElementById("openaiKeyStatus");
+            if(oSt && oKey) oSt.innerHTML = '<span style="color:#6ee7b7;">&#10003; Connected</span>';
+            const cSt = document.getElementById("claudeKeyStatus");
+            if(cSt && cKey) cSt.innerHTML = '<span style="color:#6ee7b7;">&#10003; Connected</span>';
+            setTimeout(()=>{ if(st) st.textContent = ""; }, 3000);
+          } else {
+            if(st){ st.textContent = "❌ " + (data.error||"Save failed"); st.style.color = "#f87171"; }
+          }
+        }catch(err){
+          if(st){ st.textContent = "❌ Network error"; st.style.color = "#f87171"; }
+        }
+      });
+    })();
+
     $("saveSettings").onclick = async () => {
       $("settingsStatus").innerText = "Saving...";
       const keyVal = ($("openaiKey").value || "").trim();
@@ -20968,59 +21053,132 @@ if(typeof maybeAutoShowOnboarding === "function"){
     });
   }
 
-  // ── cache state for model badge reads ──
-  (function patchLoadState(){
-    const orig = window.loadState;
-    if(typeof orig !== "function") return;
-    window.loadState = async function(){
-      const result = await orig.apply(this, arguments);
-      try{
-        const r = await fetch("/api/state"); const d = await r.json();
-        if(d.ok) window._saStateCache = d;
-      }catch(_){}
-      return result;
-    };
-  })();
+  // ── cache state for TTS voice reads ──
+  // patchLoadState cannot wrap the local loadState (it lives in a different IIFE).
+  // Instead, poll /api/state once on load and again every 30s so _saStateCache stays fresh.
+  async function _refreshStateCache(){
+    try{
+      const r = await fetch("/api/state");
+      const d = await r.json();
+      if(d.ok) window._saStateCache = d;
+    }catch(_){}
+  }
+  // Run immediately (covers page load) and after DOM is ready
+  _refreshStateCache();
+  document.addEventListener("DOMContentLoaded", function(){
+    setTimeout(_refreshStateCache, 800);
+  });
+  // Keep cache fresh so voice setting changes are picked up
+  setInterval(_refreshStateCache, 30000);
 
   /* ─── TTS ─────────────────────────────────────────────────────────────────── */
   window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
     if(!text) return;
-    // Stop any playing audio
-    if(_currentTtsAudio){ _currentTtsAudio.pause(); _currentTtsAudio=null; }
-    if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
-    // If called again while playing, just stop
-    let stopped = false;
-    if(btn){ btn._saTtsStop = ()=>{ stopped=true; if(_currentTtsAudio){_currentTtsAudio.pause();_currentTtsAudio=null;} btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }; }
+    // ── Stop if already playing ──────────────────────────────────────────────
+    if(_currentTtsAudio){
+      try{ _currentTtsAudio.pause(); }catch(_){}
+      _currentTtsAudio = null;
+      if(window._currentTtsUtterance){ try{ speechSynthesis.cancel(); }catch(_){} window._currentTtsUtterance=null; }
+      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
+      return;
+    }
 
+    function _resetBtn(){
+      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
+    }
+    function _stopAll(){
+      try{ if(_currentTtsAudio){ _currentTtsAudio.pause(); _currentTtsAudio=null; } }catch(_){}
+      try{ if(window._currentTtsUtterance){ speechSynthesis.cancel(); window._currentTtsUtterance=null; } }catch(_){}
+    }
+
+    // ── Browser Web Speech fallback (no API key needed) ──────────────────────
+    function _speakWithBrowser(txt, voiceName){
+      return new Promise(function(resolve, reject){
+        if(!window.speechSynthesis){ reject(new Error("no speechSynthesis")); return; }
+        speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(txt.slice(0, 3000));
+        window._currentTtsUtterance = utt;
+        // try to pick a matching voice
+        try{
+          const voices = speechSynthesis.getVoices();
+          const map = {alloy:"en-US",echo:"en-GB",fable:"en-GB",onyx:"en-US",nova:"en-US",shimmer:"en-US"};
+          const lang = map[voiceName] || "en-US";
+          const match = voices.find(v=>v.lang===lang && !v.localService===false) ||
+                        voices.find(v=>v.lang.startsWith("en")) || voices[0];
+          if(match) utt.voice = match;
+        }catch(_){}
+        utt.rate = 1.0; utt.pitch = 1.0; utt.volume = 1.0;
+        utt.onend  = function(){ window._currentTtsUtterance=null; resolve(); };
+        utt.onerror = function(e){ window._currentTtsUtterance=null; reject(new Error(e.error||"speech error")); };
+        speechSynthesis.speak(utt);
+        if(btn){ btn._saTtsStop = ()=>{ speechSynthesis.cancel(); window._currentTtsUtterance=null; _resetBtn(); }; }
+      });
+    }
+
+    if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏳ Loading…"; }
+    let cancelled = false;
+    if(btn){ btn._saTtsStop = ()=>{ cancelled=true; _stopAll(); _resetBtn(); }; }
+
+    // ── Try OpenAI TTS first ─────────────────────────────────────────────────
+    let openaiOk = false;
     try{
       const resp = await fetch("/api/tts",{
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({text: text.slice(0,2000), voice: voice||"alloy"})
       });
-      if(!resp.ok){
-        // Read the actual error message from the server
-        let errMsg = "TTS failed";
-        try{ const j=await resp.json(); errMsg=j.error||errMsg; }catch(_){}
-        throw new Error(errMsg);
+      if(cancelled){ _resetBtn(); return; }
+
+      if(resp.ok){
+        const blob = await resp.blob();
+        if(cancelled){ _resetBtn(); return; }
+        if(blob.size > 100){
+          // Got real audio bytes — play them
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio();
+          _currentTtsAudio = audio;
+          openaiOk = true;
+          await new Promise(function(resolve, reject){
+            audio.oncanplaythrough = function(){
+              if(cancelled){ URL.revokeObjectURL(url); _currentTtsAudio=null; _resetBtn(); resolve(); return; }
+              if(btn) btn.textContent="⏹ Stop";
+              if(btn) btn._saTtsStop = ()=>{ cancelled=true; audio.pause(); URL.revokeObjectURL(url); _currentTtsAudio=null; _resetBtn(); };
+              const p = audio.play();
+              if(p) p.catch(function(){ resolve(); }); // autoplay blocked → fall through
+            };
+            audio.onended  = function(){ URL.revokeObjectURL(url); _currentTtsAudio=null; resolve(); };
+            audio.onerror  = function(){ URL.revokeObjectURL(url); _currentTtsAudio=null; reject(new Error("audio element error")); };
+            audio.src = url;
+            audio.load();
+            setTimeout(function(){ if(!audio.readyState) reject(new Error("audio load timeout")); }, 8000);
+          });
+          _resetBtn();
+          return;
+        }
       }
-      const blob = await resp.blob();
-      const url  = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      _currentTtsAudio = audio;
-      audio.onended = ()=>{
-        URL.revokeObjectURL(url); _currentTtsAudio=null;
-        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; btn._saTtsStop=null; }
-      };
-      audio.onerror = ()=>{
-        URL.revokeObjectURL(url); _currentTtsAudio=null;
-        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      };
-      if(!stopped) audio.play();
-    }catch(e){
-      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      if(typeof showToast==="function") showToast("TTS error: "+(e.message||"unknown"),"error");
+      // Non-ok response or tiny blob → log and fall through to browser TTS
+      let errMsg = "TTS API error";
+      try{ if(!resp.ok){ const j=await resp.clone().json(); errMsg=j.error||errMsg; } }catch(_){}
+      console.warn("[TTS] OpenAI TTS failed:", errMsg, "— falling back to browser speech");
+    }catch(netErr){
+      console.warn("[TTS] OpenAI TTS network error:", netErr.message, "— falling back to browser speech");
     }
+
+    if(cancelled){ _resetBtn(); return; }
+
+    // ── Browser speech fallback ──────────────────────────────────────────────
+    if(window.speechSynthesis){
+      if(btn) btn.textContent="🔊 Speaking…";
+      try{
+        await _speakWithBrowser(text, voice||"alloy");
+      }catch(e){
+        console.warn("[TTS] Browser speech also failed:", e.message);
+        if(typeof showToast==="function") showToast("⚠️ Voice unavailable. Check your OpenAI key in Settings or browser permissions.","error");
+      }
+    } else {
+      if(typeof showToast==="function") showToast("⚠️ Voice unavailable — no OpenAI key and browser speech not supported.","error");
+    }
+    _resetBtn();
   };
 
   /* Attach a 🔊 button to a rendered assistant message div */
@@ -26292,6 +26450,51 @@ def api_followup_stream():
 
 
 # ── 2. TEXT-TO-SPEECH ─────────────────────────────────────────────────────────
+@app.get("/api/tts/test")
+def api_tts_test():
+    """End-to-end TTS smoke test. Generates 1 second of audio and confirms the key works."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    user_key  = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    server_key = (OPENAI_API_KEY or "").strip()
+    openai_key = user_key or server_key
+    source = "user_settings" if user_key else ("env_var" if server_key else "none")
+    if not openai_key:
+        return jsonify({"ok": False, "error": "No OpenAI key found anywhere.", "source": source})
+    try:
+        oai = OpenAI(api_key=openai_key)
+        resp = oai.audio.speech.create(model="tts-1", voice="alloy", input="Test.")
+        return jsonify({"ok": True, "source": source, "bytes": len(resp.content),
+                        "key_hint": ("sk-..." + openai_key[-4:]) if len(openai_key) >= 4 else "?"})
+    except Exception as exc:
+        code, msg = _classify_openai_error(exc)
+        return jsonify({"ok": False, "error": msg, "source": source,
+                        "key_hint": ("sk-..." + openai_key[-4:]) if len(openai_key) >= 4 else "?"}), code
+
+
+@app.get("/api/tts/debug")
+def api_tts_debug():
+    """Debug endpoint: shows exactly what the TTS route sees for this user.
+    Safe — never returns the actual key, only metadata."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    settings = u.get("settings") or {}
+    openai_key = (settings.get("openai_key") or "").strip()
+    key_len = len(openai_key)
+    key_hint = ("sk-..." + openai_key[-4:]) if key_len >= 4 else ("(empty)" if not openai_key else openai_key)
+    return jsonify({
+        "ok": True,
+        "username": u.get("username"),
+        "key_present": bool(openai_key),
+        "key_len": key_len,
+        "key_hint": key_hint,
+        "key_starts_with_sk": openai_key.startswith("sk-") if openai_key else False,
+        "settings_keys": list(settings.keys()),
+    })
+
+
 @app.post("/api/tts")
 def api_tts():
     """Convert text to speech using OpenAI TTS-1.
@@ -26310,13 +26513,22 @@ def api_tts():
     if not text:
         return jsonify({"ok": False, "error": "Missing text"}), 400
 
-    # TTS always uses OpenAI — get the user's own key directly from settings
-    openai_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    # TTS: prefer the user's own stored key, fall back to the server-level OPENAI_API_KEY env var.
+    # This means voice works as long as EITHER the user has entered their key OR the server has one.
+    user_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    username = u.get("username", "unknown")
+    key_source = "user_settings" if user_key else ("env_var" if openai_key else "none")
+    print(f"[TTS] user={username} key_source={key_source} key_len={len(openai_key)} text_len={len(text)} voice={voice}", flush=True)
     if not openai_key:
+        print(f"[TTS] FAIL: no openai_key anywhere for user={username}", flush=True)
         return jsonify({"ok": False, "error": "Voice requires an OpenAI API key. Go to Settings and paste your OpenAI key (sk-...)."}), 400
+
+    openai_key = openai_key.strip()
 
     try:
         oai  = OpenAI(api_key=openai_key)
+        print(f"[TTS] calling openai tts-1 voice={voice} text_preview={text[:60]!r}", flush=True)
         resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
         return Response(
             resp.content,
@@ -26327,6 +26539,7 @@ def api_tts():
             },
         )
     except Exception as exc:
+        print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
 
