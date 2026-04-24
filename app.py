@@ -8582,9 +8582,9 @@ HTML = r"""
       left: 50%;
       top: 64px;
       transform: translateX(-50%);
-      width: 860px;
+      width: min(1140px, calc(100vw - 32px));
       max-width: calc(100vw - 22px);
-      height: 680px;
+      height: min(840px, calc(100vh - 90px));
       max-height: calc(100vh - 90px);
       background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.9);
@@ -8595,8 +8595,8 @@ HTML = r"""
       flex-direction: column;
       resize: both;
       overflow: hidden;
-      min-width: 560px;
-      min-height: 420px;
+      min-width: 620px;
+      min-height: 480px;
       z-index: 90;
     }
 
@@ -10134,58 +10134,136 @@ label         { font-size: 14px !important; }
 </div>
 
 <div class="modalForm" id="promptLibraryForm" style="display:none;">
-  <div class="modalInner">
-    <style>
-      #plTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
-      .plTab{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.08);color:#c4b5fd;transition:background .15s;}
-      .plTab.active{background:rgba(124,58,237,.5);color:#f3e8ff;border-color:rgba(124,58,237,.8);}
-      .plCat{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#64748b;margin:14px 0 6px;}
-      .plCard{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 13px;margin-bottom:7px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;transition:background .15s;}
-      .plCard:hover{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.4);}
-      .plCardBody{flex:1;min-width:0;}
-      .plCardTitle{font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;}
-      .plCardText{font-size:12px;color:#94a3b8;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-      .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:4px;}
-      .plCatBadge{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
-      .plUseBadge{font-size:10px;color:#64748b;}
-      .plUseBtn{flex-shrink:0;padding:5px 12px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.18);color:#c4b5fd;white-space:nowrap;}
-      .plUseBtn:hover{background:rgba(124,58,237,.4);}
-      .plDelBtn{flex-shrink:0;padding:4px 8px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#fca5a5;}
-      .plDelBtn:hover{background:rgba(239,68,68,.18);}
-      #plSaveForm{margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08);}
-      #plSaveForm label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:4px;margin-top:10px;}
-      #plSaveForm input,#plSaveForm textarea,#plSaveForm select{width:100%;background:rgba(11,16,36,.92);color:#e2e8f0;border:1px solid rgba(42,58,106,.9);border-radius:8px;padding:8px 10px;font-size:13px;outline:none;}
-      #plSaveForm textarea{height:80px;resize:vertical;}
-      #plStatus{font-size:12px;margin-top:6px;color:#6ee7b7;min-height:14px;}
-    </style>
+  <style>
+    /* ── Prompt Library two-column layout ── */
+    #plLayout{display:flex;height:100%;gap:0;overflow:hidden;}
 
-    <!-- Teammate tabs -->
-    <div id="plTabs"></div>
+    /* Left sidebar — teammate nav */
+    #plSidebar{
+      width:200px;flex-shrink:0;
+      border-right:1px solid rgba(42,58,106,.55);
+      padding-right:12px;
+      display:flex;flex-direction:column;gap:0;
+      overflow-y:auto;
+    }
+    .plSidebarLabel{
+      font-size:10px;font-weight:800;text-transform:uppercase;
+      letter-spacing:.08em;color:#475569;
+      padding-bottom:10px;margin-bottom:8px;
+      border-bottom:1px solid rgba(42,58,106,.4);
+      flex-shrink:0;
+    }
+    #plTabs{display:flex;flex-direction:column;gap:3px;flex-shrink:0;}
+    .plTab{
+      padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;
+      cursor:pointer;border:1px solid transparent;
+      background:transparent;color:#94a3b8;
+      text-align:left;width:100%;transition:all .15s;
+    }
+    .plTab:hover{background:rgba(124,58,237,.1);color:#c4b5fd;}
+    .plTab.active{background:rgba(124,58,237,.2);color:#f3e8ff;border-color:rgba(124,58,237,.4);}
 
-    <!-- Prompt cards -->
-    <div id="plCards" style="max-height:420px;overflow-y:auto;padding-right:4px;"></div>
+    /* Right panel — cards + save form */
+    #plMain{flex:1;min-width:0;display:flex;flex-direction:column;padding-left:18px;overflow:hidden;}
+    #plMainHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0;}
+    #plTeammateTitle{font-size:15px;font-weight:800;color:#c4b5fd;}
+    #plCountLabel{font-size:11px;color:#475569;}
+    #plCards{flex:1;overflow-y:auto;padding-right:6px;min-height:0;}
 
-    <!-- Save custom prompt form -->
-    <div id="plSaveForm">
-      <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:2px;">➕ Save a Custom Prompt</div>
-      <div style="font-size:11px;color:#64748b;margin-bottom:6px;">Saved prompts appear in the library for the teammate you choose.</div>
-      <label>Teammate</label>
-      <select id="plNewTeammate"></select>
-      <label>Title</label>
-      <input id="plNewTitle" placeholder="Short label, e.g. My Outreach Template" maxlength="80"/>
-      <label>Category</label>
-      <input id="plNewCategory" placeholder="e.g. Follow-Up, Strategy, Custom" maxlength="40" value="Custom"/>
-      <label>Prompt</label>
-      <textarea id="plNewPrompt" placeholder="Write your prompt here…" maxlength="2000"></textarea>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
-        <button class="btn btnPrimary" id="plSaveBtn" style="font-size:13px;padding:8px 18px;">Save Prompt</button>
-        <div id="plStatus"></div>
+    /* Prompt cards */
+    .plCat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin:14px 0 6px;}
+    .plCat:first-child{margin-top:0;}
+    .plCard{
+      background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+      border-radius:10px;padding:12px 14px;margin-bottom:7px;
+      display:flex;align-items:flex-start;gap:10px;
+      transition:background .15s,border-color .15s;
+    }
+    .plCard:hover{background:rgba(124,58,237,.1);border-color:rgba(124,58,237,.35);}
+    .plCardBody{flex:1;min-width:0;cursor:pointer;}
+    .plCardTitle{font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;}
+    .plCardText{font-size:12px;color:#94a3b8;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+    .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:5px;}
+    .plCatBadge{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
+    .plUseBadge{font-size:10px;color:#475569;}
+    .plCardBtns{display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
+    .plUseBtn{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.18);color:#c4b5fd;white-space:nowrap;transition:background .15s;}
+    .plUseBtn:hover{background:rgba(124,58,237,.42);}
+    .plCopyBtn{padding:5px 10px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(100,116,139,.3);background:rgba(255,255,255,.04);color:#94a3b8;white-space:nowrap;transition:background .15s;}
+    .plCopyBtn:hover{background:rgba(255,255,255,.1);color:#e2e8f0;}
+    .plDelBtn{padding:5px 10px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#fca5a5;white-space:nowrap;transition:background .15s;}
+    .plDelBtn:hover{background:rgba(239,68,68,.2);}
+
+    /* Save form — pinned to bottom of right panel */
+    #plSaveForm{
+      flex-shrink:0;margin-top:12px;padding-top:14px;
+      border-top:1px solid rgba(42,58,106,.55);
+      display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;align-items:end;
+    }
+    #plSaveForm .plSaveTitle{
+      grid-column:1/-1;font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:2px;
+    }
+    #plSaveForm label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:3px;}
+    #plSaveForm input,#plSaveForm select{
+      width:100%;background:rgba(11,16,36,.92);color:#e2e8f0;
+      border:1px solid rgba(42,58,106,.9);border-radius:8px;
+      padding:7px 10px;font-size:13px;outline:none;
+    }
+    #plPromptRow{grid-column:1/-1;}
+    #plNewPrompt{
+      width:100%;background:rgba(11,16,36,.92);color:#e2e8f0;
+      border:1px solid rgba(42,58,106,.9);border-radius:8px;
+      padding:7px 10px;font-size:13px;outline:none;
+      height:66px;resize:vertical;display:block;
+    }
+    #plSaveRow{grid-column:1/-1;display:flex;align-items:center;gap:10px;}
+    #plStatus{font-size:12px;color:#6ee7b7;min-height:14px;}
+  </style>
+
+  <div id="plLayout">
+
+    <!-- LEFT: teammate nav -->
+    <div id="plSidebar">
+      <div class="plSidebarLabel">Teammates</div>
+      <div id="plTabs"></div>
+    </div>
+
+    <!-- RIGHT: cards + save form -->
+    <div id="plMain">
+      <div id="plMainHeader">
+        <div id="plTeammateTitle">Select a teammate</div>
+        <div id="plCountLabel"></div>
+      </div>
+
+      <!-- Scrollable card area — grows to fill available space -->
+      <div id="plCards"><div style="color:#64748b;font-size:13px;">Loading…</div></div>
+
+      <!-- Save custom prompt — pinned at bottom -->
+      <div id="plSaveForm">
+        <div class="plSaveTitle">➕ Save a Custom Prompt</div>
+        <div>
+          <label>Teammate</label>
+          <select id="plNewTeammate"></select>
+        </div>
+        <div>
+          <label>Category</label>
+          <input id="plNewCategory" placeholder="e.g. Strategy, Custom" maxlength="40" value="Custom"/>
+        </div>
+        <div>
+          <label>Title</label>
+          <input id="plNewTitle" placeholder="Short label" maxlength="80"/>
+        </div>
+        <div id="plPromptRow">
+          <label>Prompt</label>
+          <textarea id="plNewPrompt" placeholder="Write your prompt here…" maxlength="2000"></textarea>
+        </div>
+        <div id="plSaveRow">
+          <button class="btn btnPrimary" id="plSaveBtn" style="font-size:13px;padding:8px 18px;">Save Prompt</button>
+          <div id="plStatus"></div>
+        </div>
       </div>
     </div>
 
-    <div style="margin-top:14px;text-align:right;">
-      <button class="btn" id="plCloseBtn" style="font-size:13px;">Close</button>
-    </div>
   </div>
 </div>
 
@@ -11608,6 +11686,9 @@ function applyModalPos(){
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
+      // Restore scroll for non-library modals
+      const sc = $("modalScroll");
+      if(sc) sc.style.overflow = "auto";
     }
 
     
@@ -14812,11 +14893,14 @@ Challenge weak assumptions. Surface risks.`;
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("promptLibraryForm").style.display = "block";
+      // height:100% lets the two-column flex layout fill the modalBodyWrap
+      const plForm = $("promptLibraryForm");
+      plForm.style.display = "block";
+      plForm.style.height   = "100%";
       $("overlay").classList.add("show");
       applyModalPos();
       const sc = $("modalScroll");
-      if(sc) sc.scrollTop = 0;
+      if(sc){ sc.scrollTop = 0; sc.style.overflow = "hidden"; }
       loadPromptLibrary();
     }
 
@@ -14856,39 +14940,46 @@ Challenge weak assumptions. Surface risks.`;
     };
 
     function renderPlCards(tm){
-      const container = $("plCards");
+      const container  = $("plCards");
+      const titleEl    = $("plTeammateTitle");
+      const countEl    = $("plCountLabel");
       if(!container) return;
       const tmData = plAllData[tm];
       if(!tmData){ container.innerHTML = '<div style="color:#64748b;font-size:13px;">No prompts found.</div>'; return; }
+      if(titleEl) titleEl.innerText = tm;
 
       const cats = tmData.categories || {};
-      let html = "";
-      // Built-in categories first, then Custom
       const catKeys = Object.keys(cats).sort((a,b) => a==="Custom"?1:b==="Custom"?-1:a.localeCompare(b));
+      let total = 0;
+      let html  = "";
       for(const cat of catKeys){
         const prompts = cats[cat] || [];
         if(!prompts.length) continue;
+        total += prompts.length;
         html += `<div class="plCat">${escapeHtml(cat)}</div>`;
         for(const p of prompts){
-          const builtin = p.builtin ? "" : `<button class="plDelBtn" onclick="plDelete('${p.id}',event)" title="Delete">✕</button>`;
-          const uses    = p.use_count > 0 ? `<span class="plUseBadge">Used ${p.use_count}×</span>` : "";
+          const delBtn = p.builtin ? "" : `<button class="plDelBtn" onclick="plDelete('${p.id}',event)">✕ Delete</button>`;
+          const uses   = p.use_count > 0 ? `<span class="plUseBadge">Used ${p.use_count}×</span>` : "";
           html += `
-          <div class="plCard" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">
-            <div class="plCardBody">
+          <div class="plCard">
+            <div class="plCardBody" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">
               <div class="plCardTitle">${escapeHtml(p.title)}</div>
-              <div class="plCardText">${escapeHtml((p.prompt||"").slice(0,120))}…</div>
+              <div class="plCardText">${escapeHtml(p.prompt||"")}</div>
               <div class="plCardMeta">
                 <span class="plCatBadge">${escapeHtml(p.category||"")}</span>
                 ${uses}
               </div>
             </div>
-            <button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>
-            <button class="plDelBtn" style="border-color:rgba(100,116,139,.3);color:#94a3b8;background:rgba(255,255,255,.04);" onclick="plCopy('${p.id}',event)" title="Copy prompt text">📋</button>
-            ${builtin}
+            <div class="plCardBtns">
+              <button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>
+              <button class="plCopyBtn" onclick="plCopy('${p.id}',event)">📋 Copy</button>
+              ${delBtn}
+            </div>
           </div>`;
         }
       }
       container.innerHTML = html || '<div style="color:#64748b;font-size:13px;">No prompts yet.</div>';
+      if(countEl) countEl.innerText = total + " prompt" + (total!==1?"s":"");
     }
 
     // Map prompt id back to full text from plAllData
