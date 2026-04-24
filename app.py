@@ -5553,142 +5553,6 @@ def api_gcal_event_type_toggle():
     return jsonify({"ok": True, "event_id": event_id, "gcal_item_type": new_type})
 
 
-
-# =========================
-# MEETING NOTES (Notetaker Feature)
-# =========================
-
-def _meeting_notes_path(username: str) -> Path:
-    d = DATA / "meeting_notes"
-    d.mkdir(parents=True, exist_ok=True)
-    return d / f"{username}.json"
-
-def _load_meeting_notes(username: str) -> Dict[str, Any]:
-    return load_json(_meeting_notes_path(username), {}) or {}
-
-def _save_meeting_notes(username: str, data: Dict[str, Any]) -> None:
-    save_json(_meeting_notes_path(username), data)
-
-
-@app.get("/api/calendar/notes")
-def api_meeting_notes_list():
-    """Return all meeting notes for the current user."""
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    notes = _load_meeting_notes(uname)
-    # Return as list sorted by date desc
-    items = sorted(notes.values(), key=lambda x: x.get("meeting_date",""), reverse=True)
-    return jsonify({"ok": True, "notes": items})
-
-
-@app.get("/api/calendar/notes/<event_id>")
-def api_meeting_notes_get(event_id):
-    """Return notes for a specific event."""
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    notes = _load_meeting_notes(uname)
-    note = notes.get(event_id)
-    if not note: return jsonify({"ok": True, "note": None})
-    return jsonify({"ok": True, "note": note})
-
-
-@app.post("/api/calendar/notes/<event_id>")
-def api_meeting_notes_process(event_id):
-    """
-    Process a meeting transcript with a teammate and save structured notes.
-    Expects: { teammate, transcript, meeting_title, meeting_date }
-    """
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-
-    payload     = request.get_json(force=True) or {}
-    teammate    = (payload.get("teammate") or "").strip()
-    transcript  = (payload.get("transcript") or "").strip()
-    title       = (payload.get("meeting_title") or "Meeting").strip()
-    date        = (payload.get("meeting_date") or now_iso()[:10]).strip()
-
-    if not transcript:
-        return jsonify({"ok": False, "error": "Transcript is required"}), 400
-    if not teammate:
-        return jsonify({"ok": False, "error": "Teammate is required"}), 400
-
-    # Build the AI prompt
-    state   = load_json(DATA / "state.json", {})
-    tm_data = (state.get("installed") or {}).get(teammate, {})
-    tm_role = tm_data.get("role") or tm_data.get("prompt") or ""
-
-    system_prompt = f"""You are {teammate}, a professional AI teammate.{(' Your role: ' + tm_role) if tm_role else ''}
-
-You have just attended a meeting as a silent notetaker. Analyze the transcript and produce structured meeting notes in your voice and style.
-
-Return your notes in this EXACT format (use these exact section headers):
-
-## TL;DR
-2-3 sentence summary of the whole meeting.
-
-## Key Decisions
-Bullet list of decisions that were made. If none, write "None recorded."
-
-## Action Items
-Bullet list of action items, with owner name if mentioned. Format: "- [Owner] Action description". If none, write "None recorded."
-
-## Open Questions
-Bullet list of unresolved questions or items needing follow-up. If none, write "None recorded."
-
-## Full Summary
-A thorough paragraph-style summary of the meeting in your voice. Include context, tone, and anything noteworthy.
-
-Be concise but thorough. Do not invent information not present in the transcript."""
-
-    user_msg = f"Meeting: {title}\nDate: {date}\n\nTranscript:\n{transcript[:12000]}"
-
-    try:
-        oai_client = _get_openai_client_for_user(u)
-        resp = oai_client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_msg},
-            ],
-            max_tokens=1500,
-        )
-        ai_notes = resp.choices[0].message.content.strip()
-    except Exception as e:
-        _, msg = _classify_openai_error(e)
-        return jsonify({"ok": False, "error": msg}), 500
-
-    # Save the note
-    notes = _load_meeting_notes(uname)
-    notes[event_id] = {
-        "event_id":      event_id,
-        "meeting_title": title,
-        "meeting_date":  date,
-        "teammate":      teammate,
-        "transcript":    transcript,
-        "ai_notes":      ai_notes,
-        "created_at":    now_iso(),
-        "updated_at":    now_iso(),
-    }
-    _save_meeting_notes(uname, notes)
-    append_log("meeting_notes_created", {"user": uname, "event_id": event_id, "teammate": teammate})
-    return jsonify({"ok": True, "note": notes[event_id]})
-
-
-@app.delete("/api/calendar/notes/<event_id>")
-def api_meeting_notes_delete(event_id):
-    """Delete notes for a specific event."""
-    u = current_user()
-    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    notes = _load_meeting_notes(uname)
-    notes.pop(event_id, None)
-    _save_meeting_notes(uname, notes)
-    return jsonify({"ok": True})
-
-
 # =========================
 # LOCAL CALENDAR TASKS (stored per-user in DATA)
 # =========================
@@ -16819,31 +16683,12 @@ function wcalShowTaskDetail(task){
       <button class="wcal-det-btn danger" onclick="wcalDetDeleteTask('${task.id}')">Delete</button>
     </div>
     <div class="wcal-status" id="detStatus"></div>
-    
-        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
-      </div>
-      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
-        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
-        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
-        <div style="display:flex;gap:6px;margin-top:6px;">
-          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
-          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
-        </div>
-      </div>
-      <div class="wcal-detail-label">Assign notetaker</div>
-      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
-        <option value="">— Pick a teammate —</option>
-      </select>
-      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
-      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
-      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
-      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
-    </div>
   `;
   if(typeLbl){ typeLbl.innerText=(task.recurring&&task.recurring!=='none')?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
   const detHdr=document.querySelector('.wcal-detail-header'); if(detHdr) detHdr.className='wcal-detail-header type-task';
   panel.classList.add('open');
   panel._currentTask=task; panel._currentEvent=null;
+  // Populate teammate dropdown asynchronously
   wcalPopulateTeammateDropdown('detAutoTeammate', task.on_complete_teammate||'');
   wcalPopulateCrmClientDropdown('detCrmClient', task.on_complete_client_email||'');
 }
@@ -16899,7 +16744,6 @@ function wcalShowGcalTaskDetail(ev){
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'Task').replace(/"/g,'&quot;')}" placeholder="Task title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${(ev.location&&ev.location.includes('zoom.us'))?`<a class="wcal-join-btn wcal-join-zoom" href="${ev.location}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
-    ${(meetLink||(ev.location&&ev.location.includes('zoom.us')))?`<button class="wcal-join-btn" onclick="wcalNotetakerSetup('${evIdSafe}')" style="background:rgba(196,181,253,.15);border:1px solid rgba(196,181,253,.3);color:#c4b5fd;">🤖 Send Notetaker</button>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detDoneToggle" onclick="wcalDetToggleDone()">
@@ -16979,26 +16823,6 @@ function wcalShowGcalTaskDetail(ev){
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
-    
-        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
-      </div>
-      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
-        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
-        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
-        <div style="display:flex;gap:6px;margin-top:6px;">
-          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
-          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
-        </div>
-      </div>
-      <div class="wcal-detail-label">Assign notetaker</div>
-      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
-        <option value="">— Pick a teammate —</option>
-      </select>
-      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
-      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
-      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
-      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
-    </div>
   `;
   const isRecurring=(storedRecurring!=='none');
   if(typeLbl){ typeLbl.innerText=isRecurring?'↻ TASK':'☑ TASK'; typeLbl.className='wcal-detail-type type-task'; }
@@ -17047,7 +16871,6 @@ function wcalShowEventDetail(ev){
     <input class="wcal-detail-title" id="detTitle" value="${(meta.title||ev.summary||'').replace(/"/g,'&quot;')}" placeholder="Event title" />
     ${meetLink?`<a class="wcal-join-btn wcal-join-meet" href="${meetLink}" target="_blank" rel="noopener">📹 Join Google Meet</a>`:''}
     ${zoomLink?`<a class="wcal-join-btn wcal-join-zoom" href="${zoomLink.replace(/"/g,'&quot;')}" target="_blank" rel="noopener">🔵 Join Zoom</a>`:''}
-    ${(meetLink||zoomLink)?`<button class="wcal-join-btn" onclick="wcalNotetakerSetup('${evIdSafe}')" style="background:rgba(196,181,253,.15);border:1px solid rgba(196,181,253,.3);color:#c4b5fd;">🤖 Send Notetaker</button>`:''}
     <div>
       <div class="wcal-detail-label">Status</div>
       <div class="wcal-done-toggle ${isDone?'done':''}" id="detEvDoneToggle" onclick="wcalDetToggleEvDone('${evIdSafe}')">
@@ -17139,27 +16962,6 @@ function wcalShowEventDetail(ev){
       ${htmlLink?`<a class="wcal-det-btn" href="${htmlLink}" target="_blank" style="text-align:center;text-decoration:none;">Open in Google</a>`:''}
     </div>
     <div class="wcal-status" id="detStatus"></div>
-
-
-        <button class="btn btnMini" onclick="wcalShowNotesHistory()" style="font-size:11px;opacity:.7;">📋 All Notes</button>
-      </div>
-      <div id="detNotesExisting" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:8px;">
-        <div style="font-size:11px;color:#a78bfa;font-weight:600;margin-bottom:4px;" id="detNotesExistingLabel">📝 Notes on file</div>
-        <div id="detNotesExistingPreview" style="font-size:12px;color:#d4dcff;line-height:1.5;max-height:60px;overflow:hidden;"></div>
-        <div style="display:flex;gap:6px;margin-top:6px;">
-          <button class="btn btnMini" id="detViewNotesBtn" style="font-size:11px;">👁 View</button>
-          <button class="btn btnMini" id="detDeleteNotesBtn" style="font-size:11px;opacity:.6;">🗑 Delete</button>
-        </div>
-      </div>
-      <div class="wcal-detail-label">Assign notetaker</div>
-      <select class="wcal-detail-field" id="detNotetaker" style="margin-bottom:8px;">
-        <option value="">— Pick a teammate —</option>
-      </select>
-      <div class="wcal-detail-label">Paste transcript <span style="opacity:.5;font-weight:400;">(Meet captions, Zoom export, or type notes)</span></div>
-      <textarea class="wcal-detail-textarea" id="detTranscript" placeholder="Paste meeting transcript here…&#10;&#10;Google Meet: ⋮ menu → Transcript&#10;Zoom: check your meeting folder for .txt file" style="min-height:90px;margin-bottom:8px;font-size:12px;"></textarea>
-      <button class="wcal-det-btn primary" id="detProcessNotesBtn">✨ Generate Notes</button>
-      <div id="detNotesStatus" style="font-size:12px;margin-top:6px;min-height:16px;color:#a78bfa;"></div>
-    </div>
   `;
   const isRecurring=(storedRecurring!=='none');
   if(typeLbl){ typeLbl.innerText=isRecurring?'↻ EVENT':'📅 EVENT'; typeLbl.className='wcal-detail-type type-event'; }
@@ -18574,51 +18376,6 @@ function wcalWireButtons(){
   const df=get('wcalAddDate'); if(df&&!df.value) df.value=ymd(new Date());
   const dtf=get('wcalTaskDate'); if(dtf&&!dtf.value) dtf.value=ymd(new Date());
 }
-
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MEETING NOTETAKER
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Called when user clicks "🤖 Send Notetaker" on a calendar event.
-// Shows a setup modal explaining Recall.ai integration.
-window.wcalNotetakerSetup = function(evId){
-  var existing = document.getElementById('wcalNotetakerModal');
-  if(existing) existing.remove();
-
-  var overlay = document.createElement('div');
-  overlay.id = 'wcalNotetakerModal';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
-
-  var box = document.createElement('div');
-  box.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:480px;width:100%;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.6);';
-
-  box.innerHTML = [
-    '<div style="font-size:22px;margin-bottom:6px;">🤖 Send Notetaker to Call</div>',
-    '<div style="font-size:13px;color:#a78bfa;margin-bottom:20px;">Powered by Recall.ai</div>',
-    '<div style="font-size:14px;color:#d4dcff;line-height:1.7;margin-bottom:18px;">',
-    'To send a teammate bot into your Google Meet or Zoom call, this feature uses <strong>Recall.ai</strong> — ',
-    'a service that sends a real bot participant into your call to record and transcribe in real time.',
-    '</div>',
-    '<div style="background:rgba(196,181,253,.08);border:1px solid rgba(196,181,253,.2);border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#c4b5fd;line-height:1.7;">',
-    '<strong>How it works:</strong><br>',
-    '1. Sign up at <a href="https://recall.ai" target="_blank" style="color:#a78bfa;">recall.ai</a> and get an API key<br>',
-    '2. Add <code style="background:rgba(0,0,0,.3);padding:1px 5px;border-radius:3px;">RECALLAI_API_KEY</code> to your Render environment<br>',
-    '3. Come back and click Send Notetaker — the bot joins your call instantly<br>',
-    '4. When the call ends, your teammate auto-generates structured notes',
-    '</div>',
-    '<div style="display:flex;gap:10px;">',
-    '<a href="https://recall.ai" target="_blank" class="wcal-det-btn primary" style="text-decoration:none;text-align:center;flex:1;">Get Recall.ai API Key →</a>',
-    '<button id="wcalNotetakerClose" class="wcal-det-btn" style="flex:0 0 auto;">Close</button>',
-    '</div>',
-  ].join('');
-
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
-  document.getElementById('wcalNotetakerClose').onclick = function(){ overlay.remove(); };
-};
 
 // ── showCalendarModal ──────────────────────────────────────────
 window.showCalendarModal=function showCalendarModal(){
