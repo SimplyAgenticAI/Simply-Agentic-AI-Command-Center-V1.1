@@ -26482,24 +26482,6 @@ def api_tts_debug():
     })
 
 
-@app.get("/api/tts/test")
-def api_tts_test():
-    """Live end-to-end TTS test — call this from the browser to see the exact error."""
-    u = current_user()
-    if not u: return jsonify({"ok":False,"error":"Not authenticated"}), 401
-    user_key   = ((u.get("settings") or {}).get("openai_key") or "").strip()
-    server_key = (OPENAI_API_KEY or "").strip()
-    key        = user_key or server_key
-    source     = "user_settings" if user_key else ("env_var" if server_key else "none")
-    hint       = ("sk-..."+key[-4:]) if len(key)>=4 else "(none)"
-    if not key:
-        return jsonify({"ok":False,"error":"No OpenAI key found anywhere — set OPENAI_API_KEY in Render env or paste key in Settings","source":source,"key_hint":hint})
-    try:
-        from openai import OpenAI as _TOAI
-        r = _TOAI(api_key=key).audio.speech.create(model="tts-1",voice="alloy",input="Test.")
-        return jsonify({"ok":True,"source":source,"key_hint":hint,"bytes":len(r.content)})
-    except Exception as e:
-        return jsonify({"ok":False,"error":str(e),"source":source,"key_hint":hint})
 
 
 @app.post("/api/tts")
