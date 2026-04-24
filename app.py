@@ -12822,6 +12822,7 @@ function makeSeat(defn, idx){
 
       await refreshThread();
     }
+    window.selectSeat = selectSeat;  // expose for prompt library and other cross-scope callers
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
@@ -14905,24 +14906,28 @@ Challenge weak assumptions. Surface risks.`;
       if(e) e.stopPropagation();
       const p = plFindPrompt(id);
       if(!p) return;
-      // Fill the chat input (DM box for the teammate's seat)
+
+      // 1. Close the library first so the chat is visible
+      hideModal();
+
+      // 2. Switch to the teammate's seat (awaited so thread renders before we fill the input)
+      if(tm && typeof window.selectSeat === "function"){
+        await window.selectSeat(tm);
+      }
+
+      // 3. Fill the input and focus it — happens after seat switch so nothing overwrites it
       const dmInput = $("followInput");
       if(dmInput){
         dmInput.value = p.prompt;
         dmInput.focus();
-        // Switch seat to the teammate if they're available
-        if(tm && tm !== selectedSeat && typeof selectSeat === "function"){
-          selectSeat(tm);
-        }
+        // Scroll input into view on mobile
+        try{ dmInput.scrollIntoView({behavior:"smooth", block:"nearest"}); }catch(_){}
       }
-      // Track usage
+
+      // 4. Track usage fire-and-forget
       try{ await fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
-      // Update local count for immediate feedback
-      const found = plFindPrompt(id);
-      if(found) found.use_count = (found.use_count||0)+1;
-      // Close the library
-      hideModal();
-      showToast("Prompt loaded — edit it then press Send");
+
+      showToast("✅ " + (p.title||"Prompt") + " loaded — edit if needed, then send");
     };
 
     window.plDelete = async function(id, e){
