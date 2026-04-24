@@ -4304,19 +4304,20 @@ def api_set_user_settings():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
+    # onboarding_openai_key: mark OpenAI key step when a non-empty key is saved
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+        new_key = (((u.get("settings") or {}).get("openai_key")) or "").strip() if u else ""
+        if new_key:
+            _mark_onboarding_step(uname, "preferred_ai", True)
+    except Exception:
+        pass
+
+
     data = request.get_json(force=True) or {}
     openai_key = (data.get("openai_key") or "").strip()
     claude_key = (data.get("claude_key") or "").strip()
     global_default_model = (data.get("global_default_model") or "").strip()
-
-    # onboarding_openai_key: mark OpenAI key step when a non-empty key is being saved
-    # NOTE: this must run AFTER parsing the request body so we check the NEW key, not the old one
-    try:
-        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
-        if openai_key:
-            _mark_onboarding_step(uname, "preferred_ai", True)
-    except Exception:
-        pass
 
     smtp_in = data.get("smtp") or {}
     if not isinstance(smtp_in, dict):
@@ -4333,23 +4334,13 @@ def api_set_user_settings():
     rec = (users.get("users") or {}).get(uname) or u
 
     rec.setdefault("settings", {})
-    # Always persist the key field so users can update or clear a stale key.
-    # If non-empty, still validate minimum length (20 chars) to reject obvious typos.
-    if openai_key:
-        if len(openai_key) >= 20:
-            rec["settings"]["openai_key"] = openai_key
-        # else: silently ignore obviously-wrong values but do not clear
-    else:
-        # User submitted blank — remove any stale key so TTS fails with a clear message
-        # rather than using an expired/wrong key from a previous Render env setup.
-        rec["settings"].pop("openai_key", None)
-    if claude_key:
-        if len(claude_key) >= 20:
-            rec["settings"]["claude_key"] = claude_key
-    else:
-        rec["settings"].pop("claude_key", None)
+    if openai_key and len(openai_key) >= 20:
+        rec["settings"]["openai_key"] = openai_key
+    if claude_key and len(claude_key) >= 20:
+        rec["settings"]["claude_key"] = claude_key
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
+    # if user leaves blank, do NOT overwrite the saved key
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -10819,7 +10810,7 @@ label         { font-size: 14px !important; }
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">🔊 Speak</button>
+                <button class="btn btnMini" id="talkGroupBtn">Talk</button>
                 <!-- CHANGE: Always Listening toggle (group) -->
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
@@ -10923,7 +10914,7 @@ label         { font-size: 14px !important; }
             <input type="file" id="dmFiles" multiple style="display:none" />
             <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
             <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
+            <button class="btn btnMini" id="talkDmBtn">🎤 Talk</button>
             <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
@@ -12571,7 +12562,7 @@ function makeSeat(defn, idx){
           }
         }
 
-        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
+        if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); }
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
@@ -13079,32 +13070,8 @@ function makeSeat(defn, idx){
       }
     }
 
-    $("talkGroupBtn").onclick = function() {
-      var btn = $("talkGroupBtn");
-      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      var keys = Object.keys(lastGroupOutputs || {});
-      var text = keys.length ? keys.map(function(k){ return k + ":\n" + (lastGroupOutputs[k]||""); }).join("\n\n---\n\n") : "";
-      if(!text.trim()){
-        if(typeof showToast==="function") showToast("No group reply yet — run a round table prompt first.", "error");
-        return;
-      }
-      var voice = "alloy";
-      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
-      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
-    };
-    $("talkDmBtn").onclick = function() {
-      var btn = $("talkDmBtn");
-      if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      // Fall back to window.lastSeatAssistantText which the streaming IIFE writes to
-      var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
-      if(!text.trim()){
-        if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
-        return;
-      }
-      var voice = "alloy";
-      try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
-      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
-    };
+    $("talkGroupBtn").onclick = async () => { await startDictation("opPrompt", "micStatusGroup"); };
+    $("talkDmBtn").onclick = async () => { await startDictation("followMsg", "micStatusDm"); };
 
     // ----- Lighting Mode (ADD v1) -----
     // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -21025,19 +20992,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!stopped) audio.play();
     }catch(e){
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      const msg = e.message||"unknown";
-      // No OpenAI key — open Settings so user can add it right now
-      if(msg.toLowerCase().includes("openai api key") || msg.toLowerCase().includes("openai_key") || msg.toLowerCase().includes("voice requires")){
-        if(typeof showSettingsModal==="function") showSettingsModal();
-        setTimeout(function(){
-          const keyField = document.getElementById("openaiKey");
-          if(keyField){ keyField.focus(); keyField.style.borderColor="#f87171"; keyField.placeholder="Paste your OpenAI key here (sk-...) — required for voice"; }
-          const keyStatus = document.getElementById("openaiKeyStatus");
-          if(keyStatus){ keyStatus.textContent="\\u26a0\\ufe0f Required for voice"; keyStatus.style.color="#f87171"; }
-        }, 200);
-      } else {
-        if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
-      }
+      if(typeof showToast==="function") showToast("TTS error: "+(e.message||"unknown"),"error");
     }
   };
 
@@ -26330,17 +26285,11 @@ def api_tts():
 
     # TTS always uses OpenAI — get the user's own key directly from settings
     openai_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
-    username = u.get("username", "unknown")
-    print(f"[TTS] user={username} key_present={bool(openai_key)} key_len={len(openai_key)} text_len={len(text)} voice={voice}", flush=True)
     if not openai_key:
-        print(f"[TTS] FAIL: no openai_key in settings for user={username}", flush=True)
         return jsonify({"ok": False, "error": "Voice requires an OpenAI API key. Go to Settings and paste your OpenAI key (sk-...)."}), 400
-
-    openai_key = openai_key.strip()
 
     try:
         oai  = OpenAI(api_key=openai_key)
-        print(f"[TTS] calling openai tts-1 voice={voice} text_preview={text[:60]!r}", flush=True)
         resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
         return Response(
             resp.content,
@@ -26351,7 +26300,6 @@ def api_tts():
             },
         )
     except Exception as exc:
-        print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
 
