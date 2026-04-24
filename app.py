@@ -18649,9 +18649,8 @@ function wcalRenderNotesMd(text){
 /g, '');
 }
 
-// Show the full notes modal overlay
+// Show the full notes modal overlay — built with DOM, never innerHTML with user data
 window.wcalShowFullNotes = function(note){
-  // Remove any existing notes overlay
   const existing = document.getElementById('wcalNotesOverlay');
   if(existing) existing.remove();
 
@@ -18659,28 +18658,62 @@ window.wcalShowFullNotes = function(note){
   overlay.id = 'wcalNotesOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
 
-  overlay.innerHTML = `
-    <div style="background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);">
-        <div>
-          <div style="font-size:17px;font-weight:700;color:#e6edff;">${note.meeting_title||'Meeting Notes'}</div>
-          <div style="font-size:12px;color:#a78bfa;margin-top:3px;">📅 ${note.meeting_date} &nbsp;·&nbsp; 🤝 Notetaker: <strong>${note.teammate}</strong></div>
-        </div>
-        <button onclick="document.getElementById('wcalNotesOverlay').remove()" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>
-      </div>
-      <div style="flex:1;overflow-y:auto;padding:20px 24px;color:#d4dcff;line-height:1.7;">
-        ${wcalRenderNotesMd(note.ai_notes||'')}
-        <details style="margin-top:24px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;">
-          <summary style="font-size:12px;color:#6b7280;cursor:pointer;user-select:none;">📄 View original transcript</summary>
-          <pre style="margin-top:10px;font-size:11px;color:#6b7280;white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto;">${(note.transcript||'').replace(/</g,'&lt;')}</pre>
-        </details>
-      </div>
-      <div style="padding:14px 24px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:10px;">
-        <button onclick="wcalCopyNotes('${note.event_id}')" class="btn btnMini">📋 Copy Notes</button>
-        <button onclick="document.getElementById('wcalNotesOverlay').remove()" class="btn btnMini" style="margin-left:auto;">Close</button>
-      </div>
-    </div>`;
+  // Build shell with safe static HTML
+  const shell = document.createElement('div');
+  shell.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);';
 
+  // Header
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);';
+  const hdrText = document.createElement('div');
+  const titleDiv = document.createElement('div');
+  titleDiv.style.cssText = 'font-size:17px;font-weight:700;color:#e6edff;';
+  titleDiv.textContent = note.meeting_title || 'Meeting Notes';
+  const metaDiv = document.createElement('div');
+  metaDiv.style.cssText = 'font-size:12px;color:#a78bfa;margin-top:3px;';
+  metaDiv.textContent = '📅 ' + (note.meeting_date||'') + '  ·  🤝 Notetaker: ' + (note.teammate||'');
+  hdrText.appendChild(titleDiv);
+  hdrText.appendChild(metaDiv);
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;padding:0 4px;line-height:1;';
+  closeBtn.onclick = function(){ overlay.remove(); };
+  hdr.appendChild(hdrText);
+  hdr.appendChild(closeBtn);
+
+  // Body — rendered notes
+  const bodyDiv = document.createElement('div');
+  bodyDiv.style.cssText = 'flex:1;overflow-y:auto;padding:20px 24px;color:#d4dcff;line-height:1.7;';
+  bodyDiv.innerHTML = wcalRenderNotesMd(note.ai_notes||'');
+
+  // Transcript collapsible — use textContent for transcript (safe)
+  const det = document.createElement('details');
+  det.style.cssText = 'margin-top:24px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;';
+  const summ = document.createElement('summary');
+  summ.style.cssText = 'font-size:12px;color:#6b7280;cursor:pointer;user-select:none;';
+  summ.textContent = '📄 View original transcript';
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'margin-top:10px;font-size:11px;color:#6b7280;white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto;';
+  pre.textContent = note.transcript || '';
+  det.appendChild(summ); det.appendChild(pre);
+  bodyDiv.appendChild(det);
+
+  // Footer
+  const ftr = document.createElement('div');
+  ftr.style.cssText = 'padding:14px 24px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:10px;';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btnMini';
+  copyBtn.textContent = '📋 Copy Notes';
+  copyBtn.onclick = function(){ wcalCopyNotes(note.event_id); };
+  const closeBtn2 = document.createElement('button');
+  closeBtn2.className = 'btn btnMini';
+  closeBtn2.textContent = 'Close';
+  closeBtn2.style.marginLeft = 'auto';
+  closeBtn2.onclick = function(){ overlay.remove(); };
+  ftr.appendChild(copyBtn); ftr.appendChild(closeBtn2);
+
+  shell.appendChild(hdr); shell.appendChild(bodyDiv); shell.appendChild(ftr);
+  overlay.appendChild(shell);
   document.body.appendChild(overlay);
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
 };
@@ -18698,6 +18731,8 @@ window.wcalCopyNotes = async function(evId){
 };
 
 // ── Notes History Modal ──────────────────────────────────────────────────────
+window._wcalNotesCache = {}; // safe store - avoids JSON in onclick attrs
+
 window.wcalShowNotesHistory = async function(){
   const existing = document.getElementById('wcalNotesHistoryOverlay');
   if(existing) existing.remove();
@@ -18705,19 +18740,15 @@ window.wcalShowNotesHistory = async function(){
   const overlay = document.createElement('div');
   overlay.id = 'wcalNotesHistoryOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(10,12,30,.92);display:flex;align-items:center;justify-content:center;padding:20px;';
-  overlay.innerHTML = `
-    <div style="background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);">
-        <div style="font-size:17px;font-weight:700;color:#e6edff;">📋 Meeting Notes History</div>
-        <button onclick="document.getElementById('wcalNotesHistoryOverlay').remove()" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;line-height:1;">&times;</button>
-      </div>
-      <div id="wcalNotesHistoryBody" style="flex:1;overflow-y:auto;padding:16px 24px;">
-        <div style="text-align:center;opacity:.5;padding:40px;">Loading notes…</div>
-      </div>
-    </div>`;
 
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:#1a2040;border:1px solid rgba(196,181,253,.25);border-radius:16px;max-width:760px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.6);';
+  inner.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 14px;border-bottom:1px solid rgba(255,255,255,.08);"><div style="font-size:17px;font-weight:700;color:#e6edff;">📋 Meeting Notes History</div><button id="wcalNotesHistClose" style="background:none;border:none;color:#9ca3af;font-size:22px;cursor:pointer;line-height:1;">&times;</button></div><div id="wcalNotesHistoryBody" style="flex:1;overflow-y:auto;padding:16px 24px;"><div style="text-align:center;opacity:.5;padding:40px;">Loading notes…</div></div>';
+  overlay.appendChild(inner);
   document.body.appendChild(overlay);
+
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+  document.getElementById('wcalNotesHistClose').onclick = function(){ overlay.remove(); };
 
   // Fetch all notes
   try{
@@ -18732,19 +18763,26 @@ window.wcalShowNotesHistory = async function(){
       return;
     }
 
-    body.innerHTML = notes.map(n=>`
-      <div style="border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s;" onclick="wcalShowFullNotes(${JSON.stringify(n).replace(/</g,'&lt;')})" onmouseover="this.style.borderColor='rgba(196,181,253,.35)'" onmouseout="this.style.borderColor='rgba(255,255,255,.08)'">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:600;color:#e6edff;margin-bottom:4px;">${n.meeting_title||'Untitled Meeting'}</div>
-            <div style="font-size:11px;color:#a78bfa;">📅 ${n.meeting_date} &nbsp;·&nbsp; 🤝 ${n.teammate}</div>
-            <div style="font-size:12px;color:#9ca3af;margin-top:6px;line-height:1.5;">
-              ${((n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim()).slice(0,160)}…
-            </div>
-          </div>
-          <div style="font-size:20px;opacity:.3;flex-shrink:0;">→</div>
-        </div>
-      </div>`).join('');
+    // Cache notes by event_id — never put JSON in onclick
+    notes.forEach(n=>{ window._wcalNotesCache[n.event_id] = n; });
+
+    body.innerHTML = '';
+    notes.forEach(function(n){
+      const card = document.createElement('div');
+      card.style.cssText = 'border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:rgba(255,255,255,.03);cursor:pointer;transition:border-color .15s;';
+      card.onmouseenter = function(){ card.style.borderColor='rgba(196,181,253,.35)'; };
+      card.onmouseleave = function(){ card.style.borderColor='rgba(255,255,255,.08)'; };
+      card.onclick = function(){ wcalShowFullNotes(window._wcalNotesCache[n.event_id]); };
+
+      const tldr = ((n.ai_notes||'').split('## Key Decisions')[0].replace('## TL;DR','').trim()).slice(0,160);
+      const titleEl = document.createElement('div');
+      titleEl.innerHTML = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;"><div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:600;color:#e6edff;margin-bottom:4px;"></div><div style="font-size:11px;color:#a78bfa;"></div><div style="font-size:12px;color:#9ca3af;margin-top:6px;line-height:1.5;"></div></div><div style="font-size:20px;opacity:.3;flex-shrink:0;">→</div></div>';
+      titleEl.querySelector('div > div > div:nth-child(1)').textContent = n.meeting_title||'Untitled Meeting';
+      titleEl.querySelector('div > div > div:nth-child(2)').textContent = '📅 ' + n.meeting_date + '  ·  🤝 ' + n.teammate;
+      titleEl.querySelector('div > div > div:nth-child(3)').textContent = tldr + (tldr.length>=160?'…':'');
+      card.appendChild(titleEl);
+      body.appendChild(card);
+    });
   }catch(e){
     const body = document.getElementById('wcalNotesHistoryBody');
     if(body) body.innerHTML='<div style="color:#f87171;padding:20px;">Failed to load notes: '+e.message+'</div>';
