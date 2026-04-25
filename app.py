@@ -9238,26 +9238,21 @@ HTML = r"""
     }
 
 
-/* ==========================================================================
-   MOBILE RESPONSIVE — Clean unified ruleset (replaces all prior patches)
-   ========================================================================== */
+/* ══════════════════════════════════════════════════════════════════
+   MOBILE — minimal fix: stop overflow, don't touch visual style
+   ══════════════════════════════════════════════════════════════════ */
 
-/* ══════════════════════════════════════════════════════════════════════════
-   RESPONSIVE / MOBILE  —  single authoritative source, no duplicates
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/* Global box-model */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { max-width: 100%; overflow-x: hidden !important; }
 :root { --mobile-pad: 14px; }
 
-/* ── 1280px ─────────────────────────────────────────────────────────────── */
+/* 1280px */
 @media (max-width: 1280px) {
   .commandRow           { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .commandRow.secondary { grid-template-columns: repeat(3, minmax(160px, 1fr)); max-width: none; }
 }
 
-/* ── 980px: collapse to single column ───────────────────────────────────── */
+/* 980px */
 @media (max-width: 980px) {
   .stage         { grid-template-columns: 1fr !important; }
   .side          { position: relative; top: 0; height: auto; overflow: visible; border-left: 0; }
@@ -9269,37 +9264,32 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
   .modalBarTitle { max-width: 240px; }
 }
 
-/* ── 720px: show mobile bar, hide desktop right/center nav ──────────────── */
+/* 720px: show mobile bar */
 @media (max-width: 720px) {
-  .rightmeta  { display: none !important; }
-  .saNavCenter { display: none !important; }
-  .saNavRight  { display: none !important; }
-  .saNavBar    { padding: 6px 10px; gap: 6px; }
+  .rightmeta { display: none !important; }
 
   .mobileBar {
     display: flex;
     position: fixed;
     left: 0; right: 0; bottom: 0;
-    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-    background: rgba(7,10,20,.96);
-    border-top: 1px solid rgba(80,110,200,.4);
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(7,10,20,.95);
+    border-top: 1px solid rgba(42,58,106,.5);
     z-index: 9000;
     gap: 8px;
     justify-content: space-between;
-    backdrop-filter: blur(16px);
+    backdrop-filter: blur(12px);
     box-shadow: 0 -4px 24px rgba(0,0,0,.4);
   }
   .mobileBar .btn {
-    flex: 1 1 0;
-    padding: 8px 4px;
+    flex: 1 1 auto;
+    padding: 10px 6px;
     font-size: 12px;
     font-weight: 700;
     border-color: rgba(124,58,237,.45) !important;
-    border-radius: 10px;
     text-align: center;
-    white-space: nowrap;
   }
-  body { padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important; }
+  body { padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important; }
 
   .mobileDrawerOverlay.show {
     display: block;
@@ -9307,275 +9297,197 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
     inset: 0;
     background: rgba(2,6,16,.65);
     z-index: 8900;
-    backdrop-filter: blur(4px);
   }
+
+  /* Nav: hide center + right at 720, keep left dropdowns */
+  .saNavCenter { display: none !important; }
+  .saNavRight  { display: none !important; }
 }
 
-/* ── 640px: full mobile — the only rules that matter on a phone ─────────── */
+/* 640px: the actual phone fixes — ONLY fixing overflow/clipping, not restyling */
 @media (max-width: 640px) {
 
-  /* Absolutely no horizontal scroll */
+  /* Kill horizontal scroll entirely */
   html, body {
     overflow-x: hidden !important;
     overscroll-behavior-x: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
   }
   body {
-    touch-action: manipulation;
     padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important;
   }
 
-  /* Hide the desktop sticky nav completely */
-  .saNavBar    { display: none !important; }
-  .topbarMain  { display: none !important; }
-  .topbar      { padding: 0 !important; min-height: 0 !important; border-bottom: none !important; }
+  /* Hide the desktop nav bar — mobile bar takes over */
+  .saNavBar { display: none !important; }
 
-  /* ── Stage: single column, full width ── */
-  .stage {
-    grid-template-columns: 1fr !important;
-    min-height: auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-  }
+  /* Topbar: just keep the brand, slim it */
+  .topbar { padding: 8px 12px !important; }
+  .topbarMain { flex-wrap: nowrap !important; gap: 8px !important; }
 
-  /* ── Arena ── */
-  .arena {
-    padding: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: visible !important;
-  }
+  /* Stage: single column */
+  .stage { grid-template-columns: 1fr !important; }
 
-  /* ── tableWrap: vertical flex list ── */
-  .tableWrap, .tableWrap#tableWrap {
+  /* tableWrap: vertical flex list, full width, NO overflow side */
+  .tableWrap,
+  .tableWrap#tableWrap {
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    justify-content: flex-start !important;
-    gap: 10px !important;
-    padding: 10px 10px 16px 10px !important;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     height: auto !important;
     min-height: 0 !important;
-    box-sizing: border-box !important;
-    position: relative !important;
     overflow: visible !important;
-    /* CRITICAL: kill any leftover transform/zoom */
+    position: relative !important;
+    padding: 8px 10px 16px !important;
+    gap: 10px !important;
+    box-sizing: border-box !important;
     transform: none !important;
     zoom: 1 !important;
   }
 
-  /* Hide the SVG circle entirely */
-  .table { display: none !important; }
-  #rtStage { display: none !important; }
+  /* Hide SVG table circle */
+  .table        { display: none !important; }
+  #rtStage      { display: none !important; }
   #tableViewport { display: contents !important; }
-  .mobileTeamLabel { display: block !important; }
 
-  /* ── Seat cards: 100% wide, stacked ── */
-  .seat {
+  /* Every seat: in-flow, full width */
+  .seat,
+  #tableWrap .seat {
     position: relative !important;
-    left: 0 !important; top: 0 !important; right: auto !important; bottom: auto !important;
+    left: auto !important; top: auto !important;
+    right: auto !important; bottom: auto !important;
     transform: none !important;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
-    min-height: 0 !important;
     height: auto !important;
+    min-height: 72px !important;
     margin: 0 !important;
-    padding: 12px 14px !important;
     box-sizing: border-box !important;
-    border-radius: 14px !important;
-    background: rgba(14,22,48,.98) !important;
-    cursor: pointer !important;
     overflow: hidden !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 12px !important;
   }
-  .seat.active {
-    border-color: rgba(124,58,237,.9) !important;
-    background: rgba(20,12,48,.98) !important;
-    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
-  }
-  .seat .seatAvatar  { width: 42px !important; height: 42px !important; font-size: 18px !important; border-radius: 10px !important; flex-shrink: 0 !important; }
-  .seat .seatMeta    { min-width: 0 !important; flex: 1 !important; }
-  .seat .seatName    { font-size: 15px !important; font-weight: 800 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
-  .seat .seatRole    { font-size: 12px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
-  .seat .seatStatus  { font-size: 12px !important; }
-  .seatTools         { flex-wrap: wrap !important; gap: 6px !important; justify-content: flex-end !important; flex-shrink: 0 !important; }
-  .seatToolBtn       { flex: 0 0 auto !important; }
+  .seat .seatMeta { min-width: 0 !important; flex: 1 1 0 !important; }
+  .seat .seatName,
+  .seat .seatRole { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; max-width: 100% !important; }
 
-  /* ── Operator console (Group Console): full-width, at bottom of list ── */
+  /* Operator / Group Console: full width, at bottom */
   .operator {
     position: relative !important;
-    left: auto !important; top: auto !important; right: auto !important; bottom: auto !important;
+    left: auto !important; top: auto !important;
     transform: none !important;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     height: auto !important;
     margin: 0 !important;
-    padding: 14px !important;
     box-sizing: border-box !important;
-    border-radius: 14px !important;
     order: 999 !important;
   }
-  .operator .opText  { min-height: 100px !important; width: 100% !important; box-sizing: border-box !important; }
+  .operator .opText { width: 100% !important; box-sizing: border-box !important; }
 
-  /* ── underTable (shared memory bar etc) ── */
+  /* underTable: no overflow */
   .underTable {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     box-sizing: border-box !important;
-    margin: 0 0 8px 0 !important;
     padding: 0 10px !important;
     position: relative !important;
-    z-index: 1 !important;
+    z-index: 2 !important;
   }
 
-  /* ── Side panel ── */
+  /* Side panel */
   .side {
-    position: relative !important;
-    top: auto !important; height: auto !important;
-    overflow: visible !important;
+    position: relative !important; top: auto !important;
+    height: auto !important; overflow: visible !important;
     border-left: 0 !important;
+    width: 100% !important; max-width: 100% !important;
     padding: 0 10px 10px !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
     box-sizing: border-box !important;
   }
 
-  /* ── sideCard / groupCard ── */
+  /* sideCard / groupCard */
   .sideCard, .groupCard {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     box-sizing: border-box !important;
     height: auto !important;
-    min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
-    padding: 12px !important;
-    border-radius: 16px !important;
     margin: 0 !important;
   }
-  #seatSub { display: none !important; }
 
-  /* sideHead */
-  .sideHead  { flex-wrap: wrap !important; gap: 8px !important; align-items: flex-start !important; }
-  .sideTitle { min-width: 0 !important; flex: 1 1 180px !important; word-break: break-word !important; }
-
-  /* ── Thread ── */
+  /* Thread */
   #thread {
-    height: auto !important;
-    max-height: 40vh !important;
-    min-height: 60px !important;
+    max-height: 42vh !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
-  /* ── Prompt input ── */
-  .opText { min-height: 90px !important; width: 100% !important; box-sizing: border-box !important; }
-  .followRow, #followRow { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; flex-wrap: wrap !important; }
-  .passRow, .pillRow { width: 100% !important; max-width: 100% !important; overflow: visible !important; }
-
-  /* ── Modal: true full-screen ── */
-  .overlay {
-    align-items: flex-start !important;
-    padding: 0 !important;
-    background: rgba(2,6,16,.8) !important;
-  }
+  /* Modal: full screen */
   .modal, #modalWin {
     position: fixed !important;
     inset: 0 !important;
     width: 100vw !important;
     max-width: 100vw !important;
     height: 100dvh !important;
-    max-height: 100dvh !important;
     border-radius: 0 !important;
-    resize: none !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
     transform: none !important;
     box-sizing: border-box !important;
   }
-  .modalBar    { cursor: default !important; }
   #modalScroll {
-    max-height: calc(100dvh - 56px) !important;
+    max-height: calc(100dvh - 52px - 74px - env(safe-area-inset-bottom)) !important;
     overflow-y: auto !important;
-    overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch !important;
-    padding: 0 12px calc(74px + env(safe-area-inset-bottom)) 12px !important;
+    padding: 0 12px 20px !important;
     box-sizing: border-box !important;
   }
   .formGrid2 { display: flex !important; flex-direction: column !important; gap: 14px !important; }
-  .row2      { grid-template-columns: 1fr !important; }
+  .row2 { grid-template-columns: 1fr !important; }
   .modalForm .grid { grid-template-columns: 1fr !important; }
-  .modalForm .modalInner { padding-bottom: 10px !important; }
 
-  /* ── iOS: prevent input zoom ── */
+  /* Prevent iOS zoom */
   textarea, input, select { font-size: 16px !important; }
 
-  /* ── Universal overflow guard ── */
-  .card, .container, .tableWrap, .sideCard, .groupCard, .grid, .row, .underTable {
+  /* Universal guard */
+  .card, .container, .tableWrap, .sideCard, .groupCard, .grid, .underTable {
     max-width: 100% !important;
     min-width: 0 !important;
     box-sizing: border-box !important;
   }
 
-  /* ── Command rows: 2-col grid ── */
-  .commandRow, .commandRow.secondary {
-    grid-template-columns: repeat(2, 1fr) !important;
-    max-width: none !important;
-    gap: 8px !important;
-  }
-  .commandRow .btn, .commandRow a.btn {
-    min-height: 42px !important;
-    font-size: 12px !important;
-    padding: 8px 4px !important;
-    white-space: normal !important;
-    line-height: 1.2 !important;
-  }
-
-  /* ── Mobile bar: fixed bottom ── */
+  /* Mobile bar */
   .mobileBar {
     display: flex !important;
     position: fixed !important;
     left: 0 !important; right: 0 !important; bottom: 0 !important;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom)) !important;
+    padding: 9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
     background: rgba(7,10,20,.97) !important;
-    border-top: 1px solid rgba(80,110,200,.45) !important;
+    border-top: 1px solid rgba(80,110,200,.4) !important;
     z-index: 9000 !important;
     gap: 6px !important;
     backdrop-filter: blur(20px) !important;
-    box-shadow: 0 -4px 30px rgba(0,0,0,.5) !important;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.5) !important;
   }
   .mobileBar .btn {
     flex: 1 1 0 !important;
-    padding: 9px 3px !important;
+    padding: 9px 4px !important;
     font-size: 11px !important;
     font-weight: 700 !important;
-    border-color: rgba(124,58,237,.5) !important;
-    border-radius: 10px !important;
+    border-color: rgba(124,58,237,.45) !important;
     text-align: center !important;
     white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
   }
 
-  /* ── Mobile drawer ── */
+  /* Drawer */
   .mobileDrawerOverlay.show {
     display: block !important;
     position: fixed !important;
     inset: 0 !important;
-    background: rgba(2,6,16,.72) !important;
+    background: rgba(2,6,16,.7) !important;
     z-index: 8900 !important;
-    backdrop-filter: blur(4px) !important;
   }
   .mobileDrawer {
     position: fixed !important;
@@ -9584,33 +9496,21 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
     max-height: 72vh !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
-    background: rgba(10,14,30,.99) !important;
-    border: 1px solid rgba(80,110,200,.5) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 -8px 48px rgba(0,0,0,.65) !important;
     z-index: 9100 !important;
   }
-  .mobileDrawerGrid {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
-    padding: 10px !important;
-  }
-  .mobileDrawerGrid .btn {
-    font-size: 12px !important;
-    padding: 10px 6px !important;
-    text-align: center !important;
-    width: 100% !important;
-    min-height: 42px !important;
-  }
-  .mobileDrawerFoot { padding: 0 10px 10px !important; }
 
-  /* ── Hide desktop clutter ── */
+  /* Hide desktop-only stuff */
   .rightmeta    { display: none !important; }
   #diagFab      { display: none !important; }
   #tableZoomFab { display: none !important; }
+  #seatSub      { display: none !important; }
+  .commandRow, .commandRow.secondary {
+    grid-template-columns: repeat(2, 1fr) !important;
+    max-width: none !important;
+  }
 }
 
-/* ── 480px: nav completely hidden, mobile bar is sole nav ───────────────── */
+/* 480px: nav fully hidden */
 @media (max-width: 480px) {
   .saNavBar { display: none !important; }
 }
