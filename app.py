@@ -109,8 +109,39 @@ STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "") or STRIPE_PRI
 STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")
 STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWBo2NxJsur0jGGwR")
 
+# ── Founder / Early-Adopter plan ─────────────────────────────────────────────
+# Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
+# the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
+STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "")
+FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "50"))   # total slots
+# Fixed epoch: the week counter resets every Monday 00:00 UTC
+FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any past Monday
+
 # ── Central plan definitions — edit here, nowhere else ──────────────────────
 PLANS: Dict[str, Any] = {
+    "founder": {
+        "name":             "Founder Access",
+        "price":            17,
+        "price_id":         STRIPE_PRICE_ID_FOUNDER,
+        "badge":            "🔥 Founder",
+        "tagline":          "Locked in forever at our lowest price — for the first believers.",
+        "custom_teammates": 3,
+        "crm_contacts":     2500,
+        "broadcast_recipients": 1000,
+        "founder":          True,
+        "features": [
+            "Everything in Starter + Growth",
+            "Powered by GPT-4o + Claude",
+            "All 7 built-in AI teammates",
+            "Round table group convene",
+            "Create up to 3 custom AI teammates",
+            "Lead Lab — unlimited runs",
+            "Social Studio — unlimited runs",
+            "CRM + pipeline (up to 2,500 contacts)",
+            "Email & SMS broadcast (up to 1,000 recipients)",
+            "Price locked in forever — never increases",
+        ],
+    },
     "starter": {
         "name":             "Starter Operator",
         "price":            47,
@@ -181,6 +212,70 @@ def _plan_price_id(plan_key: str) -> str:
     """Return the Stripe price ID for a plan key, falling back to Starter."""
     p = PLANS.get(plan_key) or PLANS.get("starter") or {}
     return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+
+
+# ── Founder seat tracking ────────────────────────────────────────────────────
+
+def _load_founder_seats() -> Dict[str, Any]:
+    """Return founder seat data: {claimed: int, claimants: [...]}"""
+    try:
+        if FOUNDER_SEATS_PATH.exists():
+            with open(FOUNDER_SEATS_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"claimed": 0, "claimants": []}
+
+def _save_founder_seats(data: Dict[str, Any]) -> None:
+    try:
+        with open(FOUNDER_SEATS_PATH, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _founder_seats_remaining() -> int:
+    """How many founder seats are still available."""
+    d = _load_founder_seats()
+    return max(0, FOUNDER_SEATS_MAX - d.get("claimed", 0))
+
+def _claim_founder_seat(username: str) -> bool:
+    """Atomically claim one founder seat. Returns True if successful."""
+    with threading.Lock():
+        d = _load_founder_seats()
+        if d.get("claimed", 0) >= FOUNDER_SEATS_MAX:
+            return False
+        d["claimed"] = d.get("claimed", 0) + 1
+        claimants = d.get("claimants") or []
+        if username not in claimants:
+            claimants.append(username)
+        d["claimants"] = claimants
+        _save_founder_seats(d)
+        return True
+
+def _founder_weekly_timer() -> Dict[str, Any]:
+    """
+    Return seconds remaining until the end of the current ISO week (Monday→Sunday).
+    The timer auto-resets every Monday 00:00 UTC, creating urgency that refreshes weekly.
+    """
+    import math
+    now = datetime.utcnow()
+    # Days until next Monday (0=Mon, 6=Sun); weekday() returns 0 for Monday
+    days_until_monday = (7 - now.weekday()) % 7 or 7
+    next_monday = (now + timedelta(days=days_until_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    secs = int((next_monday - now).total_seconds())
+    hours, remainder = divmod(secs, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    days = hours // 24
+    hours = hours % 24
+    return {
+        "total_seconds": secs,
+        "days":    days,
+        "hours":   hours,
+        "minutes": minutes,
+        "seconds": seconds,
+    }
 
 
 def _get_user_plan(username: str) -> str:
@@ -696,6 +791,7 @@ USERS_PATH           = DATA / "users.json"
 SECRET_PATH          = DATA / "session_secret.key"
 SEATS_PATH           = DATA / "seats.json"
 STRIPE_SESSIONS_PATH = DATA / "stripe_sessions.json"
+FOUNDER_SEATS_PATH   = DATA / "founder_seats.json"
 
 # =========================
 # SEAT LICENSING SYSTEM
@@ -7241,15 +7337,22 @@ def _hash_token(token: str) -> str:
 
 @app.get("/pricing")
 def pricing_page():
-    stripe_on = _stripe_ready()
+    stripe_on       = _stripe_ready()
+    founder_remain  = _founder_seats_remaining()
+    founder_sold    = founder_remain <= 0
+    founder_timer   = _founder_weekly_timer()
+    sold_out_param  = request.args.get("founder_sold_out", "")
+
     cards_html = ""
     for key, p in PLANS.items():
-        badge        = p.get("badge")
-        is_growth    = key == "growth"
-        badge_html   = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        rec_cls      = " plan-card-featured" if is_growth else ""
+        if key == "founder":
+            continue
+        badge         = p.get("badge")
+        is_growth     = key == "growth"
+        badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
+        rec_cls       = " plan-card-featured" if is_growth else ""
         features_html = "".join(
-            f"<li><span class='pf-check'>✓</span>{f}</li>"
+            f"<li><span class='pf-check'>&#10003;</span>{f}</li>"
             for f in p.get("features", [])
         )
         cards_html += f"""
@@ -7268,53 +7371,83 @@ def pricing_page():
           {"<div class='trial-note'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""}
         </div>"""
 
+    fp = PLANS.get("founder", {})
+    founder_features_html = "".join(
+        f"<li><span class='pf-check-f'>&#10003;</span>{f}</li>"
+        for f in fp.get("features", [])
+    )
+    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
+    sold_out_msg  = "<div class='founder-soldout'>All founder seats claimed — upgrade to a standard plan below.</div>" if founder_sold else ""
+    founder_btn   = (
+        "<button class='founder-btn-soldout' disabled>Sold Out</button>"
+        if founder_sold else
+        f"""<button class='founder-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
+              <span class='btn-spinner' id='spin-founder' style='display:none'>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+              </span>
+              Claim My Founder Spot
+            </button>"""
+    )
+
     page = f"""<!doctype html>
 <html><head>
 <meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
-<title>Pricing — {APP_TITLE}</title>
+<title>Pricing - {APP_TITLE}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0;}}
-body{{
-  font-family:system-ui,Arial,sans-serif;
-  background:
-    radial-gradient(1200px 820px at 50% 22%, rgba(247,211,106,.13), transparent 56%),
-    radial-gradient(1200px 900px at 50% 38%, rgba(124,58,237,.22), transparent 58%),
-    linear-gradient(180deg, #090d19 0%, #0a1022 38%, #0b1226 100%);
-  color:#e2e8f0;
-  min-height:100vh;
-  padding:48px 20px 80px;
-}}
+body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(247,211,106,.13),transparent 56%),radial-gradient(1200px 900px at 50% 38%,rgba(124,58,237,.22),transparent 58%),linear-gradient(180deg,#090d19 0%,#0a1022 38%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 80px;}}
 .pg-header{{text-align:center;margin-bottom:48px;}}
 .pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:12px;}}
 .pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
 .brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
 .dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
+.founder-wrap{{max-width:720px;margin:0 auto 48px;}}
+.founder-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
+.founder-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+.founder-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;box-shadow:0 4px 16px rgba(245,158,11,.5);}}
+.founder-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
+.founder-left{{flex:1;min-width:200px;}}
+.founder-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
+.founder-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
+.founder-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
+.founder-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
+.founder-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
+.founder-locked{{font-size:12px;color:#fbbf24;margin-top:4px;}}
+.founder-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
+.founder-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
+.seats-label{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
+.seats-count{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
+.seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
+.seats-bar-wrap{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
+.seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);transition:width .6s ease;}}
+.countdown-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
+.countdown-label{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
+.countdown-timer{{display:flex;gap:10px;align-items:center;}}
+.cd-unit{{text-align:center;}}
+.cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
+.cd-lbl{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
+.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:12px;}}
+.countdown-reset{{font-size:10px;color:#78716c;margin-top:6px;}}
+.founder-features-wrap{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
+.founder-features{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
+.founder-features li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
+.pf-check-f{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
+.founder-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
+.founder-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;}}
+.founder-btn:hover{{opacity:.88;transform:translateY(-2px);}}
+.founder-btn:active{{transform:translateY(0);}}
+.founder-btn-soldout{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
+.founder-note{{font-size:12px;color:#78716c;line-height:1.5;}}
+.founder-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
+.divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
+.divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
+.divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
 .plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
-.plan-card{{
-  flex:1;min-width:290px;max-width:330px;
-  background:rgba(14,20,46,.92);
-  border:1px solid rgba(80,100,180,.3);
-  border-radius:20px;
-  padding:32px 28px 28px;
-  display:flex;flex-direction:column;
-  position:relative;
-  transition:transform .2s,box-shadow .2s;
-}}
+.plan-card{{flex:1;min-width:290px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
 .plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
-.plan-card-featured{{
-  border-color:rgba(124,58,237,.7);
-  background:rgba(20,16,54,.96);
-  box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);
-}}
-.plan-badge{{
-  position:absolute;top:-14px;left:50%;transform:translateX(-50%);
-  background:linear-gradient(90deg,#7c3aed,#6d28d9);
-  color:#f3e8ff;font-size:11px;font-weight:800;
-  padding:4px 16px;border-radius:999px;white-space:nowrap;
-  letter-spacing:.06em;text-transform:uppercase;
-  box-shadow:0 4px 16px rgba(124,58,237,.4);
-}}
+.plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
+.plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
 .plan-name{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
 .plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
 .plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
@@ -7323,26 +7456,10 @@ body{{
 .plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:28px;flex:1;}}
 .plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
 .pf-check{{color:#a78bfa;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;}}
-.plan-btn{{
-  width:100%;padding:13px;border-radius:10px;
-  font-size:14px;font-weight:700;cursor:pointer;
-  border:none;
-  background:linear-gradient(135deg,#7c3aed,#6d28d9);
-  color:#fff;
-  box-shadow:0 4px 20px rgba(124,58,237,.4);
-  transition:opacity .15s,transform .1s;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  margin-top:auto;
-}}
+.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;}}
 .plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
-.plan-btn:active{{transform:translateY(0);}}
-.api-note{{
-  max-width:640px;margin:40px auto 0;
-  background:rgba(124,58,237,.08);
-  border:1px solid rgba(124,58,237,.25);
-  border-radius:14px;padding:18px 22px;
-  display:flex;gap:14px;align-items:flex-start;
-}}
+.trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
+.api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
 .api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
 .api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
 .api-note-text strong{{color:#c4b5fd;}}
@@ -7351,6 +7468,7 @@ body{{
 .already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
 .already a{{color:#a78bfa;text-decoration:none;}}
 .already a:hover{{text-decoration:underline;}}
+@media(max-width:600px){{.founder-top{{flex-direction:column;gap:16px;}}.founder-price{{font-size:42px;}}.founder-cta{{flex-direction:column;align-items:stretch;}}.founder-btn,.founder-btn-soldout{{width:100%;text-align:center;}}.countdown-timer{{gap:6px;}}.cd-num{{font-size:18px;min-width:26px;}}}}
 </style>
 </head><body>
 <div class='brand'><div class='dot'></div>{APP_TITLE}</div>
@@ -7359,36 +7477,96 @@ body{{
   <p>You get the full platform on every plan. You scale, we scale with you.</p>
   {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
+
+<div class='founder-wrap'>
+  <div class='founder-card'>
+    <div class='founder-ribbon'>LIMITED</div>
+    <div class='founder-top'>
+      <div class='founder-left'>
+        <div class='founder-badge'>🔥 Founder Access</div>
+        <div class='founder-name'>{fp.get("name","Founder Access")}</div>
+        <div class='founder-price'><span class='dol'>$</span>17<span class='per'>/mo</span></div>
+        <div class='founder-locked'>🔒 Price locked in forever — never increases</div>
+        <div class='founder-tagline'>{fp.get("tagline","")}</div>
+      </div>
+      <div class='founder-right'>
+        <div>
+          <div class='seats-label'>Founder seats remaining</div>
+          <div class='seats-count' id='seatsRemain'>{founder_remain}</div>
+          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
+          <div class='seats-bar-wrap'>
+            <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
+          </div>
+        </div>
+        <div class='countdown-wrap'>
+          <div class='countdown-label'>Offer resets in</div>
+          <div class='countdown-timer'>
+            <div class='cd-unit'><div class='cd-num' id='cdDays'>{founder_timer["days"]:02d}</div><div class='cd-lbl'>days</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdHrs'>{founder_timer["hours"]:02d}</div><div class='cd-lbl'>hrs</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdMin'>{founder_timer["minutes"]:02d}</div><div class='cd-lbl'>min</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdSec'>{founder_timer["seconds"]:02d}</div><div class='cd-lbl'>sec</div></div>
+          </div>
+          <div class='countdown-reset'>Resets every Monday midnight UTC. Price locks in forever once claimed.</div>
+        </div>
+      </div>
+    </div>
+    <div class='founder-features-wrap'>
+      <ul class='founder-features'>{founder_features_html}</ul>
+    </div>
+    <div class='founder-cta'>
+      {founder_btn}
+      <div class='founder-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
+    </div>
+    {sold_out_msg}
+    {"<div class='founder-soldout'>This price is sold out — claim a standard plan below.</div>" if sold_out_param else ""}
+  </div>
+</div>
+
+<div class='divider'><hr/><span>Or choose a standard plan</span><hr/></div>
 <div class='plans'>{cards_html}</div>
 
 <div class='api-note'>
   <div class='api-note-icon'>🔑</div>
   <div class='api-note-text'>
-    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth with other users. Your key, your data, your AI. Simply Agentic AI is the operating system — you plug in the engine.
+    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth with other users.
   </div>
 </div>
-
 <div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
 <div class='pg-footer' style='margin-top:24px;'>
   {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
 <script>
-async function startCheckout(plan) {{
-  const btn  = document.getElementById('planBtn-' + plan);
-  const spin = document.getElementById('spin-' + plan);
-  if (btn)  btn.disabled = true;
-  if (spin) spin.style.display = 'inline-flex';
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = '/stripe/create_checkout';
-  form.style.display = 'none';
-  const input = document.createElement('input');
-  input.type  = 'hidden';
-  input.name  = 'plan';
-  input.value = plan;
-  form.appendChild(input);
-  document.body.appendChild(form);
-  form.submit();
+var totalSecs = {founder_timer["total_seconds"]};
+function pad(n){{return String(n).padStart(2,'0');}}
+function tick(){{
+  if(totalSecs<=0){{location.reload();return;}}
+  totalSecs--;
+  var d=Math.floor(totalSecs/86400),h=Math.floor((totalSecs%86400)/3600),m=Math.floor((totalSecs%3600)/60),s=totalSecs%60;
+  var e=function(id){{return document.getElementById(id);}};
+  if(e('cdDays'))e('cdDays').textContent=pad(d);
+  if(e('cdHrs'))e('cdHrs').textContent=pad(h);
+  if(e('cdMin'))e('cdMin').textContent=pad(m);
+  if(e('cdSec'))e('cdSec').textContent=pad(s);
+}}
+setInterval(tick,1000);
+function refreshSeats(){{
+  fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
+    var remEl=document.getElementById('seatsRemain'),barEl=document.getElementById('seatsBar'),btnEl=document.getElementById('planBtn-founder');
+    if(remEl)remEl.textContent=d.remaining;
+    if(barEl)barEl.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
+    if(d.sold_out&&btnEl){{btnEl.disabled=true;btnEl.textContent='Sold Out';btnEl.style.background='rgba(100,100,100,.2)';btnEl.style.color='#6b7280';}}
+  }}).catch(function(){{}});
+}}
+setInterval(refreshSeats,30000);
+function startCheckout(plan){{
+  var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
+  if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
+  var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
+  var input=document.createElement('input');input.type='hidden';input.name='plan';input.value=plan;
+  form.appendChild(input);document.body.appendChild(form);form.submit();
 }}
 </script>
 </body></html>"""
@@ -7744,6 +7922,11 @@ def stripe_create_checkout():
     price_id = _plan_price_id(plan_key)
     if not price_id:
         return jsonify({"ok": False, "error": f"No price ID configured for plan '{plan_key}'."}), 400
+
+    # Founder plan: check availability before sending to Stripe
+    if plan_key == "founder":
+        if _founder_seats_remaining() <= 0:
+            return redirect(f"{PUBLIC_BASE_URL or request.host_url.rstrip('/')}/pricing?founder_sold_out=1", 303)
 
     base = (PUBLIC_BASE_URL or request.host_url.rstrip("/"))
     # {CHECKOUT_SESSION_ID} is a Stripe template variable — Stripe fills it in automatically.
@@ -9181,33 +9364,6 @@ HTML = r"""
     border-color: rgba(124,58,237,.9) !important;
     background: rgba(20,12,48,.98) !important;
     box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
-  }
-
-  /* ── KILL pan/zoom stage on ≤640px list view ─────────────────────────
-     The @media (max-width:700px) block uses .tableWrap#tableWrap (high
-     specificity) to force a square fixed-height container. Override it
-     here so the stacked seat list can use normal document flow.
-  ──────────────────────────────────────────────────────────────────── */
-  .tableWrap#tableWrap{
-    width: 100% !important;
-    height: auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
-    touch-action: auto !important;
-  }
-  /* #rtStage is position:absolute inside the wrap — flatten it so seats flow normally */
-  #rtStage{
-    position: static !important;
-    inset: auto !important;
-    transform: none !important;
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 10px !important;
-    width: 100% !important;
-  }
-  /* Kill the round table circle inside stage on mobile list view */
-  #rtStage .table{
-    display: none !important;
   }
 
   /* Give the prompt textarea breathing room */
@@ -12724,13 +12880,37 @@ function makeSeat(defn, idx){
       // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
       // from saved positions that may have loaded before the mobile guard was in place
       if(window.innerWidth <= 640){
+        // Also ensure the container itself is a flex column (override any JS-set styles)
+        wrap.style.display        = "flex";
+        wrap.style.flexDirection  = "column";
+        wrap.style.width          = "100%";
+        wrap.style.height         = "auto";
+        wrap.style.minHeight      = "0";
+        wrap.style.overflow       = "visible";
+        wrap.style.padding        = "8px 12px";
+        wrap.style.gap            = "10px";
+        // If rtStage was created despite our guard, flatten it too
+        const stage = document.getElementById("rtStage");
+        if(stage){
+          stage.style.position      = "static";
+          stage.style.transform     = "none";
+          stage.style.display       = "flex";
+          stage.style.flexDirection = "column";
+          stage.style.gap           = "10px";
+          stage.style.width         = "100%";
+          stage.style.height        = "auto";
+        }
         Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
           s.style.position  = "relative";
           s.style.left      = "";
           s.style.top       = "";
+          s.style.right     = "";
+          s.style.bottom    = "";
           s.style.width     = "100%";
+          s.style.maxWidth  = "100%";
           s.style.height    = "auto";
           s.style.transform = "none";
+          s.style.margin    = "0";
         });
       }
 
@@ -24988,6 +25168,73 @@ ADD_UI_POLISH_V8 = r'''
   }
 </style>
 
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE LIST LAYOUT — DEFINITIVE FINAL OVERRIDE
+   This block MUST stay last in the stylesheet.
+   Uses higher-specificity selectors (#tableWrap .seat beats .seat) so it
+   wins regardless of cascade order, fixing ghost/overlap on phones ≤640px.
+══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+  /* Override every competing .tableWrap#tableWrap rule (all use same specificity
+     0,1,1,0 — our block here is last so it wins the cascade). */
+  .tableWrap#tableWrap {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    position: relative !important;
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    gap: 10px !important;
+    touch-action: auto !important;
+    transform: none !important;
+  }
+
+  /* If #rtStage was somehow created, flatten it — use double-ID selector
+     so specificity (0,2,0,0) beats any single-ID rule (0,1,0,0). */
+  #tableWrap #rtStage {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* Force EVERY seat into normal document flow regardless of inline styles.
+     ID + class specificity (0,1,1,0) beats class-only (.seat = 0,0,1,0),
+     and CSS !important beats inline style="position:absolute; left:200px". */
+  #tableWrap .seat {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 76px !important;
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Hide the round table circle decoration */
+  .tableWrap#tableWrap .table,
+  #tableWrap #rtStage .table {
+    display: none !important;
+  }
+}
+</style>
+
 <script>
 (function(){
   // -----------------------------
@@ -27294,6 +27541,22 @@ def api_followup_stream():
 
 
 # ── 2. TEXT-TO-SPEECH ─────────────────────────────────────────────────────────
+@app.get("/api/founder/status")
+def api_founder_status():
+    """Public endpoint — returns remaining founder seats + weekly timer."""
+    remaining = _founder_seats_remaining()
+    timer     = _founder_weekly_timer()
+    return jsonify({
+        "ok":              True,
+        "remaining":       remaining,
+        "total":           FOUNDER_SEATS_MAX,
+        "claimed":         FOUNDER_SEATS_MAX - remaining,
+        "sold_out":        remaining <= 0,
+        "timer":           timer,
+        "price_configured": bool(STRIPE_PRICE_ID_FOUNDER),
+    })
+
+
 @app.get("/api/tts/test")
 def api_tts_test():
     """End-to-end TTS smoke test. Generates 1 second of audio and confirms the key works."""
