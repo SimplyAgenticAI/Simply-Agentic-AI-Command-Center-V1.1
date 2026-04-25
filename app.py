@@ -9088,6 +9088,7 @@ HTML = r"""
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 10px !important;
+    padding: 0 12px !important;
   }
 
   /* Move the group prompt console to the top, full width */
@@ -9103,36 +9104,26 @@ HTML = r"""
     order: -10 !important;
   }
 
-  /* Keep the table circle visible but non-overlapping */
+  /* Round table circle — hide it on mobile. Seats render as a list instead. */
   .table{
-    position: relative !important;
-    inset: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    height: auto !important;
-    aspect-ratio: 1 / 1;
-    max-width: 560px;
-    margin: 0 auto !important;
-    order: -5 !important;
-    /* Solid background prevents text bleed-through from behind */
-    background: rgba(10,14,30,.98) !important;
-    overflow: hidden !important;
+    display: none !important;
   }
 
-  /* Mobile seat cards: full-width list items — no scale tricks, no overlap */
+  /* Mobile seat cards: full-width stacked list items */
   .seat{
     position: relative !important;
-    left: auto !important; top: auto !important;
+    left: 0 !important; top: 0 !important;
     transform: none !important;
     width: 100% !important;
-    max-width: 540px !important;
+    max-width: 100% !important;
     height: auto !important;
-    min-height: 80px !important;
-    margin: 0 auto !important;
+    min-height: 72px !important;
+    margin: 0 !important;
     overflow: hidden !important;
     isolation: isolate !important;
     background: rgba(14,22,48,.98) !important;
     box-sizing: border-box !important;
+    border-radius: 14px !important;
   }
 
   /* Give the prompt textarea breathing room */
@@ -10152,15 +10143,15 @@ label         { font-size: 14px !important; }
       overflow-y:auto;
     }
     .plSidebarLabel{
-      font-size:10px;font-weight:800;text-transform:uppercase;
+      font-size:12px;font-weight:800;text-transform:uppercase;
       letter-spacing:.08em;color:#475569;
       padding-bottom:10px;margin-bottom:8px;
       border-bottom:1px solid rgba(42,58,106,.4);
       flex-shrink:0;
     }
-    #plTabs{display:flex;flex-direction:column;gap:3px;flex-shrink:0;}
+    #plTabs{display:flex;flex-direction:column;gap:4px;flex-shrink:0;}
     .plTab{
-      padding:9px 12px;border-radius:8px;font-size:13px;font-weight:600;
+      padding:11px 14px;border-radius:8px;font-size:15px;font-weight:600;
       cursor:pointer;border:1px solid transparent;
       background:transparent;color:#94a3b8;
       text-align:left;width:100%;transition:all .15s;
@@ -10169,44 +10160,44 @@ label         { font-size: 14px !important; }
     .plTab.active{background:rgba(124,58,237,.2);color:#f3e8ff;border-color:rgba(124,58,237,.4);}
 
     /* Right panel — cards + save form */
-    #plMain{flex:1;min-width:0;display:flex;flex-direction:column;padding-left:18px;overflow:hidden;}
-    #plMainHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0;}
-    #plTeammateTitle{font-size:15px;font-weight:800;color:#c4b5fd;}
-    #plCountLabel{font-size:11px;color:#475569;}
+    #plMain{flex:1;min-width:0;display:flex;flex-direction:column;padding-left:20px;overflow:hidden;}
+    #plMainHeader{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-shrink:0;}
+    #plTeammateTitle{font-size:20px;font-weight:800;color:#c4b5fd;}
+    #plCountLabel{font-size:13px;color:#475569;}
     #plCards{flex:1;overflow-y:auto;padding-right:6px;min-height:0;}
 
     /* Prompt cards */
-    .plCat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin:14px 0 6px;}
+    .plCat{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin:18px 0 8px;}
     .plCat:first-child{margin-top:0;}
     .plCard{
       background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-      border-radius:10px;padding:12px 14px;margin-bottom:7px;
-      display:flex;align-items:flex-start;gap:10px;
+      border-radius:12px;padding:14px 16px;margin-bottom:9px;
+      display:flex;align-items:flex-start;gap:12px;
       transition:background .15s,border-color .15s;
     }
     .plCard:hover{background:rgba(124,58,237,.1);border-color:rgba(124,58,237,.35);}
     .plCardBody{flex:1;min-width:0;cursor:pointer;}
-    .plCardTitle{font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:3px;}
-    .plCardText{font-size:12px;color:#94a3b8;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-    .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:5px;}
-    .plCatBadge{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
-    .plUseBadge{font-size:10px;color:#475569;}
-    .plCardBtns{display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
-    .plUseBtn{padding:6px 13px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.18);color:#c4b5fd;white-space:nowrap;transition:background .15s;}
+    .plCardTitle{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:5px;}
+    .plCardText{font-size:13px;color:#94a3b8;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+    .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:7px;}
+    .plCatBadge{font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
+    .plUseBadge{font-size:11px;color:#475569;}
+    .plCardBtns{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+    .plUseBtn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.18);color:#c4b5fd;white-space:nowrap;transition:background .15s;}
     .plUseBtn:hover{background:rgba(124,58,237,.42);}
-    .plCopyBtn{padding:5px 10px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(100,116,139,.3);background:rgba(255,255,255,.04);color:#94a3b8;white-space:nowrap;transition:background .15s;}
+    .plCopyBtn{padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid rgba(100,116,139,.3);background:rgba(255,255,255,.04);color:#94a3b8;white-space:nowrap;transition:background .15s;}
     .plCopyBtn:hover{background:rgba(255,255,255,.1);color:#e2e8f0;}
-    .plDelBtn{padding:5px 10px;border-radius:7px;font-size:11px;cursor:pointer;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#fca5a5;white-space:nowrap;transition:background .15s;}
+    .plDelBtn{padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.07);color:#fca5a5;white-space:nowrap;transition:background .15s;}
     .plDelBtn:hover{background:rgba(239,68,68,.2);}
 
     /* Save form — pinned to bottom of right panel */
     #plSaveForm{
-      flex-shrink:0;margin-top:12px;padding-top:14px;
+      flex-shrink:0;margin-top:14px;padding-top:16px;
       border-top:1px solid rgba(42,58,106,.55);
-      display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;align-items:end;
+      display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;align-items:end;
     }
     #plSaveForm .plSaveTitle{
-      grid-column:1/-1;font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:2px;
+      grid-column:1/-1;font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:2px;
     }
     #plSaveForm label{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;display:block;margin-bottom:3px;}
     #plSaveForm input,#plSaveForm select{
@@ -12461,16 +12452,20 @@ function makeSeat(defn, idx){
 
       const saved = loadSeatPositions();
       const w = 190, h = 104;
-      if(saved[defn.name] && typeof saved[defn.name].left === "number" && typeof saved[defn.name].top === "number"){
-        seat.style.left = saved[defn.name].left + "px";
-        seat.style.top = saved[defn.name].top + "px";
-      }else{
-        const pos = POS[idx % POS.length];
-        const left = (pos.x/100) * wrapRect.width - (w/2);
-        const top  = (pos.y/100) * wrapRect.height - (h/2);
-        seat.style.left = left + "px";
-        seat.style.top = top + "px";
+      const isMobile = window.innerWidth <= 640;
+      if(!isMobile){
+        if(saved[defn.name] && typeof saved[defn.name].left === "number" && typeof saved[defn.name].top === "number"){
+          seat.style.left = saved[defn.name].left + "px";
+          seat.style.top = saved[defn.name].top + "px";
+        }else{
+          const pos = POS[idx % POS.length];
+          const left = (pos.x/100) * wrapRect.width - (w/2);
+          const top  = (pos.y/100) * wrapRect.height - (h/2);
+          seat.style.left = left + "px";
+          seat.style.top = top + "px";
+        }
       }
+      // On mobile: position:relative in CSS handles layout — no inline left/top needed
 
       let dragging = false;
       let moved = false;
@@ -12495,6 +12490,7 @@ function makeSeat(defn, idx){
 
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
+        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
@@ -12523,12 +12519,14 @@ function makeSeat(defn, idx){
         dragging = false;
         seat.classList.remove("dragging");
 
-        const current = loadSeatPositions();
-        current[defn.name] = {
-          left: parseFloat(seat.style.left) || 0,
-          top: parseFloat(seat.style.top) || 0
-        };
-        saveSeatPositions(current);
+        if(window.innerWidth > 640){
+          const current = loadSeatPositions();
+          current[defn.name] = {
+            left: parseFloat(seat.style.left) || 0,
+            top: parseFloat(seat.style.top) || 0
+          };
+          saveSeatPositions(current);
+        }
 
         if(!moved){
           selectSeat(defn.name);
