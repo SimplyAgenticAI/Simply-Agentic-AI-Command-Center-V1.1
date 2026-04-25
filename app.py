@@ -9188,6 +9188,49 @@ HTML = r"""
 
   /* Avoid the bottom mobile bar covering content */
   .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
+
+  /* ── MOBILE CHAT PANEL FIX ──────────────────────────────────────────
+     The .sideCard has an inline style height:calc(100svh - 80px) which
+     makes it a full-viewport transparent box on mobile. Kill it here.
+  ─────────────────────────────────────────────────────────────────── */
+  .side{
+    padding: 0 12px 12px 12px !important;
+  }
+
+  .sideCard{
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: rgba(11,16,36,.97) !important;
+    border: 1px solid rgba(42,58,106,.9) !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    box-shadow: 0 0 24px rgba(0,0,0,.3) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  /* Hide the duplicate role subtitle — it's already on the seat card above */
+  #seatSub{
+    display: none !important;
+  }
+
+  /* Thread scroll area — bounded height on mobile */
+  #thread{
+    height: auto !important;
+    max-height: 50vh !important;
+    min-height: 80px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Follow input row stays full width */
+  .followRow,
+  #followRow{
+    width: 100% !important;
+  }
 }
 
 .mobileBar{ display:none; }
@@ -11368,7 +11411,7 @@ label         { font-size: 14px !important; }
     </div>
 
     <div class="side">
-      <div class="sideCard" style="display:flex;flex-direction:column;height:calc(100svh - 80px);overflow:hidden;">
+      <div class="sideCard" style="display:flex;flex-direction:column;overflow:hidden;">
         <!-- Header -->
         <div class="sideHead" style="flex-shrink:0;">
           <div class="sideTitle">
