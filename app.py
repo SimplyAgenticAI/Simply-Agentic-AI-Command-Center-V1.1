@@ -113,7 +113,7 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
 # the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
 STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "")
-FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "50"))   # total slots
+FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "100"))  # total slots
 # Fixed epoch: the week counter resets every Monday 00:00 UTC
 FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any past Monday
 
@@ -254,21 +254,20 @@ def _claim_founder_seat(username: str) -> bool:
 
 def _founder_weekly_timer() -> Dict[str, Any]:
     """
-    Return seconds remaining until the end of the current ISO week (Monday→Sunday).
-    The timer auto-resets every Monday 00:00 UTC, creating urgency that refreshes weekly.
+    Rolling 7-day countdown anchored to FOUNDER_TIMER_EPOCH.
+    Resets silently every 7 days — users just see a perpetual urgency timer.
     """
-    import math
-    now = datetime.utcnow()
-    # Days until next Monday (0=Mon, 6=Sun); weekday() returns 0 for Monday
-    days_until_monday = (7 - now.weekday()) % 7 or 7
-    next_monday = (now + timedelta(days=days_until_monday)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    secs = int((next_monday - now).total_seconds())
-    hours, remainder = divmod(secs, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    days = hours // 24
-    hours = hours % 24
+    try:
+        epoch = datetime.strptime(FOUNDER_TIMER_EPOCH, "%Y-%m-%d")
+    except Exception:
+        epoch = datetime(2024, 1, 1)
+    now        = datetime.utcnow()
+    cycle_secs = 7 * 24 * 3600
+    elapsed    = int((now - epoch).total_seconds()) % cycle_secs
+    secs       = cycle_secs - elapsed          # seconds left in this 7-day window
+    days, rem  = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
     return {
         "total_seconds": secs,
         "days":    days,
@@ -7499,7 +7498,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
           </div>
         </div>
         <div class='countdown-wrap'>
-          <div class='countdown-label'>Offer resets in</div>
+          <div class='countdown-label'>Time remaining at this price</div>
           <div class='countdown-timer'>
             <div class='cd-unit'><div class='cd-num' id='cdDays'>{founder_timer["days"]:02d}</div><div class='cd-lbl'>days</div></div>
             <div class='cd-sep'>:</div>
@@ -7509,7 +7508,6 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
             <div class='cd-sep'>:</div>
             <div class='cd-unit'><div class='cd-num' id='cdSec'>{founder_timer["seconds"]:02d}</div><div class='cd-lbl'>sec</div></div>
           </div>
-          <div class='countdown-reset'>Resets every Monday midnight UTC. Price locks in forever once claimed.</div>
         </div>
       </div>
     </div>
