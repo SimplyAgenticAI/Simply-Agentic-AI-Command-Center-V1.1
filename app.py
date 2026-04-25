@@ -12710,7 +12710,7 @@ function makeSeat(defn, idx){
 
       const saved = loadSeatPositions();
       const w = 190, h = 104;
-      const isMobile = window.innerWidth <= 640;
+      const isMobile = Math.max(window.innerWidth, document.documentElement.clientWidth || 0) <= 640;
       if(isMobile){
         // Ghost Stack fix: force relative flow in JS — CSS !important vs inline is unreliable
         seat.style.position = "relative";
@@ -12755,7 +12755,7 @@ function makeSeat(defn, idx){
 
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
-        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
+        if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640) return; // no drag repositioning on mobile
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
@@ -12784,7 +12784,7 @@ function makeSeat(defn, idx){
         dragging = false;
         seat.classList.remove("dragging");
 
-        if(window.innerWidth > 640){
+        if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) > 640){
           const current = loadSeatPositions();
           current[defn.name] = {
             left: parseFloat(seat.style.left) || 0,
@@ -12853,7 +12853,7 @@ function makeSeat(defn, idx){
 
       // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
       // from saved positions that may have loaded before the mobile guard was in place
-      if(window.innerWidth <= 640){
+      if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640){
         // Also ensure the container itself is a flex column (override any JS-set styles)
         wrap.style.display        = "flex";
         wrap.style.flexDirection  = "column";
@@ -12935,7 +12935,7 @@ function makeSeat(defn, idx){
       seat.appendChild(meta);
 
       // Ghost Stack fix: on mobile force relative flow via JS — never absolute coords
-      const isMobileOp = window.innerWidth <= 640;
+      const isMobileOp = Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640;
       if(isMobileOp){
         seat.style.position  = "relative";
         seat.style.left      = "";
@@ -19988,6 +19988,33 @@ $("saveFramework").onclick = async () => {
     window.addEventListener("resize", () => {
       if(state && state.ok){
         renderTable();
+        // Re-apply mobile layout after every resize (iOS fires resize on scroll)
+        if(window.innerWidth <= 640){
+          const wrap = document.getElementById("tableWrap");
+          if(wrap){
+            wrap.style.display       = "flex";
+            wrap.style.flexDirection = "column";
+            wrap.style.width         = "100%";
+            wrap.style.height        = "auto";
+            wrap.style.minHeight     = "0";
+            wrap.style.overflow      = "visible";
+            wrap.style.padding       = "8px 12px";
+            wrap.style.gap           = "10px";
+            wrap.style.transform     = "none";
+            Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
+              s.style.position  = "relative";
+              s.style.left      = "";
+              s.style.top       = "";
+              s.style.right     = "";
+              s.style.bottom    = "";
+              s.style.width     = "100%";
+              s.style.maxWidth  = "100%";
+              s.style.height    = "auto";
+              s.style.transform = "none";
+              s.style.margin    = "0";
+            });
+          }
+        }
       }
     });
 
