@@ -12900,89 +12900,237 @@ function makeSeat(defn, idx){
     }
 
     function renderTable(){
+      const isMob = window.innerWidth <= 700;
+      if(isMob){
+        renderMobile();
+        return;
+      }
+      // ── Desktop render (unchanged) ──────────────────────────────────────
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
-
-      // Operator seat (always available)
-      try{
-        wrap.appendChild(makeOperatorSeat(0));
-      }catch(err){
-        console.error("Operator seat failed to render:", err);
-      }
-
+      try{ wrap.appendChild(makeOperatorSeat(0)); }catch(err){ console.error(err); }
 
       const order = activeOrder();
       const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
 
       if(seats.length === 0){
-        // keep operator seat usable even with zero teammates
-        if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
-
-        // FIX: soft toast instead of blocking modal — Operator seat still works
+        if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){} }
         try{ if(typeof showToast==='function') showToast('No teammates active — use Add or dismiss to add seats.'); }catch(_){}
-        setTablePulse(false);
-        setTablePulseAll(false);
+        setTablePulse(false); setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
         $("seatSub").innerText = "No active teammate selected.";
         if(selectedSeat !== "Operator"){ selectedSeat = ""; window.selectedSeat = ""; }
-        renderThread([]);
-        return;
+        renderThread([]); return;
       }
-
       seats.forEach((name, i) => {
         const defn = installed[name];
         const seat = makeSeat(defn, i);
         wrap.appendChild(seat);
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
+      if(!selectedSeat || !seats.includes(selectedSeat)){ selectSeat(seats[0]); }
+      else { markActiveSeat(); }
+      updateTablePulseFromStatuses();
+    }
 
-      // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
-      // from saved positions that may have loaded before the mobile guard was in place
-      if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640){
-        // Also ensure the container itself is a flex column (override any JS-set styles)
-        wrap.style.display        = "flex";
-        wrap.style.flexDirection  = "column";
-        wrap.style.width          = "100%";
-        wrap.style.height         = "auto";
-        wrap.style.minHeight      = "0";
-        wrap.style.overflow       = "visible";
-        wrap.style.padding        = "8px 12px";
-        wrap.style.gap            = "10px";
-        // If rtStage was created despite our guard, flatten it too
-        const stage = document.getElementById("rtStage");
-        if(stage){
-          stage.style.position      = "static";
-          stage.style.transform     = "none";
-          stage.style.display       = "flex";
-          stage.style.flexDirection = "column";
-          stage.style.gap           = "10px";
-          stage.style.width         = "100%";
-          stage.style.height        = "auto";
-        }
-        Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
-          s.style.position  = "relative";
-          s.style.left      = "";
-          s.style.top       = "";
-          s.style.right     = "";
-          s.style.bottom    = "";
-          s.style.width     = "100%";
-          s.style.maxWidth  = "100%";
-          s.style.height    = "auto";
-          s.style.transform = "none";
-          s.style.margin    = "0";
+    // ── Mobile-only renderer — bypasses all absolute positioning ────────────
+    function renderMobile(){
+      const order  = activeOrder();
+      const installed = state.installed || {};
+      const seats  = order.filter(n => installed[n]);
+
+      // Build or reuse the mobile list container
+      let list = document.getElementById("mobileTeamList");
+      if(!list){
+        list = document.createElement("div");
+        list.id = "mobileTeamList";
+      }
+      // Apply inline styles directly — no CSS fights
+      list.style.cssText = [
+        "display:flex",
+        "flex-direction:column",
+        "gap:10px",
+        "padding:10px",
+        "width:100%",
+        "box-sizing:border-box",
+        "position:relative",
+      ].join(";");
+      list.innerHTML = "";
+
+      // Hide the desktop tableWrap entirely
+      const wrap = $("tableWrap");
+      wrap.style.display = "none";
+
+      // Insert list before tableWrap if not already there
+      if(!document.getElementById("mobileTeamList")){
+        wrap.parentNode.insertBefore(list, wrap);
+      } else {
+        // Already in DOM, just clear it
+        list.innerHTML = "";
+      }
+
+      // Operator card
+      const opCard = makeMobileCard({
+        name: "Operator", job_title: "You",
+        avatar: {bg:"#0f172a", fg:"#67e8f9", sigil:"O"}
+      }, true);
+      list.appendChild(opCard);
+
+      if(seats.length === 0){
+        const empty = document.createElement("div");
+        empty.style.cssText = "color:rgba(148,163,184,.6);font-size:13px;padding:12px 4px;";
+        empty.innerText = "No teammates yet — tap Menu → Add to create one.";
+        list.appendChild(empty);
+      } else {
+        seats.forEach(name => {
+          const defn = installed[name];
+          const card = makeMobileCard(defn, false);
+          list.appendChild(card);
+          setSeatLive(defn.name, seatStatus[defn.name] || "idle");
         });
       }
 
-      if(!selectedSeat || !seats.includes(selectedSeat)){
-        selectSeat(seats[0]);
-      }else{
-        markActiveSeat();
+      // Group Console: pull it out and put it after the list
+      const op = document.getElementById("operator");
+      if(op){
+        op.style.cssText = [
+          "position:relative",
+          "left:auto","top:auto","right:auto","bottom:auto",
+          "transform:none",
+          "width:100%",
+          "max-width:100%",
+          "min-width:0",
+          "height:auto",
+          "margin:0",
+          "box-sizing:border-box",
+          "display:block",
+        ].join(";");
+        const opText = op.querySelector(".opText");
+        if(opText) opText.style.cssText = "width:100%;box-sizing:border-box;";
+        // Move it after mobileTeamList
+        list.parentNode.insertBefore(op, list.nextSibling);
       }
 
+      // underTable / shared memory bar
+      document.querySelectorAll(".underTable").forEach(el => {
+        el.style.cssText = "position:relative;z-index:2;width:100%;max-width:100%;box-sizing:border-box;margin:4px 0;";
+        // Move before list
+        list.parentNode.insertBefore(el, list);
+      });
+
+      // Select first seat
+      const allNames = ["Operator", ...seats];
+      if(!selectedSeat || !allNames.includes(selectedSeat)){
+        selectSeat("Operator");
+      } else {
+        markActiveSeat();
+      }
       updateTablePulseFromStatuses();
-      // Always re-apply mobile layout after any render
-      applyMobileLayout();
+    }
+
+    function makeMobileCard(defn, isOperator){
+      const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:(defn.name||"?").slice(0,1).toUpperCase()};
+      const card = document.createElement("div");
+      card.className = "seat" + (isOperator ? " seatOperator" : "");
+      card.dataset.name = defn.name;
+      card.tabIndex = 0;
+      // Hardcode every layout property as inline style — nothing can override this
+      card.style.cssText = [
+        "position:relative",
+        "left:auto","top:auto","right:auto","bottom:auto",
+        "transform:none",
+        "width:100%",
+        "max-width:100%",
+        "min-width:0",
+        "height:auto",
+        "min-height:72px",
+        "margin:0",
+        "padding:12px 14px",
+        "box-sizing:border-box",
+        "display:flex",
+        "align-items:center",
+        "gap:12px",
+        "cursor:pointer",
+        "overflow:hidden",
+        "border-radius:14px",
+        "background:rgba(14,22,48,.95)",
+        "border:1px solid rgba(42,58,106,.85)",
+        "backdrop-filter:blur(10px)",
+      ].join(";");
+
+      // Avatar
+      const avatar = document.createElement("div");
+      avatar.style.cssText = [
+        "width:44px","height:44px","border-radius:12px",
+        "display:flex","align-items:center","justify-content:center",
+        "font-weight:800","font-size:18px",
+        "flex-shrink:0","position:relative",
+        "background:" + av.bg,
+        "color:" + av.fg,
+      ].join(";");
+      avatar.innerText = av.sigil || (defn.name||"?").slice(0,1).toUpperCase();
+
+      const liveDot = document.createElement("div");
+      liveDot.className = "liveDot idle";
+      liveDot.id = "live_" + defn.name;
+      liveDot.style.cssText = "position:absolute;right:-4px;bottom:-4px;width:12px;height:12px;border-radius:50%;background:rgba(184,196,255,.35);border:1px solid rgba(0,0,0,.35);";
+      avatar.appendChild(liveDot);
+
+      // Meta
+      const meta = document.createElement("div");
+      meta.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;";
+
+      const nm = document.createElement("div");
+      nm.className = "seatName";
+      nm.style.cssText = "font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      nm.innerText = defn.name;
+
+      const rl = document.createElement("div");
+      rl.className = "seatRole";
+      rl.style.cssText = "font-size:12px;color:rgba(148,163,184,.8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      rl.innerText = defn.job_title || (isOperator ? "You" : "");
+
+      const st = document.createElement("div");
+      st.className = "seatStatus";
+      st.id = "status_" + defn.name;
+      st.style.cssText = "font-size:12px;color:rgba(148,163,184,.7);";
+      st.innerText = "Idle";
+
+      meta.appendChild(nm);
+      meta.appendChild(rl);
+      meta.appendChild(st);
+
+      // Edit/Profile button
+      const btn = document.createElement("button");
+      btn.style.cssText = [
+        "flex-shrink:0",
+        "padding:6px 12px",
+        "border:1px solid rgba(42,58,106,.85)",
+        "background:rgba(20,30,60,.65)",
+        "color:rgba(226,232,240,.9)",
+        "border-radius:10px",
+        "font-size:12px",
+        "cursor:pointer",
+      ].join(";");
+      btn.innerText = isOperator ? "Profile" : "Edit";
+      btn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
+      btn.addEventListener("click", e => {
+        e.preventDefault(); e.stopPropagation();
+        if(isOperator){ try{ openOperatorProfileModal(); }catch(_){} }
+        else { try{ openEditForTeammate(defn.name); }catch(_){} }
+      });
+
+      card.appendChild(avatar);
+      card.appendChild(meta);
+      card.appendChild(btn);
+
+      card.addEventListener("click", () => selectSeat(defn.name));
+      card.addEventListener("keydown", e => {
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); selectSeat(defn.name); }
+      });
+
+      return card;
     }
     function makeOperatorSeat(idx){
       const wrap = $("tableWrap");
@@ -20151,10 +20299,9 @@ $("saveFramework").onclick = async () => {
     // Run on load, after renders, and on any resize/orientation change
     window.addEventListener("resize", () => {
       if(state && state.ok) renderTable();
-      applyMobileLayout();
     });
     window.addEventListener("orientationchange", () => {
-      setTimeout(() => { if(state && state.ok) renderTable(); applyMobileLayout(); }, 200);
+      setTimeout(() => { if(state && state.ok) renderTable(); }, 300);
     });
 
     loadState().then(() => { applyMobileLayout(); }).catch(() => {});
