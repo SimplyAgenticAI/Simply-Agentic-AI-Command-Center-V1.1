@@ -7746,6 +7746,85 @@ function startCheckout(plan){{
   form.appendChild(inp);document.body.appendChild(form);form.submit();
 }}
 </script>
+<style>
+/* Mobile override */
+@media (max-width: 700px) {{
+  #tableWrap {{
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    overflow-x: hidden !important;
+    position: relative !important;
+    transform: none !important;
+    padding: 8px 10px 16px !important;
+    gap: 10px !important;
+    box-sizing: border-box !important;
+  }}
+  #tableCore, #rtStage {{ display: none !important; }}
+  #tableWrap .seat {{
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    right: auto !important; bottom: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    flex-shrink: 0 !important;
+  }}
+  #operator {{
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    order: 999 !important;
+  }}
+  #operator .opText {{ width: 100% !important; box-sizing: border-box !important; }}
+  .underTable {{
+    position: relative !important;
+    z-index: 2 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }}
+  body {{ padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }}
+  .mobileBar {{
+    display: flex !important;
+    position: fixed !important;
+    left: 0 !important; right: 0 !important; bottom: 0 !important;
+    padding: 9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
+    z-index: 9999 !important;
+    background: rgba(7,10,20,.97) !important;
+    border-top: 1px solid rgba(80,110,200,.4) !important;
+    backdrop-filter: blur(20px) !important;
+    gap: 6px !important;
+  }}
+  .mobileBar .btn {{
+    flex: 1 1 0 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    padding: 9px 4px !important;
+    white-space: nowrap !important;
+  }}
+  textarea, input, select {{ font-size: 16px !important; }}
+  html, body {{ overflow-x: hidden !important; max-width: 100% !important; }}
+}}
+</style>
 </body></html>"""
     resp = make_response(page)
     resp.headers["Cache-Control"] = "no-store"
@@ -12895,6 +12974,8 @@ function makeSeat(defn, idx){
       }
 
       updateTablePulseFromStatuses();
+      // Always re-apply mobile layout after any render
+      applyMobileLayout();
     }
     function makeOperatorSeat(idx){
       const wrap = $("tableWrap");
@@ -19985,40 +20066,91 @@ $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Reset to default";
     };
 
-    window.addEventListener("resize", () => {
-      if(state && state.ok){
-        renderTable();
-        // Re-apply mobile layout after every resize (iOS fires resize on scroll)
-        if(window.innerWidth <= 640){
-          const wrap = document.getElementById("tableWrap");
-          if(wrap){
-            wrap.style.display       = "flex";
-            wrap.style.flexDirection = "column";
-            wrap.style.width         = "100%";
-            wrap.style.height        = "auto";
-            wrap.style.minHeight     = "0";
-            wrap.style.overflow      = "visible";
-            wrap.style.padding       = "8px 12px";
-            wrap.style.gap           = "10px";
-            wrap.style.transform     = "none";
-            Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
-              s.style.position  = "relative";
-              s.style.left      = "";
-              s.style.top       = "";
-              s.style.right     = "";
-              s.style.bottom    = "";
-              s.style.width     = "100%";
-              s.style.maxWidth  = "100%";
-              s.style.height    = "auto";
-              s.style.transform = "none";
-              s.style.margin    = "0";
-            });
-          }
-        }
+    // ── Mobile layout engine ────────────────────────────────────────────────
+    function isMobileViewport(){
+      return Math.max(
+        window.innerWidth,
+        document.documentElement.clientWidth || 0
+      ) <= 700;
+    }
+
+    function applyMobileLayout(){
+      if(!isMobileViewport()) return;
+      const wrap = document.getElementById("tableWrap");
+      if(!wrap) return;
+
+      // 1. Fix the wrap container
+      Object.assign(wrap.style, {
+        display:"flex", flexDirection:"column", alignItems:"stretch",
+        width:"100%", maxWidth:"100%", minWidth:"0",
+        height:"auto", minHeight:"0",
+        overflow:"visible", overflowX:"hidden",
+        position:"relative", transform:"none",
+        padding:"8px 10px 16px", gap:"10px",
+        boxSizing:"border-box"
+      });
+
+      // 2. Hide the SVG circle table
+      const tableCore = document.getElementById("tableCore");
+      if(tableCore) tableCore.style.display = "none";
+      const rtStage = document.getElementById("rtStage");
+      if(rtStage) rtStage.style.display = "none";
+
+      // 3. Fix every seat card
+      Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
+        Object.assign(s.style, {
+          position:"relative", left:"", top:"", right:"", bottom:"",
+          transform:"none", width:"100%", maxWidth:"100%", minWidth:"0",
+          height:"auto", margin:"0", boxSizing:"border-box",
+          display:"flex", alignItems:"center", gap:"12px",
+          padding:"12px 14px", borderRadius:"14px", overflow:"hidden",
+          flexShrink:"0"
+        });
+        // Fix text truncation inside
+        const name = s.querySelector(".seatName");
+        const role = s.querySelector(".seatRole");
+        const meta = s.querySelector(".seatMeta");
+        if(meta)  Object.assign(meta.style,  {flex:"1", minWidth:"0"});
+        if(name)  Object.assign(name.style,  {overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"100%"});
+        if(role)  Object.assign(role.style,  {overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"100%"});
+        const tools = s.querySelector(".seatTools");
+        if(tools) Object.assign(tools.style, {flexShrink:"0", marginLeft:"auto"});
+      });
+
+      // 4. Fix the operator/Group Console — it's absolutely positioned by default
+      const op = document.getElementById("operator");
+      if(op){
+        Object.assign(op.style, {
+          position:"relative", left:"", top:"", right:"", bottom:"",
+          transform:"none", width:"100%", maxWidth:"100%", minWidth:"0",
+          height:"auto", margin:"0", boxSizing:"border-box",
+          order:"999"
+        });
+        const opText = op.querySelector(".opText");
+        if(opText) Object.assign(opText.style, {width:"100%", boxSizing:"border-box"});
       }
+
+      // 5. Fix underTable (shared memory bar) — give it proper stacking
+      const under = document.querySelector(".underTable");
+      if(under){
+        Object.assign(under.style, {
+          position:"relative", zIndex:"2",
+          width:"100%", maxWidth:"100%", boxSizing:"border-box",
+          margin:"0", padding:"0 2px"
+        });
+      }
+    }
+
+    // Run on load, after renders, and on any resize/orientation change
+    window.addEventListener("resize", () => {
+      if(state && state.ok) renderTable();
+      applyMobileLayout();
+    });
+    window.addEventListener("orientationchange", () => {
+      setTimeout(() => { if(state && state.ok) renderTable(); applyMobileLayout(); }, 200);
     });
 
-    loadState();
+    loadState().then(() => { applyMobileLayout(); }).catch(() => {});
   loadState();
 
 
