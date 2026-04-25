@@ -6526,9 +6526,12 @@ LOGIN_HTML = r"""
   }
 
   .underTable{
-    margin:0 auto 18px auto !important;
-    padding-left:0 !important;
-    padding-right:0 !important;
+    position: relative !important;
+    margin: 16px 12px 18px 12px !important;
+    padding: 0 !important;
+    background: transparent !important;
+    clear: both !important;
+    z-index: 1 !important;
   }
 
   .side{
@@ -8315,6 +8318,17 @@ HTML = r"""
       }
     }
 
+    /* Mobile-only team label — hidden by default on desktop */
+    .mobileTeamLabel{
+      display: none;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #475569;
+      padding: 4px 4px 8px;
+    }
+
     .seat{
       position:absolute;
       overflow:hidden;
@@ -9088,10 +9102,17 @@ HTML = r"""
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 10px !important;
-    padding: 0 12px !important;
+    padding: 8px 12px !important;
+    /* CRITICAL: kill the desktop fixed height so seats don't overflow into underTable */
+    height: auto !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: relative !important;
+    overflow: visible !important;
   }
 
-  /* Move the group prompt console to the top, full width */
+  /* Collapse group console on mobile — saves ~250px, seats appear immediately */
   .operator{
     position: relative !important;
     left: auto !important;
@@ -9101,12 +9122,18 @@ HTML = r"""
     min-width: 0 !important;
     max-width: none !important;
     margin: 0 !important;
-    order: -10 !important;
+    order: 999 !important; /* push to BOTTOM of seat list on mobile */
+    border-radius: 14px !important;
   }
 
   /* Round table circle — hide it on mobile. Seats render as a list instead. */
   .table{
     display: none !important;
+  }
+
+  /* Show the team label on mobile */
+  .mobileTeamLabel{
+    display: block !important;
   }
 
   /* Mobile seat cards: full-width stacked list items */
@@ -9117,13 +9144,43 @@ HTML = r"""
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
-    min-height: 72px !important;
+    min-height: 76px !important;
     margin: 0 !important;
     overflow: hidden !important;
     isolation: isolate !important;
     background: rgba(14,22,48,.98) !important;
     box-sizing: border-box !important;
     border-radius: 14px !important;
+    padding: 14px 16px !important;
+    cursor: pointer !important;
+  }
+  /* Seat avatar bigger on mobile for easier tapping */
+  .seat .seatAvatar{
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 20px !important;
+    border-radius: 12px !important;
+    flex-shrink: 0 !important;
+  }
+  /* Seat name bigger on mobile */
+  .seat .seatName{
+    font-size: 17px !important;
+    font-weight: 800 !important;
+  }
+  /* Seat role/subtitle readable size */
+  .seat .seatRole{
+    font-size: 13px !important;
+    margin-top: 2px !important;
+  }
+  .seat .seatStatus{
+    font-size: 13px !important;
+    margin-top: 4px !important;
+  }
+  /* Active seat highlight — must be visible on mobile */
+  .seat.active{
+    border-color: rgba(124,58,237,.9) !important;
+    background: rgba(20,12,48,.98) !important;
+    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
   }
 
   /* Give the prompt textarea breathing room */
@@ -11229,6 +11286,7 @@ label         { font-size: 14px !important; }
 
 
         <div class="tableWrap" id="tableWrap">
+          <div class="mobileTeamLabel">Your Team — tap to chat</div>
           <div class="table" id="tableCore">
             <div class="runes"></div>
           </div>
