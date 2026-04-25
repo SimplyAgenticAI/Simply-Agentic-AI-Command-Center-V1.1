@@ -9183,6 +9183,33 @@ HTML = r"""
     box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
   }
 
+  /* ── KILL pan/zoom stage on ≤640px list view ─────────────────────────
+     The @media (max-width:700px) block uses .tableWrap#tableWrap (high
+     specificity) to force a square fixed-height container. Override it
+     here so the stacked seat list can use normal document flow.
+  ──────────────────────────────────────────────────────────────────── */
+  .tableWrap#tableWrap{
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    touch-action: auto !important;
+  }
+  /* #rtStage is position:absolute inside the wrap — flatten it so seats flow normally */
+  #rtStage{
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+  /* Kill the round table circle inside stage on mobile list view */
+  #rtStage .table{
+    display: none !important;
+  }
+
   /* Give the prompt textarea breathing room */
   .opText{ min-height: 108px; }
 
@@ -20194,7 +20221,9 @@ function bindMobileViewportV3(){
   let stageMO = null;
 
   function isMobileV4(){
-    try{ return window.matchMedia && window.matchMedia("(max-width: 700px)").matches; }catch(e){ return (window.innerWidth||0) <= 700; }
+    // Only activate pan/zoom stage on 641-700px (tablet tweaks).
+    // ≤640px uses the stacked list layout — no round table stage at all.
+    try{ return window.matchMedia && window.matchMedia("(min-width: 641px) and (max-width: 700px)").matches; }catch(e){ const w=(window.innerWidth||0); return w > 640 && w <= 700; }
   }
 
   function clampV4(v, a, b){ return Math.max(a, Math.min(b, v)); }
