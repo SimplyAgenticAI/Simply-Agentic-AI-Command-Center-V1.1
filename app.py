@@ -12494,7 +12494,7 @@ function makeSeat(defn, idx){
 
       const rl = document.createElement("div");
       rl.className = "seatRole";
-      rl.innerText = `${defn.job_title}  |  ${defn.version}`;
+      rl.innerText = defn.job_title;
 
       const st = document.createElement("div");
       st.className = "seatStatus";
@@ -12511,7 +12511,15 @@ function makeSeat(defn, idx){
       const saved = loadSeatPositions();
       const w = 190, h = 104;
       const isMobile = window.innerWidth <= 640;
-      if(!isMobile){
+      if(isMobile){
+        // Ghost Stack fix: force relative flow in JS — CSS !important vs inline is unreliable
+        seat.style.position = "relative";
+        seat.style.left     = "";
+        seat.style.top      = "";
+        seat.style.width    = "100%";
+        seat.style.height   = "auto";
+        seat.style.transform = "none";
+      } else {
         if(saved[defn.name] && typeof saved[defn.name].left === "number" && typeof saved[defn.name].top === "number"){
           seat.style.left = saved[defn.name].left + "px";
           seat.style.top = saved[defn.name].top + "px";
@@ -12523,7 +12531,6 @@ function makeSeat(defn, idx){
           seat.style.top = top + "px";
         }
       }
-      // On mobile: position:relative in CSS handles layout — no inline left/top needed
 
       let dragging = false;
       let moved = false;
@@ -12644,6 +12651,19 @@ function makeSeat(defn, idx){
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
 
+      // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
+      // from saved positions that may have loaded before the mobile guard was in place
+      if(window.innerWidth <= 640){
+        Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
+          s.style.position  = "relative";
+          s.style.left      = "";
+          s.style.top       = "";
+          s.style.width     = "100%";
+          s.style.height    = "auto";
+          s.style.transform = "none";
+        });
+      }
+
       if(!selectedSeat || !seats.includes(selectedSeat)){
         selectSeat(seats[0]);
       }else{
@@ -12690,38 +12710,42 @@ function makeSeat(defn, idx){
       meta.innerText = "";
       seat.appendChild(meta);
 
-      // Default position like other seats (with saved drag positions)
-      try{
-        const saved = loadSeatPositions();
-        if(saved && saved["Operator"] && typeof saved["Operator"].left === "number" && typeof saved["Operator"].top === "number"){
-          seat.style.left = saved["Operator"].left + "px";
-          seat.style.top = saved["Operator"].top + "px";
-        }else{
-          // Use the same placement math as teammate seats so it never renders off-screen.
-          const r = wrap.getBoundingClientRect();
-          const w = 190, h = 124; // match .seat size
-          const pos = {x: 50, y: 18}; // slightly lower so it can't hide under header
-          let left = (pos.x/100) * r.width - (w/2);
-          let top  = (pos.y/100) * r.height - (h/2);
-
-          // Clamp into visible bounds (mirrors drag constraints)
-          const maxLeft = r.width - 110;
-          const maxTop  = r.height - 110;
-
-          // If the table area hasn't laid out yet, fall back to safe pixels.
-          if(r.width < 260 || r.height < 260){
-            left = 20; top = 20;
+      // Ghost Stack fix: on mobile force relative flow via JS — never absolute coords
+      const isMobileOp = window.innerWidth <= 640;
+      if(isMobileOp){
+        seat.style.position  = "relative";
+        seat.style.left      = "";
+        seat.style.top       = "";
+        seat.style.width     = "100%";
+        seat.style.height    = "auto";
+        seat.style.transform = "none";
+      } else {
+        try{
+          const saved = loadSeatPositions();
+          if(saved && saved["Operator"] && typeof saved["Operator"].left === "number" && typeof saved["Operator"].top === "number"){
+            seat.style.left = saved["Operator"].left + "px";
+            seat.style.top  = saved["Operator"].top + "px";
           }else{
-            left = clamp(left, 10, Math.max(10, maxLeft));
-            top  = clamp(top, 10, Math.max(10, maxTop));
+            const r = wrap.getBoundingClientRect();
+            const w = 190, h = 124;
+            const pos = {x: 50, y: 18};
+            let left = (pos.x/100) * r.width - (w/2);
+            let top  = (pos.y/100) * r.height - (h/2);
+            const maxLeft = r.width - 110;
+            const maxTop  = r.height - 110;
+            if(r.width < 260 || r.height < 260){
+              left = 20; top = 20;
+            }else{
+              left = clamp(left, 10, Math.max(10, maxLeft));
+              top  = clamp(top, 10, Math.max(10, maxTop));
+            }
+            seat.style.left = left + "px";
+            seat.style.top  = top + "px";
           }
-
-          seat.style.left = left + "px";
-          seat.style.top  = top + "px";
+        }catch(_){
+          seat.style.left = "50%";
+          seat.style.top  = "12%";
         }
-      }catch(_){
-        seat.style.left = "50%";
-        seat.style.top = "12%";
       }
 
       // Click / keyboard select — only the Profile button opens the modal (not the card itself)
@@ -12886,7 +12910,7 @@ function makeSeat(defn, idx){
 
       const defn = (state.installed || {})[name];
       $("seatTitle").innerText = defn ? defn.name : name;
-      $("seatSub").innerText = defn ? `${defn.job_title}  |  ${defn.version}` : "";
+      $("seatSub").innerText = defn ? defn.job_title : "";
 
       setEmailFrom(selectedSeat);
 
@@ -14734,7 +14758,7 @@ Body: ${body ? "[present]" : "[empty]"}
 
         const meta = document.createElement("div");
         meta.className = "tiny";
-        meta.innerText = `${defn.job_title}  |  ${defn.version}`;
+        meta.innerText = defn.job_title;
 
         left.appendChild(nm);
         left.appendChild(meta);
