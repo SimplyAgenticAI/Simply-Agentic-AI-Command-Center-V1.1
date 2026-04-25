@@ -99,7 +99,7 @@ STRIPE_MODE           = os.getenv("STRIPE_MODE", "subscription")
 # FREE TRIAL CONFIG
 # =========================
 # Set FREE_TRIAL_DAYS=0 in env to disable the trial entirely.
-FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "5"))
+FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "7"))
 
 # ── Plan price IDs (set these in Render → Environment) ──────────────────────
 # Legacy single-price fallback: if only STRIPE_PRICE_ID is set, it maps to Starter.
@@ -8317,10 +8317,11 @@ HTML = r"""
 
     .seat{
       position:absolute;
-      overflow:visible;
+      overflow:hidden;
+      isolation:isolate;
       width: 190px;
       height: 124px;
-      background: rgba(14,22,48,.78);
+      background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
       padding: 10px;
@@ -8660,6 +8661,8 @@ HTML = r"""
     .formGrid2 .spanFull{ grid-column:1/-1; }
     /* Tool results area — wider than the form so output has room */
     .toolResults{ max-width:1000px; margin:24px auto 0; }
+    /* Primary textarea in each tool form grows to fill available vertical space */
+    .modalForm .primaryArea{ flex:1; min-height:180px; }
     /* Hint text above forms */
     .toolHint{ font-size:14px; color:#64748b; margin-bottom:20px; line-height:1.65; text-align:center; }
     /* Run / action bar */
@@ -8858,8 +8861,8 @@ HTML = r"""
 
 /* ===== NEW: Mobile Table Zoom Controls v1 ===== */
 @media (max-width: 640px){
-  :root{ --tableScale: 0.68; --tableShiftX: 0px; }
-  .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
+  :root{ --tableScale: 1; --tableShiftX: 0px; }
+  .table{ transform: none !important; }
   #tableZoomFab{
     position: fixed;
     right: 12px;
@@ -8890,16 +8893,12 @@ HTML = r"""
 }
 
 @media (max-width: 640px){
-  :root{ --tableShiftX: 0px; --tableScale: 0.68; }
-  .table{
-    /* allow JS to nudge horizontally to true center */
-    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
-    transform-origin: center top !important;
-  }
+  :root{ --tableShiftX: 0px; --tableScale: 1; }
+  .table{ transform: none !important; }
 }
 @media (max-width: 900px) and (orientation: landscape){
-  :root{ --tableShiftX: 0px; --tableScale: 0.68; }
-  .table{ transform: translate(-50%,-50%) translateX(var(--tableShiftX)) scale(var(--tableScale)) !important; transform-origin: center top !important; }
+  :root{ --tableShiftX: 0px; --tableScale: 1; }
+  .table{ transform: none !important; }
 }
 
 @media (max-width: 900px){
@@ -8940,10 +8939,7 @@ HTML = r"""
 
 /* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
 @media (max-width: 640px) and (orientation: portrait){
-  .table{
-    transform: scale(0.90) !important;
-    transform-origin: center top !important;
-  }
+  .table{ transform: none !important; }
 }
 
 :root{
@@ -8960,14 +8956,7 @@ HTML = r"""
 
 /* Portrait phones: ensure table + seats fit without clipping */
 @media (max-width: 640px) and (orientation: portrait){
-  .table{
-    width: min(calc(100vw - 24px), 520px) !important;
-    max-width: min(calc(100vw - 24px), 520px) !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    transform: scale(0.94) !important;
-    transform-origin: center top !important;
-  }
+  .table{ width: min(calc(100vw - 24px), 520px) !important; max-width: min(calc(100vw - 24px), 520px) !important; margin: 0 auto !important; transform: none !important; }
 }
 
 /* Landscape phones: side-by-side layout */
@@ -9076,6 +9065,19 @@ HTML = r"""
     max-height: calc(100vh - 140px) !important;
     overflow: auto !important;
     -webkit-overflow-scrolling: touch;
+    padding: 0 20px;
+    box-sizing: border-box;
+  }
+  /* modalForm fills the scroll area so content doesn't float in a tiny top block */
+  .modalForm{
+    display:flex;
+    flex-direction:column;
+    min-height: 100%;
+  }
+  .modalForm .modalInner{
+    flex: 1;
+    display:flex;
+    flex-direction:column;
   }
 }
 
@@ -9112,10 +9114,26 @@ HTML = r"""
     max-width: 560px;
     margin: 0 auto !important;
     order: -5 !important;
+    /* Solid background prevents text bleed-through from behind */
+    background: rgba(10,14,30,.98) !important;
+    overflow: hidden !important;
   }
 
-  /* Ensure any absolutely-positioned children can anchor correctly */
-  #tableCore{ position: relative !important; }
+  /* Mobile seat cards: full-width list items — no scale tricks, no overlap */
+  .seat{
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 540px !important;
+    height: auto !important;
+    min-height: 80px !important;
+    margin: 0 auto !important;
+    overflow: hidden !important;
+    isolation: isolate !important;
+    background: rgba(14,22,48,.98) !important;
+    box-sizing: border-box !important;
+  }
 
   /* Give the prompt textarea breathing room */
   .opText{ min-height: 108px; }
@@ -9924,7 +9942,7 @@ label         { font-size: 14px !important; }
                 </div>
 
                 <label>Core framework (pillars and rules)</label>
-                <textarea id="frameworkText" style="height:620px;min-height:400px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
+                <textarea id="frameworkText" class="primaryArea" style="height:620px;min-height:400px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
 
                 <div class="actions" style="justify-content:center;margin-top:12px;">
                   <button class="btn" id="cancelFramework">Cancel</button>
@@ -10065,7 +10083,7 @@ label         { font-size: 14px !important; }
     <label style="margin-top:12px;">Subject</label>
     <input class="field" id="emailSubject" placeholder="Subject"/>
     <label style="margin-top:12px;">Body</label>
-    <textarea class="field" id="emailBody" style="height:400px;" placeholder="Email body"></textarea>
+    <textarea class="field" id="emailBody" class="primaryArea" style="height:400px;" placeholder="Email body"></textarea>
     <div class="toolRunBar">
       <button class="btn" id="draftWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendEmailBtn">✅ Approve and send</button>
@@ -10081,7 +10099,7 @@ label         { font-size: 14px !important; }
       <div><label>To</label><input class="field" id="smsTo" placeholder="+1..."/></div>
     </div>
     <label style="margin-top:12px;">Message</label>
-    <textarea class="field" id="smsBody" style="height:360px;" placeholder="Text message body"></textarea>
+    <textarea class="field" id="smsBody" class="primaryArea" style="height:360px;" placeholder="Text message body"></textarea>
     <div class="toolRunBar">
       <button class="btn" id="draftSmsWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendSmsBtn">✅ Approve and send text</button>
@@ -10111,7 +10129,7 @@ label         { font-size: 14px !important; }
       </div>
     </div>
     <label style="margin-top:18px;">Lead context</label>
-    <textarea id="leadHandoffContext" style="height:300px;" readonly></textarea>
+    <textarea id="leadHandoffContext" class="primaryArea" style="height:300px;" readonly></textarea>
     <div class="toolRunBar">
       <button class="btn" id="leadHandoffCancel">Cancel</button>
       <button class="btn btnPrimary" id="leadHandoffGenerate">✍️ Write draft</button>
@@ -10260,7 +10278,7 @@ label         { font-size: 14px !important; }
   <label>Objective</label>
   <input id="sessionObjectiveInput" placeholder="Example: build a clean NJ realtor lead engine and draft first outreach" />
   <label style="margin-top:18px;">Context</label>
-  <textarea id="sessionObjectiveContext" style="height:520px;" placeholder="What matters most right now, what success looks like, and any constraints the team should know about."></textarea>
+  <textarea id="sessionObjectiveContext" class="primaryArea" style="height:520px;" placeholder="What matters most right now, what success looks like, and any constraints the team should know about."></textarea>
   <div class="actions" style="justify-content:center;margin-top:14px;">
     <button class="btn" id="sessionObjectiveCloseBtn">Close</button>
     <button class="btn btnPrimary" id="sessionObjectiveSaveBtn">Save objective</button>
@@ -10631,7 +10649,7 @@ label         { font-size: 14px !important; }
       <label style="margin-top:14px;">Audience</label>
       <input id="socialStudioAudience" placeholder="solo real estate agents" />
       <label style="margin-top:18px;">Offer / angle</label>
-      <textarea id="socialStudioOffer" style="height:200px;" placeholder="What do you sell and why should people care?"></textarea>
+      <textarea id="socialStudioOffer" class="primaryArea" style="height:200px;" placeholder="What do you sell and why should people care?"></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
       </div>
@@ -10649,7 +10667,7 @@ label         { font-size: 14px !important; }
       <label style="margin-top:18px;">What result do you help them get?</label>
       <input id="offerBuilderResult" placeholder="generate qualified leads and book more calls" />
       <label style="margin-top:18px;">How do you deliver it?</label>
-      <textarea id="offerBuilderMethod" style="height:220px;" placeholder="Describe your process, service, or product."></textarea>
+      <textarea id="offerBuilderMethod" class="primaryArea" style="height:220px;" placeholder="Describe your process, service, or product."></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="offerBuilderRunBtn">Build offer</button>
       </div>
@@ -10680,7 +10698,7 @@ label         { font-size: 14px !important; }
         </div>
       </div>
       <label style="margin-top:18px;">Business context</label>
-      <textarea id="playbookContext" style="height:220px;" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
+      <textarea id="playbookContext" class="primaryArea" style="height:220px;" placeholder="Who you help, what you sell, and where you are stuck."></textarea>
       <div class="toolRunBar">
         <button class="btn btnPrimary" id="playbookRunBtn">Generate playbook</button>
       </div>
@@ -16183,7 +16201,22 @@ async function crmFetchTasks(){
         </div>`;
       }).join('');
 
-      // Wire drag-and-drop
+      // Wire drag-and-drop with auto-scroll for mobile
+      let _dragScrollTimer = null;
+      function _pipelineAutoScroll(ev){
+        const ZONE = 80, SPEED = 12;
+        const sc = document.getElementById('modalScroll') || document.scrollingElement;
+        const vy = ev.clientY !== undefined ? ev.clientY : (ev.touches?.[0]?.clientY ?? 0);
+        const vh = window.innerHeight;
+        clearInterval(_dragScrollTimer);
+        if(vy < ZONE){
+          _dragScrollTimer = setInterval(()=>{ sc.scrollTop -= SPEED; }, 16);
+        } else if(vy > vh - ZONE){
+          _dragScrollTimer = setInterval(()=>{ sc.scrollTop += SPEED; }, 16);
+        }
+      }
+      function _pipelineStopAutoScroll(){ clearInterval(_dragScrollTimer); _dragScrollTimer = null; }
+
       box.querySelectorAll('[data-client-drag]').forEach(el=>{
         el.addEventListener('dragstart', ev=>{
           ev.dataTransfer.setData('text/plain', el.getAttribute('data-client-drag')||'');
@@ -16193,12 +16226,20 @@ async function crmFetchTasks(){
           el.style.zIndex='200';
           el.style.transition='transform .15s,box-shadow .15s';
         });
+        el.addEventListener('drag', _pipelineAutoScroll);
         el.addEventListener('dragend', ev=>{
+          _pipelineStopAutoScroll();
           el.style.transform=''; el.style.boxShadow=''; el.style.opacity=''; el.style.zIndex='';
           document.querySelectorAll('[data-stage-drop]').forEach(function(z){
             z.style.background=''; z.style.boxShadow=''; z.style.borderRadius='';
           });
         });
+
+        // Touch-based drag scroll (mobile browsers don't fire drag events on touch)
+        el.addEventListener('touchmove', ev=>{
+          _pipelineAutoScroll(ev);
+        }, {passive:true});
+        el.addEventListener('touchend', _pipelineStopAutoScroll);
       });
       box.querySelectorAll('[data-stage-drop]').forEach(el=>{
         el.addEventListener('dragover', ev=>{
