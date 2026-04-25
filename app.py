@@ -128,42 +128,35 @@ PLANS: Dict[str, Any] = {
         "custom_teammates": 3,
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
+        "team_seats":       2,
         "founder":          True,
         "features": [
-            "Everything in Starter + Growth",
-            "Powered by GPT-4o + Claude",
-            "All 7 built-in AI teammates",
-            "Round table group convene",
-            "Create up to 3 custom AI teammates",
-            "Lead Lab — unlimited runs",
-            "Social Studio — unlimited runs",
+            "All 7 built-in AI teammates (GPT-4o + Claude)",
+            "3 custom AI teammates — build your bench",
+            "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email & SMS broadcast (up to 1,000 recipients)",
-            "Price locked in forever — never increases",
+            "2 team seats — bring a partner",
+            "Calendar, tasks & Gmail sync",
+            "Price locked forever — never increases",
         ],
     },
     "starter": {
-        "name":             "Starter Operator",
+        "name":             "Solo Operator",
         "price":            47,
         "price_id":         STRIPE_PRICE_ID_STARTER,
         "badge":            None,
-        "tagline":          "The full AI command center for operators just getting started.",
+        "tagline":          "The full AI command center — everything you need to run and grow solo.",
         "custom_teammates": 0,
         "crm_contacts":     500,
         "broadcast_recipients": 250,
+        "team_seats":       1,
         "features": [
-            "All 7 built-in AI teammates",
-            "Powered by GPT-4o + Claude",
-            "Round table group convene",
-            "Lead Lab — unlimited runs",
-            "Social Studio — unlimited runs",
-            "Offer Builder — unlimited runs",
-            "Growth Playbooks — unlimited runs",
-            "⚡ AI outreach drafts",
+            "All 7 built-in AI teammates (GPT-4o + Claude)",
+            "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 500 contacts)",
             "Email & SMS broadcast (up to 250 recipients)",
             "Calendar, tasks & Gmail sync",
-            "Nurture sequences",
             "Dashboard & analytics",
         ],
     },
@@ -172,18 +165,18 @@ PLANS: Dict[str, Any] = {
         "price":            97,
         "price_id":         STRIPE_PRICE_ID_GROWTH,
         "badge":            "Most Popular",
-        "tagline":          "For operators scaling their pipeline and building their AI team.",
+        "tagline":          "Scale your pipeline, build your AI team, and bring in real humans too.",
         "custom_teammates": 3,
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
+        "team_seats":       3,
         "features": [
-            "Everything in Starter",
-            "Powered by GPT-4o + Claude",
-            "Create up to 3 custom AI teammates",
+            "Everything in Solo Operator",
+            "3 custom AI teammates — build your bench",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email & SMS broadcast (up to 1,000 recipients)",
-            "Advanced pipeline automation rules",
-            "Client conversation history",
+            "3 team seats — run with a crew",
+            "Advanced pipeline automation",
             "Priority support",
         ],
     },
@@ -192,18 +185,19 @@ PLANS: Dict[str, Any] = {
         "price":            197,
         "price_id":         STRIPE_PRICE_ID_PRO,
         "badge":            "Unlimited",
-        "tagline":          "No limits. For operators running at full scale.",
+        "tagline":          "Full command. No ceilings. Built for operators running at scale.",
         "custom_teammates": None,
         "crm_contacts":     None,
         "broadcast_recipients": None,
+        "team_seats":       10,
         "features": [
             "Everything in Growth",
-            "Powered by GPT-4o + Claude",
             "Unlimited custom AI teammates",
-            "Unlimited CRM contacts",
-            "Unlimited broadcast recipients",
-            "Early access to new features",
-            "Priority support",
+            "Unlimited CRM contacts & broadcasts",
+            "10 team seats — bring your whole operation",
+            "Dedicated onboarding + strategy call",
+            "Early access to every new feature",
+            "Priority support — direct line, no queue",
         ],
     },
 }
@@ -275,6 +269,78 @@ def _founder_weekly_timer() -> Dict[str, Any]:
         "minutes": minutes,
         "seconds": seconds,
     }
+
+
+# ── Team Seats System ────────────────────────────────────────────────────────
+
+def _team_seat_limit(plan_key: str) -> int:
+    """Return the number of team seats included in a plan (1 = solo/owner only)."""
+    return int((PLANS.get(plan_key) or PLANS.get("starter") or {}).get("team_seats", 1))
+
+def _get_team_owner(username: str) -> Optional[str]:
+    """Return the team owner for a user (None if they are the owner)."""
+    data = load_users()
+    u = (data.get("users") or {}).get(username) or {}
+    return u.get("team_owner")
+
+def _get_team_members(owner_username: str) -> List[str]:
+    """Return list of team member usernames for an owner."""
+    data = load_users()
+    u = (data.get("users") or {}).get(owner_username) or {}
+    return list(u.get("team_members") or [])
+
+def _get_team_seats_used(owner_username: str) -> int:
+    """Seats used = owner (1) + number of active team members."""
+    return 1 + len(_get_team_members(owner_username))
+
+def _can_add_team_member(owner_username: str) -> Tuple[bool, str]:
+    """Check whether the owner has room for another team member."""
+    plan  = _get_user_plan(owner_username)
+    limit = _team_seat_limit(plan)
+    used  = _get_team_seats_used(owner_username)
+    if used >= limit:
+        return False, f"Your {(PLANS.get(plan) or {}).get('name','plan')} includes {limit} seat{'s' if limit!=1 else ''}. Upgrade to add more team members."
+    return True, ""
+
+def _add_team_member(owner_username: str, member_username: str) -> Tuple[bool, str]:
+    """Link a user as a team member of owner. Returns (ok, error_msg)."""
+    ok, msg = _can_add_team_member(owner_username)
+    if not ok:
+        return False, msg
+    data  = load_users()
+    users = data.get("users") or {}
+    owner = users.get(owner_username)
+    if not owner:
+        return False, "Owner not found."
+    member = users.get(member_username)
+    if not member:
+        return False, "Member not found."
+    if member.get("team_owner") and member["team_owner"] != owner_username:
+        return False, "User already belongs to another team."
+    members = list(owner.get("team_members") or [])
+    if member_username not in members:
+        members.append(member_username)
+    owner["team_members"] = members
+    member["team_owner"]  = owner_username
+    save_users(data)
+    return True, ""
+
+def _remove_team_member(owner_username: str, member_username: str) -> Tuple[bool, str]:
+    """Unlink a team member from owner."""
+    data  = load_users()
+    users = data.get("users") or {}
+    owner  = users.get(owner_username)
+    member = users.get(member_username)
+    if not owner:
+        return False, "Owner not found."
+    members = list(owner.get("team_members") or [])
+    if member_username in members:
+        members.remove(member_username)
+    owner["team_members"] = members
+    if member and member.get("team_owner") == owner_username:
+        member["team_owner"] = None
+    save_users(data)
+    return True, ""
 
 
 def _get_user_plan(username: str) -> str:
@@ -7336,11 +7402,28 @@ def _hash_token(token: str) -> str:
 
 @app.get("/pricing")
 def pricing_page():
-    stripe_on       = _stripe_ready()
-    founder_remain  = _founder_seats_remaining()
-    founder_sold    = founder_remain <= 0
-    founder_timer   = _founder_weekly_timer()
-    sold_out_param  = request.args.get("founder_sold_out", "")
+    stripe_on      = _stripe_ready()
+    founder_remain = _founder_seats_remaining()
+    founder_sold   = founder_remain <= 0
+    founder_timer  = _founder_weekly_timer()
+    sold_out_param = request.args.get("founder_sold_out", "")
+    fp             = PLANS.get("founder", {})
+
+    founder_features_html = "".join(
+        f"<li><span class='pfc'>&#10003;</span>{f}</li>"
+        for f in fp.get("features", [])
+    )
+    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
+    sold_out_msg  = "<div class='f-soldout'>All 100 founder seats have been claimed.</div>" if founder_sold else ""
+    founder_btn   = (
+        "<button class='f-btn-out' disabled>Sold Out</button>" if founder_sold else
+        f"""<button class='f-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
+              <span class='btn-spinner' id='spin-founder' style='display:none'>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+              </span>
+              Claim My Founder Spot
+            </button>"""
+    )
 
     cards_html = ""
     for key, p in PLANS.items():
@@ -7350,43 +7433,28 @@ def pricing_page():
         is_growth     = key == "growth"
         badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
         rec_cls       = " plan-card-featured" if is_growth else ""
+        team_seats    = p.get("team_seats", 1)
         features_html = "".join(
-            f"<li><span class='pf-check'>&#10003;</span>{f}</li>"
+            f"<li><span class='pfc'>&#10003;</span>{f}</li>"
             for f in p.get("features", [])
         )
-        cards_html += f"""
+        trial_html    = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
+        cta_label     = f"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
+        cards_html   += f"""
         <div class='plan-card{rec_cls}'>
           {badge_html}
           <div class='plan-name'>{p['name']}</div>
           <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
           <div class='plan-tagline'>{p['tagline']}</div>
           <ul class='plan-features'>{features_html}</ul>
-          <button class='plan-btn plan-btn-featured' onclick="startCheckout('{key}')" id='planBtn-{key}'>
+          <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
             </span>
-            {"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"}
+            {cta_label}
           </button>
-          {"<div class='trial-note'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""}
+          {trial_html}
         </div>"""
-
-    fp = PLANS.get("founder", {})
-    founder_features_html = "".join(
-        f"<li><span class='pf-check-f'>&#10003;</span>{f}</li>"
-        for f in fp.get("features", [])
-    )
-    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
-    sold_out_msg  = "<div class='founder-soldout'>All founder seats claimed — upgrade to a standard plan below.</div>" if founder_sold else ""
-    founder_btn   = (
-        "<button class='founder-btn-soldout' disabled>Sold Out</button>"
-        if founder_sold else
-        f"""<button class='founder-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
-              <span class='btn-spinner' id='spin-founder' style='display:none'>
-                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
-              </span>
-              Claim My Founder Spot
-            </button>"""
-    )
 
     page = f"""<!doctype html>
 <html><head>
@@ -7401,49 +7469,85 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
 .brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
 .dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
-.founder-wrap{{max-width:720px;margin:0 auto 48px;}}
-.founder-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
-.founder-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
-.founder-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;box-shadow:0 4px 16px rgba(245,158,11,.5);}}
-.founder-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
-.founder-left{{flex:1;min-width:200px;}}
-.founder-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
-.founder-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
-.founder-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
-.founder-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
-.founder-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
-.founder-locked{{font-size:12px;color:#fbbf24;margin-top:4px;}}
-.founder-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
-.founder-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
-.seats-label{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
-.seats-count{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
+
+/* ══ FOUNDER CARD ══════════════════════════════════ */
+.f-wrap{{max-width:720px;margin:0 auto 48px;}}
+.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
+.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+
+/* ── Ribbon pulse animation ── */
+.f-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
+@keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0),0 0 12px rgba(251,191,36,.35);}}50%{{box-shadow:0 0 0 7px rgba(251,191,36,.12),0 0 36px rgba(251,191,36,.75);}}}}
+
+.f-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
+.f-left{{flex:1;min-width:200px;}}
+.f-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
+.f-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
+
+/* ── Price breathe ── */
+.f-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
+.f-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
+.f-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
+.f-price .num{{display:inline-block;animation:priceBreathe 3s ease-in-out infinite;}}
+@keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 28px rgba(251,191,36,.6),0 0 56px rgba(251,191,36,.25);}}}}
+
+/* ── Lock badge pulse ── */
+.f-locked{{font-size:12px;color:#fbbf24;margin-top:5px;animation:lockPulse 2.8s ease-in-out infinite;}}
+@keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
+
+.f-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
+.f-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
+.seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
+.seats-num{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
 .seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
-.seats-bar-wrap{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
-.seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);transition:width .6s ease;}}
-.countdown-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
-.countdown-label{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
-.countdown-timer{{display:flex;gap:10px;align-items:center;}}
+.seats-bar{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
+
+/* ── Bar shimmer ── */
+.seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);position:relative;overflow:hidden;}}
+.seats-bar-fill::after{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:barShimmer 2.8s ease-in-out infinite;}}
+@keyframes barShimmer{{0%{{left:-80%;}}65%,100%{{left:160%;}}}}
+
+.cd-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
+.cd-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
+.cd-row{{display:flex;gap:10px;align-items:center;}}
 .cd-unit{{text-align:center;}}
 .cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
-.cd-lbl{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
-.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:12px;}}
-.countdown-reset{{font-size:10px;color:#78716c;margin-top:6px;}}
-.founder-features-wrap{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
-.founder-features{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
-.founder-features li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
-.pf-check-f{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
-.founder-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
-.founder-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;}}
-.founder-btn:hover{{opacity:.88;transform:translateY(-2px);}}
-.founder-btn:active{{transform:translateY(0);}}
-.founder-btn-soldout{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
-.founder-note{{font-size:12px;color:#78716c;line-height:1.5;}}
-.founder-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
+.cd-sub{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
+.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:10px;}}
+
+/* ── Digit flip ── */
+.cd-flip{{animation:digitFlip .35s ease-out;}}
+@keyframes digitFlip{{0%{{transform:scaleY(0);opacity:0;}}55%{{transform:scaleY(1.08);}}100%{{transform:scaleY(1);opacity:1;}}}}
+
+.f-feats{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
+.f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
+.f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
+.pfc{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
+
+/* ── CTA + button shimmer ── */
+.f-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
+.f-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;}}
+.f-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);animation:btnShimmer 2.4s ease-in-out infinite;}}
+@keyframes btnShimmer{{0%{{left:-80%;}}55%,100%{{left:150%;}}}}
+.f-btn:hover{{opacity:.88;transform:translateY(-2px);}}
+.f-btn:active{{transform:translateY(0);}}
+.f-btn-out{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
+.f-note{{font-size:12px;color:#78716c;line-height:1.5;}}
+.f-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
+
+/* ── Floating particles ── */
+.f-particles{{position:absolute;inset:0;pointer-events:none;overflow:hidden;}}
+.f-particle{{position:absolute;border-radius:50%;background:rgba(251,191,36,.55);animation:floatUp linear infinite;}}
+@keyframes floatUp{{0%{{transform:translateY(0) scale(1);opacity:.55;}}100%{{transform:translateY(-140px) scale(0);opacity:0;}}}}
+
+/* ══ DIVIDER ══ */
 .divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
 .divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
 .divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
+
+/* ══ STANDARD PLAN CARDS ══ */
 .plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
-.plan-card{{flex:1;min-width:290px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
+.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
 .plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
 .plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
 .plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
@@ -7451,11 +7555,12 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
 .plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
 .plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
-.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:24px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:18px;}}
-.plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:28px;flex:1;}}
+.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:16px;}}
+.plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:26px;flex:1;}}
 .plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
-.pf-check{{color:#a78bfa;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;}}
-.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;}}
+.plan-features .pfc{{color:#a78bfa;}}
+.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;position:relative;overflow:hidden;}}
+.plan-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);animation:btnShimmer 3s ease-in-out infinite;animation-delay:.6s;}}
 .plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
 .trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
 .api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
@@ -7467,7 +7572,15 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
 .already a{{color:#a78bfa;text-decoration:none;}}
 .already a:hover{{text-decoration:underline;}}
-@media(max-width:600px){{.founder-top{{flex-direction:column;gap:16px;}}.founder-price{{font-size:42px;}}.founder-cta{{flex-direction:column;align-items:stretch;}}.founder-btn,.founder-btn-soldout{{width:100%;text-align:center;}}.countdown-timer{{gap:6px;}}.cd-num{{font-size:18px;min-width:26px;}}}}
+@media(max-width:600px){{
+  .f-top{{flex-direction:column;gap:16px;}}
+  .f-price{{font-size:42px;}}
+  .f-cta{{flex-direction:column;align-items:stretch;}}
+  .f-btn,.f-btn-out{{width:100%;text-align:center;}}
+  .cd-row{{gap:6px;}}
+  .cd-num{{font-size:18px;min-width:26px;}}
+  .f-feat-grid{{grid-template-columns:1fr;}}
+}}
 </style>
 </head><body>
 <div class='brand'><div class='dot'></div>{APP_TITLE}</div>
@@ -7477,49 +7590,50 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
   {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
 
-<div class='founder-wrap'>
-  <div class='founder-card'>
-    <div class='founder-ribbon'>LIMITED</div>
-    <div class='founder-top'>
-      <div class='founder-left'>
-        <div class='founder-badge'>🔥 Founder Access</div>
-        <div class='founder-name'>{fp.get("name","Founder Access")}</div>
-        <div class='founder-price'><span class='dol'>$</span>17<span class='per'>/mo</span></div>
-        <div class='founder-locked'>🔒 Price locked in forever — never increases</div>
-        <div class='founder-tagline'>{fp.get("tagline","")}</div>
+<div class='f-wrap'>
+  <div class='f-card'>
+    <div class='f-particles' id='particles'></div>
+    <div class='f-ribbon'>LIMITED</div>
+    <div class='f-top'>
+      <div class='f-left'>
+        <div class='f-badge'>🔥 Founder Access</div>
+        <div class='f-name'>{fp.get("name","Founder Access")}</div>
+        <div class='f-price'><span class='dol'>$</span><span class='num'>17</span><span class='per'>/mo</span></div>
+        <div class='f-locked'>🔒 Price locked in forever — never increases</div>
+        <div class='f-tagline'>{fp.get("tagline","")}</div>
       </div>
-      <div class='founder-right'>
+      <div class='f-right'>
         <div>
-          <div class='seats-label'>Founder seats remaining</div>
-          <div class='seats-count' id='seatsRemain'>{founder_remain}</div>
+          <div class='seats-lbl'>Founder seats remaining</div>
+          <div class='seats-num' id='seatsRemain'>{founder_remain}</div>
           <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
-          <div class='seats-bar-wrap'>
+          <div class='seats-bar'>
             <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
           </div>
         </div>
-        <div class='countdown-wrap'>
-          <div class='countdown-label'>Time remaining at this price</div>
-          <div class='countdown-timer'>
-            <div class='cd-unit'><div class='cd-num' id='cdDays'>{founder_timer["days"]:02d}</div><div class='cd-lbl'>days</div></div>
+        <div class='cd-wrap'>
+          <div class='cd-lbl'>Time remaining at this price</div>
+          <div class='cd-row'>
+            <div class='cd-unit'><div class='cd-num' id='cdD'>{founder_timer["days"]:02d}</div><div class='cd-sub'>days</div></div>
             <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdHrs'>{founder_timer["hours"]:02d}</div><div class='cd-lbl'>hrs</div></div>
+            <div class='cd-unit'><div class='cd-num' id='cdH'>{founder_timer["hours"]:02d}</div><div class='cd-sub'>hrs</div></div>
             <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdMin'>{founder_timer["minutes"]:02d}</div><div class='cd-lbl'>min</div></div>
+            <div class='cd-unit'><div class='cd-num' id='cdM'>{founder_timer["minutes"]:02d}</div><div class='cd-sub'>min</div></div>
             <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdSec'>{founder_timer["seconds"]:02d}</div><div class='cd-lbl'>sec</div></div>
+            <div class='cd-unit'><div class='cd-num' id='cdS'>{founder_timer["seconds"]:02d}</div><div class='cd-sub'>sec</div></div>
           </div>
         </div>
       </div>
     </div>
-    <div class='founder-features-wrap'>
-      <ul class='founder-features'>{founder_features_html}</ul>
+    <div class='f-feats'>
+      <ul class='f-feat-grid'>{founder_features_html}</ul>
     </div>
-    <div class='founder-cta'>
+    <div class='f-cta'>
       {founder_btn}
-      <div class='founder-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
+      <div class='f-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
     </div>
     {sold_out_msg}
-    {"<div class='founder-soldout'>This price is sold out — claim a standard plan below.</div>" if sold_out_param else ""}
+    {"<div class='f-soldout'>This founder price is sold out — choose a standard plan below.</div>" if sold_out_param else ""}
   </div>
 </div>
 
@@ -7529,42 +7643,59 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <div class='api-note'>
   <div class='api-note-icon'>🔑</div>
   <div class='api-note-text'>
-    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth with other users.
+    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
   </div>
 </div>
 <div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
 <div class='pg-footer' style='margin-top:24px;'>
   {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
+
 <script>
-var totalSecs = {founder_timer["total_seconds"]};
-function pad(n){{return String(n).padStart(2,'0');}}
-function tick(){{
-  if(totalSecs<=0){{location.reload();return;}}
-  totalSecs--;
-  var d=Math.floor(totalSecs/86400),h=Math.floor((totalSecs%86400)/3600),m=Math.floor((totalSecs%3600)/60),s=totalSecs%60;
-  var e=function(id){{return document.getElementById(id);}};
-  if(e('cdDays'))e('cdDays').textContent=pad(d);
-  if(e('cdHrs'))e('cdHrs').textContent=pad(h);
-  if(e('cdMin'))e('cdMin').textContent=pad(m);
-  if(e('cdSec'))e('cdSec').textContent=pad(s);
-}}
-setInterval(tick,1000);
-function refreshSeats(){{
-  fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
-    var remEl=document.getElementById('seatsRemain'),barEl=document.getElementById('seatsBar'),btnEl=document.getElementById('planBtn-founder');
-    if(remEl)remEl.textContent=d.remaining;
-    if(barEl)barEl.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
-    if(d.sold_out&&btnEl){{btnEl.disabled=true;btnEl.textContent='Sold Out';btnEl.style.background='rgba(100,100,100,.2)';btnEl.style.color='#6b7280';}}
-  }}).catch(function(){{}});
-}}
-setInterval(refreshSeats,30000);
+(function(){{
+  var pc = document.getElementById('particles');
+  if(pc){{
+    for(var i=0;i<14;i++){{
+      var p=document.createElement('div');
+      p.className='f-particle';
+      var sz=Math.random()*4+2;
+      p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+(Math.random()*25)+'%;animation-duration:'+(Math.random()*4+3)+'s;animation-delay:'+Math.random()*5+'s';
+      pc.appendChild(p);
+    }}
+  }}
+
+  var secs={founder_timer["total_seconds"]};
+  function pad(n){{return String(n).padStart(2,'0');}}
+  function flip(id,val){{
+    var el=document.getElementById(id);if(!el)return;
+    var v=pad(val);
+    if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
+  }}
+  setInterval(function(){{
+    if(secs<=0){{location.reload();return;}}
+    secs--;
+    flip('cdD',Math.floor(secs/86400));
+    flip('cdH',Math.floor((secs%86400)/3600));
+    flip('cdM',Math.floor((secs%3600)/60));
+    flip('cdS',secs%60);
+  }},1000);
+
+  setInterval(function(){{
+    fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
+      var r=document.getElementById('seatsRemain'),b=document.getElementById('seatsBar'),btn=document.getElementById('planBtn-founder');
+      if(r)r.textContent=d.remaining;
+      if(b)b.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
+      if(d.sold_out&&btn){{btn.disabled=true;btn.textContent='Sold Out';btn.className='f-btn-out';}}
+    }}).catch(function(){{}});
+  }},30000);
+}})();
+
 function startCheckout(plan){{
   var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
   if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
   var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
-  var input=document.createElement('input');input.type='hidden';input.name='plan';input.value=plan;
-  form.appendChild(input);document.body.appendChild(form);form.submit();
+  var inp=document.createElement('input');inp.type='hidden';inp.name='plan';inp.value=plan;
+  form.appendChild(inp);document.body.appendChild(form);form.submit();
 }}
 </script>
 </body></html>"""
@@ -27539,6 +27670,77 @@ def api_followup_stream():
 
 
 # ── 2. TEXT-TO-SPEECH ─────────────────────────────────────────────────────────
+# ── Team Seats API ───────────────────────────────────────────────────────────
+
+@app.get("/api/team")
+def api_team_get():
+    """Return the current user's team info: members, seats used, limit."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname      = u.get("username", "")
+    owner_name = _get_team_owner(uname)
+    # If this user is a team member, return their owner's team info
+    effective_owner = owner_name if owner_name else uname
+    plan       = _get_user_plan(effective_owner)
+    limit      = _team_seat_limit(plan)
+    members    = _get_team_members(effective_owner)
+    used       = 1 + len(members)
+    plan_info  = PLANS.get(plan) or {}
+    return jsonify({
+        "ok":          True,
+        "owner":       effective_owner,
+        "is_owner":    not bool(owner_name),
+        "plan":        plan,
+        "plan_name":   plan_info.get("name", plan),
+        "seats_limit": limit,
+        "seats_used":  used,
+        "seats_left":  max(0, limit - used),
+        "members":     members,
+    })
+
+
+@app.post("/api/team/add")
+def api_team_add():
+    """Owner adds a team member by username."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname  = u.get("username", "")
+    # Only owners (not team members themselves) can add members
+    if _get_team_owner(uname):
+        return jsonify({"ok": False, "error": "Team members cannot invite others — contact your account owner."}), 403
+    payload = request.get_json(silent=True) or {}
+    member  = (payload.get("username") or "").strip().lower()
+    if not member:
+        return jsonify({"ok": False, "error": "Username required."}), 400
+    if member == uname:
+        return jsonify({"ok": False, "error": "You can't add yourself."}), 400
+    ok, err = _add_team_member(uname, member)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "message": f"{member} added to your team."})
+
+
+@app.post("/api/team/remove")
+def api_team_remove():
+    """Owner removes a team member by username."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname  = u.get("username", "")
+    if _get_team_owner(uname):
+        return jsonify({"ok": False, "error": "Only the account owner can remove team members."}), 403
+    payload = request.get_json(silent=True) or {}
+    member  = (payload.get("username") or "").strip().lower()
+    if not member:
+        return jsonify({"ok": False, "error": "Username required."}), 400
+    ok, err = _remove_team_member(uname, member)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "message": f"{member} removed from your team."})
+
+
 @app.get("/api/founder/status")
 def api_founder_status():
     """Public endpoint — returns remaining founder seats + weekly timer."""
