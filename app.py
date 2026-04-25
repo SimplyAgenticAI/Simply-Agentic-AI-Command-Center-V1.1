@@ -112,7 +112,7 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
 # the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
-STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "")
+STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "price_1TQC3uKAWBo2NxJsBt6QBdqT")
 FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "100"))  # total slots
 # Fixed epoch: the week counter resets every Monday 00:00 UTC
 FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any past Monday
@@ -203,9 +203,15 @@ PLANS: Dict[str, Any] = {
 }
 
 def _plan_price_id(plan_key: str) -> str:
-    """Return the Stripe price ID for a plan key, falling back to Starter."""
-    p = PLANS.get(plan_key) or PLANS.get("starter") or {}
-    return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+    """Return the Stripe price ID for a plan key. Only falls back to Starter price for the starter plan."""
+    p = PLANS.get(plan_key) or {}
+    pid = (p.get("price_id") or "").strip()
+    if pid:
+        return pid
+    # Only use the global starter fallback if this IS the starter plan
+    if plan_key in ("starter", ""):
+        return (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+    return ""
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
@@ -8955,11 +8961,19 @@ HTML = r"""
 
 
     /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
+    .saNavBar{
+      display:flex;align-items:center;gap:10px;
+      padding:8px 16px;
+      background:rgba(18,26,56,.97);
+      border-bottom:1px solid rgba(80,110,200,.3);
+      position:sticky;top:0;z-index:900;
+      backdrop-filter:blur(12px);
+      flex-wrap:nowrap;overflow:visible;
+    }
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
-    .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
+    .saNavCenter{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;}
     #saPinnedBar:empty{ display:none; }
-    .saNavRight{flex-shrink:0;}
+    .saNavRight{flex-shrink:0;display:flex;gap:8px;align-items:center;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
     .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -8967,11 +8981,12 @@ HTML = r"""
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
+    .saDrop.drop-right{left:auto;right:0;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
+    .saObjectivePill{font-size:13px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;max-width:280px;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -9418,36 +9433,102 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
 
 /* ── 640px: full mobile layout ─────────────────────────────────────────── */
 @media (max-width: 640px) {
+
+  /* ── Base: no horizontal scroll ever ── */
   html, body {
     overflow-x: hidden !important;
     overscroll-behavior-x: none;
+    width: 100%;
   }
-  body { touch-action: manipulation; }
+  body {
+    touch-action: manipulation;
+    /* Space for fixed bottom bar + safe area */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+  }
 
-  /* topbar */
-  .topbar    { height: auto; padding: 10px 12px; }
-  .topbarMain { gap: 8px; flex-wrap: wrap; }
+  /* ── Topbar: slim, no wrapping ── */
+  .topbar { padding: 8px 12px !important; }
+  .topbarMain { display: none !important; }   /* hide old brand row — nav bar handles it */
 
-  /* command rows: 2-col grid on mobile */
-  .commandRow,
-  .commandRow.secondary {
-    grid-template-columns: repeat(2, 1fr) !important;
-    max-width: none !important;
+  /* ── Desktop nav: COMPLETELY HIDDEN on mobile ── */
+  .saNavBar { display: none !important; }
+
+  /* ── Mobile bar: always visible at bottom ── */
+  .mobileBar {
+    display: flex !important;
+    position: fixed !important;
+    left: 0 !important; right: 0 !important; bottom: 0 !important;
+    height: calc(56px + env(safe-area-inset-bottom)) !important;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) !important;
+    background: rgba(7,10,20,.96) !important;
+    border-top: 1px solid rgba(80,110,200,.4) !important;
+    z-index: 9000 !important;
     gap: 8px !important;
+    justify-content: space-between !important;
+    backdrop-filter: blur(16px) !important;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.4) !important;
   }
-  .commandRow .btn, .commandRow a.btn {
-    min-height: 42px;
-    font-size: 13px !important;
-    padding: 8px 6px;
-    white-space: normal;
-    line-height: 1.2;
+  .mobileBar .btn {
+    flex: 1 1 0 !important;
+    padding: 8px 4px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    border-color: rgba(124,58,237,.45) !important;
+    border-radius: 10px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
   }
 
-  /* stage: single column */
-  .stage { grid-template-columns: 1fr !important; }
-  .side  { padding: 0 12px 12px 12px !important; width: 100% !important; max-width: 100% !important; }
+  /* ── Mobile drawer: slides up above bottom bar ── */
+  .mobileDrawerOverlay.show {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(2,6,16,.7) !important;
+    z-index: 8900 !important;
+    backdrop-filter: blur(4px) !important;
+  }
+  .mobileDrawer {
+    position: fixed !important;
+    left: 8px !important; right: 8px !important;
+    bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+    max-height: 72vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    background: rgba(10,14,30,.98) !important;
+    border: 1px solid rgba(80,110,200,.5) !important;
+    border-radius: 20px !important;
+    box-shadow: 0 -8px 48px rgba(0,0,0,.6), 0 0 30px rgba(124,58,237,.12) !important;
+    z-index: 9100 !important;
+  }
+  .mobileDrawerGrid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+  .mobileDrawerGrid .btn {
+    font-size: 12px !important;
+    padding: 10px 6px !important;
+    text-align: center !important;
+    width: 100% !important;
+    min-height: 42px !important;
+  }
+  .mobileDrawerFoot { padding: 0 10px 10px !important; }
 
-  /* tableWrap: vertical flex list — no circles or absolute positioning */
+  /* ── Stage: single column, no side panel overlap ── */
+  .stage {
+    grid-template-columns: 1fr !important;
+    min-height: auto !important;
+  }
+  .side {
+    position: relative !important; top: 0 !important;
+    height: auto !important; overflow: visible !important;
+    border-left: 0 !important;
+    padding: 0 12px 12px !important;
+    width: 100% !important; max-width: 100% !important;
+  }
+
+  /* ── Table wrap: vertical list, no circles ── */
   .tableWrap {
     display: flex !important;
     flex-direction: column !important;
@@ -9460,69 +9541,63 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
     max-width: 100% !important;
     position: relative !important;
     overflow: visible !important;
+    box-sizing: border-box !important;
   }
-
-  /* Hide the round table SVG circle on mobile — seats become a list */
   .table { display: none !important; }
-
-  /* Show mobile team label */
   .mobileTeamLabel { display: block !important; }
 
-  /* Seat cards: full-width stacked list */
+  /* ── Seat cards: full-width stacked ── */
   .seat {
     position: relative !important;
     left: 0 !important; top: 0 !important;
     transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    min-height: 76px !important;
+    width: 100% !important; max-width: 100% !important;
+    height: auto !important; min-height: 72px !important;
     margin: 0 !important;
-    overflow: hidden !important;
     background: rgba(14,22,48,.98) !important;
     box-sizing: border-box !important;
     border-radius: 14px !important;
-    padding: 14px 16px !important;
+    padding: 12px 14px !important;
     cursor: pointer !important;
+    overflow: hidden !important;
   }
   .seat.active {
     border-color: rgba(124,58,237,.9) !important;
     background: rgba(20,12,48,.98) !important;
     box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
   }
-  .seat .seatAvatar { width: 46px !important; height: 46px !important; font-size: 20px !important; border-radius: 12px !important; flex-shrink: 0 !important; }
-  .seat .seatName   { font-size: 16px !important; font-weight: 800 !important; }
-  .seat .seatRole   { font-size: 13px !important; margin-top: 2px !important; }
-  .seat .seatStatus { font-size: 13px !important; margin-top: 4px !important; }
-  .seatTools { flex-wrap: wrap; gap: 8px; }
-  .seatToolBtn { flex: 1 1 auto; }
+  .seat .seatAvatar { width: 42px !important; height: 42px !important; font-size: 18px !important; border-radius: 10px !important; flex-shrink: 0 !important; }
+  .seat .seatName   { font-size: 15px !important; font-weight: 800 !important; }
+  .seat .seatRole   { font-size: 12px !important; }
+  .seat .seatStatus { font-size: 12px !important; margin-top: 3px !important; }
+  .seatTools { flex-wrap: wrap !important; gap: 6px !important; }
+  .seatToolBtn { flex: 1 1 auto !important; }
 
-  /* Operator console: push to bottom of list */
+  /* ── Operator console ── */
   .operator {
     position: relative !important;
     left: auto !important; top: auto !important;
     transform: none !important;
     width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
+    min-width: 0 !important; max-width: none !important;
     margin: 0 !important;
     order: 999 !important;
     border-radius: 14px !important;
+    box-sizing: border-box !important;
   }
 
-  /* Arena padding */
+  /* ── Arena ── */
   .arena { padding: 8px 0 !important; }
 
-  /* Chat side panel */
+  /* ── Chat side panel ── */
   .sideCard {
     height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
+    min-height: 0 !important; max-height: none !important;
     overflow: visible !important;
     background: rgba(11,16,36,.97) !important;
     border: 1px solid rgba(42,58,106,.9) !important;
     border-radius: 16px !important;
-    padding: 14px !important;
+    padding: 12px !important;
     box-shadow: 0 0 24px rgba(0,0,0,.3) !important;
     display: flex !important;
     flex-direction: column !important;
@@ -9530,81 +9605,127 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
   }
   #seatSub { display: none !important; }
 
-  /* Thread scroll area */
+  /* ── Thread scroll area ── */
   #thread {
     height: auto !important;
-    max-height: 45vh !important;
+    max-height: 42vh !important;
     min-height: 80px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
-  /* Prompt area */
-  .opText { min-height: 100px; }
+  /* ── Prompt area ── */
+  .opText { min-height: 90px !important; }
   .followRow, #followRow { width: 100% !important; }
 
-  /* Modal: full-screen on mobile */
+  /* ── Modal: true full-screen ── */
   .overlay {
     align-items: flex-start !important;
-    padding: calc(env(safe-area-inset-top) + 6px) 0 0 0 !important;
-    background: rgba(2,6,16,.75) !important;
+    padding: 0 !important;
+    background: rgba(2,6,16,.8) !important;
     backdrop-filter: blur(6px) !important;
   }
-  .modal,
-  #modalWin {
+  .modal, #modalWin {
     position: fixed !important;
     inset: 0 !important;
-    left: 0 !important; right: 0 !important;
-    top: 0 !important; bottom: 0 !important;
     width: 100vw !important;
-    height: 100vh !important;
+    height: 100% !important;
     max-width: 100vw !important;
-    max-height: 100vh !important;
+    max-height: 100% !important;
     border-radius: 0 !important;
     resize: none !important;
     min-width: 0 !important;
     min-height: 0 !important;
     transform: none !important;
+    /* account for bottom bar */
+    padding-bottom: calc(56px + env(safe-area-inset-bottom)) !important;
+    box-sizing: border-box !important;
   }
-  .modalBar    { cursor: default !important; }
-  .modalBodyWrap { overflow: auto !important; -webkit-overflow-scrolling: touch; }
+  .modalBar { cursor: default !important; }
+  .modalBodyWrap { overflow: auto !important; -webkit-overflow-scrolling: touch !important; }
   #modalScroll {
-    max-height: calc(100vh - 130px) !important;
-    overflow: auto !important;
-    -webkit-overflow-scrolling: touch;
-    padding: 0 16px;
-    box-sizing: border-box;
+    max-height: calc(100vh - calc(56px + env(safe-area-inset-bottom)) - 52px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 0 14px 20px !important;
+    box-sizing: border-box !important;
   }
-  .modalForm {
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
+  .modalForm { display: flex !important; flex-direction: column !important; }
+  .modalForm .modalInner { flex: 1 !important; display: flex !important; flex-direction: column !important; }
+  .formGrid2 { display: flex !important; flex-direction: column !important; gap: 14px !important; }
+  .row2 { grid-template-columns: 1fr !important; }
+  .modalForm .grid { grid-template-columns: 1fr !important; }
+
+  /* ── Prevent iOS zoom on inputs ── */
+  textarea, input, select { font-size: 16px !important; }
+
+  /* ── Cards / containers ── */
+  .card { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+  .container, .tableWrap, .card, .sideCard, .grid { max-width: 100vw !important; box-sizing: border-box !important; }
+  .underTable { width: 100% !important; max-width: 100vw !important; box-sizing: border-box !important; }
+
+  /* ── Rightmeta: hide (shown in mobile bar instead) ── */
+  .rightmeta { display: none !important; }
+
+  /* ── Command rows: 2-col on mobile ── */
+  .commandRow, .commandRow.secondary {
+    grid-template-columns: repeat(2, 1fr) !important;
+    max-width: none !important;
+    gap: 8px !important;
   }
-  .modalForm .modalInner {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
+  .commandRow .btn, .commandRow a.btn {
+    min-height: 42px !important;
+    font-size: 12px !important;
+    padding: 8px 4px !important;
+    white-space: normal !important;
+    line-height: 1.2 !important;
   }
-  .formGrid2 { grid-template-columns: 1fr !important; }
 
-  /* Settings form: single column */
-  .formGrid2 { display: flex !important; flex-direction: column !important; gap: 16px !important; }
-
-  /* iOS: prevent zoom on focus */
-  textarea, input, select { font-size: 16px; }
-
-  /* Cards */
-  .card    { width: 100% !important; max-width: 100% !important; }
-  .container, .tableWrap, .card, .sideCard, .grid, .row { max-width: 100vw !important; }
-
-  /* Safe-area bottom */
-  .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
-
-  /* Diagnostics: hidden on mobile (too cluttered) */
+  /* ── Hide clutter ── */
   #diagFab { display: none !important; }
-
-  /* Zoom FAB: hide (table is hidden anyway) */
   #tableZoomFab { display: none !important; }
+}
+
+/* ── 720px breakpoint: show mobile bar, hide rightmeta ────────────────── */
+@media (max-width: 720px) {
+  .rightmeta { display: none !important; }
+  .mobileBar {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(7,10,20,.95);
+    border-top: 1px solid rgba(80,110,200,.4);
+    z-index: 9000;
+    gap: 8px;
+    justify-content: space-between;
+    backdrop-filter: blur(16px);
+  }
+  .mobileBar .btn {
+    flex: 1 1 auto;
+    padding: 8px 6px;
+    border-color: rgba(124,58,237,.4) !important;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }
+  .mobileDrawerOverlay.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(2,6,16,.65);
+    z-index: 8900;
+  }
+  /* Shrink nav at 720px — hide center + right, keep left menus */
+  .saNavCenter { display: none !important; }
+  .saNavRight  { display: none !important; }
+  .saNavBar    { padding: 6px 10px; gap: 6px; }
+}
+
+/* ── 480px: nav dropdowns go right-aligned to avoid overflow ─────────── */
+@media (max-width: 480px) {
+  .saNavBar { display: none !important; }  /* mobile bar fully takes over */
 }
 
 /* ── Mobile bottom bar styles (shared, not inside media query) ─────────── */
@@ -9810,81 +9931,7 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
 }
 
 
-/* ===== FINAL ADDITIVE: Mobile Seat Flow Lock v1 =====
-   Goal: the command center prompt box stays first, and teammate cards begin below it.
-   This only affects mobile and does not remove any existing features. */
-@media (max-width: 720px){
-  #tableWrap{
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    justify-content: flex-start !important;
-    gap: 12px !important;
-    height: auto !important;
-    min-height: 0 !important;
-    padding-bottom: 18px !important;
-  }
-
-  #tableWrap > .operator{
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    margin: 0 0 4px 0 !important;
-    order: 1 !important;
-    z-index: 6 !important;
-  }
-
-  #tableWrap > .table{
-    position: relative !important;
-    inset: auto !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: min(560px, 100%) !important;
-    height: 92px !important;
-    aspect-ratio: auto !important;
-    margin: 0 auto !important;
-    order: 2 !important;
-    overflow: hidden !important;
-  }
-
-  #tableWrap > .seat{
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    right: auto !important;
-    bottom: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 118px !important;
-    height: auto !important;
-    margin: 0 !important;
-    order: 3 !important;
-    z-index: 2 !important;
-  }
-
-  #tableWrap > .seat:hover,
-  #tableWrap > .seat.dragging,
-  #tableWrap > .seat:active{
-    transform: none !important;
-  }
-
-  #tableWrap > .seat .seatTools{
-    position: absolute !important;
-    right: 8px !important;
-    bottom: 8px !important;
-  }
-
-  #tableWrap > .operator .opText{
-    min-height: 124px !important;
-  }
-}
+/* ===== Mobile Seat Flow — consolidated into main 640px block above ===== */
 
 
 /* ===== Full-workspace app windows ===== */
@@ -10066,9 +10113,10 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn" id="mobileManageBtn">Team</button>
-    <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileMenuBtn" style="flex:1.2 !important;">☰ Menu</button>
+    <button class="btn" id="mobileManageBtn">👥 Team</button>
+    <button class="btn" id="mobileSettingsBtn">⚙️ Settings</button>
+    <button class="btn" id="mobileChatScrollBtn" onclick="document.getElementById('thread')&&document.getElementById('thread').scrollTo({top:999999,behavior:'smooth'})" title="Jump to latest">⬇️</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
