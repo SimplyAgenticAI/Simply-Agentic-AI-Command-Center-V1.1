@@ -6649,776 +6649,774 @@ SHOWCASE_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>{{app_title}} — See It In Action</title>
+<title>{{app_title}} — See How It Works</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --purple:#7c3aed;--purple-light:#a78bfa;--purple-dim:rgba(124,58,237,.18);
-  --bg:#080c1a;--surface:rgba(14,20,46,.95);--border:rgba(80,100,180,.25);
-  --text:#e2e8f0;--muted:#64748b;--accent:#c4b5fd;
+  --purple:#7c3aed;--pl:#a78bfa;--acc:#c4b5fd;
+  --bg:#080c1a;--surf:rgba(14,22,48,.92);--bdr:rgba(42,58,106,.85);
+  --tx:#e2e8f0;--mt:#64748b;
 }
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
+#starC{position:fixed;inset:0;pointer-events:none;z-index:0;}
 
-/* ── Animated starfield bg ── */
-#stars{position:fixed;inset:0;pointer-events:none;z-index:0;}
-.star{position:absolute;border-radius:50%;background:#fff;animation:twinkle ease-in-out infinite;}
-@keyframes twinkle{0%,100%{opacity:.15;transform:scale(1);}50%{opacity:.7;transform:scale(1.4);}}
+/* NAV */
+.snav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:11px 28px;background:rgba(8,12,26,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bdr);}
+.snav-logo{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--acc);text-decoration:none;}
+.snav-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 0 8px rgba(124,58,237,.9);animation:logoDot 2.4s ease-in-out infinite;}
+@keyframes logoDot{0%,100%{box-shadow:0 0 8px rgba(124,58,237,.8);}50%{box-shadow:0 0 22px rgba(124,58,237,1),0 0 44px rgba(124,58,237,.35);}}
+.snav-r{display:flex;gap:8px;align-items:center;}
+.snav-link{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 11px;border-radius:8px;transition:color .2s;}
+.snav-link:hover{color:var(--acc);}
+.snav-cta{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 4px 16px rgba(124,58,237,.4);transition:opacity .2s,transform .15s;}
+.snav-cta:hover{opacity:.88;transform:translateY(-1px);}
 
-/* ── Nav ── */
-.sc-nav{
-  position:sticky;top:0;z-index:100;
-  display:flex;align-items:center;justify-content:space-between;
-  padding:14px 32px;
-  background:rgba(8,12,26,.88);
-  backdrop-filter:blur(14px);
-  border-bottom:1px solid var(--border);
-}
-.sc-logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:800;color:var(--accent);text-decoration:none;}
-.sc-logo-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#4f46e5);box-shadow:0 0 8px rgba(124,58,237,.8);animation:pulse 2s ease-in-out infinite;}
-@keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(124,58,237,.8);}50%{box-shadow:0 0 20px rgba(124,58,237,1),0 0 40px rgba(124,58,237,.4);}}
-.sc-nav-links{display:flex;gap:8px;align-items:center;}
-.sc-nav-link{color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:color .2s;}
-.sc-nav-link:hover{color:var(--accent);}
-.sc-nav-cta{background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;border:none;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;transition:opacity .2s,transform .15s;display:inline-block;}
-.sc-nav-cta:hover{opacity:.88;transform:translateY(-1px);}
-
-/* ── Sections ── */
 section{position:relative;z-index:1;}
 
-/* ── Hero ── */
-.hero{
-  min-height:88vh;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  text-align:center;padding:60px 24px 80px;
-  position:relative;overflow:hidden;
-}
-.hero-glow{
-  position:absolute;top:-120px;left:50%;transform:translateX(-50%);
-  width:900px;height:900px;border-radius:50%;
-  background:radial-gradient(ellipse,rgba(124,58,237,.22) 0%,transparent 70%);
-  pointer-events:none;animation:heroGlow 6s ease-in-out infinite alternate;
-}
-@keyframes heroGlow{0%{opacity:.6;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.12);}}
-.hero-badge{
-  display:inline-flex;align-items:center;gap:8px;
-  background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);
-  border-radius:999px;padding:6px 18px;font-size:12px;font-weight:700;
-  color:var(--purple-light);letter-spacing:.06em;text-transform:uppercase;
-  margin-bottom:28px;animation:fadeDown .7s ease both;
-}
-@keyframes fadeDown{from{opacity:0;transform:translateY(-16px);}to{opacity:1;transform:none;}}
-.hero h1{
-  font-size:clamp(36px,6vw,76px);font-weight:900;line-height:1.08;
-  background:linear-gradient(135deg,#f3e8ff 0%,var(--purple-light) 50%,#818cf8 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-  margin-bottom:22px;animation:fadeUp .8s .15s ease both;
-}
-@keyframes fadeUp{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:none;}}
-.hero-sub{
-  font-size:clamp(15px,2.2vw,20px);color:#94a3b8;max-width:620px;
-  line-height:1.65;margin-bottom:38px;animation:fadeUp .8s .3s ease both;
-}
-.hero-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fadeUp .8s .45s ease both;}
-.btn-hero-primary{
-  background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;
-  border:none;padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;
-  cursor:pointer;text-decoration:none;display:inline-block;
-  box-shadow:0 8px 32px rgba(124,58,237,.45);
-  transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;
-}
-.btn-hero-primary::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);animation:shimmerBtn 3s ease-in-out infinite;}
-@keyframes shimmerBtn{0%{left:-100%;}100%{left:160%;}}
-.btn-hero-primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,58,237,.6);}
-.btn-hero-secondary{
-  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);
-  color:var(--text);padding:14px 28px;border-radius:12px;font-size:15px;font-weight:600;
-  cursor:pointer;text-decoration:none;display:inline-block;
-  transition:background .2s,border-color .2s;
-}
-.btn-hero-secondary:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);}
+/* REVEAL */
+.rv{opacity:0;transform:translateY(32px);transition:opacity .7s,transform .7s;}
+.rv.in{opacity:1;transform:none;}
+.rvl{opacity:0;transform:translateX(-34px);transition:opacity .68s,transform .68s;}
+.rvl.in{opacity:1;transform:none;}
+.rvr{opacity:0;transform:translateX(34px);transition:opacity .68s,transform .68s;}
+.rvr.in{opacity:1;transform:none;}
 
-/* ── Scroll reveal ── */
-.reveal{opacity:0;transform:translateY(36px);transition:opacity .7s ease,transform .7s ease;}
-.reveal.visible{opacity:1;transform:none;}
-.reveal-left{opacity:0;transform:translateX(-40px);transition:opacity .7s ease,transform .7s ease;}
-.reveal-left.visible{opacity:1;transform:none;}
-.reveal-right{opacity:0;transform:translateX(40px);transition:opacity .7s ease,transform .7s ease;}
-.reveal-right.visible{opacity:1;transform:none;}
+/* HERO */
+.hero{min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 20px 80px;position:relative;overflow:hidden;}
+.hero-glow{position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:1100px;height:700px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.2) 0%,transparent 66%);pointer-events:none;animation:hglow 8s ease-in-out infinite alternate;}
+@keyframes hglow{0%{opacity:.5;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.15);}}
+.hero-orb{position:absolute;border-radius:50%;filter:blur(60px);pointer-events:none;animation:orbf ease-in-out infinite alternate;}
+@keyframes orbf{0%{transform:translate(0,0);}100%{transform:translate(16px,-24px);}}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,.13);border:1px solid rgba(124,58,237,.38);border-radius:999px;padding:6px 18px;font-size:12px;font-weight:700;color:var(--pl);letter-spacing:.07em;text-transform:uppercase;margin-bottom:26px;animation:fdown .7s ease both;}
+@keyframes fdown{from{opacity:0;transform:translateY(-16px);}to{opacity:1;transform:none;}}
+.hero h1{font-size:clamp(36px,7vw,82px);font-weight:900;line-height:1.05;letter-spacing:-.025em;background:linear-gradient(140deg,#f3e8ff 0%,var(--pl) 45%,#818cf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:22px;animation:fup .8s .12s ease both;}
+@keyframes fup{from{opacity:0;transform:translateY(26px);}to{opacity:1;transform:none;}}
+.hero-sub{font-size:clamp(15px,2vw,19px);color:#94a3b8;max-width:580px;line-height:1.72;margin-bottom:36px;animation:fup .8s .26s ease both;}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fup .8s .4s ease both;}
+.btn-p{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 8px 28px rgba(124,58,237,.45);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;}
+.btn-p::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:bsh 3.4s ease-in-out infinite;}
+@keyframes bsh{0%{left:-100%;}100%{left:160%;}}
+.btn-p:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(124,58,237,.62);}
+.btn-s{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--tx);padding:14px 26px;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background .2s,border-color .2s;}
+.btn-s:hover{background:rgba(255,255,255,.1);}
 
-/* ── Section headers ── */
-.sc-section{padding:80px 24px;}
-.sc-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--purple-light);margin-bottom:12px;display:block;}
-.sc-title{font-size:clamp(26px,4vw,44px);font-weight:900;line-height:1.15;margin-bottom:16px;color:#f3e8ff;}
-.sc-desc{font-size:15px;color:#94a3b8;max-width:560px;line-height:1.7;}
-.sc-center{text-align:center;margin:0 auto;}
-.sc-center .sc-desc{margin:0 auto;}
+/* STATS */
+.stats{display:flex;justify-content:center;gap:52px;flex-wrap:wrap;max-width:800px;margin:60px auto 0;padding:0 20px;}
+.stat-n{font-size:clamp(30px,5vw,50px);font-weight:900;background:linear-gradient(135deg,var(--pl),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.stat-l{font-size:13px;color:var(--mt);margin-top:4px;}
 
-/* ── Round Table Mockup ── */
-.rt-mockup{
-  max-width:900px;margin:48px auto 0;
-  background:rgba(10,15,36,.9);border:1px solid rgba(80,100,200,.3);
-  border-radius:18px;overflow:hidden;
-  box-shadow:0 32px 80px rgba(0,0,0,.6),0 0 0 1px rgba(124,58,237,.1);
-}
-.rt-topbar{
-  background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);
-  padding:10px 16px;display:flex;align-items:center;gap:8px;
-}
-.rt-dot{width:11px;height:11px;border-radius:50%;}
-.rt-tabs{display:flex;gap:6px;margin-left:12px;flex-wrap:wrap;}
-.rt-tab{
-  padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;
-  background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);color:var(--accent);
-}
-.rt-tab.dim{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:#475569;}
-.rt-body{display:flex;min-height:380px;}
-.rt-sidebar{
-  width:170px;flex-shrink:0;background:rgba(8,12,28,.7);
-  border-right:1px solid rgba(42,58,106,.4);padding:12px;
-  display:flex;flex-direction:column;gap:6px;
-}
-.rt-teammate{
-  display:flex;align-items:center;gap:8px;padding:8px 10px;
-  border-radius:8px;font-size:12px;font-weight:600;color:#94a3b8;
-  transition:background .15s;cursor:pointer;
-}
-.rt-teammate.active{background:rgba(124,58,237,.2);color:var(--accent);}
-.rt-teammate-avatar{
-  width:26px;height:26px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;font-size:13px;
-  background:rgba(124,58,237,.25);flex-shrink:0;
-}
-.rt-chat{flex:1;display:flex;flex-direction:column;padding:16px;gap:12px;overflow:hidden;}
-.rt-msg{display:flex;gap:10px;align-items:flex-start;}
-.rt-msg-avatar{
-  width:30px;height:30px;border-radius:50%;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:14px;
-  background:linear-gradient(135deg,var(--purple),#4f46e5);
-}
-.rt-msg-bubble{
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
-  border-radius:12px;padding:10px 14px;font-size:13px;color:#cbd5e1;
-  line-height:1.55;max-width:520px;
-}
-.rt-msg-bubble .rt-sender{font-size:11px;font-weight:800;color:var(--accent);margin-bottom:4px;}
-.rt-msg.user{flex-direction:row-reverse;}
-.rt-msg.user .rt-msg-bubble{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.25);color:#e2e8f0;}
-.rt-msg-avatar.user-av{background:rgba(255,255,255,.1);}
-.rt-input-bar{
-  background:rgba(10,15,36,.95);border-top:1px solid rgba(42,58,106,.5);
-  padding:12px 16px;display:flex;align-items:center;gap:10px;
-}
-.rt-input{
-  flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);
-  border-radius:10px;padding:9px 14px;font-size:13px;color:#94a3b8;
-  pointer-events:none;
-}
-.rt-send{
-  background:linear-gradient(135deg,var(--purple),#4f46e5);border:none;
-  color:#fff;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:700;pointer-events:none;
-}
+/* SECTION */
+.ssec{padding:80px 20px;position:relative;z-index:1;}
+.s-lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:var(--pl);margin-bottom:10px;display:block;}
+.s-h2{font-size:clamp(24px,4vw,42px);font-weight:900;line-height:1.1;color:#f3e8ff;margin-bottom:14px;}
+.s-p{font-size:15px;color:#94a3b8;line-height:1.72;max-width:560px;}
+.s-cx{text-align:center;margin:0 auto;}.s-cx .s-p{margin:0 auto;}
 
-/* Typing animation */
-.typing-cursor::after{content:'|';animation:blink .75s step-end infinite;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
-.typed-text{display:inline;}
+/* ═══════════════════════════════════════════
+   ROUND TABLE — matches actual software exactly
+═══════════════════════════════════════════ */
+.rt-shell{max-width:1140px;margin:44px auto 0;background:rgba(8,12,28,.97);border:1px solid var(--bdr);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.07);}
 
-/* ── Feature grid ── */
-.feat-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
-  gap:20px;max-width:1080px;margin:48px auto 0;
-}
-.feat-card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:16px;padding:26px;
-  transition:transform .2s,border-color .2s,box-shadow .2s;
-  position:relative;overflow:hidden;
-}
-.feat-card::before{
-  content:'';position:absolute;inset:0;border-radius:16px;
-  background:radial-gradient(ellipse at top left,rgba(124,58,237,.08),transparent 60%);
-  opacity:0;transition:opacity .3s;pointer-events:none;
-}
-.feat-card:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.45);box-shadow:0 16px 48px rgba(0,0,0,.4);}
-.feat-card:hover::before{opacity:1;}
-.feat-icon{font-size:28px;margin-bottom:14px;display:block;}
-.feat-name{font-size:16px;font-weight:800;color:#f3e8ff;margin-bottom:8px;}
-.feat-desc{font-size:13px;color:#64748b;line-height:1.6;}
+/* Actual nav bar from software */
+.rt-nav{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;}
+.rt-nb{display:flex;align-items:center;gap:5px;padding:5px 11px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.95);font-size:12px;font-weight:600;cursor:default;white-space:nowrap;}
+.rt-nb.active{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.45);color:var(--acc);}
+.rt-obj{font-size:13px;font-weight:600;color:#fff;opacity:.9;}
+.rt-model{font-size:11px;color:rgba(148,163,184,.6);}
 
-/* ── Teammates section ── */
-.teammates-wrap{max-width:1080px;margin:48px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
-.tm-card{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:14px;padding:20px;
-  display:flex;flex-direction:column;gap:8px;
-  transition:transform .2s,border-color .2s;
-  position:relative;overflow:hidden;
-}
-.tm-card::after{
-  content:'';position:absolute;bottom:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,var(--purple),#4f46e5);
-  transform:scaleX(0);transform-origin:left;transition:transform .3s;
-}
-.tm-card:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.4);}
-.tm-card:hover::after{transform:scaleX(1);}
-.tm-emoji{font-size:26px;}
-.tm-name{font-size:15px;font-weight:800;color:var(--accent);}
-.tm-role{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#475569;}
-.tm-desc{font-size:12px;color:#64748b;line-height:1.55;}
+/* Main area = table + sidebar */
+.rt-main{display:flex;min-height:540px;}
 
-/* ── Tool preview panels ── */
-.tool-preview{
-  max-width:1080px;margin:0 auto;
-  display:flex;align-items:center;gap:48px;padding:20px 0;
-}
-.tool-preview.flip{flex-direction:row-reverse;}
-.tool-preview-text{flex:1;min-width:0;}
-.tool-preview-mock{
-  flex:1;min-width:0;
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:16px;overflow:hidden;
-  box-shadow:0 20px 60px rgba(0,0,0,.5);
-}
-.mock-header{
-  background:rgba(14,20,46,.9);border-bottom:1px solid rgba(42,58,106,.5);
-  padding:10px 14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#475569;font-weight:700;
-}
-.mock-body{padding:16px;display:flex;flex-direction:column;gap:10px;}
-.mock-row{display:flex;gap:8px;}
-.mock-input{
-  flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);
-  border-radius:8px;padding:8px 10px;font-size:12px;color:#94a3b8;
-}
-.mock-badge{
-  display:inline-flex;align-items:center;gap:6px;
-  background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);
-  border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;color:var(--accent);
-}
-.mock-lead-card{
-  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-  border-radius:10px;padding:12px;
-}
-.mock-lead-name{font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:4px;}
-.mock-lead-detail{font-size:11px;color:#475569;}
-.mock-score{
-  display:inline-block;background:rgba(110,231,183,.12);
-  border:1px solid rgba(110,231,183,.3);border-radius:999px;
-  padding:2px 10px;font-size:11px;font-weight:700;color:#6ee7b7;
-}
-.mock-pipeline{display:flex;gap:8px;overflow:hidden;}
-.mock-stage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:8px;}
-.mock-stage-name{font-size:10px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
-.mock-contact-chip{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.2);border-radius:6px;padding:5px 8px;font-size:11px;color:#a78bfa;margin-bottom:5px;}
-.mock-btn{
-  background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;
-  border:none;border-radius:8px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;
-}
+/* Table area */
+.rt-arena{flex:1;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 55%,rgba(14,22,64,.7),rgba(8,12,28,.98));}
 
-/* ── CTA band ── */
-.cta-band{
-  text-align:center;padding:100px 24px;
-  background:linear-gradient(135deg,rgba(124,58,237,.12) 0%,rgba(79,70,229,.08) 100%);
-  border-top:1px solid rgba(124,58,237,.15);
-  border-bottom:1px solid rgba(124,58,237,.15);
-  position:relative;overflow:hidden;
-}
-.cta-band::before{
-  content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:800px;height:400px;border-radius:50%;
-  background:radial-gradient(ellipse,rgba(124,58,237,.15),transparent 70%);
-  pointer-events:none;
-}
-.cta-band h2{font-size:clamp(28px,4vw,52px);font-weight:900;color:#f3e8ff;margin-bottom:16px;}
-.cta-band p{font-size:16px;color:#94a3b8;max-width:520px;margin:0 auto 36px;line-height:1.6;}
-.cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+/* The oval table ring */
+.rt-oval{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:58%;padding-bottom:46%;border-radius:50%;border:1.5px solid rgba(80,100,180,.28);background:radial-gradient(ellipse,rgba(12,18,50,.55),rgba(8,12,28,.05));pointer-events:none;}
 
-/* ── Stats row ── */
-.stats-row{
-  display:flex;justify-content:center;gap:48px;flex-wrap:wrap;
-  max-width:800px;margin:60px auto 0;padding:0 24px;
-}
-.stat-item{text-align:center;}
-.stat-num{font-size:clamp(32px,5vw,52px);font-weight:900;line-height:1;
-  background:linear-gradient(135deg,var(--purple-light),#818cf8);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-}
-.stat-label{font-size:13px;color:#64748b;margin-top:4px;}
+/* Seat cards — exactly matching real UI */
+.rt-seat{position:absolute;width:148px;background:rgba(14,22,48,.92);border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:9px;display:flex;gap:9px;align-items:flex-start;box-shadow:0 0 20px rgba(0,0,0,.28);transform:translate(-50%,-50%);transition:border-color .2s;}
+.rt-seat:hover{border-color:rgba(124,58,237,.5);}
+.rt-seat.active{border-color:rgba(124,58,237,.65);background:rgba(16,26,58,.85);}
+.rt-av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 14px rgba(0,0,0,.3);}
+.rt-sname{font-size:12px;font-weight:800;color:var(--tx);line-height:1.1;}
+.rt-srole{font-size:10px;color:var(--mt);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;}
+.rt-sstatus{font-size:10px;color:var(--mt);margin-top:4px;opacity:.8;}
+.rt-dot{position:absolute;right:7px;bottom:7px;width:9px;height:9px;border-radius:50%;background:rgba(141,255,179,.6);box-shadow:0 0 8px rgba(141,255,179,.3);border:1px solid rgba(0,0,0,.3);}
+.rt-dot.thinking{background:rgba(255,207,112,.55);box-shadow:0 0 10px rgba(255,207,112,.3);animation:dpulse 1.1s ease-in-out infinite;}
+@keyframes dpulse{0%,100%{transform:scale(1);}50%{transform:scale(1.5);}}
+.rt-editbtn{position:absolute;right:7px;top:7px;font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;}
 
-/* ── Footer ── */
-.sc-footer{
-  text-align:center;padding:32px 24px;
-  font-size:13px;color:#334155;
-  border-top:1px solid rgba(255,255,255,.05);
+/* Operator card */
+.rt-op{position:absolute;width:134px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.75);border-radius:12px;padding:8px 10px;transform:translate(-50%,-50%);text-align:left;}
+.rt-op-av{width:34px;height:34px;border-radius:10px;background:#0f766e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#e6edff;margin-bottom:5px;}
+.rt-op-name{font-size:12px;font-weight:700;color:var(--tx);}
+.rt-op-btn{margin-top:5px;font-size:9px;padding:3px 10px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;display:inline-block;}
+
+/* Group Console — center of table */
+.rt-console{position:absolute;width:196px;background:rgba(11,16,36,.94);border:1px solid rgba(42,58,106,.85);border-radius:13px;padding:11px;transform:translate(-50%,-50%);top:50%;left:50%;box-shadow:0 0 30px rgba(0,0,0,.4);}
+.rt-con-title{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
+.rt-con-sub{font-size:10px;color:var(--mt);margin-bottom:8px;line-height:1.4;}
+.rt-con-btns{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
+.rt-con-btn{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:#94a3b8;cursor:default;}
+.rt-con-btn.primary{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.45);color:var(--acc);}
+.rt-con-ta{width:100%;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:6px 8px;font-size:10px;color:#475569;height:52px;resize:none;font-family:inherit;}
+.rt-con-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
+.rt-con-pill{font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.5);color:#475569;}
+
+/* Typing dots */
+.tdots{display:inline-flex;gap:3px;align-items:center;}
+.tdots span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.8);animation:tb 1.1s ease-in-out infinite;}
+.tdots span:nth-child(2){animation-delay:.18s;}.tdots span:nth-child(3){animation-delay:.36s;}
+@keyframes tb{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-4px);opacity:1;}}
+
+/* Below-table sections */
+.rt-below{padding:12px 14px;display:flex;flex-direction:column;gap:10px;}
+.rt-grp{background:rgba(11,16,36,.92);border:1px solid rgba(42,58,106,.85);border-radius:13px;padding:10px;}
+.rt-grp-title{font-size:12px;font-weight:800;color:var(--tx);margin-bottom:3px;}
+.rt-grp-sub{font-size:11px;color:var(--mt);}
+
+/* Right sidebar — Alex's thread */
+.rt-side{width:280px;flex-shrink:0;border-left:1px solid rgba(34,49,90,.8);background:linear-gradient(180deg,rgba(14,22,48,.92),rgba(10,14,30,.92));display:flex;flex-direction:column;overflow:hidden;}
+.rt-side-hdr{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.6);display:flex;align-items:flex-start;justify-content:space-between;}
+.rt-side-name{font-size:14px;font-weight:800;color:var(--tx);}
+.rt-side-role{font-size:11px;color:var(--mt);margin-top:2px;}
+.rt-side-refresh{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;}
+.rt-side-tabs{padding:7px 10px;display:flex;gap:5px;border-bottom:1px solid rgba(42,58,106,.5);flex-wrap:wrap;}
+.rt-side-tab{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#64748b;cursor:default;}
+.rt-side-tab.act{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.35);color:#fca5a5;}
+.rt-side-tab.sc{background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.35);color:#a5b4fc;}
+.rt-msgs{flex:1;overflow:hidden;padding:10px;display:flex;flex-direction:column;gap:8px;}
+.rt-msg{padding:8px 10px;border-radius:12px;font-size:12px;line-height:1.58;color:#cbd5e1;border:1px solid rgba(42,58,106,.55);background:rgba(14,22,48,.55);}
+.rt-msg.user{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.07);text-align:right;}
+.rt-msg.ai{border-color:rgba(124,58,237,.3);background:rgba(124,58,237,.07);}
+.rt-msg-who{font-size:10px;font-weight:700;color:var(--mt);margin-bottom:4px;}
+.rt-side-inp{padding:8px 10px;border-top:1px solid rgba(42,58,106,.5);}
+.rt-side-inpbox{width:100%;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:7px 10px;font-size:11px;color:#475569;font-family:inherit;}
+.rt-side-btns{display:flex;gap:5px;margin-top:6px;justify-content:space-between;}
+.rt-side-btn{font-size:9px;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#475569;cursor:default;}
+.rt-side-send{font-size:9px;padding:3px 10px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;cursor:default;font-weight:700;}
+
+/* ═══════════════════════════════════════════
+   FEATURE DEMO "VIDEOS"
+═══════════════════════════════════════════ */
+.demos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;max-width:1060px;margin:44px auto 0;}
+.demo-card{background:var(--surf);border:1px solid var(--bdr);border-radius:16px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.4);}
+.demo-label{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);font-size:12px;font-weight:700;color:#64748b;}
+.demo-label .rec-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;animation:recdot 1.2s ease-in-out infinite;}
+@keyframes recdot{0%,100%{opacity:1;}50%{opacity:.3;}}
+.demo-body{padding:14px;min-height:220px;display:flex;flex-direction:column;gap:8px;}
+
+/* Lead Lab demo animation */
+.ll-demo .ll-fields{display:flex;gap:6px;margin-bottom:6px;}
+.ll-field{flex:1;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 9px;font-size:11px;color:#94a3b8;}
+.ll-lead{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:9px;padding:10px;opacity:0;animation:leadIn 0.5s ease forwards;}
+@keyframes leadIn{to{opacity:1;}}
+.ll-score{display:inline-block;background:rgba(110,231,183,.1);border:1px solid rgba(110,231,183,.28);border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;color:#6ee7b7;}
+.ll-name{font-size:12px;font-weight:800;color:var(--tx);}
+.ll-det{font-size:10px;color:var(--mt);margin-top:2px;}
+.ll-btn{font-size:9px;padding:3px 9px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;margin-top:6px;cursor:default;}
+
+/* CRM Pipeline demo */
+.crm-stages{display:flex;gap:6px;margin-bottom:8px;}
+.crm-stage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.45);border-radius:8px;padding:7px;min-height:80px;}
+.crm-slbl{font-size:9px;font-weight:800;text-transform:uppercase;color:#334155;letter-spacing:.06em;margin-bottom:5px;}
+.crm-chip{border-radius:5px;padding:4px 7px;font-size:10px;margin-bottom:4px;display:block;}
+
+/* Social studio demo */
+.ss-post{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:9px;padding:10px;}
+.ss-platform{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#475569;margin-bottom:6px;}
+.ss-text{font-size:11px;color:#cbd5e1;line-height:1.62;}
+.typed-demo{display:inline;}
+
+/* Group Console demo */
+.gc-demo-seat{display:flex;align-items:center;gap:8px;padding:6px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.45);border-radius:8px;margin-bottom:5px;}
+.gc-demo-av{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#e6edff;flex-shrink:0;}
+.gc-demo-name{font-size:11px;font-weight:700;color:var(--tx);}
+.gc-demo-status{font-size:10px;color:var(--mt);margin-top:1px;}
+
+/* TEAMMATE CARDS */
+.tm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;max-width:1060px;margin:44px auto 0;}
+.tm-card{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:18px;transition:transform .2s,border-color .2s;position:relative;overflow:hidden;}
+.tm-card:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.42);}
+.tm-av{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#e6edff;margin-bottom:10px;border:1px solid rgba(255,255,255,.07);}
+.tm-name{font-size:14px;font-weight:800;color:var(--acc);}
+.tm-role{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-top:2px;}
+.tm-desc{font-size:12px;color:#64748b;line-height:1.6;margin-top:7px;}
+.tm-bar{position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .28s;}
+.tm-card:hover .tm-bar{transform:scaleX(1);}
+
+/* FEAT GRID */
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;max-width:1060px;margin:44px auto 0;}
+.fc{background:var(--surf);border:1px solid rgba(42,58,106,.75);border-radius:15px;padding:22px;transition:transform .2s,border-color .2s,box-shadow .2s;position:relative;overflow:hidden;}
+.fc:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.5);box-shadow:0 14px 42px rgba(0,0,0,.45);}
+.fc-icon{font-size:25px;margin-bottom:12px;display:block;}
+.fc-name{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:6px;}
+.fc-desc{font-size:12px;color:#64748b;line-height:1.65;}
+
+/* CTA */
+.cta-band{text-align:center;padding:96px 20px;background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(79,70,229,.07));border-top:1px solid rgba(124,58,237,.14);border-bottom:1px solid rgba(124,58,237,.14);position:relative;overflow:hidden;}
+.cta-band::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:700px;height:350px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 70%);pointer-events:none;}
+.cta-band h2{font-size:clamp(26px,4vw,50px);font-weight:900;color:#f3e8ff;margin-bottom:14px;position:relative;}
+.cta-band p{font-size:16px;color:#94a3b8;max-width:480px;margin:0 auto 32px;line-height:1.65;position:relative;}
+.cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;position:relative;}
+.sc-footer{text-align:center;padding:28px 20px;font-size:13px;color:#334155;border-top:1px solid rgba(255,255,255,.05);}
+.sc-footer a{color:var(--pl);text-decoration:none;}
+
+/* PILL TAG */
+.pill{display:inline-flex;align-items:center;gap:5px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--acc);}
+
+/* TOOL ROWS */
+.trow{max-width:1060px;margin:52px auto 0;display:flex;align-items:flex-start;gap:44px;}
+.trow.flip{flex-direction:row-reverse;}
+.trow-txt{flex:1;min-width:0;}
+.trow-mock{flex:1;min-width:0;background:var(--surf);border:1px solid var(--bdr);border-radius:15px;overflow:hidden;box-shadow:0 18px 54px rgba(0,0,0,.5);}
+.mock-hdr{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.55);padding:9px 13px;font-size:12px;color:#64748b;font-weight:700;display:flex;align-items:center;gap:7px;}
+.mock-body{padding:13px;display:flex;flex-direction:column;gap:8px;}
+.mf{flex:1;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 9px;font-size:11px;color:#64748b;}
+.ms{background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;}
+.mbtn{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:10px;font-weight:700;cursor:default;}
+.mbtn-g{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:7px;padding:5px 10px;font-size:10px;cursor:default;}
+
+/* mobile */
+@media(max-width:840px){
+  .snav-link{display:none;}
+  .ssec{padding:52px 14px;}
+  .rt-side{display:none;}
+  .rt-oval{width:75%;padding-bottom:62%;}
+  .trow,.trow.flip{flex-direction:column;gap:22px;}
+  .stats{gap:28px;}
+  .rt-seat{width:128px;}
+  .rt-console{width:170px;}
+  .rt-con-btns{gap:3px;}
 }
-.sc-footer a{color:var(--purple-light);text-decoration:none;}
-
-/* ── Counter animation ── */
-@keyframes countUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
-
-/* ── Floating orbs ── */
-.orb{
-  position:absolute;border-radius:50%;filter:blur(60px);
-  pointer-events:none;animation:orbFloat ease-in-out infinite alternate;
-}
-@keyframes orbFloat{0%{transform:translate(0,0);}100%{transform:translate(20px,-30px);}}
-
-/* ── Mobile ── */
-@media(max-width:768px){
-  .sc-nav{padding:12px 16px;}
-  .sc-nav-links .sc-nav-link{display:none;}
-  .sc-section{padding:56px 16px;}
-  .tool-preview,.tool-preview.flip{flex-direction:column;gap:28px;}
-  .rt-sidebar{display:none;}
-  .rt-body{min-height:280px;}
-  .stats-row{gap:28px;}
+@media(max-width:560px){
+  .rt-seat{width:112px;padding:7px;}
+  .rt-av{width:34px;height:34px;font-size:13px;}
+  .rt-sname{font-size:11px;}
+  .rt-srole{font-size:9px;max-width:68px;}
+  .rt-console{width:152px;padding:8px;}
+  .rt-con-title{font-size:10px;}
+  .rt-con-sub{font-size:9px;}
+  .rt-arena{min-height:420px;}
 }
 </style>
 </head>
 <body>
+<canvas id="starC"></canvas>
 
-<!-- Starfield -->
-<canvas id="stars"></canvas>
-
-<!-- Nav -->
-<nav class="sc-nav">
-  <a href="/showcase" class="sc-logo">
-    <div class="sc-logo-dot"></div>
-    {{app_title}}
-  </a>
-  <div class="sc-nav-links">
-    <a href="#features" class="sc-nav-link">Features</a>
-    <a href="#teammates" class="sc-nav-link">Teammates</a>
-    <a href="#tools" class="sc-nav-link">Tools</a>
-    <a href="/pricing" class="sc-nav-cta">View Plans →</a>
+<nav class="snav">
+  <a href="/showcase" class="snav-logo"><div class="snav-dot"></div>{{app_title}}</a>
+  <div class="snav-r">
+    <a href="#roundtable" class="snav-link">Round Table</a>
+    <a href="#teammates" class="snav-link">Teammates</a>
+    <a href="#tools" class="snav-link">Tools</a>
+    <a href="/pricing" class="snav-cta">View Plans →</a>
   </div>
 </nav>
 
-<!-- Hero -->
+<!-- ══ HERO ══ -->
 <section class="hero">
   <div class="hero-glow"></div>
-  <div class="orb" style="width:400px;height:400px;top:-100px;left:-150px;background:rgba(124,58,237,.12);animation-duration:8s;"></div>
-  <div class="orb" style="width:300px;height:300px;bottom:-80px;right:-100px;background:rgba(79,70,229,.1);animation-duration:11s;animation-delay:2s;"></div>
+  <div class="hero-orb" style="width:360px;height:360px;top:-80px;left:-120px;background:rgba(124,58,237,.1);animation-duration:9s;"></div>
+  <div class="hero-orb" style="width:250px;height:250px;bottom:-60px;right:-80px;background:rgba(79,70,229,.09);animation-duration:13s;animation-delay:2s;"></div>
   <div class="hero-badge">✨ AI-Powered Business Command Center</div>
-  <h1>Your Entire Business<br/>Run by an AI Team</h1>
-  <p class="hero-sub">Simply Agentic AI gives you 7 specialized AI teammates, a built-in CRM, Lead Lab, social studio, email broadcast, and more — all in one command center.</p>
+  <h1>7 Specialists.<br/>One Command Center.</h1>
+  <p class="hero-sub">A full team of specialized AI teammates, a built-in CRM, Lead Lab, social studio, email broadcast, calendar sync, and more — all from one interface. Stop stitching tools together.</p>
   <div class="hero-btns">
-    <a href="/pricing" class="btn-hero-primary">🚀 Start Free Trial</a>
-    <a href="#features" class="btn-hero-secondary">Explore Features ↓</a>
+    <a href="/pricing" class="btn-p">🚀 Start Free Trial</a>
+    <a href="#roundtable" class="btn-s">See the Interface ↓</a>
   </div>
 </section>
 
-<!-- Stats -->
-<div class="stats-row">
-  <div class="stat-item reveal">
-    <div class="stat-num" data-target="7">0</div>
-    <div class="stat-label">AI Teammates</div>
-  </div>
-  <div class="stat-item reveal" style="transition-delay:.1s;">
-    <div class="stat-num" data-target="10">0</div>
-    <div class="stat-label">Built-in Tools</div>
-  </div>
-  <div class="stat-item reveal" style="transition-delay:.2s;">
-    <div class="stat-num" data-suffix="%" data-target="100">0</div>
-    <div class="stat-label">Your Data, Your Key</div>
-  </div>
-  <div class="stat-item reveal" style="transition-delay:.3s;">
-    <div class="stat-num" data-prefix="$" data-target="17">0</div>
-    <div class="stat-label">Starting /month</div>
-  </div>
+<!-- ══ STATS ══ -->
+<div class="stats rv">
+  <div style="text-align:center;"><div class="stat-n" data-t="7">0</div><div class="stat-l">AI Teammates</div></div>
+  <div style="text-align:center;" class="rv" style="transition-delay:.1s;"><div class="stat-n" data-t="10">0</div><div class="stat-l">Built-in Tools</div></div>
+  <div style="text-align:center;" class="rv" style="transition-delay:.2s;"><div class="stat-n" data-suf="%" data-t="100">0</div><div class="stat-l">Your Key, Your Data</div></div>
+  <div style="text-align:center;" class="rv" style="transition-delay:.3s;"><div class="stat-n" data-pre="$" data-t="17">0</div><div class="stat-l">Starting /month</div></div>
 </div>
 
-<!-- Round Table Preview -->
-<section class="sc-section" id="features">
-  <div class="sc-center reveal">
-    <span class="sc-label">The Round Table</span>
-    <h2 class="sc-title">Your AI Team, Always at the Table</h2>
-    <p class="sc-desc">Every specialist in one room. Type a goal and your team responds — each in their lane, each with memory of your business.</p>
+<!-- ══ ROUND TABLE ══ -->
+<section class="ssec" id="roundtable">
+  <div class="s-cx rv">
+    <span class="s-lbl">The Round Table</span>
+    <h2 class="s-h2">This Is What It Actually Looks Like</h2>
+    <p class="s-p">All 7 teammates seated around the table. The center Group Console broadcasts to everyone at once. Click any seat to open their personal thread on the right.</p>
   </div>
 
-  <div class="rt-mockup reveal" style="transition-delay:.15s;">
-    <div class="rt-topbar">
-      <div class="rt-dot" style="background:#ff5f57;"></div>
-      <div class="rt-dot" style="background:#febc2e;"></div>
-      <div class="rt-dot" style="background:#28c840;"></div>
-      <div class="rt-tabs">
-        <div class="rt-tab">Round Table</div>
-        <div class="rt-tab dim">Lead Lab</div>
-        <div class="rt-tab dim">CRM</div>
-        <div class="rt-tab dim">Calendar</div>
+  <div class="rt-shell rv" style="transition-delay:.1s;">
+    <!-- Real nav bar -->
+    <div class="rt-nav">
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div style="display:flex;align-items:center;gap:5px;padding:5px 4px;color:rgba(210,220,255,.8);font-size:12px;font-weight:800;">
+          <div style="width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 0 6px rgba(124,58,237,.8);"></div>
+          Simply Agentic AI v1.11
+        </div>
+        <div class="rt-nb">Team <span style="font-size:9px;opacity:.6;">▾</span></div>
+        <div class="rt-nb">Tools <span style="font-size:9px;opacity:.6;">▾</span></div>
+        <div class="rt-nb">Settings <span style="font-size:9px;opacity:.6;">▾</span></div>
+        <div class="rt-nb">📊 Dashboard</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#94a3b8;">🏳</span><div class="rt-obj">Scale &amp; Freedom</div></div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div class="rt-model">Model: gpt-4o</div>
+        <div class="rt-nb active">🛟 Support</div>
+        <div class="rt-nb">🚪 Logout</div>
       </div>
     </div>
-    <div class="rt-body">
-      <div class="rt-sidebar">
-        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#334155;padding:0 4px;margin-bottom:6px;">Active Teammates</div>
-        <div class="rt-teammate active"><div class="rt-teammate-avatar">🎯</div>Ava</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">☀️</div>Sunshine</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">⚙️</div>Atlas</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">📣</div>Max</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">✨</div>Nova</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">🔬</div>Rex</div>
-        <div class="rt-teammate"><div class="rt-teammate-avatar">🛡️</div>Atlis</div>
-      </div>
-      <div class="rt-chat">
-        <div class="rt-msg user">
-          <div class="rt-msg-avatar user-av">👤</div>
-          <div class="rt-msg-bubble">Help me launch a lead gen campaign for real estate agents in New Jersey. I need a strategy, first outreach message, and a post for LinkedIn.</div>
-        </div>
-        <div class="rt-msg">
-          <div class="rt-msg-avatar">🎯</div>
-          <div class="rt-msg-bubble">
-            <div class="rt-sender">Ava · Strategist</div>
-            Smart target. NJ real estate is high-volume and relationship-driven. I'd anchor the campaign on a pain point agents feel daily — leads who go cold after the first open house. Here's a 3-step funnel...
-          </div>
-        </div>
-        <div class="rt-msg">
-          <div class="rt-msg-avatar" style="background:linear-gradient(135deg,#f59e0b,#d97706);">☀️</div>
-          <div class="rt-msg-bubble">
-            <div class="rt-sender" style="color:#fcd34d;">Sunshine · Outreach</div>
-            <span id="typedMsg" class="typed-text"></span><span class="typing-cursor" id="typingCursor"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="rt-input-bar">
-      <div class="rt-input">What should my LinkedIn post focus on?</div>
-      <div class="rt-send">➤</div>
-    </div>
-  </div>
-</section>
 
-<!-- Feature Cards -->
-<section class="sc-section" style="padding-top:20px;">
-  <div class="feat-grid">
-    <div class="feat-card reveal" style="transition-delay:0s;">
-      <span class="feat-icon">🧑‍💼</span>
-      <div class="feat-name">7 Specialized AI Teammates</div>
-      <div class="feat-desc">Strategist, outreach, marketing, operations, creative, research, and governance — each with a defined role and persistent memory.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.07s;">
-      <span class="feat-icon">🔬</span>
-      <div class="feat-name">Lead Lab</div>
-      <div class="feat-desc">Generate scored lead lists from the web. Filter by niche, location, and contact type. One-click add to CRM or hand off to Sunshine for outreach.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.14s;">
-      <span class="feat-icon">📋</span>
-      <div class="feat-name">Built-in CRM</div>
-      <div class="feat-desc">Contacts, pipeline kanban, email & SMS broadcast, and client sequences — all under one roof. No third-party tools required.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.21s;">
-      <span class="feat-icon">📣</span>
-      <div class="feat-name">Social Studio</div>
-      <div class="feat-desc">Generate ready-to-post content packs for LinkedIn, Facebook, Instagram, and X. Posts, DMs, comment scripts, hooks, and launch sets.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.28s;">
-      <span class="feat-icon">🎯</span>
-      <div class="feat-name">Offer Builder</div>
-      <div class="feat-desc">Sharpen your positioning, clarify your offer, and generate launch-ready copy in minutes — not days.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.35s;">
-      <span class="feat-icon">📅</span>
-      <div class="feat-name">Calendar & Gmail Sync</div>
-      <div class="feat-desc">Full motion-style calendar with Google Calendar sync. Email drafts from teammates flow through a review console before they ever hit send.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.42s;">
-      <span class="feat-icon">📚</span>
-      <div class="feat-name">Prompt Library</div>
-      <div class="feat-desc">200+ pre-built expert prompts organized by teammate. Click to send instantly, or save your own custom prompts for reuse.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.49s;">
-      <span class="feat-icon">📈</span>
-      <div class="feat-name">Growth Playbooks</div>
-      <div class="feat-desc">Get step-by-step action plans for getting clients, launching offers, booking calls, and growing your audience — tailored to your context.</div>
-    </div>
-    <div class="feat-card reveal" style="transition-delay:.56s;">
-      <span class="feat-icon">🔑</span>
-      <div class="feat-name">Your Key, Your Data</div>
-      <div class="feat-desc">Connect your own OpenAI key and go direct to GPT-4o with zero markup, zero throttling, and complete data ownership.</div>
-    </div>
-  </div>
-</section>
+    <!-- Main: table + sidebar -->
+    <div class="rt-main">
+      <!-- Table arena -->
+      <div class="rt-arena" style="min-height:520px;">
+        <div class="rt-oval"></div>
 
-<!-- Teammates Section -->
-<section class="sc-section" id="teammates">
-  <div class="sc-center reveal">
-    <span class="sc-label">Meet the Team</span>
-    <h2 class="sc-title">Seven Experts. One Table.</h2>
-    <p class="sc-desc">Every teammate has a defined role, a distinct voice, and stays in their lane — so you get specialized answers, not generic ones.</p>
-  </div>
-  <div class="teammates-wrap">
-    <div class="tm-card reveal" style="transition-delay:0s;">
-      <div class="tm-emoji">🎯</div>
-      <div class="tm-name">Ava</div>
-      <div class="tm-role">Strategist</div>
-      <div class="tm-desc">Growth strategy, positioning, competitive analysis, and long-range planning for your business.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.08s;">
-      <div class="tm-emoji">☀️</div>
-      <div class="tm-name">Sunshine</div>
-      <div class="tm-role">Outreach & Sales</div>
-      <div class="tm-desc">First messages, follow-ups, DMs, email copy, and prospecting language that actually converts.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.16s;">
-      <div class="tm-emoji">⚙️</div>
-      <div class="tm-name">Atlas</div>
-      <div class="tm-role">Operations</div>
-      <div class="tm-desc">Systems, SOPs, workflows, and business infrastructure so your operation runs without you.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.24s;">
-      <div class="tm-emoji">📣</div>
-      <div class="tm-name">Max</div>
-      <div class="tm-role">Marketing</div>
-      <div class="tm-desc">Campaigns, brand messaging, content strategy, and audience growth across every channel.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.32s;">
-      <div class="tm-emoji">✨</div>
-      <div class="tm-name">Nova</div>
-      <div class="tm-role">Creative</div>
-      <div class="tm-desc">Copywriting, storytelling, brand language, and visual concepts that make people stop and read.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.40s;">
-      <div class="tm-emoji">🔬</div>
-      <div class="tm-name">Rex</div>
-      <div class="tm-role">Research</div>
-      <div class="tm-desc">Market research, competitor analysis, and data synthesis turned into actionable intelligence.</div>
-    </div>
-    <div class="tm-card reveal" style="transition-delay:.48s;">
-      <div class="tm-emoji">🛡️</div>
-      <div class="tm-name">Atlis</div>
-      <div class="tm-role">Governance</div>
-      <div class="tm-desc">Keeps the system clean. Monitors that teammates stay in role and the team operates with integrity.</div>
-    </div>
-  </div>
-</section>
+        <!-- Operator (top center) -->
+        <div class="rt-op" style="top:12%;left:50%;">
+          <div class="rt-op-av">O</div>
+          <div class="rt-op-name">Operator</div>
+          <div class="rt-op-btn">Profile</div>
+        </div>
 
-<!-- Tool Previews -->
-<section class="sc-section" id="tools">
-  <div class="sc-center reveal">
-    <span class="sc-label">Tools</span>
-    <h2 class="sc-title">Everything You Need to Operate</h2>
-  </div>
+        <!-- Sunshine (top-left ~10:30) -->
+        <div class="rt-seat" style="top:27%;left:22%;">
+          <div class="rt-av" style="background:#9a3412;">S</div>
+          <div><div class="rt-sname">Sunshine</div><div class="rt-srole">Sales Specialist</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
 
-  <!-- Lead Lab Preview -->
-  <div class="tool-preview" style="margin-top:56px;">
-    <div class="tool-preview-text reveal-left">
-      <span class="sc-label">Lead Lab</span>
-      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">Find 100 Qualified Leads<br/>in Minutes</h3>
-      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Tell Lead Lab your niche, location, and how many leads you want. It searches the web, scores every result, and hands you contact-ready prospects — no manual research needed.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        <div class="mock-badge">🎯 Scored results</div>
-        <div class="mock-badge">📞 Phone & email</div>
-        <div class="mock-badge">⚡ One-click CRM add</div>
+        <!-- Atlis (top-right ~1:30) -->
+        <div class="rt-seat" style="top:27%;left:78%;">
+          <div class="rt-av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
+          <div><div class="rt-sname">Atlis</div><div class="rt-srole">System Integrit...</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Willow (left ~9) -->
+        <div class="rt-seat" style="top:50%;left:10%;">
+          <div class="rt-av" style="background:#4c1d95;">W</div>
+          <div><div class="rt-sname">Willow</div><div class="rt-srole">Language Spec...</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Ava (right ~3) -->
+        <div class="rt-seat" style="top:50%;left:90%;">
+          <div class="rt-av" style="background:#0f766e;">A</div>
+          <div><div class="rt-sname">Ava</div><div class="rt-srole">Research &amp; Kn...</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Orion (bottom-left ~7:30) -->
+        <div class="rt-seat" style="top:73%;left:22%;">
+          <div class="rt-av" style="background:#374151;">O</div>
+          <div><div class="rt-sname">Orion</div><div class="rt-srole">Systems Autom...</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Luna (bottom-right ~4:30) -->
+        <div class="rt-seat" style="top:73%;left:78%;">
+          <div class="rt-av" style="background:#7c2d12;">L</div>
+          <div><div class="rt-sname">Luna</div><div class="rt-srole">Creative Engineer</div><div class="rt-sstatus">Idle</div></div>
+          <div class="rt-dot"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Alex (bottom ~6) — active/selected -->
+        <div class="rt-seat active" style="top:90%;left:50%;">
+          <div class="rt-av" style="background:#1e3a8a;">A</div>
+          <div><div class="rt-sname">Alex</div><div class="rt-srole">Chief Marketing...</div><div class="rt-sstatus" style="color:#fcd34d;"><span class="tdots"><span></span><span></span><span></span></span></div></div>
+          <div class="rt-dot thinking"></div>
+          <div class="rt-editbtn">Edit</div>
+        </div>
+
+        <!-- Group Console (center) -->
+        <div class="rt-console">
+          <div class="rt-con-title">Group Console</div>
+          <div class="rt-con-sub">(All Teammates)<br/>Send one prompt to trigger answers from everyone.</div>
+          <div class="rt-con-btns">
+            <div class="rt-con-btn">Assemble</div>
+            <div class="rt-con-btn">🎙 Speak</div>
+            <div class="rt-con-btn">Voice Mode</div>
+            <div class="rt-con-btn">Lighting mode</div>
+            <div class="rt-con-btn">Share screen</div>
+            <div class="rt-con-btn primary">Send to all</div>
+          </div>
+          <textarea class="rt-con-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea>
+          <div class="rt-con-pills">
+            <div class="rt-con-pill">⚠ Risk</div>
+            <div class="rt-con-pill">📊 Scale</div>
+            <div class="rt-con-pill">✦ Constraints</div>
+            <div class="rt-con-pill">⚡ Optimize</div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="tool-preview-mock reveal-right">
-      <div class="mock-header">🔬 Lead Lab</div>
-      <div class="mock-body">
-        <div class="mock-row">
-          <div class="mock-input">real estate agents</div>
-          <div class="mock-input">New Jersey</div>
+
+      <!-- Right sidebar — Alex's thread -->
+      <div class="rt-side">
+        <div class="rt-side-hdr">
+          <div><div class="rt-side-name">Alex</div><div class="rt-side-role">Chief Marketing Officer (CMO)</div></div>
+          <div class="rt-side-refresh">Refresh</div>
         </div>
-        <div class="mock-lead-card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div>
-              <div class="mock-lead-name">Jamie Cole</div>
-              <div class="mock-lead-detail">Garden State Realty · Broker</div>
-              <div class="mock-lead-detail" style="margin-top:4px;">📞 (201) 555-0182 · ✉ jcole@gsrealty.com</div>
-            </div>
-            <div class="mock-score">92</div>
-          </div>
-          <div style="display:flex;gap:6px;margin-top:10px;">
-            <button class="mock-btn" style="font-size:10px;">+ CRM</button>
-            <button class="mock-btn" style="font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);">✉ Email</button>
-          </div>
+        <div class="rt-side-tabs">
+          <div class="rt-side-tab act">⚠ Risk</div>
+          <div class="rt-side-tab sc">📊 Scale</div>
+          <div class="rt-side-tab">✦ Constraints</div>
+          <div class="rt-side-tab">⚡ Optimize</div>
         </div>
-        <div class="mock-lead-card" style="opacity:.65;">
-          <div class="mock-lead-name">Morgan Lee</div>
-          <div class="mock-lead-detail">BrightPath Investors · Founder</div>
-          <div class="mock-score" style="margin-top:6px;">85</div>
+        <div class="rt-msgs">
+          <div class="rt-msg user"><div class="rt-msg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
+          <div class="rt-msg ai"><div class="rt-msg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. I'd anchor the campaign on a pain point agents feel daily — leads who go cold after the first showing. Here's a 3-step engine...</div>
+          <div class="rt-msg user"><div class="rt-msg-who">You</div>What scoring criteria should I use?</div>
+          <div class="rt-msg ai"><div class="rt-msg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
+        </div>
+        <div class="rt-side-inp">
+          <div class="rt-side-inpbox">Message selected teammate...</div>
+          <div class="rt-side-btns">
+            <div class="rt-side-btn">📎 Files</div>
+            <div class="rt-side-btn">📷 Screen</div>
+            <div class="rt-side-btn">🔊 Speak</div>
+            <div class="rt-side-btn">🎙 Voice Mode</div>
+            <div class="rt-side-send">Send</div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- CRM Preview -->
-  <div class="tool-preview flip" style="margin-top:64px;">
-    <div class="tool-preview-text reveal-right">
-      <span class="sc-label">CRM & Pipeline</span>
-      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">Your Whole Pipeline.<br/>One Place.</h3>
-      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Contacts, a kanban pipeline, email and SMS broadcast, and client sequences — all inside Simply Agentic. Your AI teammates can draft outreach and move deals forward without switching tabs.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        <div class="mock-badge">📬 Email & SMS blast</div>
-        <div class="mock-badge">🗂️ Kanban pipeline</div>
-        <div class="mock-badge">🤖 AI-drafted outreach</div>
+    <!-- Below table -->
+    <div class="rt-below">
+      <div class="rt-grp">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div><div class="rt-grp-title">🔵 Group Replies</div><div class="rt-grp-sub">Last round table responses in one place.</div></div>
+          <div style="font-size:10px;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#334155;cursor:default;">Clear</div>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:#334155;">No group replies yet. Use the center Group Console.</div>
       </div>
-    </div>
-    <div class="tool-preview-mock reveal-left">
-      <div class="mock-header">📋 Pipeline Board</div>
-      <div class="mock-body">
-        <div class="mock-pipeline">
-          <div class="mock-stage">
-            <div class="mock-stage-name">Lead</div>
-            <div class="mock-contact-chip">Jamie Cole</div>
-            <div class="mock-contact-chip">Alex Kim</div>
-          </div>
-          <div class="mock-stage">
-            <div class="mock-stage-name">Interested</div>
-            <div class="mock-contact-chip" style="background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</div>
-          </div>
-          <div class="mock-stage">
-            <div class="mock-stage-name">Call Booked</div>
-            <div class="mock-contact-chip" style="background:rgba(110,231,183,.08);border-color:rgba(110,231,183,.25);color:#6ee7b7;">Taylor Adams</div>
-          </div>
-          <div class="mock-stage">
-            <div class="mock-stage-name">Client</div>
-            <div class="mock-contact-chip" style="background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.35);color:#c4b5fd;">Riley Park</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
-          <div style="font-size:11px;color:#475569;">4 contacts active</div>
-          <button class="mock-btn" style="font-size:10px;">⚡ Draft outreach</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Social Studio Preview -->
-  <div class="tool-preview" style="margin-top:64px;">
-    <div class="tool-preview-text reveal-left">
-      <span class="sc-label">Social Studio</span>
-      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">A Week of Content<br/>in 60 Seconds</h3>
-      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Pick your platform, describe your audience and offer, and get a full content pack — posts, hooks, DMs, comment scripts, and CTAs — ready to publish.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;">
-        <div class="mock-badge">📘 LinkedIn</div>
-        <div class="mock-badge">📸 Instagram</div>
-        <div class="mock-badge">✖️ X · 👍 Facebook</div>
-      </div>
-    </div>
-    <div class="tool-preview-mock reveal-right">
-      <div class="mock-header">📣 Social Studio</div>
-      <div class="mock-body">
-        <div class="mock-row">
-          <div class="mock-input" style="flex:0 0 auto;max-width:100px;">LinkedIn</div>
-          <div class="mock-input">Content pack</div>
-        </div>
-        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;">
-          <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#475569;margin-bottom:8px;">🪝 Hook Post</div>
-          <div style="font-size:12px;color:#cbd5e1;line-height:1.6;">Most real estate agents waste 3 hours a day chasing cold leads that will never convert.<br/><br/>Here's the system I use to only talk to buyers and sellers who are already warm... 🧵</div>
-        </div>
-        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;opacity:.7;">
-          <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#475569;margin-bottom:6px;">💬 DM Script</div>
-          <div style="font-size:12px;color:#94a3b8;line-height:1.5;">Hey [Name] — saw your post about the Hoboken market...</div>
-        </div>
+      <div class="rt-grp">
+        <div class="rt-grp-title" style="color:#f87171;">🔴 Shared Team Memory</div>
+        <div class="rt-grp-sub">Facts, decisions, and open loops extracted from group sessions.</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA Band -->
+<!-- ══ FEATURE DEMOS ══ -->
+<section class="ssec" style="padding-top:16px;" id="tools">
+  <div class="s-cx rv">
+    <span class="s-lbl">In Action</span>
+    <h2 class="s-h2">Watch the Tools Work</h2>
+    <p class="s-p">Animated previews of the core tools — Lead Lab, CRM Pipeline, Social Studio, and the group broadcast.</p>
+  </div>
+
+  <div class="demos-grid">
+    <!-- Lead Lab demo -->
+    <div class="demo-card rv ll-demo">
+      <div class="demo-label"><span class="rec-dot"></span> 🔬 Lead Lab — Live Demo</div>
+      <div class="demo-body">
+        <div class="ll-fields">
+          <div class="ll-field" id="llNiche">real estate agents</div>
+          <div class="ll-field">New Jersey</div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <div class="ms">25 leads</div>
+          <div class="ms">Balanced</div>
+          <div class="ms">Phone or email</div>
+        </div>
+        <div id="llLeads" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
+    </div>
+
+    <!-- CRM Pipeline demo -->
+    <div class="demo-card rv" style="transition-delay:.1s;">
+      <div class="demo-label"><span class="rec-dot"></span> 📋 CRM Pipeline — Live Demo</div>
+      <div class="demo-body">
+        <div class="crm-stages">
+          <div class="crm-stage">
+            <div class="crm-slbl">Lead</div>
+            <div id="crm-lead"><span class="crm-chip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span><span class="crm-chip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Alex Kim</span></div>
+          </div>
+          <div class="crm-stage">
+            <div class="crm-slbl">Interested</div>
+            <div id="crm-int"><span class="crm-chip" style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fcd34d;">Morgan Lee</span></div>
+          </div>
+          <div class="crm-stage">
+            <div class="crm-slbl">Call Booked</div>
+            <div id="crm-call"></div>
+          </div>
+          <div class="crm-stage">
+            <div class="crm-slbl">Client</div>
+            <div id="crm-client"><span class="crm-chip" style="background:rgba(124,58,237,.13);border:1px solid rgba(124,58,237,.3);color:var(--acc);">Riley Park</span></div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:#334155;margin-bottom:6px;" id="crmMsg">Morgan Lee is moving to Call Booked...</div>
+        <button class="mbtn" style="font-size:10px;width:100%;padding:6px;">⚡ AI Draft Outreach for Morgan Lee</button>
+      </div>
+    </div>
+
+    <!-- Social Studio demo -->
+    <div class="demo-card rv" style="transition-delay:.2s;">
+      <div class="demo-label"><span class="rec-dot"></span> 📣 Social Studio — Live Demo</div>
+      <div class="demo-body">
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <div class="ms">LinkedIn</div>
+          <div class="ms">Content pack</div>
+        </div>
+        <div class="ss-post">
+          <div class="ss-platform" id="ssLabel">🪝 Hook Post</div>
+          <div class="ss-text"><span id="ssTyped"></span><span id="ssCursor" style="animation:blink .75s step-end infinite;">|</span></div>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:5px;">
+          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">💬 DM Script</div>
+          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">🎯 CTA Pack</div>
+          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">🚀 Launch Set</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Group Console demo -->
+    <div class="demo-card rv" style="transition-delay:.3s;">
+      <div class="demo-label"><span class="rec-dot"></span> 🎙 Group Console — Send to All</div>
+      <div class="demo-body">
+        <div style="background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:8px;font-size:11px;color:#94a3b8;margin-bottom:8px;">
+          "Help me build a NJ real estate lead engine. Strategy, outreach, and system design."
+        </div>
+        <div style="font-size:10px;color:var(--pl);font-weight:700;margin-bottom:6px;">All teammates responding...</div>
+        <div id="gcReplies" style="display:flex;flex-direction:column;gap:5px;"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ TEAMMATES ══ -->
+<section class="ssec" id="teammates" style="padding-top:20px;">
+  <div class="s-cx rv">
+    <span class="s-lbl">The Team</span>
+    <h2 class="s-h2">Seven Specialists. Each With a Lane.</h2>
+    <p class="s-p">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do — so you get specialist answers, not generic ones.</p>
+  </div>
+  <div class="tm-grid">
+    <div class="tm-card rv">
+      <div class="tm-av" style="background:#1e3a8a;">A</div>
+      <div class="tm-name">Alex</div><div class="tm-role">Chief Marketing Officer</div>
+      <div class="tm-desc">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.07s;">
+      <div class="tm-av" style="background:#4c1d95;">W</div>
+      <div class="tm-name">Willow</div><div class="tm-role">Language Specialist</div>
+      <div class="tm-desc">Refines tone, voice, clarity, and meaning. Will not write sales hype or artificial urgency — only clear, ethical, precise language.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#4c1d95,#7c3aed);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.14s;">
+      <div class="tm-av" style="background:#0f766e;">A</div>
+      <div class="tm-name">Ava</div><div class="tm-role">Research &amp; Knowledge Curator</div>
+      <div class="tm-desc">Gathers, validates, and synthesizes information. Separates fact from inference. Labels uncertainty. Never guesses to be helpful.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#0f766e,#14b8a6);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.21s;">
+      <div class="tm-av" style="background:#374151;">O</div>
+      <div class="tm-name">Orion</div><div class="tm-role">Systems &amp; Automation Engineer</div>
+      <div class="tm-desc">Designs automation systems and workflows for reliable scale. Architecture before execution. Reliability over speed.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.28s;">
+      <div class="tm-av" style="background:#9a3412;">S</div>
+      <div class="tm-name">Sunshine</div><div class="tm-role">Sales Specialist</div>
+      <div class="tm-desc">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure, manipulate, or force a close.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.35s;">
+      <div class="tm-av" style="background:#7c2d12;">L</div>
+      <div class="tm-name">Luna</div><div class="tm-role">Creative Engineer</div>
+      <div class="tm-desc">Cinematic, consistent visual systems. Hierarchy before effects. Enhancement without distortion. Keeps designs consistent over time.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div>
+    </div>
+    <div class="tm-card rv" style="transition-delay:.42s;">
+      <div class="tm-av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
+      <div class="tm-name">Atlis</div><div class="tm-role">System Integrity Architect</div>
+      <div class="tm-desc">Monitors role boundaries, memory hygiene, and system coherence. Acts as a referee — never a contributor. Protect integrity.</div>
+      <div class="tm-bar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ FEATURE CARDS ══ -->
+<section class="ssec" id="features" style="padding-top:20px;">
+  <div class="s-cx rv"><span class="s-lbl">Features</span><h2 class="s-h2">Everything Built In. Nothing Extra to Buy.</h2></div>
+  <div class="fg">
+    <div class="fc rv"><span class="fc-icon">🔬</span><div class="fc-name">Lead Lab</div><div class="fc-desc">Scored, contact-ready lead lists from the web. Filter by niche, location, count, and contact type. One-click add to CRM or hand off to Sunshine.</div></div>
+    <div class="fc rv" style="transition-delay:.07s;"><span class="fc-icon">📋</span><div class="fc-name">CRM &amp; Pipeline</div><div class="fc-desc">Contacts, kanban pipeline, email &amp; SMS broadcast, and client sequences. No extra CRM subscription required.</div></div>
+    <div class="fc rv" style="transition-delay:.14s;"><span class="fc-icon">📣</span><div class="fc-name">Social Studio</div><div class="fc-desc">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X — generated in seconds.</div></div>
+    <div class="fc rv" style="transition-delay:.21s;"><span class="fc-icon">🎯</span><div class="fc-name">Offer Builder</div><div class="fc-desc">Sharpen positioning, clarify your offer, and generate launch-ready copy. Built around who you help, what result you deliver, and how.</div></div>
+    <div class="fc rv" style="transition-delay:.28s;"><span class="fc-icon">📚</span><div class="fc-name">Prompt Library</div><div class="fc-desc">200+ pre-built expert prompts organized by teammate. Click to fire instantly. Save your own custom prompts for repeat use.</div></div>
+    <div class="fc rv" style="transition-delay:.35s;"><span class="fc-icon">📅</span><div class="fc-name">Calendar &amp; Gmail Sync</div><div class="fc-desc">Full motion-style calendar with Google Calendar sync. Teammate-drafted emails pass through a review console before they send.</div></div>
+    <div class="fc rv" style="transition-delay:.42s;"><span class="fc-icon">📈</span><div class="fc-name">Growth Playbooks</div><div class="fc-desc">Step-by-step action plans for getting clients, booking calls, launching offers, and reactivating cold leads — tailored to your business.</div></div>
+    <div class="fc rv" style="transition-delay:.49s;"><span class="fc-icon">🎙</span><div class="fc-name">Voice Mode</div><div class="fc-desc">Speak to your teammates directly. Voice input and TTS playback powered by OpenAI. Every teammate can read their response aloud.</div></div>
+    <div class="fc rv" style="transition-delay:.56s;"><span class="fc-icon">🔑</span><div class="fc-name">Your Key. Your Data.</div><div class="fc-desc">Connect your own OpenAI or Anthropic key. Go direct to GPT-4o with zero markup, zero throttling, and complete data ownership.</div></div>
+  </div>
+</section>
+
+<!-- ══ CTA ══ -->
 <section class="cta-band">
-  <div class="orb" style="width:500px;height:300px;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(124,58,237,.1);filter:blur(80px);animation-duration:9s;"></div>
-  <span class="sc-label" style="position:relative;">Ready to Build Your AI Team?</span>
-  <h2 style="position:relative;">Start Free. Scale Fast.</h2>
-  <p style="position:relative;">7-day free trial. No credit card charged until day 8. Cancel anytime.</p>
-  <div class="cta-btns" style="position:relative;">
-    <a href="/pricing" class="btn-hero-primary" style="font-size:16px;padding:16px 36px;">🚀 View Plans & Start Free Trial</a>
-    <a href="/login" class="btn-hero-secondary" style="font-size:15px;padding:16px 28px;">Sign In →</a>
+  <span class="s-lbl" style="position:relative;">Ready to Get Started?</span>
+  <h2>Start Free. Scale at Your Pace.</h2>
+  <p>7-day free trial included. No credit card charged until day 8. Cancel anytime.</p>
+  <div class="cta-btns">
+    <a href="/pricing" class="btn-p" style="font-size:16px;padding:16px 36px;">🚀 View Plans &amp; Start Free</a>
+    <a href="/login" class="btn-s" style="font-size:15px;padding:16px 26px;">Already have an account →</a>
   </div>
-  <div style="margin-top:24px;font-size:13px;color:#334155;position:relative;">
-    Starter from $47/mo · Growth $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo (limited)</strong>
+  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">
+    Solo Operator $47/mo · Growth System $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo — limited seats</strong>
   </div>
 </section>
 
-<!-- Footer -->
 <div class="sc-footer">
-  <a href="/pricing">Plans & Pricing</a> &nbsp;·&nbsp;
+  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;·&nbsp;
   <a href="/login">Sign In</a> &nbsp;·&nbsp;
   <a href="/terms">Terms of Service</a> &nbsp;·&nbsp;
   <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
-  <div style="margin-top:10px;opacity:.5;">© 2025 {{app_title}}. All rights reserved.</div>
+  <div style="margin-top:10px;opacity:.4;">© 2025 {{app_title}}. All rights reserved.</div>
 </div>
+
+<style>@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}</style>
 
 <script>
 // ── Starfield ──
 (function(){
-  var c=document.getElementById('stars'),ctx=c.getContext('2d');
-  function resize(){c.width=window.innerWidth;c.height=window.innerHeight;}
-  resize();window.addEventListener('resize',resize);
-  var stars=[];
-  for(var i=0;i<160;i++){
-    stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.4+.3,speed:Math.random()*.4+.15,phase:Math.random()*Math.PI*2});
-  }
-  function draw(t){
-    ctx.clearRect(0,0,c.width,c.height);
-    stars.forEach(function(s){
-      var op=.1+.45*(.5+.5*Math.sin(s.phase+t*s.speed));
-      ctx.beginPath();
-      ctx.arc(s.x*c.width,s.y*c.height,s.r,0,Math.PI*2);
-      ctx.fillStyle='rgba(255,255,255,'+op+')';
-      ctx.fill();
-    });
-    requestAnimationFrame(draw);
-  }
-  requestAnimationFrame(draw);
+  var c=document.getElementById('starC'),ctx=c.getContext('2d');
+  function rsz(){c.width=innerWidth;c.height=innerHeight;}rsz();addEventListener('resize',rsz);
+  var stars=[];for(var i=0;i<180;i++)stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.3+.25,sp:Math.random()*.35+.1,ph:Math.random()*Math.PI*2});
+  (function draw(t){ctx.clearRect(0,0,c.width,c.height);stars.forEach(function(s){var op=.07+.4*(.5+.5*Math.sin(s.ph+t*s.sp*.001));ctx.beginPath();ctx.arc(s.x*c.width,s.y*c.height,s.r,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,'+op+')';ctx.fill();});requestAnimationFrame(draw);})(0);
 })();
 
 // ── Scroll reveal ──
 (function(){
-  var els=document.querySelectorAll('.reveal,.reveal-left,.reveal-right');
-  var obs=new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target);}
-    });
-  },{threshold:.12});
+  var els=document.querySelectorAll('.rv,.rvl,.rvr');
+  var obs=new IntersectionObserver(function(e){e.forEach(function(en){if(en.isIntersecting){en.target.classList.add('in');obs.unobserve(en.target);}});},{threshold:.08});
   els.forEach(function(el){obs.observe(el);});
 })();
 
-// ── Animated counters ──
+// ── Counters ──
 (function(){
-  var nums=document.querySelectorAll('.stat-num[data-target]');
-  var obs=new IntersectionObserver(function(entries){
-    entries.forEach(function(e){
-      if(!e.isIntersecting) return;
-      var el=e.target;
-      var target=parseInt(el.getAttribute('data-target'));
-      var prefix=el.getAttribute('data-prefix')||'';
-      var suffix=el.getAttribute('data-suffix')||'';
-      var start=0,duration=1400,startTime=null;
-      function step(ts){
-        if(!startTime) startTime=ts;
-        var progress=Math.min((ts-startTime)/duration,1);
-        var ease=1-Math.pow(1-progress,3);
-        el.textContent=prefix+Math.round(ease*target)+suffix;
-        if(progress<1) requestAnimationFrame(step);
-      }
-      requestAnimationFrame(step);
-      obs.unobserve(el);
-    });
-  },{threshold:.5});
-  nums.forEach(function(n){obs.observe(n);});
+  var ns=document.querySelectorAll('.stat-n[data-t]');
+  var obs=new IntersectionObserver(function(e){e.forEach(function(en){
+    if(!en.isIntersecting)return;
+    var el=en.target,target=parseInt(el.getAttribute('data-t'));
+    var pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'';
+    var st=null,dur=1400;
+    function step(ts){if(!st)st=ts;var p=Math.min((ts-st)/dur,1),ease=1-Math.pow(1-p,3);el.textContent=pre+Math.round(ease*target)+suf;if(p<1)requestAnimationFrame(step);}
+    requestAnimationFrame(step);obs.unobserve(el);
+  });},{threshold:.5});
+  ns.forEach(function(n){obs.observe(n);});
 })();
 
-// ── Typewriter for Sunshine's message ──
+// ── Sidebar typewriter ──
 (function(){
-  var msg="Hey! Here's a first outreach message for a NJ real estate agent:\\n\\n\\\"Hey [Name] — I help agents like you build a consistent pipeline of warm leads without cold calling. Would a quick 15-min chat be worth it this week?\\\"";
-  var el=document.getElementById('typedMsg');
-  var cursor=document.getElementById('typingCursor');
-  if(!el||!cursor) return;
-  var i=0,speed=28;
-  var obs=new IntersectionObserver(function(entries){
-    if(!entries[0].isIntersecting) return;
-    obs.disconnect();
-    setTimeout(function type(){
-      if(i<msg.length){
-        el.textContent+=msg[i]==='\\n'?'\\n':msg[i];
-        i++;
-        setTimeout(type,speed+(Math.random()*20));
-      } else {
-        cursor.style.display='none';
-      }
-    },800);
+  var txt='Score leads by: recency of listings (last 90 days), active social presence, domain age, and whether they have a personal brand vs brokerage-only presence. Minimum score of 60 to qualify for outreach.';
+  var el=document.getElementById('sideTyped'),cursor=document.getElementById('sideCursor');
+  if(!el)return;
+  var i=0;
+  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();
+    setTimeout(function t(){if(i<txt.length){el.textContent+=txt[i++];setTimeout(t,24+(Math.random()*18));}else cursor.style.display='none';},1200);
   },{threshold:.3});
   obs.observe(el);
+})();
+
+// ── Lead Lab animated demo ──
+(function(){
+  var leads=[
+    {name:'Jamie Cole',co:'Garden State Realty · Broker',contact:'📞 (201) 555-0182 · ✉ jcole@gsrealty.com',score:92},
+    {name:'Morgan Lee',co:'BrightPath Investors · Founder',contact:'✉ morgan@brightpath.com',score:85},
+    {name:'Taylor Adams',co:'Northshore Lending · Loan Officer',contact:'📞 (973) 555-0247',score:78}
+  ];
+  var box=document.getElementById('llLeads');if(!box)return;
+  var idx=0;
+  function addLead(){
+    if(idx>=leads.length){setTimeout(function(){box.innerHTML='';idx=0;setTimeout(addLead,800);},2000);return;}
+    var l=leads[idx++];
+    var d=document.createElement('div');d.className='ll-lead';d.style.animationDelay='0s';
+    d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.contact+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="display:flex;gap:5px;margin-top:7px;"><button class="ll-btn">+ CRM</button><button class="ll-btn" style="background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:#94a3b8;">✉ Email</button></div>';
+    box.appendChild(d);
+    setTimeout(addLead,900);
+  }
+  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(addLead,600);},{threshold:.3});
+  obs.observe(box);
+})();
+
+// ── CRM Pipeline animated demo ──
+(function(){
+  var phase=0;
+  var stages=['crm-lead','crm-int','crm-call','crm-client'];
+  var chipHtml='<span class="crm-chip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;display:block;">Morgan Lee</span>';
+  var msgs=['Morgan Lee is moving to Call Booked...','Morgan Lee booked a call! ✅','Drafting follow-up for Morgan Lee...','Cycle complete — restarting...'];
+  function nextPhase(){
+    phase=(phase+1)%4;
+    var msgEl=document.getElementById('crmMsg');if(msgEl)msgEl.textContent=msgs[phase];
+    if(phase===0){
+      var int=document.getElementById('crm-int');
+      if(int)int.innerHTML='<span class="crm-chip" style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fcd34d;">Morgan Lee</span>';
+      var call=document.getElementById('crm-call');if(call)call.innerHTML='';
+    } else if(phase===1){
+      var int=document.getElementById('crm-int');if(int)int.innerHTML='';
+      var call=document.getElementById('crm-call');if(call)call.innerHTML=chipHtml;
+    }
+    setTimeout(nextPhase,2200);
+  }
+  var box=document.getElementById('crm-int');
+  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(nextPhase,2000);},{threshold:.3});
+  if(box)obs.observe(box);
+})();
+
+// ── Social Studio typewriter demo ──
+(function(){
+  var posts=[
+    {label:'🪝 Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that will never convert.\\n\\nHere\'s the system I use to only talk to buyers and sellers who are already warm 🧵'},
+    {label:'💬 DM Script',txt:'Hey [Name] — saw your post about the Hoboken market. Quick question: are you finding that most of your leads come from referrals, or are you actively building online? I help agents systematize that second channel.'},
+    {label:'🎯 CTA Post',txt:'If you\'re a NJ real estate agent doing 10+ deals a year but spending more time on admin than relationships — I built something for you.\\n\\nComment "SYSTEM" and I\'ll send you the breakdown.'}
+  ];
+  var pidx=0,cidx=0,typing=false;
+  var el=document.getElementById('ssTyped'),lbl=document.getElementById('ssLabel'),cur=document.getElementById('ssCursor');
+  if(!el)return;
+  function nextPost(){
+    var p=posts[pidx%posts.length];pidx++;
+    if(lbl)lbl.textContent=p.label;
+    cidx=0;el.textContent='';if(cur)cur.style.display='inline';
+    var txt=p.txt;
+    function type(){if(cidx<txt.length){el.textContent+=txt[cidx]==='\\n'?'\\n':txt[cidx];cidx++;setTimeout(type,22+(Math.random()*16));}else{if(cur)cur.style.display='none';setTimeout(nextPost,3200);}}
+    type();
+  }
+  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(nextPost,700);},{threshold:.3});
+  obs.observe(el);
+})();
+
+// ── Group Console replies demo ──
+(function(){
+  var replies=[
+    {av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: anchor on agents with active listings but low digital presence. Score by recency and social activity.'},
+    {av:'S',bg:'#9a3412',name:'Sunshine',txt:'First outreach: "Hey [Name] — I work with NJ agents converting their online presence into pipeline. 10-min call?"'},
+    {av:'O',bg:'#374151',name:'Orion',txt:'Automation: set up a weekly Lead Lab run → CRM import → Sunshine outreach sequence. No manual steps.'},
+    {av:'W',bg:'#4c1d95',name:'Willow',txt:'Clarity note: your outreach message should lead with their result, not your process. Reframe accordingly.'},
+    {av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: luxury residential in Bergen County, investor-focused in Essex.'}
+  ];
+  var box=document.getElementById('gcReplies');if(!box)return;
+  var i=0;
+  function addReply(){
+    if(i>=replies.length){setTimeout(function(){box.innerHTML='';i=0;setTimeout(addReply,1000);},2500);return;}
+    var r=replies[i++];
+    var d=document.createElement('div');d.className='gc-demo-seat';
+    d.style.cssText='opacity:0;transition:opacity .4s;';
+    d.innerHTML='<div class="gc-demo-av" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-demo-name">'+r.name+'</div><div class="gc-demo-status">'+r.txt+'</div></div>';
+    box.appendChild(d);
+    setTimeout(function(){d.style.opacity='1';},30);
+    setTimeout(addReply,1100);
+  }
+  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(addReply,500);},{threshold:.3});
+  obs.observe(box);
 })();
 </script>
 </body></html>"""
@@ -7656,7 +7654,7 @@ LOGIN_HTML = r"""
 
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
-      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.9);font-weight:700;">✨ See It In Action</a></div>
+      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.95);font-weight:700;letter-spacing:.01em;">✨ Learn More</a></div>
       {% if allow_signup %}
         <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
