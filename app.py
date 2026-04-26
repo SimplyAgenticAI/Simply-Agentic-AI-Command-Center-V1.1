@@ -10729,6 +10729,28 @@ label         { font-size: 14px !important; }
     }
     #plSaveRow{grid-column:1/-1;display:flex;align-items:center;gap:10px;}
     #plStatus{font-size:12px;color:#6ee7b7;min-height:14px;}
+
+    /* ── Mobile: stack teammate tabs on top, prompts below ── */
+    @media (max-width: 600px) {
+      #plLayout{flex-direction:column;height:auto;overflow:visible;}
+      #plSidebar{
+        width:100%;flex-shrink:0;
+        border-right:none;border-bottom:1px solid rgba(42,58,106,.55);
+        padding-right:0;padding-bottom:10px;
+        overflow-y:visible;overflow-x:auto;
+      }
+      #plTabs{flex-direction:row;flex-wrap:wrap;gap:6px;}
+      .plTab{
+        padding:7px 14px;font-size:13px;width:auto;
+        border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.7);
+      }
+      #plMain{padding-left:0;padding-top:14px;overflow:visible;}
+      #plCards{overflow-y:visible;max-height:none;}
+      #plSaveForm{grid-template-columns:1fr;}
+      #plSaveForm .plSaveTitle{grid-column:1;}
+      #plPromptRow{grid-column:1;}
+      #plSaveRow{grid-column:1;}
+    }
   </style>
 
   <div id="plLayout">
