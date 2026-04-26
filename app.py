@@ -8870,9 +8870,215 @@ HTML = r"""
       }
       /* Prevent iOS text zoom */
       textarea, input, select { font-size: 16px !important; }
+      /* Force page width — kill all horizontal overflow */
+      html, body {
+        overflow-x: hidden !important;
+        max-width: 100vw !important;
+        width: 100% !important;
+      }
+      .stage, .arena {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+        grid-template-columns: none !important;
+      }
+      .side { display: none !important; }
+      .underTable { display: none !important; }
     }
     /* ═══════════════════════════════════════════════════════════════ */
 
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  MOBILE REDESIGN — complete override for screens ≤ 700px        ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+@media (max-width: 700px) {
+  html, body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    touch-action: manipulation;
+  }
+  body {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Kill the desktop nav */
+  .saNavBar    { display: none !important; }
+  .topbar      { display: none !important; }
+
+  /* Mobile shell: full-height flex column */
+  #mobileShell {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-height: 100dvh !important;
+    overflow: hidden !important;
+  }
+
+  /* Header bar */
+  #mobileHeader {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 10px 14px !important;
+    background: rgba(7,10,20,.98) !important;
+    border-bottom: 1px solid rgba(42,58,106,.6) !important;
+    flex-shrink: 0 !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 800 !important;
+  }
+
+  /* View tabs (Team | Chat | Group) */
+  #mobileTabs {
+    display: flex !important;
+    gap: 0 !important;
+    background: rgba(14,22,48,.9) !important;
+    border-bottom: 1px solid rgba(42,58,106,.5) !important;
+    flex-shrink: 0 !important;
+  }
+  .mobileTab {
+    flex: 1 !important;
+    padding: 10px 4px !important;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    color: rgba(148,163,184,.7) !important;
+    background: none !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    cursor: pointer !important;
+  }
+  .mobileTab.active {
+    color: #c4b5fd !important;
+    border-bottom-color: #7c3aed !important;
+    background: rgba(124,58,237,.08) !important;
+  }
+
+  /* View panels */
+  #mobileViews {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .mobileView {
+    display: none !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 10px !important;
+  }
+  .mobileView.active { display: block !important; }
+
+  /* Hide the entire desktop stage */
+  .stage        { display: none !important; }
+  .mobileBar    {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0 !important; left: 0 !important; right: 0 !important;
+    background: rgba(7,10,20,.97) !important;
+    border-top: 1px solid rgba(42,58,106,.6) !important;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) !important;
+    z-index: 9000 !important;
+    gap: 6px !important;
+    backdrop-filter: blur(20px) !important;
+  }
+  .mobileBar .btn {
+    flex: 1 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    padding: 9px 4px !important;
+  }
+
+  /* Team list cards */
+  .mobileTeamCard {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 14px !important;
+    margin-bottom: 8px !important;
+    background: rgba(14,22,48,.95) !important;
+    border: 1px solid rgba(42,58,106,.85) !important;
+    border-radius: 14px !important;
+    cursor: pointer !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    transition: border-color .15s, background .15s !important;
+  }
+  .mobileTeamCard.active {
+    border-color: rgba(124,58,237,.8) !important;
+    background: rgba(20,12,48,.98) !important;
+    box-shadow: 0 0 0 2px rgba(124,58,237,.3) !important;
+  }
+  .mobileTeamCard .mcAvatar {
+    width: 46px !important; height: 46px !important;
+    border-radius: 12px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    font-weight: 800 !important; font-size: 20px !important;
+    flex-shrink: 0 !important; position: relative !important;
+  }
+  .mobileTeamCard .mcMeta {
+    flex: 1 !important; min-width: 0 !important;
+  }
+  .mobileTeamCard .mcName {
+    font-weight: 800 !important; font-size: 15px !important;
+    overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+  }
+  .mobileTeamCard .mcRole {
+    font-size: 12px !important; color: rgba(148,163,184,.8) !important;
+    overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important;
+  }
+  .mobileTeamCard .mcStatus {
+    font-size: 11px !important; color: rgba(148,163,184,.6) !important; margin-top: 2px !important;
+  }
+  .mobileTeamCard .mcBtn {
+    flex-shrink: 0 !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    border: 1px solid rgba(42,58,106,.85) !important;
+    background: rgba(20,30,60,.65) !important;
+    color: rgba(226,232,240,.9) !important;
+    border-radius: 10px !important;
+    cursor: pointer !important;
+  }
+
+  /* Chat view */
+  #mobileChatView .sideCard {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    position: relative !important;
+    box-sizing: border-box !important;
+  }
+  #mobileChatView #thread {
+    max-height: 45vh !important;
+    min-height: 120px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Group view */
+  #mobileGroupView .operator {
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    width: 100% !important; max-width: 100% !important;
+    height: auto !important; margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+  #mobileGroupView .opText {
+    width: 100% !important; box-sizing: border-box !important;
+  }
+
+  /* iOS inputs */
+  textarea, input, select { font-size: 16px !important; }
+}
     .seatToolBtn:hover{
       background: rgba(22,34,72,.78);
       border-color: rgba(124,58,237,.55);
@@ -9982,6 +10188,36 @@ label         { font-size: 14px !important; }
 
     </div>
     <!-- ===== END REDESIGNED NAV BAR ===== -->
+  </div>
+
+  <!-- ===== MOBILE SHELL (hidden on desktop, fully replaces stage on mobile) ===== -->
+  <div id="mobileShell" style="display:none;">
+    <!-- Header -->
+    <div id="mobileHeader">
+      <span style="font-size:14px;font-weight:900;color:#c4b5fd;">&#x25CF; {{app_title}}</span>
+      <button class="btn btnMini" id="mobileHeaderMenuBtn">&#9776; Menu</button>
+    </div>
+    <!-- Tabs -->
+    <div id="mobileTabs">
+      <button class="mobileTab active" data-view="team">&#128101; Team</button>
+      <button class="mobileTab" data-view="chat">&#128172; Chat</button>
+      <button class="mobileTab" data-view="group">&#128483; Group</button>
+    </div>
+    <!-- Views -->
+    <div id="mobileViews">
+      <!-- TEAM VIEW: teammate cards list -->
+      <div class="mobileView active" id="mobileTeamView">
+        <div id="mobileTeamList"></div>
+      </div>
+      <!-- CHAT VIEW: individual seat chat -->
+      <div class="mobileView" id="mobileChatView">
+        <div id="mobileChatTitle" style="font-size:13px;font-weight:800;color:#c4b5fd;margin-bottom:10px;">Select a teammate</div>
+      </div>
+      <!-- GROUP VIEW: group console -->
+      <div class="mobileView" id="mobileGroupView">
+        <!-- operator div will be moved here by JS -->
+      </div>
+    </div>
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
@@ -12899,239 +13135,165 @@ function makeSeat(defn, idx){
       return seat;
     }
 
+    // ── Mobile detection ────────────────────────────────────────────────────
+    function isMob(){ return window.innerWidth <= 700; }
+
+    // ── Master render dispatcher ─────────────────────────────────────────────
     function renderTable(){
-      const isMob = window.innerWidth <= 700;
-      if(isMob){
-        renderMobile();
-        return;
-      }
-      // ── Desktop render (unchanged) ──────────────────────────────────────
+      if(isMob()){ renderMobile(); return; }
+      // Desktop render
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
-      try{ wrap.appendChild(makeOperatorSeat(0)); }catch(err){ console.error(err); }
-
-      const order = activeOrder();
-      const installed = state.installed || {};
+      try{ wrap.appendChild(makeOperatorSeat(0)); }catch(e){ console.error(e); }
+      const order = activeOrder(), installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
-
       if(seats.length === 0){
-        if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){} }
-        try{ if(typeof showToast==='function') showToast('No teammates active — use Add or dismiss to add seats.'); }catch(_){}
+        if(selectedSeat==="Operator"){ try{ refreshThread(); }catch(_){} }
+        try{ if(typeof showToast==="function") showToast("No teammates active — tap Menu → Add."); }catch(_){}
         setTablePulse(false); setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
         $("seatSub").innerText = "No active teammate selected.";
-        if(selectedSeat !== "Operator"){ selectedSeat = ""; window.selectedSeat = ""; }
+        if(selectedSeat !== "Operator"){ selectedSeat=""; window.selectedSeat=""; }
         renderThread([]); return;
       }
-      seats.forEach((name, i) => {
-        const defn = installed[name];
-        const seat = makeSeat(defn, i);
-        wrap.appendChild(seat);
-        setSeatLive(defn.name, seatStatus[defn.name] || "idle");
-      });
-      if(!selectedSeat || !seats.includes(selectedSeat)){ selectSeat(seats[0]); }
-      else { markActiveSeat(); }
+      seats.forEach((name,i)=>{ const s=makeSeat(installed[name],i); wrap.appendChild(s); setSeatLive(name,seatStatus[name]||"idle"); });
+      if(!selectedSeat||!seats.includes(selectedSeat)) selectSeat(seats[0]); else markActiveSeat();
       updateTablePulseFromStatuses();
     }
 
-    // ── Mobile-only renderer — bypasses all absolute positioning ────────────
+    // ── Mobile renderer — drives #mobileShell ────────────────────────────────
     function renderMobile(){
-      const order  = activeOrder();
-      const installed = state.installed || {};
-      const seats  = order.filter(n => installed[n]);
+      // 1. Show shell, hide desktop stage
+      const shell = document.getElementById("mobileShell");
+      if(shell) shell.style.display = "flex";
+      document.querySelectorAll(".stage").forEach(el => el.style.display = "none");
 
-      // Build or reuse the mobile list container
-      let list = document.getElementById("mobileTeamList");
-      if(!list){
-        list = document.createElement("div");
-        list.id = "mobileTeamList";
-      }
-      // Apply inline styles directly — no CSS fights
-      list.style.cssText = [
-        "display:flex",
-        "flex-direction:column",
-        "gap:10px",
-        "padding:10px",
-        "width:100%",
-        "box-sizing:border-box",
-        "position:relative",
-      ].join(";");
-      list.innerHTML = "";
-
-      // Hide the desktop tableWrap entirely
-      const wrap = $("tableWrap");
-      wrap.style.display = "none";
-
-      // Insert list before tableWrap if not already there
-      if(!document.getElementById("mobileTeamList")){
-        wrap.parentNode.insertBefore(list, wrap);
-      } else {
-        // Already in DOM, just clear it
-        list.innerHTML = "";
-      }
-
-      // Operator card
-      const opCard = makeMobileCard({
-        name: "Operator", job_title: "You",
-        avatar: {bg:"#0f172a", fg:"#67e8f9", sigil:"O"}
-      }, true);
-      list.appendChild(opCard);
-
-      if(seats.length === 0){
-        const empty = document.createElement("div");
-        empty.style.cssText = "color:rgba(148,163,184,.6);font-size:13px;padding:12px 4px;";
-        empty.innerText = "No teammates yet — tap Menu → Add to create one.";
-        list.appendChild(empty);
-      } else {
-        seats.forEach(name => {
-          const defn = installed[name];
-          const card = makeMobileCard(defn, false);
-          list.appendChild(card);
-          setSeatLive(defn.name, seatStatus[defn.name] || "idle");
+      // 2. Move operator/Group Console into group view
+      const groupView = document.getElementById("mobileGroupView");
+      const op = document.getElementById("operator");
+      if(groupView && op && !groupView.contains(op)){
+        op.style.cssText = "position:relative;left:auto;top:auto;transform:none;width:100%;max-width:100%;height:auto;margin:0;box-sizing:border-box;";
+        const opText = op.querySelector(".opText");
+        if(opText) opText.style.cssText = "width:100%;box-sizing:border-box;";
+        groupView.appendChild(op);
+        // Also move underTable (group replies) into group view
+        document.querySelectorAll(".underTable").forEach(el => {
+          el.style.cssText = "position:relative;width:100%;max-width:100%;box-sizing:border-box;margin-top:12px;";
+          groupView.appendChild(el);
         });
       }
 
-      // Group Console: pull it out and put it after the list
-      const op = document.getElementById("operator");
-      if(op){
-        op.style.cssText = [
-          "position:relative",
-          "left:auto","top:auto","right:auto","bottom:auto",
-          "transform:none",
-          "width:100%",
-          "max-width:100%",
-          "min-width:0",
-          "height:auto",
-          "margin:0",
-          "box-sizing:border-box",
-          "display:block",
-        ].join(";");
-        const opText = op.querySelector(".opText");
-        if(opText) opText.style.cssText = "width:100%;box-sizing:border-box;";
-        // Move it after mobileTeamList
-        list.parentNode.insertBefore(op, list.nextSibling);
+      // 3. Move sideCard (individual chat) into chat view
+      const chatView = document.getElementById("mobileChatView");
+      const sideCard = document.querySelector(".sideCard");
+      if(chatView && sideCard && !chatView.contains(sideCard)){
+        sideCard.style.cssText = "display:block;width:100%;height:auto;max-height:none;position:relative;box-sizing:border-box;";
+        chatView.appendChild(sideCard);
       }
 
-      // underTable / shared memory bar
-      document.querySelectorAll(".underTable").forEach(el => {
-        el.style.cssText = "position:relative;z-index:2;width:100%;max-width:100%;box-sizing:border-box;margin:4px 0;";
-        // Move before list
-        list.parentNode.insertBefore(el, list);
-      });
+      // 4. Build team list
+      const listEl = document.getElementById("mobileTeamList");
+      if(!listEl) return;
+      listEl.innerHTML = "";
 
-      // Select first seat
-      const allNames = ["Operator", ...seats];
-      if(!selectedSeat || !allNames.includes(selectedSeat)){
-        selectSeat("Operator");
+      const order = activeOrder(), installed = state.installed || {};
+      const seats = order.filter(n => installed[n]);
+
+      // Operator card
+      listEl.appendChild(makeMobileCard({name:"Operator",job_title:"You",avatar:{bg:"#0f172a",fg:"#67e8f9",sigil:"O"}}, true));
+
+      if(seats.length === 0){
+        const empty = document.createElement("div");
+        empty.style.cssText = "color:rgba(148,163,184,.6);font-size:13px;padding:16px 4px;text-align:center;";
+        empty.innerText = "No teammates yet — tap ☰ Menu → Add Teammate";
+        listEl.appendChild(empty);
       } else {
-        markActiveSeat();
+        seats.forEach(name => {
+          const card = makeMobileCard(installed[name], false);
+          listEl.appendChild(card);
+          setSeatLive(name, seatStatus[name]||"idle");
+        });
       }
+
+      // 5. Mark active
+      const allNames = ["Operator", ...seats];
+      if(!selectedSeat || !allNames.includes(selectedSeat)) selectSeat("Operator");
+      else { markActiveSeat(); updateMobileChatTitle(); }
       updateTablePulseFromStatuses();
     }
 
+    function updateMobileChatTitle(){
+      const el = document.getElementById("mobileChatTitle");
+      if(el) el.innerText = selectedSeat ? ("💬 " + selectedSeat) : "Select a teammate";
+    }
+
     function makeMobileCard(defn, isOperator){
-      const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:(defn.name||"?").slice(0,1).toUpperCase()};
+      const av = defn.avatar || {bg:"#1f2a44",fg:"#e6edff",sigil:(defn.name||"?").slice(0,1).toUpperCase()};
       const card = document.createElement("div");
-      card.className = "seat" + (isOperator ? " seatOperator" : "");
+      card.className = "mobileTeamCard";
       card.dataset.name = defn.name;
-      card.tabIndex = 0;
-      // Hardcode every layout property as inline style — nothing can override this
-      card.style.cssText = [
-        "position:relative",
-        "left:auto","top:auto","right:auto","bottom:auto",
-        "transform:none",
-        "width:100%",
-        "max-width:100%",
-        "min-width:0",
-        "height:auto",
-        "min-height:72px",
-        "margin:0",
-        "padding:12px 14px",
-        "box-sizing:border-box",
-        "display:flex",
-        "align-items:center",
-        "gap:12px",
-        "cursor:pointer",
-        "overflow:hidden",
-        "border-radius:14px",
-        "background:rgba(14,22,48,.95)",
-        "border:1px solid rgba(42,58,106,.85)",
-        "backdrop-filter:blur(10px)",
-      ].join(";");
 
       // Avatar
       const avatar = document.createElement("div");
-      avatar.style.cssText = [
-        "width:44px","height:44px","border-radius:12px",
-        "display:flex","align-items:center","justify-content:center",
-        "font-weight:800","font-size:18px",
-        "flex-shrink:0","position:relative",
-        "background:" + av.bg,
-        "color:" + av.fg,
-      ].join(";");
+      avatar.className = "mcAvatar";
+      avatar.style.background = av.bg;
+      avatar.style.color = av.fg;
       avatar.innerText = av.sigil || (defn.name||"?").slice(0,1).toUpperCase();
-
-      const liveDot = document.createElement("div");
-      liveDot.className = "liveDot idle";
-      liveDot.id = "live_" + defn.name;
-      liveDot.style.cssText = "position:absolute;right:-4px;bottom:-4px;width:12px;height:12px;border-radius:50%;background:rgba(184,196,255,.35);border:1px solid rgba(0,0,0,.35);";
-      avatar.appendChild(liveDot);
+      const dot = document.createElement("div");
+      dot.className = "liveDot idle";
+      dot.id = "live_" + defn.name;
+      dot.style.cssText = "position:absolute;right:-4px;bottom:-4px;width:11px;height:11px;border-radius:50%;background:rgba(184,196,255,.35);border:1px solid rgba(0,0,0,.4);";
+      avatar.appendChild(dot);
 
       // Meta
       const meta = document.createElement("div");
-      meta.style.cssText = "flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;";
+      meta.className = "mcMeta";
+      const nm = document.createElement("div"); nm.className = "mcName"; nm.innerText = defn.name;
+      const rl = document.createElement("div"); rl.className = "mcRole"; rl.innerText = defn.job_title||(isOperator?"You":"");
+      const st = document.createElement("div"); st.className = "mcStatus"; st.id = "status_"+defn.name; st.innerText = "Idle";
+      meta.appendChild(nm); meta.appendChild(rl); meta.appendChild(st);
 
-      const nm = document.createElement("div");
-      nm.className = "seatName";
-      nm.style.cssText = "font-weight:800;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-      nm.innerText = defn.name;
-
-      const rl = document.createElement("div");
-      rl.className = "seatRole";
-      rl.style.cssText = "font-size:12px;color:rgba(148,163,184,.8);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-      rl.innerText = defn.job_title || (isOperator ? "You" : "");
-
-      const st = document.createElement("div");
-      st.className = "seatStatus";
-      st.id = "status_" + defn.name;
-      st.style.cssText = "font-size:12px;color:rgba(148,163,184,.7);";
-      st.innerText = "Idle";
-
-      meta.appendChild(nm);
-      meta.appendChild(rl);
-      meta.appendChild(st);
-
-      // Edit/Profile button
+      // Action button
       const btn = document.createElement("button");
-      btn.style.cssText = [
-        "flex-shrink:0",
-        "padding:6px 12px",
-        "border:1px solid rgba(42,58,106,.85)",
-        "background:rgba(20,30,60,.65)",
-        "color:rgba(226,232,240,.9)",
-        "border-radius:10px",
-        "font-size:12px",
-        "cursor:pointer",
-      ].join(";");
+      btn.className = "mcBtn";
       btn.innerText = isOperator ? "Profile" : "Edit";
-      btn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
-      btn.addEventListener("click", e => {
+      btn.addEventListener("pointerdown", e=>{ e.preventDefault(); e.stopPropagation(); });
+      btn.addEventListener("click", e=>{
         e.preventDefault(); e.stopPropagation();
         if(isOperator){ try{ openOperatorProfileModal(); }catch(_){} }
         else { try{ openEditForTeammate(defn.name); }catch(_){} }
       });
 
-      card.appendChild(avatar);
-      card.appendChild(meta);
-      card.appendChild(btn);
+      card.appendChild(avatar); card.appendChild(meta); card.appendChild(btn);
 
-      card.addEventListener("click", () => selectSeat(defn.name));
-      card.addEventListener("keydown", e => {
-        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); selectSeat(defn.name); }
+      // Tap to chat: switch to chat tab
+      card.addEventListener("click", ()=>{
+        selectSeat(defn.name);
+        switchMobileTab("chat");
+        updateMobileChatTitle();
       });
 
       return card;
     }
+
+    function switchMobileTab(view){
+      document.querySelectorAll(".mobileTab").forEach(t => t.classList.toggle("active", t.dataset.view===view));
+      document.querySelectorAll(".mobileView").forEach(v => v.classList.toggle("active", v.id==="mobile"+view.charAt(0).toUpperCase()+view.slice(1)+"View"));
+    }
+
+    // Wire up tabs on load
+    document.addEventListener("DOMContentLoaded", ()=>{
+      document.querySelectorAll(".mobileTab").forEach(tab=>{
+        tab.addEventListener("click", ()=> switchMobileTab(tab.dataset.view));
+      });
+      const menuBtn = document.getElementById("mobileHeaderMenuBtn");
+      if(menuBtn) menuBtn.addEventListener("click", ()=>{
+        const overlay = document.getElementById("mobileDrawerOverlay");
+        if(overlay) overlay.classList.add("show");
+        const drawer = document.getElementById("mobileDrawer");
+        if(drawer) drawer.classList.add("open");
+      });
+    });
     function makeOperatorSeat(idx){
       const wrap = $("tableWrap");
 
@@ -13367,6 +13529,14 @@ function makeSeat(defn, idx){
       selectedSeat = name;
       window.selectedSeat = name;  // keep window in sync
       markActiveSeat();
+
+      // On mobile: update chat title and mark active card
+      if(isMob()){
+        updateMobileChatTitle();
+        document.querySelectorAll(".mobileTeamCard").forEach(c=>{
+          c.classList.toggle("active", c.dataset.name===name);
+        });
+      }
 
       const defn = (state.installed || {})[name];
       $("seatTitle").innerText = defn ? defn.name : name;
@@ -20303,6 +20473,12 @@ $("saveFramework").onclick = async () => {
     window.addEventListener("orientationchange", () => {
       setTimeout(() => { if(state && state.ok) renderTable(); }, 300);
     });
+    // Initial mobile setup
+    if(isMob()){
+      const shell = document.getElementById("mobileShell");
+      if(shell) shell.style.display = "flex";
+      document.querySelectorAll(".stage").forEach(el => el.style.display = "none");
+    }
 
     loadState().then(() => { applyMobileLayout(); }).catch(() => {});
   loadState();
