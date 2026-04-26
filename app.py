@@ -10142,9 +10142,10 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + logout -->
-      <div class="saNavRight">
+      <!-- Right: model tag + scout + logout -->
+      <div class="saNavRight" style="display:flex;align-items:center;gap:8px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
+        <button id="scoutSupportBtn" onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 13px;font-size:13px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -10187,6 +10188,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
+        <button class="btn" onclick="openScoutPanel();document.getElementById('mobileDrawerOverlay').style.display='none';" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;font-weight:700;">🛟 Support</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
 
@@ -22775,6 +22777,212 @@ if(typeof maybeAutoShowOnboarding === "function"){
 })();
 </script>
 
+<!-- ===== SCOUT SUPPORT PANEL ===== -->
+<style>
+#scoutPanel {
+  display:none;
+  position:fixed;
+  bottom:0; right:0;
+  width:380px; max-width:100vw;
+  height:560px; max-height:90vh;
+  background:linear-gradient(160deg,#0f1629 0%,#13203a 100%);
+  border:1px solid rgba(124,58,237,.45);
+  border-bottom:none; border-right:none;
+  border-radius:18px 0 0 0;
+  box-shadow:-4px -4px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(124,58,237,.12);
+  z-index:9999;
+  flex-direction:column;
+  overflow:hidden;
+  font-family:inherit;
+}
+#scoutPanel.open { display:flex; }
+#scoutHeader {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px 12px;
+  background:rgba(124,58,237,.12);
+  border-bottom:1px solid rgba(124,58,237,.25);
+  flex-shrink:0;
+}
+#scoutHeaderLeft { display:flex; align-items:center; gap:10px; }
+#scoutAvatar {
+  width:36px; height:36px; border-radius:50%;
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; flex-shrink:0;
+  box-shadow:0 0 10px rgba(124,58,237,.5);
+}
+#scoutName { font-size:15px; font-weight:800; color:#c4b5fd; }
+#scoutSub { font-size:11px; color:#64748b; margin-top:1px; }
+#scoutCloseBtn {
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+  color:#94a3b8; border-radius:8px; padding:4px 10px; font-size:13px;
+  cursor:pointer; transition:background .15s;
+}
+#scoutCloseBtn:hover { background:rgba(255,255,255,.12); color:#e2e8f0; }
+#scoutMessages {
+  flex:1; overflow-y:auto; padding:14px 14px 8px;
+  display:flex; flex-direction:column; gap:10px;
+  scroll-behavior:smooth;
+}
+.scoutMsg {
+  max-width:88%; padding:10px 13px; border-radius:12px;
+  font-size:13px; line-height:1.55; word-break:break-word;
+}
+.scoutMsg.scout {
+  align-self:flex-start;
+  background:rgba(124,58,237,.15);
+  border:1px solid rgba(124,58,237,.25);
+  color:#e2e8f0;
+  border-bottom-left-radius:3px;
+}
+.scoutMsg.user {
+  align-self:flex-end;
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.1);
+  color:#e2e8f0;
+  border-bottom-right-radius:3px;
+}
+.scoutMsg.typing { opacity:.6; font-style:italic; }
+#scoutEmailNote {
+  flex-shrink:0;
+  padding:8px 14px;
+  font-size:11px; color:#475569; text-align:center;
+  border-top:1px solid rgba(42,58,106,.4);
+}
+#scoutEmailNote a { color:#7c3aed; text-decoration:none; }
+#scoutEmailNote a:hover { text-decoration:underline; }
+#scoutInputRow {
+  display:flex; gap:8px; padding:10px 12px 14px;
+  flex-shrink:0; border-top:1px solid rgba(42,58,106,.4);
+  align-items:flex-end;
+}
+#scoutInput {
+  flex:1; background:rgba(7,10,20,.7);
+  border:1px solid rgba(42,58,106,.7); border-radius:10px;
+  padding:9px 12px; font-size:13px; color:#e2e8f0;
+  outline:none; resize:none; font-family:inherit;
+  min-height:38px; max-height:100px; line-height:1.4;
+}
+#scoutInput:focus { border-color:rgba(124,58,237,.6); }
+#scoutSendBtn {
+  background:rgba(124,58,237,.7); border:none;
+  color:#fff; border-radius:10px;
+  padding:9px 14px; font-size:14px; font-weight:700;
+  cursor:pointer; flex-shrink:0; transition:background .15s;
+  height:38px;
+}
+#scoutSendBtn:hover { background:rgba(124,58,237,.9); }
+#scoutSendBtn:disabled { opacity:.4; cursor:default; }
+</style>
+
+<div id="scoutPanel">
+  <div id="scoutHeader">
+    <div id="scoutHeaderLeft">
+      <div id="scoutAvatar">🛟</div>
+      <div>
+        <div id="scoutName">Scout</div>
+        <div id="scoutSub">Simply Agentic AI · Support</div>
+      </div>
+    </div>
+    <button id="scoutCloseBtn" onclick="closeScoutPanel()">✕ Close</button>
+  </div>
+  <div id="scoutMessages"></div>
+  <div id="scoutEmailNote">Need a human? <a href="mailto:SimplyAgenticAI@gmail.com">SimplyAgenticAI@gmail.com</a></div>
+  <div id="scoutInputRow">
+    <textarea id="scoutInput" placeholder="Ask Scout anything about Simply Agentic AI…" rows="1"></textarea>
+    <button id="scoutSendBtn" onclick="scoutSend()">➤</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var scoutHistory = [];
+  var scoutBusy = false;
+
+  window.openScoutPanel = function(){
+    var panel = document.getElementById('scoutPanel');
+    if(!panel) return;
+    panel.classList.add('open');
+    if(scoutHistory.length === 0) scoutGreet();
+    setTimeout(function(){ var i = document.getElementById('scoutInput'); if(i) i.focus(); }, 150);
+  };
+
+  window.closeScoutPanel = function(){
+    var panel = document.getElementById('scoutPanel');
+    if(panel) panel.classList.remove('open');
+  };
+
+  function scoutGreet(){
+    scoutAppendMsg('scout', "Hey! I'm Scout — your Simply Agentic AI support guide. Ask me anything about the software: features, setup, billing, teammates, or troubleshooting. What can I help you with?");
+  }
+
+  function scoutAppendMsg(role, text){
+    var box = document.getElementById('scoutMessages');
+    if(!box) return;
+    var div = document.createElement('div');
+    div.className = 'scoutMsg ' + role;
+    div.innerText = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+  }
+
+  function scoutSetBusy(busy){
+    scoutBusy = busy;
+    var btn = document.getElementById('scoutSendBtn');
+    if(btn) btn.disabled = busy;
+  }
+
+  window.scoutSend = async function(){
+    if(scoutBusy) return;
+    var inp = document.getElementById('scoutInput');
+    if(!inp) return;
+    var text = (inp.value || '').trim();
+    if(!text) return;
+    inp.value = '';
+    inp.style.height = 'auto';
+    scoutHistory.push({role:'user', content: text});
+    scoutAppendMsg('user', text);
+    scoutSetBusy(true);
+    var typingEl = scoutAppendMsg('scout', '...');
+    if(typingEl) typingEl.classList.add('typing');
+    try {
+      var res = await fetch('/api/scout/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: scoutHistory})
+      });
+      var data = await res.json();
+      var reply = (data.reply || 'Sorry, something went wrong. Try emailing SimplyAgenticAI@gmail.com.');
+      if(typingEl) typingEl.parentNode && typingEl.parentNode.removeChild(typingEl);
+      scoutHistory.push({role:'assistant', content: reply});
+      scoutAppendMsg('scout', reply);
+    } catch(e) {
+      if(typingEl) typingEl.parentNode && typingEl.parentNode.removeChild(typingEl);
+      scoutAppendMsg('scout', 'Connection issue. Try emailing SimplyAgenticAI@gmail.com for help.');
+    }
+    scoutSetBusy(false);
+  };
+
+  // Enter to send, Shift+Enter for newline
+  document.addEventListener('DOMContentLoaded', function(){
+    var inp = document.getElementById('scoutInput');
+    if(!inp) return;
+    inp.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        window.scoutSend();
+      }
+    });
+    inp.addEventListener('input', function(){
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+    });
+  });
+})();
+</script>
+<!-- ===== END SCOUT SUPPORT PANEL ===== -->
+
 </body>
 </html>
 """
@@ -28456,6 +28664,140 @@ def api_tts():
         print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
+
+
+SCOUT_SYSTEM_PROMPT = """You are Scout — the dedicated AI support teammate for Simply Agentic AI. You do not sit at the round table with the other teammates. Your only job is to help users understand, navigate, and get the most out of Simply Agentic AI.
+
+You know the software inside and out. Here is your complete knowledge base:
+
+== OVERVIEW ==
+Simply Agentic AI is an AI-powered business command center. It gives solo operators and small teams a full bench of specialized AI teammates, a built-in CRM, email/SMS broadcast, lead generation, social content, calendar sync, and more — all in one interface. The current version is Simply Agentic AI v1.11.
+
+== THE ROUND TABLE ==
+The Round Table is the main workspace. Users type to their AI teammates here. All active teammates sit at the table and respond in their area of expertise. Users can direct messages to one teammate or let the whole team respond. The session objective (set via Settings → Session Objective) anchors the whole team around a shared goal.
+
+== BUILT-IN AI TEAMMATES ==
+Each teammate has a defined role and persona. They are powered by GPT-4o (or Claude if configured):
+- Ava — Strategist. Business strategy, positioning, growth planning, competitive analysis.
+- Sunshine — Outreach & sales. Writing first messages, follow-ups, DMs, email copy, and prospecting language.
+- Atlas — Operations. Systems, SOPs, workflows, process design, and business infrastructure.
+- Atlis — Governance & integrity. Monitors that teammates stay in role and the system runs clean.
+- Max — Marketing. Campaigns, messaging, content strategy, brand voice.
+- Nova — Creative. Copy, storytelling, visual concepts, brand language.
+- Rex — Research. Market research, competitor analysis, data synthesis.
+Users can also create custom teammates on Growth and Pro plans.
+
+== CUSTOM TEAMMATES ==
+Users on Growth ($97/mo) get 3 custom teammate slots. Operator Pro gets unlimited. Custom teammates have a name, job title, emoji, role description, and system prompt. They appear at the round table alongside built-in teammates. Go to Team → Create teammate to build one.
+
+== PROMPT LIBRARY ==
+A library of pre-built prompts organized by teammate. Users click a prompt to instantly send it to that teammate. Users can also save their own custom prompts. Access via the Tools menu → Prompt Library or the 📚 button.
+
+== LEAD LAB ==
+Found under Tools → Lead Lab (or CRM → Lead Lab tab). Generates organized public lead lists from the web. Users set: target niche, location, lead count (10–100), search mode (balanced/broad/precision), specific areas, contact filter (phone or email), and minimum score. Seed rows are optional — leave blank to let Lead Lab discover prospects from scratch. Results show name, company, phone, email, website. Users can copy contact info, hand off to a teammate to draft outreach, or add leads directly to the CRM.
+
+== CRM (CLIENT COMMAND CENTER) ==
+Accessed via Tools → CRM. Contains:
+- Clients tab: Add, view, and manage contacts. Each client has name, company, email, phone, status, pipeline stage, tags, and notes.
+- Pipeline tab: Kanban-style board. Stages: Lead → Conversation → Interested → Call booked → Client. Drag cards to move clients through stages.
+- Email Broadcast: Send mass emails to client segments.
+- Broadcast SMS: Send mass text messages.
+- Enroll client: Put a client into an automated sequence.
+Starter plan: 500 contacts, 250 broadcast recipients. Growth: 2500 contacts, 1000 recipients. Founder: same as Growth.
+
+== SOCIAL STUDIO ==
+Tools → Social Studio. Generates social media content: posts, hooks, comment scripts, DMs, and launch packs. Users pick platform (Facebook, LinkedIn, Instagram, X), asset type, audience, and offer/angle. Returns ready-to-use content sets.
+
+== OFFER BUILDER ==
+Tools → Offer Builder. Helps users build a cleaner offer, stronger positioning, and ready-to-use copy. Users fill in: who they help, what result they deliver, and how they deliver it. Returns positioning language, offer framing, and copy.
+
+== GROWTH PLAYBOOK ==
+Tools → Growth Playbook. Generates step-by-step action plans for goals like: get clients, grow audience, launch offer, reactivate leads, book calls. Users set a timeline (7–90 days) and business context. Playbooks can be saved.
+
+== EMAIL CONSOLE ==
+Tools → Email Console. Review and approve AI-drafted emails before sending. Works with Gmail OAuth or SMTP. Teammate-drafted emails flow here for human review before they go out.
+
+== CALENDAR ==
+Tools → Calendar. Full motion-style calendar with day/week views. Events can be created manually or via the CRM. Syncs with Google Calendar via OAuth. Supports recurring events.
+
+== IMAGE LIBRARY ==
+Tools → Image Library. View all AI-generated images. Teammates can generate images on request. Images are stored per user and can be viewed, downloaded, or used in content.
+
+== SETTINGS ==
+Settings → User Settings contains:
+- API keys: OpenAI key (required for AI and TTS), Anthropic key (optional, for Claude model).
+- Voice: TTS voice selection (alloy, echo, fable, onyx, nova, shimmer).
+- Default AI model: GPT-4o (default), or Claude models.
+- Notification preferences.
+- Account info.
+Operator Profile (Settings → Operator Profile): Shared context about the user's business that all teammates reference — name, audience, business description, offers, goals, notes.
+
+== TEAM SEATS ==
+Starter: 1 seat (solo only). Growth: 3 seats. Operator Pro: 10 seats. Founder: 2 seats. Owners can invite teammates via Settings → My Team → Invite. Invited users get their own login and share the owner's plan features.
+
+== PLANS & BILLING ==
+- Founder Access — $17/mo, locked forever, limited seats. 3 custom teammates, 2,500 CRM contacts, 2 team seats.
+- Solo Operator — $47/mo. No custom teammates. 500 CRM contacts, 1 seat.
+- Growth System — $97/mo. 3 custom teammates. 2,500 contacts, 3 seats. Most popular.
+- Operator Pro — Custom. Unlimited custom teammates, 10 seats, 5,000+ contacts.
+Free trial: 7 days for new accounts.
+
+== SESSION OBJECTIVE ==
+Set a shared goal for the whole session via Settings → Session Objective. Every teammate references this objective in their responses. Keeps the team aligned around one outcome.
+
+== ACTION STACKS ==
+Multi-step automated workflows that teammates can execute in sequence. Can be scheduled to run once or daily. Found in the teammate panel.
+
+== GOOGLE INTEGRATIONS ==
+- Gmail OAuth: Connect via Settings to send emails through your Gmail account.
+- Google Calendar: Connect via Settings to create and sync calendar events.
+
+== OPENAI API KEY ==
+Required for AI responses and voice (TTS). Get it at platform.openai.com. Enter it in Settings → User Settings → OpenAI API Key. The key stays private and is never shared.
+
+== VOICE (TTS) ==
+AI responses can be read aloud using OpenAI TTS-1. Select a voice in Settings. Requires a valid OpenAI API key.
+
+== MOBILE EXPERIENCE ==
+Simply Agentic AI works on mobile. The bottom bar gives quick access to Menu, Team, and Settings. The mobile drawer contains all tools and navigation. The round table adapts to smaller screens.
+
+== COMMON ISSUES ==
+- "No response from teammate": Check that your OpenAI API key is set in Settings.
+- "Gmail not sending": Reconnect Gmail OAuth in Settings or switch to SMTP.
+- "Calendar events not saving": Make sure Google Calendar is connected in Settings.
+- "Custom teammate not showing": Make sure they are installed at the round table via Team → Add or dismiss.
+- "Lead Lab returning no results": Try broadening the niche, removing location filters, or switching to 'Any public lead' for contact filter.
+
+== YOUR ROLE AS SCOUT ==
+- Answer questions about any feature clearly and practically.
+- Guide users to the right tool for their goal.
+- Never make up features that don't exist.
+- If something sounds like a bug, acknowledge it and suggest they email SimplyAgenticAI@gmail.com for human support.
+- Keep responses concise and actionable.
+- You are friendly, fast, and knowledgeable.
+"""
+
+@app.post("/api/scout/chat")
+def api_scout_chat():
+    """Scout — the Simply Agentic AI support teammate."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload  = request.get_json(silent=True) or {}
+    messages = payload.get("messages") or []
+    if not messages or not isinstance(messages, list):
+        return jsonify({"ok": False, "error": "Missing messages"}), 400
+    # Keep last 20 turns to stay within context
+    messages = messages[-20:]
+    try:
+        reply = call_llm(SCOUT_SYSTEM_PROMPT, messages, temperature=0.5)
+        reply = (reply or "").strip()
+        if not reply:
+            reply = "I'm not sure about that one — try emailing SimplyAgenticAI@gmail.com and a human will help you out."
+        return jsonify({"ok": True, "reply": reply})
+    except Exception as exc:
+        print(f"[SCOUT] error: {exc}", flush=True)
+        return jsonify({"ok": True, "reply": "Something went wrong on my end. For urgent help email SimplyAgenticAI@gmail.com."})
 
 
 if __name__ == "__main__":
