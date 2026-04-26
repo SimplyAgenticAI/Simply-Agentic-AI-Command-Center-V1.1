@@ -7746,7 +7746,6 @@ function startCheckout(plan){{
   form.appendChild(inp);document.body.appendChild(form);form.submit();
 }}
 </script>
-
 </body></html>"""
     resp = make_response(page)
     resp.headers["Cache-Control"] = "no-store"
@@ -8788,328 +8787,734 @@ HTML = r"""
       cursor:pointer;
       pointer-events:auto;
     }
-    /* ═══════════════════════════════════════════════════════════════
-       MOBILE LAYOUT — High-specificity rules that beat ALL JS inline styles.
-       ID selectors (#tableWrap, #operator) always win over class/tag rules.
-       These are inside the main <style> tag so they load before JS runs.
-       ═══════════════════════════════════════════════════════════════ */
-    @media (max-width: 700px) {
-      /* Container: vertical flex list */
-      #tableWrap {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
-        width: 100% !important;
-        max-width: 100vw !important;
-        min-width: 0 !important;
+    .seatToolBtn:hover{
+      background: rgba(22,34,72,.78);
+      border-color: rgba(124,58,237,.55);
+    }
+
+    .side{
+      position: sticky;
+      top: 0;
+      align-self:start;
+      height: 100vh;
+      overflow:hidden;
+      border-left:1px solid rgba(34,49,90,.8);
+      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
+      backdrop-filter: blur(10px);
+      padding: 12px;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+    }
+
+    .sideCard{
+      background: rgba(11,16,36,.92);
+      border:1px solid rgba(42,58,106,.9);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 0 24px rgba(0,0,0,.24);
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 48px);
+      overflow: hidden;
+    }
+
+    .sideHead{
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      margin-bottom:10px;
+    }
+    .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .sideTitle .h1{ font-weight:800; }
+    .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+
+    /* ===== REDESIGNED NAV BAR ===== */
+    .saNavBar{
+      display:flex;align-items:center;gap:10px;
+      padding:8px 16px;
+      background:rgba(18,26,56,.97);
+      border-bottom:1px solid rgba(80,110,200,.3);
+      position:sticky;top:0;z-index:900;
+      backdrop-filter:blur(12px);
+      flex-wrap:nowrap;overflow:visible;
+    }
+    .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+    .saNavCenter{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+    #saPinnedBar:empty{ display:none; }
+    .saNavRight{flex-shrink:0;display:flex;gap:8px;align-items:center;}
+    .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
+    .saDropWrap{position:relative;}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+    .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
+    .saChevron{font-size:9px;opacity:.7;}
+    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
+    .saDrop.open{display:block;}
+    .saDrop.drop-right{left:auto;right:0;}
+    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
+    .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
+
+
+    .saObjectivePill{font-size:13px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;max-width:280px;}
+    .commandHeader,.commandRow{display:none !important;}
+    /* ===== END NAV BAR CSS ===== */
+
+    .thread{
+      height: 40vh;
+      overflow:auto;
+      background: rgba(20,30,60,.65);
+      border:1px solid rgba(42,58,106,.6);
+      border-radius: 14px;
+      padding: 10px;
+      font-size: 13px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+
+    .msg{
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 14px;
+      border:1px solid rgba(42,58,106,.55);
+      background: rgba(14,22,48,.55);
+    }
+    .msg.user{ border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.08); }
+    .msg.assistant{ border-color: rgba(124,58,237,.35); background: rgba(124,58,237,.08); }
+    .msg .who{
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .followBox, .field{
+      width:100%;
+      resize:none;
+      border-radius: 14px;
+      border:1px solid rgba(42,58,106,.9);
+      background: rgba(7,10,20,.75);
+      color: var(--text);
+      padding:10px;
+      outline:none;
+      font-size:13px;
+      line-height:1.3;
+    }
+    .followBox{ height: 92px; }
+
+    .underTable{
+      width: min(860px, 92vw);
+      margin: 0 auto 42px auto;
+      padding: 0 0 18px 0;
+    }
+
+    .groupCard{
+      background: rgba(11,16,36,.92);
+      border:1px solid rgba(42,58,106,.9);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 0 24px rgba(0,0,0,.24);
+      margin-top: 16px;
+    }
+
+    .groupReplies{
+      max-height: 52vh;
+      overflow:auto;
+      background: rgba(20,30,60,.65);
+      border:1px solid rgba(42,58,106,.6);
+      border-radius: 14px;
+      padding: 10px;
+    }
+
+    .replyItem{
+      border:1px solid rgba(42,58,106,.55);
+      background: rgba(14,22,48,.55);
+      border-radius: 14px;
+      padding:10px;
+      margin-bottom:10px;
+    }
+    .replyTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:8px;
+    }
+    .replyName{
+      font-weight:800;
+      font-size:13px;
+    }
+    .replyBtns{ display:flex; gap:8px; flex-wrap:wrap; }
+    .replyBody{
+      white-space: pre-wrap;
+      font-size:13px;
+      line-height:1.35;
+      color: var(--text);
+    }
+
+    .row2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .tiny{ font-size: 12px; color:var(--muted); }
+    .modalForm .tiny{ font-size: 13px; }
+
+    .overlay{
+      position:fixed; inset:0; display:none;
+      align-items:flex-start; justify-content:center;
+      padding-top: 68px;
+      background: rgba(20,30,60,.65);
+      backdrop-filter: blur(8px);
+      z-index: 80;
+    }
+    .overlay.show{ display:flex; }
+
+    .modal{
+      position: fixed;
+      left: 50%;
+      top: 64px;
+      transform: translateX(-50%);
+      width: min(1140px, calc(100vw - 32px));
+      max-width: calc(100vw - 22px);
+      height: min(840px, calc(100vh - 90px));
+      max-height: calc(100vh - 90px);
+      background: rgba(14,22,48,.92);
+      border: 1px solid rgba(42,58,106,.9);
+      border-radius: 18px;
+      padding: 12px;
+      box-shadow: 0 0 60px rgba(0,0,0,.45);
+      display: flex;
+      flex-direction: column;
+      resize: both;
+      overflow: hidden;
+      min-width: 620px;
+      min-height: 480px;
+      z-index: 90;
+    }
+
+    .modalBar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(42,58,106,.7);
+      background: rgba(18,28,56,.5);
+      cursor: move;
+      user-select:none;
+    }
+
+    .modalBarTitle{
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 360px;
+    }
+
+    .modalBarBtns{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .modalBodyWrap{
+      margin-top: 10px;
+      flex: 1 1 auto;
+      overflow: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(42,58,106,.6);
+      background: rgba(18,28,56,.5);
+      padding: 10px;
+    }
+
+    .modal pre{
+      margin:0;
+      white-space: pre-wrap;
+      color: var(--text);
+      background: transparent;
+      border: 0;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
+    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    /* All modal content: centered column, comfortable reading width */
+    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
+    /* 2-column field pairs inside the centered column */
+    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
+    .formGrid2 .spanFull{ grid-column:1/-1; }
+    /* Tool results area — wider than the form so output has room */
+    .toolResults{ max-width:1000px; margin:24px auto 0; }
+    /* Primary textarea in each tool form grows to fill available vertical space */
+    .modalForm .primaryArea{ flex:1; min-height:180px; }
+    /* Hint text above forms */
+    .toolHint{ font-size:14px; color:#64748b; margin-bottom:20px; line-height:1.65; text-align:center; }
+    /* Run / action bar */
+    .toolRunBar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:20px; justify-content:center; }
+    .modalForm label{
+      display:block;
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0 0 8px 0;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+    .modalForm input, .modalForm textarea, .modalForm select{
+      width:100%;
+      border-radius: 12px;
+      border:1px solid rgba(42,58,106,.9);
+      background: rgba(11,16,36,.92);
+      color: var(--text);
+      padding:13px 14px;
+      outline:none;
+      font-size:15px;
+      line-height:1.4;
+    }
+    .modalForm textarea{ height: 140px; resize: vertical; }
+    .modalForm select{ padding:12px 14px; }
+    /* Bigger buttons inside modals */
+    .modalForm .btn, .modalForm .btnPrimary{
+      padding:12px 22px;
+      font-size:15px;
+      border-radius:12px;
+    }
+    .modalForm .btnMini{
+      padding:8px 14px;
+      font-size:13px;
+    }
+    .modalForm .actions{ display:flex; gap:12px; flex-wrap:wrap; margin-top:18px; align-items:center; justify-content:center; }
+
+    .imgPreview{
+      width:100%;
+      border-radius: 14px;
+      border:1px solid rgba(42,58,106,.7);
+      margin-top: 10px;
+      display:none;
+    }
+
+    .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
+    .modal.minimized .modalBodyWrap{ display:none; }
+    .modalResizeGrip{
+      position:absolute;
+      right:10px;
+      bottom:10px;
+      width:18px;
+      height:18px;
+      cursor:nwse-resize;
+      z-index:3;
+      border-radius:8px;
+      background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.18));
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+      touch-action:none;
+    }
+    .modalResizeGrip::before{
+      content:"";
+      position:absolute;
+      right:3px;
+      bottom:3px;
+      width:10px;
+      height:10px;
+      border-right:2px solid rgba(255,255,255,.75);
+      border-bottom:2px solid rgba(255,255,255,.75);
+      opacity:.9;
+    }
+
+    .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
+    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+    .passRow .tiny{ margin-left: 2px; }
+    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
+    .pill{
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      border:1px solid rgba(42,58,106,.7);
+      background: rgba(14,22,48,.45);
+      padding:8px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color: var(--text);
+    }
+    .pill button{
+      border:0;
+      background: transparent;
+      color: var(--muted);
+      cursor:pointer;
+      font-size:12px;
+    }
+    .pill button:hover{ color: var(--text); }
+
+
+    @media (max-width: 1280px){
+      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
+      .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+      .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
+    }
+
+    @media (max-width: 980px){
+      .stage{ grid-template-columns: 1fr; }
+      .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
+      .tableWrap{ min-height: 860px; }
+      .row2{ grid-template-columns: 1fr; }
+      .underTable{ width: min(860px, 92vw); }
+      .modalForm .grid{ grid-template-columns: 1fr; }
+      .modal{ width: calc(100vw - 22px); }
+      .modalBarTitle{ max-width: 240px; }
+    }
+  
+
+    /* Mobile responsiveness */
+    @media (max-width: 720px){
+      body{ overflow-x:hidden; }
+      .topbar{ height:auto; }
+      .topbarMain{ gap:10px; }
+      .rightmeta{ justify-content:flex-start; }
+      .commandRow, .commandRow.secondary{ grid-template-columns: repeat(2, minmax(0, 1fr)); max-width:none; }
+      .stage{ grid-template-columns: 1fr !important; }
+      .side{ padding: 0 12px 22px 12px; }
+      .sideCard{ position: relative; top:auto; max-height:none; }
+      .arena{ padding: 12px 0 12px 0; }
+
+      /* Round table becomes a clean vertical list to prevent overlap */
+      .tableWrap{
+        width: calc(100vw - 24px);
         height: auto !important;
         min-height: 0 !important;
-        overflow: visible !important;
-        overflow-x: hidden !important;
-        position: relative !important;
-        transform: none !important;
-        padding: 10px !important;
-        gap: 10px !important;
-        box-sizing: border-box !important;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap: 10px;
+        padding-bottom: 14px;
       }
-      /* Hide the round table circle and stage */
-      #tableCore  { display: none !important; }
-      #rtStage    { display: none !important; }
-      /* Every seat: in-flow full-width card */
-      #tableWrap .seat {
-        position: relative !important;
-        left: auto !important;
-        top: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        transform: none !important;
-        width: 100% !important;
+      .table{
+        position:relative !important;
+        inset:auto !important;
+        transform:none !important;
+        width: min(520px, 100%);
+        height: 120px;
+        margin: 0 auto 6px auto;
+      }
+      .seat{
+        position:relative !important;
+        left:auto !important;
+        top:auto !important;
+        transform:none !important;
+        width: min(520px, 100%) !important;
         max-width: 100% !important;
-        min-width: 0 !important;
         height: auto !important;
-        min-height: 72px !important;
-        margin: 0 !important;
-        padding: 12px 14px 36px !important;
-        box-sizing: border-box !important;
-        cursor: pointer !important;
-        flex-shrink: 0 !important;
+        min-height: 118px;
+        cursor: default;
       }
-      /* seatTools: keep absolute but inside the card */
-      #tableWrap .seat .seatTools {
-        position: absolute !important;
-        bottom: 8px !important;
-        right: 10px !important;
-        left: auto !important;
-      }
-      /* Group Console: in-flow, full width */
-      #operator {
-        position: relative !important;
-        left: auto !important;
-        top: auto !important;
-        transform: none !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        height: auto !important;
-        margin: 0 !important;
-        box-sizing: border-box !important;
-      }
-      #operator .opText {
-        width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      /* underTable / shared memory bar */
-      .underTable {
-        position: relative !important;
-        z-index: 2 !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        box-sizing: border-box !important;
-        margin: 0 !important;
-      }
-      /* Prevent iOS text zoom */
-      textarea, input, select { font-size: 16px !important; }
-      /* Force page width — kill all horizontal overflow */
-      html, body {
-        overflow-x: hidden !important;
-        max-width: 100vw !important;
-        width: 100% !important;
-      }
-      .stage, .arena {
-        display: block !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        overflow: hidden !important;
-        box-sizing: border-box !important;
-        grid-template-columns: none !important;
-      }
-      .side { display: none !important; }
-      .underTable { display: none !important; }
+      .seatTools{ flex-wrap:wrap; gap:8px; }
+      .seatToolBtn{ flex: 1 1 auto; }
+
+      /* Prevent any long labels from forcing overlap */
+      .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+
+
+/* Mobile: make modal truly full-screen so it never covers seats awkwardly */
+.overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
+#modalWin{
+  position: fixed !important;
+  left: 10px !important;
+  right: 10px !important;
+  top: 10px !important;
+  bottom: 10px !important;
+  width: auto !important;
+  height: auto !important;
+  max-height: none !important;
+}
+#modalScroll{ max-height: calc(100vh - 170px) !important; }
+      /* iOS: prevent zoom on focus */
+      textarea, input, select{ font-size: 16px; }
     }
-    /* ═══════════════════════════════════════════════════════════════ */
 
 
-/* ═══════════════════════════════════════════════════════════
-   MOBILE  —  desktop nav visible + reflow, nothing cut off
-   ═══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════
+   MOBILE — minimal fix: stop overflow, don't touch visual style
+   ══════════════════════════════════════════════════════════════════ */
 
-/* Global */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { max-width: 100%; overflow-x: hidden !important; }
+:root { --mobile-pad: 14px; }
 
-/* ── 980px: single column ── */
-@media (max-width: 980px) {
-  .stage   { grid-template-columns: 1fr !important; }
-  .side    { position:relative; top:0; height:auto; overflow:visible; border-left:0; }
-  .tableWrap { min-height:860px; }
-  .underTable { width:min(860px,92vw); }
-  .modal   { width:calc(100vw - 22px); }
+/* 1280px */
+@media (max-width: 1280px) {
+  .commandRow           { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
+  .commandRow.secondary { grid-template-columns: repeat(3, minmax(160px, 1fr)); max-width: none; }
 }
 
-/* ── 700px: phone layout ── */
-@media (max-width: 700px) {
+/* 980px */
+@media (max-width: 980px) {
+  .stage         { grid-template-columns: 1fr !important; }
+  .side          { position: relative; top: 0; height: auto; overflow: visible; border-left: 0; }
+  .tableWrap     { min-height: 860px; }
+  .row2          { grid-template-columns: 1fr; }
+  .underTable    { width: min(860px, 92vw); }
+  .modalForm .grid { grid-template-columns: 1fr; }
+  .modal         { width: calc(100vw - 22px); }
+  .modalBarTitle { max-width: 240px; }
+}
 
-  html, body { overflow-x:hidden !important; }
-  body { padding-bottom:calc(62px + env(safe-area-inset-bottom)) !important; touch-action:manipulation; }
+/* 720px: show mobile bar */
+@media (max-width: 720px) {
+  .rightmeta { display: none !important; }
 
-  /* ── Kill mobile shell — use real desktop nav ── */
-  #mobileShell { display:none !important; }
-  .stage       { display:block !important; }
-
-  /* ── Topbar: keep it, slim it ── */
-  .topbar {
-    padding: 6px 10px !important;
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 900 !important;
-    background: rgba(18,26,56,.98) !important;
-  }
-  .topbarMain { flex-wrap:nowrap !important; gap:6px !important; }
-  .rightmeta  { display:none !important; }
-  .brand div:last-child { font-size:13px !important; }
-
-  /* ── Nav bar: horizontal scroll, all buttons accessible ── */
-  .saNavBar {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    overflow-y: visible !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    padding: 4px 2px 6px !important;
-    gap: 6px !important;
-    position: static !important;
-  }
-  .saNavBar::-webkit-scrollbar { display:none !important; }
-  .saNavLeft  { flex-shrink:0 !important; display:flex !important; gap:6px !important; flex-wrap:nowrap !important; }
-  .saNavCenter { display:none !important; }
-  .saNavRight { flex-shrink:0 !important; display:flex !important; gap:6px !important; margin-left:auto !important; }
-  .saNavBtn {
-    padding: 6px 10px !important;
-    font-size: 12px !important;
-    white-space: nowrap !important;
-    flex-shrink: 0 !important;
-  }
-  .saChevron { display:none !important; }
-
-  /* Drop menus open downward, full-width */
-  .saDrop {
-    position: fixed !important;
-    left: 8px !important;
-    right: 8px !important;
-    top: auto !important;
-    max-height: 55vh !important;
-    overflow-y: auto !important;
-    z-index: 9999 !important;
-    min-width: 0 !important;
-  }
-  .saDropItem { font-size:14px !important; padding:13px 16px !important; }
-
-  /* ── Stage: single column block ── */
-  .stage  { display:block !important; min-height:auto !important; }
-  .arena  { padding:6px 0 !important; overflow:visible !important; }
-
-  /* ── tableWrap: vertical list of cards ── */
-  #tableWrap {
-    display:flex !important;
-    flex-direction:column !important;
-    align-items:stretch !important;
-    width:100% !important; max-width:100% !important;
-    height:auto !important; min-height:0 !important;
-    overflow:visible !important;
-    position:relative !important;
-    transform:none !important;
-    padding:8px 10px !important;
-    gap:8px !important;
-  }
-  #tableCore, #rtStage { display:none !important; }
-
-  /* ── Seat cards: full-width ── */
-  #tableWrap .seat {
-    position:relative !important;
-    left:auto !important; top:auto !important; right:auto !important; bottom:auto !important;
-    transform:none !important;
-    width:100% !important; max-width:100% !important;
-    height:auto !important; min-height:70px !important;
-    margin:0 !important;
-    padding:12px 14px 36px !important;
-    box-sizing:border-box !important;
-    flex-shrink:0 !important;
-    cursor:pointer !important;
-  }
-  #tableWrap .seat .seatTools {
-    position:absolute !important; bottom:8px !important; right:10px !important; left:auto !important;
-  }
-
-  /* ── Group Console: full-width ── */
-  #operator {
-    position:relative !important;
-    left:auto !important; top:auto !important;
-    transform:none !important;
-    width:100% !important; max-width:100% !important; min-width:0 !important;
-    height:auto !important; margin:0 !important; box-sizing:border-box !important;
-  }
-  #operator .opText { width:100% !important; box-sizing:border-box !important; }
-
-  /* ── underTable / Group Replies ── */
-  .underTable {
-    width:100% !important; max-width:100% !important;
-    box-sizing:border-box !important; position:relative !important;
-    padding:0 10px !important;
-  }
-
-  /* ── Side chat panel: full-width below ── */
-  .side {
-    display:block !important;
-    width:100% !important; max-width:100% !important;
-    position:relative !important; top:auto !important;
-    height:auto !important; overflow:visible !important;
-    border-left:none !important;
-    padding:8px 10px !important; box-sizing:border-box !important;
-  }
-  .sideCard {
-    width:100% !important; height:auto !important;
-    max-height:none !important; position:relative !important;
-    box-sizing:border-box !important; overflow:visible !important;
-  }
-  #thread {
-    max-height:38vh !important; overflow-y:auto !important;
-    -webkit-overflow-scrolling:touch !important;
-  }
-
-  /* ── Prompt Library: fix right-side cutoff ── */
-  #plLayout {
-    flex-direction:column !important;
-    height:auto !important; overflow:visible !important;
-  }
-  #plSidebar {
-    width:100% !important;
-    flex-direction:row !important; flex-wrap:wrap !important;
-    border-right:none !important;
-    border-bottom:1px solid rgba(42,58,106,.55) !important;
-    padding-right:0 !important; padding-bottom:10px !important;
-    margin-bottom:10px !important; gap:6px !important;
-    overflow:visible !important;
-  }
-  #plTabs { flex-direction:row !important; flex-wrap:wrap !important; gap:6px !important; }
-  .plTab  { padding:8px 12px !important; font-size:13px !important; width:auto !important; }
-  #plMain { padding-left:0 !important; overflow:visible !important; }
-  #plCards { overflow:visible !important; padding-right:0 !important; }
-  .plCard {
-    flex-direction:column !important; align-items:flex-start !important;
-    overflow:hidden !important; width:100% !important; box-sizing:border-box !important;
-  }
-  .plCardBtns { flex-direction:row !important; flex-wrap:wrap !important; width:100% !important; gap:6px !important; }
-  .plCardText { -webkit-line-clamp:3 !important; }
-  #plSaveForm { grid-template-columns:1fr !important; }
-
-  /* ── Modals: full screen ── */
-  .modal, #modalWin {
-    position:fixed !important; inset:0 !important;
-    width:100vw !important; max-width:100vw !important;
-    height:100dvh !important; max-height:100dvh !important;
-    border-radius:0 !important; transform:none !important;
-    box-sizing:border-box !important; resize:none !important;
-  }
-  #modalScroll {
-    max-height:calc(100dvh - 52px) !important;
-    overflow-y:auto !important; overflow-x:hidden !important;
-    -webkit-overflow-scrolling:touch !important;
-    padding:10px 12px calc(68px + env(safe-area-inset-bottom)) !important;
-    box-sizing:border-box !important;
-  }
-  .formGrid2 { display:flex !important; flex-direction:column !important; gap:12px !important; }
-  .row2 { grid-template-columns:1fr !important; }
-  .modalForm .grid { grid-template-columns:1fr !important; }
-
-  /* ── Command rows: 2 columns ── */
-  .commandRow, .commandRow.secondary {
-    grid-template-columns:1fr 1fr !important; gap:8px !important;
-  }
-  .commandRow .btn { font-size:12px !important; min-height:40px !important; padding:8px 4px !important; }
-
-  /* ── Bottom mobile bar ── */
   .mobileBar {
-    display:flex !important; position:fixed !important;
-    bottom:0 !important; left:0 !important; right:0 !important;
-    padding:9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
-    background:rgba(7,10,20,.97) !important;
-    border-top:1px solid rgba(80,110,200,.25) !important;
-    z-index:9000 !important; gap:6px !important;
-    backdrop-filter:blur(20px) !important;
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(7,10,20,.95);
+    border-top: 1px solid rgba(42,58,106,.5);
+    z-index: 9000;
+    gap: 8px;
+    justify-content: space-between;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 -4px 24px rgba(0,0,0,.4);
   }
   .mobileBar .btn {
-    flex:1 !important; padding:9px 4px !important;
-    font-size:11px !important; font-weight:700 !important; text-align:center !important;
+    flex: 1 1 auto;
+    padding: 10px 6px;
+    font-size: 12px;
+    font-weight: 700;
+    border-color: rgba(124,58,237,.45) !important;
+    text-align: center;
+  }
+  body { padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important; }
+
+  .mobileDrawerOverlay.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(2,6,16,.65);
+    z-index: 8900;
   }
 
-  /* ── iOS: prevent input zoom ── */
-  textarea, input, select { font-size:16px !important; }
-
-  /* ── applyMobileLayout JS sets inline styles, these back it up ── */
-  #tableWrap { zoom:1 !important; }
+  /* Nav: hide center + right at 720, keep left dropdowns */
+  .saNavCenter { display: none !important; }
+  .saNavRight  { display: none !important; }
 }
+
+/* 640px: the actual phone fixes — ONLY fixing overflow/clipping, not restyling */
+@media (max-width: 640px) {
+
+  /* Kill horizontal scroll entirely */
+  html, body {
+    overflow-x: hidden !important;
+    overscroll-behavior-x: none !important;
+  }
+  body {
+    padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Hide the desktop nav bar — mobile bar takes over */
+  .saNavBar { display: none !important; }
+
+  /* Topbar: just keep the brand, slim it */
+  .topbar { padding: 8px 12px !important; }
+  .topbarMain { flex-wrap: nowrap !important; gap: 8px !important; }
+
+  /* Stage: single column */
+  .stage { grid-template-columns: 1fr !important; }
+
+  /* tableWrap: vertical flex list, full width, NO overflow side */
+  .tableWrap,
+  .tableWrap#tableWrap {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    position: relative !important;
+    padding: 8px 10px 16px !important;
+    gap: 10px !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+    zoom: 1 !important;
+  }
+
+  /* Hide SVG table circle */
+  .table        { display: none !important; }
+  #rtStage      { display: none !important; }
+  #tableViewport { display: contents !important; }
+
+  /* Every seat: in-flow, full width */
+  .seat,
+  #tableWrap .seat {
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    right: auto !important; bottom: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 72px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  .seat .seatMeta { min-width: 0 !important; flex: 1 1 0 !important; }
+  .seat .seatName,
+  .seat .seatRole { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; max-width: 100% !important; }
+
+  /* Operator / Group Console: full width, at bottom */
+  .operator {
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    order: 999 !important;
+  }
+  .operator .opText { width: 100% !important; box-sizing: border-box !important; }
+
+  /* underTable: no overflow */
+  .underTable {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    padding: 0 10px !important;
+    position: relative !important;
+    z-index: 2 !important;
+  }
+
+  /* Side panel */
+  .side {
+    position: relative !important; top: auto !important;
+    height: auto !important; overflow: visible !important;
+    border-left: 0 !important;
+    width: 100% !important; max-width: 100% !important;
+    padding: 0 10px 10px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* sideCard / groupCard */
+  .sideCard, .groupCard {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+
+  /* Thread */
+  #thread {
+    max-height: 42vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Modal: full screen */
+  .modal, #modalWin {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+  }
+  #modalScroll {
+    max-height: calc(100dvh - 52px - 74px - env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 0 12px 20px !important;
+    box-sizing: border-box !important;
+  }
+  .formGrid2 { display: flex !important; flex-direction: column !important; gap: 14px !important; }
+  .row2 { grid-template-columns: 1fr !important; }
+  .modalForm .grid { grid-template-columns: 1fr !important; }
+
+  /* Prevent iOS zoom */
+  textarea, input, select { font-size: 16px !important; }
+
+  /* Universal guard */
+  .card, .container, .tableWrap, .sideCard, .groupCard, .grid, .underTable {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Mobile bar */
+  .mobileBar {
+    display: flex !important;
+    position: fixed !important;
+    left: 0 !important; right: 0 !important; bottom: 0 !important;
+    padding: 9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
+    background: rgba(7,10,20,.97) !important;
+    border-top: 1px solid rgba(80,110,200,.4) !important;
+    z-index: 9000 !important;
+    gap: 6px !important;
+    backdrop-filter: blur(20px) !important;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.5) !important;
+  }
+  .mobileBar .btn {
+    flex: 1 1 0 !important;
+    padding: 9px 4px !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    border-color: rgba(124,58,237,.45) !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  /* Drawer */
+  .mobileDrawerOverlay.show {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(2,6,16,.7) !important;
+    z-index: 8900 !important;
+  }
+  .mobileDrawer {
+    position: fixed !important;
+    left: 8px !important; right: 8px !important;
+    bottom: calc(62px + env(safe-area-inset-bottom)) !important;
+    max-height: 72vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    z-index: 9100 !important;
+  }
+
+  /* Hide desktop-only stuff */
+  .rightmeta    { display: none !important; }
+  #diagFab      { display: none !important; }
+  #tableZoomFab { display: none !important; }
+  #seatSub      { display: none !important; }
+  .commandRow, .commandRow.secondary {
+    grid-template-columns: repeat(2, 1fr) !important;
+    max-width: none !important;
+  }
+}
+
+/* 480px: nav fully hidden */
+@media (max-width: 480px) {
+  .saNavBar { display: none !important; }
+}
+
 /* ── Mobile bottom bar styles (shared, not inside media query) ─────────── */
 .mobileBar          { display: none; }
 .mobileDrawerOverlay { display: none; }
@@ -9491,36 +9896,6 @@ label         { font-size: 14px !important; }
 
     </div>
     <!-- ===== END REDESIGNED NAV BAR ===== -->
-  </div>
-
-  <!-- ===== MOBILE SHELL (hidden on desktop, fully replaces stage on mobile) ===== -->
-  <div id="mobileShell" style="display:none;">
-    <!-- Top nav bar -->
-    <div id="mobileHeader">
-      <div class="mhBrand">{{app_title}}</div>
-      <button class="btn btnMini" id="mobileHeaderMenuBtn">&#9776; Menu</button>
-    </div>
-    <!-- Tab bar -->
-    <div id="mobileTabs">
-      <button class="mobileTab active" data-view="team">&#128101; Team</button>
-      <button class="mobileTab" data-view="chat">&#128172; Chat</button>
-      <button class="mobileTab" data-view="group">&#9881; Group</button>
-    </div>
-    <!-- Scrollable content area -->
-    <div id="mobileViews">
-      <div class="mobileView active" id="mobileTeamView">
-        <div id="mobileTeamList"></div>
-      </div>
-      <div class="mobileView" id="mobileChatView">
-        <div id="mobileChatHeader">
-          <div id="mobileChatTitle">Select a teammate first</div>
-          <button class="btn btnMini" id="mobileChatBackBtn">&#8592; Team</button>
-        </div>
-      </div>
-      <div class="mobileView" id="mobileGroupView">
-        <!-- Group Console injected here by JS -->
-      </div>
-    </div>
   </div>
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
@@ -12335,7 +12710,7 @@ function makeSeat(defn, idx){
 
       const saved = loadSeatPositions();
       const w = 190, h = 104;
-      const isMobile = Math.max(window.innerWidth, document.documentElement.clientWidth || 0) <= 640;
+      const isMobile = window.innerWidth <= 640;
       if(isMobile){
         // Ghost Stack fix: force relative flow in JS — CSS !important vs inline is unreliable
         seat.style.position = "relative";
@@ -12380,7 +12755,7 @@ function makeSeat(defn, idx){
 
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
-        if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640) return; // no drag repositioning on mobile
+        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
@@ -12409,7 +12784,7 @@ function makeSeat(defn, idx){
         dragging = false;
         seat.classList.remove("dragging");
 
-        if(Math.max(window.innerWidth, document.documentElement.clientWidth||0) > 640){
+        if(window.innerWidth > 640){
           const current = loadSeatPositions();
           current[defn.name] = {
             left: parseFloat(seat.style.left) || 0,
@@ -12438,172 +12813,89 @@ function makeSeat(defn, idx){
       return seat;
     }
 
-    // ── Mobile detection ────────────────────────────────────────────────────
-    function isMob(){ return window.innerWidth <= 700; }
-
-    // ── Master render dispatcher ─────────────────────────────────────────────
     function renderTable(){
-      if(isMob()){ renderMobile(); return; }
-      // Desktop render
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
-      try{ wrap.appendChild(makeOperatorSeat(0)); }catch(e){ console.error(e); }
-      const order = activeOrder(), installed = state.installed || {};
+
+      // Operator seat (always available)
+      try{
+        wrap.appendChild(makeOperatorSeat(0));
+      }catch(err){
+        console.error("Operator seat failed to render:", err);
+      }
+
+
+      const order = activeOrder();
+      const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
+
       if(seats.length === 0){
-        if(selectedSeat==="Operator"){ try{ refreshThread(); }catch(_){} }
-        try{ if(typeof showToast==="function") showToast("No teammates active — tap Menu → Add."); }catch(_){}
-        setTablePulse(false); setTablePulseAll(false);
+        // keep operator seat usable even with zero teammates
+        if(selectedSeat === "Operator"){ try{ refreshThread(); }catch(_){ } }
+
+        // FIX: soft toast instead of blocking modal — Operator seat still works
+        try{ if(typeof showToast==='function') showToast('No teammates active — use Add or dismiss to add seats.'); }catch(_){}
+        setTablePulse(false);
+        setTablePulseAll(false);
         $("seatTitle").innerText = "Select a seat";
         $("seatSub").innerText = "No active teammate selected.";
-        if(selectedSeat !== "Operator"){ selectedSeat=""; window.selectedSeat=""; }
-        renderThread([]); return;
+        if(selectedSeat !== "Operator"){ selectedSeat = ""; window.selectedSeat = ""; }
+        renderThread([]);
+        return;
       }
-      seats.forEach((name,i)=>{ const s=makeSeat(installed[name],i); wrap.appendChild(s); setSeatLive(name,seatStatus[name]||"idle"); });
-      if(!selectedSeat||!seats.includes(selectedSeat)) selectSeat(seats[0]); else markActiveSeat();
-      updateTablePulseFromStatuses();
-    }
 
-    // ── Mobile renderer — drives #mobileShell ────────────────────────────────
-    // ══════════════════════════════════════════════════════════════════════
-    //  MOBILE RENDERER
-    // ══════════════════════════════════════════════════════════════════════
-    function renderMobile(){
-      // On mobile we use the real desktop layout reflowed — no shell needed
-      const shell = document.getElementById("mobileShell");
-      if(shell) shell.style.display = "none";
-      document.querySelectorAll(".stage").forEach(el => el.style.display = "block");
+      seats.forEach((name, i) => {
+        const defn = installed[name];
+        const seat = makeSeat(defn, i);
+        wrap.appendChild(seat);
+        setSeatLive(defn.name, seatStatus[defn.name] || "idle");
+      });
 
-      // ── Move operator → group view ──
-      const groupView  = document.getElementById("mobileGroupView");
-      const op         = document.getElementById("operator");
-      if(groupView && op && !groupView.contains(op)){
-        op.style.cssText = "position:relative;left:auto;top:auto;transform:none;width:100%;max-width:100%;height:auto;margin:0;box-sizing:border-box;";
-        const opText = op.querySelector(".opText");
-        if(opText) opText.style.cssText = "width:100%;box-sizing:border-box;";
-        groupView.appendChild(op);
-        document.querySelectorAll(".underTable").forEach(el => {
-          el.style.cssText = "position:relative;width:100%;max-width:100%;box-sizing:border-box;margin-top:14px;";
-          groupView.appendChild(el);
+      // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
+      // from saved positions that may have loaded before the mobile guard was in place
+      if(window.innerWidth <= 640){
+        // Also ensure the container itself is a flex column (override any JS-set styles)
+        wrap.style.display        = "flex";
+        wrap.style.flexDirection  = "column";
+        wrap.style.width          = "100%";
+        wrap.style.height         = "auto";
+        wrap.style.minHeight      = "0";
+        wrap.style.overflow       = "visible";
+        wrap.style.padding        = "8px 12px";
+        wrap.style.gap            = "10px";
+        // If rtStage was created despite our guard, flatten it too
+        const stage = document.getElementById("rtStage");
+        if(stage){
+          stage.style.position      = "static";
+          stage.style.transform     = "none";
+          stage.style.display       = "flex";
+          stage.style.flexDirection = "column";
+          stage.style.gap           = "10px";
+          stage.style.width         = "100%";
+          stage.style.height        = "auto";
+        }
+        Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
+          s.style.position  = "relative";
+          s.style.left      = "";
+          s.style.top       = "";
+          s.style.right     = "";
+          s.style.bottom    = "";
+          s.style.width     = "100%";
+          s.style.maxWidth  = "100%";
+          s.style.height    = "auto";
+          s.style.transform = "none";
+          s.style.margin    = "0";
         });
       }
 
-      // ── Move sideCard → chat view ──
-      const chatView  = document.getElementById("mobileChatView");
-      const sideCard  = document.querySelector(".sideCard");
-      if(chatView && sideCard && !chatView.contains(sideCard)){
-        sideCard.style.cssText = "display:block;width:100%;height:auto;max-height:none;position:relative;box-sizing:border-box;border:none;background:transparent;padding:0;box-shadow:none;";
-        chatView.appendChild(sideCard);
+      if(!selectedSeat || !seats.includes(selectedSeat)){
+        selectSeat(seats[0]);
+      }else{
+        markActiveSeat();
       }
 
-      // ── Build team list ──
-      const listEl = document.getElementById("mobileTeamList");
-      if(!listEl) return;
-      listEl.innerHTML = "";
-
-      const order     = activeOrder();
-      const installed = state.installed || {};
-      const seats     = order.filter(n => installed[n]);
-
-      listEl.appendChild(buildMobileCard({name:"Operator",job_title:"You",avatar:{bg:"#0f172a",fg:"#67e8f9",sigil:"O"}}, true));
-
-      if(seats.length === 0){
-        const empty = document.createElement("div");
-        empty.style.cssText = "text-align:center;padding:32px 16px;color:rgba(148,163,184,.5);font-size:13px;";
-        empty.innerHTML = "<div style=\"font-size:32px;margin-bottom:10px;\">👥</div>No teammates yet<br><span style=\"font-size:12px;\">Tap ☰ Menu → Add Teammate</span>";
-        listEl.appendChild(empty);
-      } else {
-        seats.forEach(name => {
-          listEl.appendChild(buildMobileCard(installed[name], false));
-          setSeatLive(name, seatStatus[name] || "idle");
-        });
-      }
-
-      // Restore active selection
-      const allNames = ["Operator", ...seats];
-      if(!selectedSeat || !allNames.includes(selectedSeat)) selectSeat("Operator");
-      else { markActiveSeat(); updateMobileChatTitle(); }
       updateTablePulseFromStatuses();
     }
-
-    function updateMobileChatTitle(){
-      const el = document.getElementById("mobileChatTitle");
-      if(el && selectedSeat) el.innerText = "💬 " + selectedSeat;
-    }
-
-    function buildMobileCard(defn, isOperator){
-      const av   = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:(defn.name||"?")[0].toUpperCase()};
-      const card = document.createElement("div");
-      card.className   = "mcCard";
-      card.dataset.name = defn.name;
-
-      // Avatar
-      const avatar = document.createElement("div");
-      avatar.className = "mcAvatar";
-      avatar.style.background = av.bg;
-      avatar.style.color      = av.fg;
-      avatar.innerText        = av.sigil || (defn.name||"?")[0].toUpperCase();
-
-      const dot = document.createElement("div");
-      dot.className = "mcDot";
-      dot.id        = "live_" + defn.name;
-      avatar.appendChild(dot);
-
-      // Meta
-      const meta = document.createElement("div");
-      meta.className = "mcMeta";
-
-      const nm = document.createElement("div"); nm.className = "mcName"; nm.innerText = defn.name;
-      const rl = document.createElement("div"); rl.className = "mcRole"; rl.innerText = defn.job_title || (isOperator ? "You" : "");
-      const st = document.createElement("div"); st.className = "mcStatus"; st.id = "status_" + defn.name; st.innerText = "Idle";
-      meta.append(nm, rl, st);
-
-      // Action btn
-      const btn = document.createElement("button");
-      btn.className = "mcBtn";
-      btn.innerText = isOperator ? "Profile" : "Edit";
-      btn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
-      btn.addEventListener("click", e => {
-        e.preventDefault(); e.stopPropagation();
-        try{ isOperator ? openOperatorProfileModal() : openEditForTeammate(defn.name); }catch(_){}
-      });
-
-      card.append(avatar, meta, btn);
-
-      // Tap → chat
-      card.addEventListener("click", () => {
-        selectSeat(defn.name);
-        switchMobileTab("chat");
-        updateMobileChatTitle();
-        document.querySelectorAll(".mcCard").forEach(c => c.classList.toggle("mcActive", c.dataset.name === defn.name));
-      });
-
-      return card;
-    }
-
-    function switchMobileTab(view){
-      document.querySelectorAll(".mobileTab").forEach(t => t.classList.toggle("active", t.dataset.view === view));
-      document.querySelectorAll(".mobileView").forEach(v => {
-        v.classList.toggle("active", v.id === "mobile" + view[0].toUpperCase() + view.slice(1) + "View");
-      });
-    }
-
-    // ── Wire tabs + back button on DOMContentLoaded ──────────────────────
-    document.addEventListener("DOMContentLoaded", () => {
-      document.querySelectorAll(".mobileTab").forEach(tab => {
-        tab.addEventListener("click", () => switchMobileTab(tab.dataset.view));
-      });
-      const menuBtn = document.getElementById("mobileHeaderMenuBtn");
-      if(menuBtn) menuBtn.addEventListener("click", () => {
-        const ov = document.getElementById("mobileDrawerOverlay");
-        const dr = document.getElementById("mobileDrawer");
-        if(ov) ov.classList.add("show");
-        if(dr) dr.classList.add("open");
-      });
-      const backBtn = document.getElementById("mobileChatBackBtn");
-      if(backBtn) backBtn.addEventListener("click", () => switchMobileTab("team"));
-    });
-
     function makeOperatorSeat(idx){
       const wrap = $("tableWrap");
 
@@ -12643,7 +12935,7 @@ function makeSeat(defn, idx){
       seat.appendChild(meta);
 
       // Ghost Stack fix: on mobile force relative flow via JS — never absolute coords
-      const isMobileOp = Math.max(window.innerWidth, document.documentElement.clientWidth||0) <= 640;
+      const isMobileOp = window.innerWidth <= 640;
       if(isMobileOp){
         seat.style.position  = "relative";
         seat.style.left      = "";
@@ -12839,14 +13131,6 @@ function makeSeat(defn, idx){
       selectedSeat = name;
       window.selectedSeat = name;  // keep window in sync
       markActiveSeat();
-
-      // On mobile: update chat title and highlight active card
-      if(isMob()){
-        updateMobileChatTitle();
-        document.querySelectorAll(".mcCard").forEach(c => {
-          c.classList.toggle("mcActive", c.dataset.name === name);
-        });
-      }
 
       const defn = (state.installed || {})[name];
       $("seatTitle").innerText = defn ? defn.name : name;
@@ -19701,102 +19985,13 @@ $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Reset to default";
     };
 
-    // ── Mobile layout engine ────────────────────────────────────────────────
-    function isMobileViewport(){
-      return Math.max(
-        window.innerWidth,
-        document.documentElement.clientWidth || 0
-      ) <= 700;
-    }
-
-    function applyMobileLayout(){
-      if(!isMobileViewport()) return;
-
-      // Use real desktop layout — hide shell, show stage
-      const shell = document.getElementById("mobileShell");
-      if(shell) shell.style.display = "none";
-      document.querySelectorAll(".stage").forEach(el => el.style.display = "block");
-
-      const wrap = document.getElementById("tableWrap");
-      if(!wrap) return;
-
-      // 1. Wrap: vertical flex list, full width
-      Object.assign(wrap.style, {
-        display:"flex", flexDirection:"column", alignItems:"stretch",
-        width:"100%", maxWidth:"100vw", minWidth:"0",
-        height:"auto", minHeight:"0",
-        overflow:"visible", overflowX:"hidden",
-        position:"relative", transform:"none",
-        padding:"10px", gap:"10px",
-        boxSizing:"border-box"
-      });
-
-      // 2. Hide SVG circle and stage
-      ["tableCore","rtStage"].forEach(id => {
-        const el = document.getElementById(id);
-        if(el) el.style.display = "none";
-      });
-
-      // 3. Every seat: in-flow full-width card
-      Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
-        Object.assign(s.style, {
-          position:"relative", left:"", top:"", right:"", bottom:"",
-          transform:"none", width:"100%", maxWidth:"100%", minWidth:"0",
-          height:"auto", minHeight:"72px", margin:"0",
-          padding:"12px 14px 36px", boxSizing:"border-box",
-          cursor:"pointer", flexShrink:"0"
-        });
-        // seatTools stays absolute but inside the card
-        const tools = s.querySelector(".seatTools");
-        if(tools) Object.assign(tools.style, {
-          position:"absolute", bottom:"8px", right:"10px", left:""
-        });
-        // Meta text truncation
-        const meta = s.querySelector(".seatMeta");
-        const name = s.querySelector(".seatName");
-        const role = s.querySelector(".seatRole");
-        if(meta) Object.assign(meta.style, {flex:"1", minWidth:"0"});
-        if(name) Object.assign(name.style, {overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"});
-        if(role) Object.assign(role.style, {overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"});
-      });
-
-      // 4. Operator / Group Console
-      const op = document.getElementById("operator");
-      if(op){
-        Object.assign(op.style, {
-          position:"relative", left:"", top:"", right:"", bottom:"",
-          transform:"none", width:"100%", maxWidth:"100%", minWidth:"0",
-          height:"auto", margin:"0", boxSizing:"border-box"
-        });
-        const opText = op.querySelector(".opText");
-        if(opText) Object.assign(opText.style, {width:"100%", boxSizing:"border-box"});
-      }
-
-      // 5. underTable / shared memory bar
-      document.querySelectorAll(".underTable").forEach(el => {
-        Object.assign(el.style, {
-          position:"relative", zIndex:"2",
-          width:"100%", maxWidth:"100%",
-          boxSizing:"border-box", margin:"0"
-        });
-      });
-    }
-
-    // Run on load, after renders, and on any resize/orientation change
     window.addEventListener("resize", () => {
-      if(state && state.ok) renderTable();
+      if(state && state.ok){
+        renderTable();
+      }
     });
-    window.addEventListener("orientationchange", () => {
-      setTimeout(() => { if(state && state.ok) renderTable(); }, 300);
-    });
-    // Initial mobile setup
-    if(isMob()){
-      const shell = document.getElementById("mobileShell");
-      if(shell) shell.style.display = "flex";
-      document.querySelectorAll(".stage").forEach(el => el.style.display = "none");
-    }
 
-    loadState().then(() => { applyMobileLayout(); }).catch(() => {});
+    loadState();
   loadState();
 
 
