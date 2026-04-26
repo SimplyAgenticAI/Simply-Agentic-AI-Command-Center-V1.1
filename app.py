@@ -6644,6 +6644,785 @@ AUTH_BASE_CSS = r"""
 </style>
 """
 
+SHOWCASE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{{app_title}} — See It In Action</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --purple:#7c3aed;--purple-light:#a78bfa;--purple-dim:rgba(124,58,237,.18);
+  --bg:#080c1a;--surface:rgba(14,20,46,.95);--border:rgba(80,100,180,.25);
+  --text:#e2e8f0;--muted:#64748b;--accent:#c4b5fd;
+}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
+
+/* ── Animated starfield bg ── */
+#stars{position:fixed;inset:0;pointer-events:none;z-index:0;}
+.star{position:absolute;border-radius:50%;background:#fff;animation:twinkle ease-in-out infinite;}
+@keyframes twinkle{0%,100%{opacity:.15;transform:scale(1);}50%{opacity:.7;transform:scale(1.4);}}
+
+/* ── Nav ── */
+.sc-nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 32px;
+  background:rgba(8,12,26,.88);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+}
+.sc-logo{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:800;color:var(--accent);text-decoration:none;}
+.sc-logo-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#4f46e5);box-shadow:0 0 8px rgba(124,58,237,.8);animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(124,58,237,.8);}50%{box-shadow:0 0 20px rgba(124,58,237,1),0 0 40px rgba(124,58,237,.4);}}
+.sc-nav-links{display:flex;gap:8px;align-items:center;}
+.sc-nav-link{color:var(--muted);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:color .2s;}
+.sc-nav-link:hover{color:var(--accent);}
+.sc-nav-cta{background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;border:none;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;transition:opacity .2s,transform .15s;display:inline-block;}
+.sc-nav-cta:hover{opacity:.88;transform:translateY(-1px);}
+
+/* ── Sections ── */
+section{position:relative;z-index:1;}
+
+/* ── Hero ── */
+.hero{
+  min-height:88vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  text-align:center;padding:60px 24px 80px;
+  position:relative;overflow:hidden;
+}
+.hero-glow{
+  position:absolute;top:-120px;left:50%;transform:translateX(-50%);
+  width:900px;height:900px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(124,58,237,.22) 0%,transparent 70%);
+  pointer-events:none;animation:heroGlow 6s ease-in-out infinite alternate;
+}
+@keyframes heroGlow{0%{opacity:.6;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.12);}}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);
+  border-radius:999px;padding:6px 18px;font-size:12px;font-weight:700;
+  color:var(--purple-light);letter-spacing:.06em;text-transform:uppercase;
+  margin-bottom:28px;animation:fadeDown .7s ease both;
+}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-16px);}to{opacity:1;transform:none;}}
+.hero h1{
+  font-size:clamp(36px,6vw,76px);font-weight:900;line-height:1.08;
+  background:linear-gradient(135deg,#f3e8ff 0%,var(--purple-light) 50%,#818cf8 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:22px;animation:fadeUp .8s .15s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:none;}}
+.hero-sub{
+  font-size:clamp(15px,2.2vw,20px);color:#94a3b8;max-width:620px;
+  line-height:1.65;margin-bottom:38px;animation:fadeUp .8s .3s ease both;
+}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fadeUp .8s .45s ease both;}
+.btn-hero-primary{
+  background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;
+  border:none;padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;
+  cursor:pointer;text-decoration:none;display:inline-block;
+  box-shadow:0 8px 32px rgba(124,58,237,.45);
+  transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;
+}
+.btn-hero-primary::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);animation:shimmerBtn 3s ease-in-out infinite;}
+@keyframes shimmerBtn{0%{left:-100%;}100%{left:160%;}}
+.btn-hero-primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,58,237,.6);}
+.btn-hero-secondary{
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);
+  color:var(--text);padding:14px 28px;border-radius:12px;font-size:15px;font-weight:600;
+  cursor:pointer;text-decoration:none;display:inline-block;
+  transition:background .2s,border-color .2s;
+}
+.btn-hero-secondary:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);}
+
+/* ── Scroll reveal ── */
+.reveal{opacity:0;transform:translateY(36px);transition:opacity .7s ease,transform .7s ease;}
+.reveal.visible{opacity:1;transform:none;}
+.reveal-left{opacity:0;transform:translateX(-40px);transition:opacity .7s ease,transform .7s ease;}
+.reveal-left.visible{opacity:1;transform:none;}
+.reveal-right{opacity:0;transform:translateX(40px);transition:opacity .7s ease,transform .7s ease;}
+.reveal-right.visible{opacity:1;transform:none;}
+
+/* ── Section headers ── */
+.sc-section{padding:80px 24px;}
+.sc-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--purple-light);margin-bottom:12px;display:block;}
+.sc-title{font-size:clamp(26px,4vw,44px);font-weight:900;line-height:1.15;margin-bottom:16px;color:#f3e8ff;}
+.sc-desc{font-size:15px;color:#94a3b8;max-width:560px;line-height:1.7;}
+.sc-center{text-align:center;margin:0 auto;}
+.sc-center .sc-desc{margin:0 auto;}
+
+/* ── Round Table Mockup ── */
+.rt-mockup{
+  max-width:900px;margin:48px auto 0;
+  background:rgba(10,15,36,.9);border:1px solid rgba(80,100,200,.3);
+  border-radius:18px;overflow:hidden;
+  box-shadow:0 32px 80px rgba(0,0,0,.6),0 0 0 1px rgba(124,58,237,.1);
+}
+.rt-topbar{
+  background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);
+  padding:10px 16px;display:flex;align-items:center;gap:8px;
+}
+.rt-dot{width:11px;height:11px;border-radius:50%;}
+.rt-tabs{display:flex;gap:6px;margin-left:12px;flex-wrap:wrap;}
+.rt-tab{
+  padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;
+  background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);color:var(--accent);
+}
+.rt-tab.dim{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08);color:#475569;}
+.rt-body{display:flex;min-height:380px;}
+.rt-sidebar{
+  width:170px;flex-shrink:0;background:rgba(8,12,28,.7);
+  border-right:1px solid rgba(42,58,106,.4);padding:12px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.rt-teammate{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  border-radius:8px;font-size:12px;font-weight:600;color:#94a3b8;
+  transition:background .15s;cursor:pointer;
+}
+.rt-teammate.active{background:rgba(124,58,237,.2);color:var(--accent);}
+.rt-teammate-avatar{
+  width:26px;height:26px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+  background:rgba(124,58,237,.25);flex-shrink:0;
+}
+.rt-chat{flex:1;display:flex;flex-direction:column;padding:16px;gap:12px;overflow:hidden;}
+.rt-msg{display:flex;gap:10px;align-items:flex-start;}
+.rt-msg-avatar{
+  width:30px;height:30px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  background:linear-gradient(135deg,var(--purple),#4f46e5);
+}
+.rt-msg-bubble{
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;padding:10px 14px;font-size:13px;color:#cbd5e1;
+  line-height:1.55;max-width:520px;
+}
+.rt-msg-bubble .rt-sender{font-size:11px;font-weight:800;color:var(--accent);margin-bottom:4px;}
+.rt-msg.user{flex-direction:row-reverse;}
+.rt-msg.user .rt-msg-bubble{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.25);color:#e2e8f0;}
+.rt-msg-avatar.user-av{background:rgba(255,255,255,.1);}
+.rt-input-bar{
+  background:rgba(10,15,36,.95);border-top:1px solid rgba(42,58,106,.5);
+  padding:12px 16px;display:flex;align-items:center;gap:10px;
+}
+.rt-input{
+  flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);
+  border-radius:10px;padding:9px 14px;font-size:13px;color:#94a3b8;
+  pointer-events:none;
+}
+.rt-send{
+  background:linear-gradient(135deg,var(--purple),#4f46e5);border:none;
+  color:#fff;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:700;pointer-events:none;
+}
+
+/* Typing animation */
+.typing-cursor::after{content:'|';animation:blink .75s step-end infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.typed-text{display:inline;}
+
+/* ── Feature grid ── */
+.feat-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:20px;max-width:1080px;margin:48px auto 0;
+}
+.feat-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;padding:26px;
+  transition:transform .2s,border-color .2s,box-shadow .2s;
+  position:relative;overflow:hidden;
+}
+.feat-card::before{
+  content:'';position:absolute;inset:0;border-radius:16px;
+  background:radial-gradient(ellipse at top left,rgba(124,58,237,.08),transparent 60%);
+  opacity:0;transition:opacity .3s;pointer-events:none;
+}
+.feat-card:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.45);box-shadow:0 16px 48px rgba(0,0,0,.4);}
+.feat-card:hover::before{opacity:1;}
+.feat-icon{font-size:28px;margin-bottom:14px;display:block;}
+.feat-name{font-size:16px;font-weight:800;color:#f3e8ff;margin-bottom:8px;}
+.feat-desc{font-size:13px;color:#64748b;line-height:1.6;}
+
+/* ── Teammates section ── */
+.teammates-wrap{max-width:1080px;margin:48px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+.tm-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:20px;
+  display:flex;flex-direction:column;gap:8px;
+  transition:transform .2s,border-color .2s;
+  position:relative;overflow:hidden;
+}
+.tm-card::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--purple),#4f46e5);
+  transform:scaleX(0);transform-origin:left;transition:transform .3s;
+}
+.tm-card:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.4);}
+.tm-card:hover::after{transform:scaleX(1);}
+.tm-emoji{font-size:26px;}
+.tm-name{font-size:15px;font-weight:800;color:var(--accent);}
+.tm-role{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#475569;}
+.tm-desc{font-size:12px;color:#64748b;line-height:1.55;}
+
+/* ── Tool preview panels ── */
+.tool-preview{
+  max-width:1080px;margin:0 auto;
+  display:flex;align-items:center;gap:48px;padding:20px 0;
+}
+.tool-preview.flip{flex-direction:row-reverse;}
+.tool-preview-text{flex:1;min-width:0;}
+.tool-preview-mock{
+  flex:1;min-width:0;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+.mock-header{
+  background:rgba(14,20,46,.9);border-bottom:1px solid rgba(42,58,106,.5);
+  padding:10px 14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#475569;font-weight:700;
+}
+.mock-body{padding:16px;display:flex;flex-direction:column;gap:10px;}
+.mock-row{display:flex;gap:8px;}
+.mock-input{
+  flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);
+  border-radius:8px;padding:8px 10px;font-size:12px;color:#94a3b8;
+}
+.mock-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);
+  border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;color:var(--accent);
+}
+.mock-lead-card{
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;padding:12px;
+}
+.mock-lead-name{font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:4px;}
+.mock-lead-detail{font-size:11px;color:#475569;}
+.mock-score{
+  display:inline-block;background:rgba(110,231,183,.12);
+  border:1px solid rgba(110,231,183,.3);border-radius:999px;
+  padding:2px 10px;font-size:11px;font-weight:700;color:#6ee7b7;
+}
+.mock-pipeline{display:flex;gap:8px;overflow:hidden;}
+.mock-stage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:8px;}
+.mock-stage-name{font-size:10px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;}
+.mock-contact-chip{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.2);border-radius:6px;padding:5px 8px;font-size:11px;color:#a78bfa;margin-bottom:5px;}
+.mock-btn{
+  background:linear-gradient(135deg,var(--purple),#4f46e5);color:#fff;
+  border:none;border-radius:8px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;
+}
+
+/* ── CTA band ── */
+.cta-band{
+  text-align:center;padding:100px 24px;
+  background:linear-gradient(135deg,rgba(124,58,237,.12) 0%,rgba(79,70,229,.08) 100%);
+  border-top:1px solid rgba(124,58,237,.15);
+  border-bottom:1px solid rgba(124,58,237,.15);
+  position:relative;overflow:hidden;
+}
+.cta-band::before{
+  content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:800px;height:400px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(124,58,237,.15),transparent 70%);
+  pointer-events:none;
+}
+.cta-band h2{font-size:clamp(28px,4vw,52px);font-weight:900;color:#f3e8ff;margin-bottom:16px;}
+.cta-band p{font-size:16px;color:#94a3b8;max-width:520px;margin:0 auto 36px;line-height:1.6;}
+.cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+
+/* ── Stats row ── */
+.stats-row{
+  display:flex;justify-content:center;gap:48px;flex-wrap:wrap;
+  max-width:800px;margin:60px auto 0;padding:0 24px;
+}
+.stat-item{text-align:center;}
+.stat-num{font-size:clamp(32px,5vw,52px);font-weight:900;line-height:1;
+  background:linear-gradient(135deg,var(--purple-light),#818cf8);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.stat-label{font-size:13px;color:#64748b;margin-top:4px;}
+
+/* ── Footer ── */
+.sc-footer{
+  text-align:center;padding:32px 24px;
+  font-size:13px;color:#334155;
+  border-top:1px solid rgba(255,255,255,.05);
+}
+.sc-footer a{color:var(--purple-light);text-decoration:none;}
+
+/* ── Counter animation ── */
+@keyframes countUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+
+/* ── Floating orbs ── */
+.orb{
+  position:absolute;border-radius:50%;filter:blur(60px);
+  pointer-events:none;animation:orbFloat ease-in-out infinite alternate;
+}
+@keyframes orbFloat{0%{transform:translate(0,0);}100%{transform:translate(20px,-30px);}}
+
+/* ── Mobile ── */
+@media(max-width:768px){
+  .sc-nav{padding:12px 16px;}
+  .sc-nav-links .sc-nav-link{display:none;}
+  .sc-section{padding:56px 16px;}
+  .tool-preview,.tool-preview.flip{flex-direction:column;gap:28px;}
+  .rt-sidebar{display:none;}
+  .rt-body{min-height:280px;}
+  .stats-row{gap:28px;}
+}
+</style>
+</head>
+<body>
+
+<!-- Starfield -->
+<canvas id="stars"></canvas>
+
+<!-- Nav -->
+<nav class="sc-nav">
+  <a href="/showcase" class="sc-logo">
+    <div class="sc-logo-dot"></div>
+    {{app_title}}
+  </a>
+  <div class="sc-nav-links">
+    <a href="#features" class="sc-nav-link">Features</a>
+    <a href="#teammates" class="sc-nav-link">Teammates</a>
+    <a href="#tools" class="sc-nav-link">Tools</a>
+    <a href="/pricing" class="sc-nav-cta">View Plans →</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="orb" style="width:400px;height:400px;top:-100px;left:-150px;background:rgba(124,58,237,.12);animation-duration:8s;"></div>
+  <div class="orb" style="width:300px;height:300px;bottom:-80px;right:-100px;background:rgba(79,70,229,.1);animation-duration:11s;animation-delay:2s;"></div>
+  <div class="hero-badge">✨ AI-Powered Business Command Center</div>
+  <h1>Your Entire Business<br/>Run by an AI Team</h1>
+  <p class="hero-sub">Simply Agentic AI gives you 7 specialized AI teammates, a built-in CRM, Lead Lab, social studio, email broadcast, and more — all in one command center.</p>
+  <div class="hero-btns">
+    <a href="/pricing" class="btn-hero-primary">🚀 Start Free Trial</a>
+    <a href="#features" class="btn-hero-secondary">Explore Features ↓</a>
+  </div>
+</section>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-item reveal">
+    <div class="stat-num" data-target="7">0</div>
+    <div class="stat-label">AI Teammates</div>
+  </div>
+  <div class="stat-item reveal" style="transition-delay:.1s;">
+    <div class="stat-num" data-target="10">0</div>
+    <div class="stat-label">Built-in Tools</div>
+  </div>
+  <div class="stat-item reveal" style="transition-delay:.2s;">
+    <div class="stat-num" data-suffix="%" data-target="100">0</div>
+    <div class="stat-label">Your Data, Your Key</div>
+  </div>
+  <div class="stat-item reveal" style="transition-delay:.3s;">
+    <div class="stat-num" data-prefix="$" data-target="17">0</div>
+    <div class="stat-label">Starting /month</div>
+  </div>
+</div>
+
+<!-- Round Table Preview -->
+<section class="sc-section" id="features">
+  <div class="sc-center reveal">
+    <span class="sc-label">The Round Table</span>
+    <h2 class="sc-title">Your AI Team, Always at the Table</h2>
+    <p class="sc-desc">Every specialist in one room. Type a goal and your team responds — each in their lane, each with memory of your business.</p>
+  </div>
+
+  <div class="rt-mockup reveal" style="transition-delay:.15s;">
+    <div class="rt-topbar">
+      <div class="rt-dot" style="background:#ff5f57;"></div>
+      <div class="rt-dot" style="background:#febc2e;"></div>
+      <div class="rt-dot" style="background:#28c840;"></div>
+      <div class="rt-tabs">
+        <div class="rt-tab">Round Table</div>
+        <div class="rt-tab dim">Lead Lab</div>
+        <div class="rt-tab dim">CRM</div>
+        <div class="rt-tab dim">Calendar</div>
+      </div>
+    </div>
+    <div class="rt-body">
+      <div class="rt-sidebar">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#334155;padding:0 4px;margin-bottom:6px;">Active Teammates</div>
+        <div class="rt-teammate active"><div class="rt-teammate-avatar">🎯</div>Ava</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">☀️</div>Sunshine</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">⚙️</div>Atlas</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">📣</div>Max</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">✨</div>Nova</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">🔬</div>Rex</div>
+        <div class="rt-teammate"><div class="rt-teammate-avatar">🛡️</div>Atlis</div>
+      </div>
+      <div class="rt-chat">
+        <div class="rt-msg user">
+          <div class="rt-msg-avatar user-av">👤</div>
+          <div class="rt-msg-bubble">Help me launch a lead gen campaign for real estate agents in New Jersey. I need a strategy, first outreach message, and a post for LinkedIn.</div>
+        </div>
+        <div class="rt-msg">
+          <div class="rt-msg-avatar">🎯</div>
+          <div class="rt-msg-bubble">
+            <div class="rt-sender">Ava · Strategist</div>
+            Smart target. NJ real estate is high-volume and relationship-driven. I'd anchor the campaign on a pain point agents feel daily — leads who go cold after the first open house. Here's a 3-step funnel...
+          </div>
+        </div>
+        <div class="rt-msg">
+          <div class="rt-msg-avatar" style="background:linear-gradient(135deg,#f59e0b,#d97706);">☀️</div>
+          <div class="rt-msg-bubble">
+            <div class="rt-sender" style="color:#fcd34d;">Sunshine · Outreach</div>
+            <span id="typedMsg" class="typed-text"></span><span class="typing-cursor" id="typingCursor"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="rt-input-bar">
+      <div class="rt-input">What should my LinkedIn post focus on?</div>
+      <div class="rt-send">➤</div>
+    </div>
+  </div>
+</section>
+
+<!-- Feature Cards -->
+<section class="sc-section" style="padding-top:20px;">
+  <div class="feat-grid">
+    <div class="feat-card reveal" style="transition-delay:0s;">
+      <span class="feat-icon">🧑‍💼</span>
+      <div class="feat-name">7 Specialized AI Teammates</div>
+      <div class="feat-desc">Strategist, outreach, marketing, operations, creative, research, and governance — each with a defined role and persistent memory.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.07s;">
+      <span class="feat-icon">🔬</span>
+      <div class="feat-name">Lead Lab</div>
+      <div class="feat-desc">Generate scored lead lists from the web. Filter by niche, location, and contact type. One-click add to CRM or hand off to Sunshine for outreach.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.14s;">
+      <span class="feat-icon">📋</span>
+      <div class="feat-name">Built-in CRM</div>
+      <div class="feat-desc">Contacts, pipeline kanban, email & SMS broadcast, and client sequences — all under one roof. No third-party tools required.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.21s;">
+      <span class="feat-icon">📣</span>
+      <div class="feat-name">Social Studio</div>
+      <div class="feat-desc">Generate ready-to-post content packs for LinkedIn, Facebook, Instagram, and X. Posts, DMs, comment scripts, hooks, and launch sets.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.28s;">
+      <span class="feat-icon">🎯</span>
+      <div class="feat-name">Offer Builder</div>
+      <div class="feat-desc">Sharpen your positioning, clarify your offer, and generate launch-ready copy in minutes — not days.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.35s;">
+      <span class="feat-icon">📅</span>
+      <div class="feat-name">Calendar & Gmail Sync</div>
+      <div class="feat-desc">Full motion-style calendar with Google Calendar sync. Email drafts from teammates flow through a review console before they ever hit send.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.42s;">
+      <span class="feat-icon">📚</span>
+      <div class="feat-name">Prompt Library</div>
+      <div class="feat-desc">200+ pre-built expert prompts organized by teammate. Click to send instantly, or save your own custom prompts for reuse.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.49s;">
+      <span class="feat-icon">📈</span>
+      <div class="feat-name">Growth Playbooks</div>
+      <div class="feat-desc">Get step-by-step action plans for getting clients, launching offers, booking calls, and growing your audience — tailored to your context.</div>
+    </div>
+    <div class="feat-card reveal" style="transition-delay:.56s;">
+      <span class="feat-icon">🔑</span>
+      <div class="feat-name">Your Key, Your Data</div>
+      <div class="feat-desc">Connect your own OpenAI key and go direct to GPT-4o with zero markup, zero throttling, and complete data ownership.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Teammates Section -->
+<section class="sc-section" id="teammates">
+  <div class="sc-center reveal">
+    <span class="sc-label">Meet the Team</span>
+    <h2 class="sc-title">Seven Experts. One Table.</h2>
+    <p class="sc-desc">Every teammate has a defined role, a distinct voice, and stays in their lane — so you get specialized answers, not generic ones.</p>
+  </div>
+  <div class="teammates-wrap">
+    <div class="tm-card reveal" style="transition-delay:0s;">
+      <div class="tm-emoji">🎯</div>
+      <div class="tm-name">Ava</div>
+      <div class="tm-role">Strategist</div>
+      <div class="tm-desc">Growth strategy, positioning, competitive analysis, and long-range planning for your business.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.08s;">
+      <div class="tm-emoji">☀️</div>
+      <div class="tm-name">Sunshine</div>
+      <div class="tm-role">Outreach & Sales</div>
+      <div class="tm-desc">First messages, follow-ups, DMs, email copy, and prospecting language that actually converts.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.16s;">
+      <div class="tm-emoji">⚙️</div>
+      <div class="tm-name">Atlas</div>
+      <div class="tm-role">Operations</div>
+      <div class="tm-desc">Systems, SOPs, workflows, and business infrastructure so your operation runs without you.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.24s;">
+      <div class="tm-emoji">📣</div>
+      <div class="tm-name">Max</div>
+      <div class="tm-role">Marketing</div>
+      <div class="tm-desc">Campaigns, brand messaging, content strategy, and audience growth across every channel.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.32s;">
+      <div class="tm-emoji">✨</div>
+      <div class="tm-name">Nova</div>
+      <div class="tm-role">Creative</div>
+      <div class="tm-desc">Copywriting, storytelling, brand language, and visual concepts that make people stop and read.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.40s;">
+      <div class="tm-emoji">🔬</div>
+      <div class="tm-name">Rex</div>
+      <div class="tm-role">Research</div>
+      <div class="tm-desc">Market research, competitor analysis, and data synthesis turned into actionable intelligence.</div>
+    </div>
+    <div class="tm-card reveal" style="transition-delay:.48s;">
+      <div class="tm-emoji">🛡️</div>
+      <div class="tm-name">Atlis</div>
+      <div class="tm-role">Governance</div>
+      <div class="tm-desc">Keeps the system clean. Monitors that teammates stay in role and the team operates with integrity.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Tool Previews -->
+<section class="sc-section" id="tools">
+  <div class="sc-center reveal">
+    <span class="sc-label">Tools</span>
+    <h2 class="sc-title">Everything You Need to Operate</h2>
+  </div>
+
+  <!-- Lead Lab Preview -->
+  <div class="tool-preview" style="margin-top:56px;">
+    <div class="tool-preview-text reveal-left">
+      <span class="sc-label">Lead Lab</span>
+      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">Find 100 Qualified Leads<br/>in Minutes</h3>
+      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Tell Lead Lab your niche, location, and how many leads you want. It searches the web, scores every result, and hands you contact-ready prospects — no manual research needed.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <div class="mock-badge">🎯 Scored results</div>
+        <div class="mock-badge">📞 Phone & email</div>
+        <div class="mock-badge">⚡ One-click CRM add</div>
+      </div>
+    </div>
+    <div class="tool-preview-mock reveal-right">
+      <div class="mock-header">🔬 Lead Lab</div>
+      <div class="mock-body">
+        <div class="mock-row">
+          <div class="mock-input">real estate agents</div>
+          <div class="mock-input">New Jersey</div>
+        </div>
+        <div class="mock-lead-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div class="mock-lead-name">Jamie Cole</div>
+              <div class="mock-lead-detail">Garden State Realty · Broker</div>
+              <div class="mock-lead-detail" style="margin-top:4px;">📞 (201) 555-0182 · ✉ jcole@gsrealty.com</div>
+            </div>
+            <div class="mock-score">92</div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button class="mock-btn" style="font-size:10px;">+ CRM</button>
+            <button class="mock-btn" style="font-size:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);">✉ Email</button>
+          </div>
+        </div>
+        <div class="mock-lead-card" style="opacity:.65;">
+          <div class="mock-lead-name">Morgan Lee</div>
+          <div class="mock-lead-detail">BrightPath Investors · Founder</div>
+          <div class="mock-score" style="margin-top:6px;">85</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CRM Preview -->
+  <div class="tool-preview flip" style="margin-top:64px;">
+    <div class="tool-preview-text reveal-right">
+      <span class="sc-label">CRM & Pipeline</span>
+      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">Your Whole Pipeline.<br/>One Place.</h3>
+      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Contacts, a kanban pipeline, email and SMS broadcast, and client sequences — all inside Simply Agentic. Your AI teammates can draft outreach and move deals forward without switching tabs.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <div class="mock-badge">📬 Email & SMS blast</div>
+        <div class="mock-badge">🗂️ Kanban pipeline</div>
+        <div class="mock-badge">🤖 AI-drafted outreach</div>
+      </div>
+    </div>
+    <div class="tool-preview-mock reveal-left">
+      <div class="mock-header">📋 Pipeline Board</div>
+      <div class="mock-body">
+        <div class="mock-pipeline">
+          <div class="mock-stage">
+            <div class="mock-stage-name">Lead</div>
+            <div class="mock-contact-chip">Jamie Cole</div>
+            <div class="mock-contact-chip">Alex Kim</div>
+          </div>
+          <div class="mock-stage">
+            <div class="mock-stage-name">Interested</div>
+            <div class="mock-contact-chip" style="background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</div>
+          </div>
+          <div class="mock-stage">
+            <div class="mock-stage-name">Call Booked</div>
+            <div class="mock-contact-chip" style="background:rgba(110,231,183,.08);border-color:rgba(110,231,183,.25);color:#6ee7b7;">Taylor Adams</div>
+          </div>
+          <div class="mock-stage">
+            <div class="mock-stage-name">Client</div>
+            <div class="mock-contact-chip" style="background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.35);color:#c4b5fd;">Riley Park</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
+          <div style="font-size:11px;color:#475569;">4 contacts active</div>
+          <button class="mock-btn" style="font-size:10px;">⚡ Draft outreach</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Social Studio Preview -->
+  <div class="tool-preview" style="margin-top:64px;">
+    <div class="tool-preview-text reveal-left">
+      <span class="sc-label">Social Studio</span>
+      <h3 style="font-size:clamp(22px,3vw,34px);font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.2;">A Week of Content<br/>in 60 Seconds</h3>
+      <p style="font-size:14px;color:#64748b;line-height:1.7;margin-bottom:20px;">Pick your platform, describe your audience and offer, and get a full content pack — posts, hooks, DMs, comment scripts, and CTAs — ready to publish.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <div class="mock-badge">📘 LinkedIn</div>
+        <div class="mock-badge">📸 Instagram</div>
+        <div class="mock-badge">✖️ X · 👍 Facebook</div>
+      </div>
+    </div>
+    <div class="tool-preview-mock reveal-right">
+      <div class="mock-header">📣 Social Studio</div>
+      <div class="mock-body">
+        <div class="mock-row">
+          <div class="mock-input" style="flex:0 0 auto;max-width:100px;">LinkedIn</div>
+          <div class="mock-input">Content pack</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#475569;margin-bottom:8px;">🪝 Hook Post</div>
+          <div style="font-size:12px;color:#cbd5e1;line-height:1.6;">Most real estate agents waste 3 hours a day chasing cold leads that will never convert.<br/><br/>Here's the system I use to only talk to buyers and sellers who are already warm... 🧵</div>
+        </div>
+        <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;opacity:.7;">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#475569;margin-bottom:6px;">💬 DM Script</div>
+          <div style="font-size:12px;color:#94a3b8;line-height:1.5;">Hey [Name] — saw your post about the Hoboken market...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA Band -->
+<section class="cta-band">
+  <div class="orb" style="width:500px;height:300px;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(124,58,237,.1);filter:blur(80px);animation-duration:9s;"></div>
+  <span class="sc-label" style="position:relative;">Ready to Build Your AI Team?</span>
+  <h2 style="position:relative;">Start Free. Scale Fast.</h2>
+  <p style="position:relative;">7-day free trial. No credit card charged until day 8. Cancel anytime.</p>
+  <div class="cta-btns" style="position:relative;">
+    <a href="/pricing" class="btn-hero-primary" style="font-size:16px;padding:16px 36px;">🚀 View Plans & Start Free Trial</a>
+    <a href="/login" class="btn-hero-secondary" style="font-size:15px;padding:16px 28px;">Sign In →</a>
+  </div>
+  <div style="margin-top:24px;font-size:13px;color:#334155;position:relative;">
+    Starter from $47/mo · Growth $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo (limited)</strong>
+  </div>
+</section>
+
+<!-- Footer -->
+<div class="sc-footer">
+  <a href="/pricing">Plans & Pricing</a> &nbsp;·&nbsp;
+  <a href="/login">Sign In</a> &nbsp;·&nbsp;
+  <a href="/terms">Terms of Service</a> &nbsp;·&nbsp;
+  <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
+  <div style="margin-top:10px;opacity:.5;">© 2025 {{app_title}}. All rights reserved.</div>
+</div>
+
+<script>
+// ── Starfield ──
+(function(){
+  var c=document.getElementById('stars'),ctx=c.getContext('2d');
+  function resize(){c.width=window.innerWidth;c.height=window.innerHeight;}
+  resize();window.addEventListener('resize',resize);
+  var stars=[];
+  for(var i=0;i<160;i++){
+    stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.4+.3,speed:Math.random()*.4+.15,phase:Math.random()*Math.PI*2});
+  }
+  function draw(t){
+    ctx.clearRect(0,0,c.width,c.height);
+    stars.forEach(function(s){
+      var op=.1+.45*(.5+.5*Math.sin(s.phase+t*s.speed));
+      ctx.beginPath();
+      ctx.arc(s.x*c.width,s.y*c.height,s.r,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,'+op+')';
+      ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+
+// ── Scroll reveal ──
+(function(){
+  var els=document.querySelectorAll('.reveal,.reveal-left,.reveal-right');
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target);}
+    });
+  },{threshold:.12});
+  els.forEach(function(el){obs.observe(el);});
+})();
+
+// ── Animated counters ──
+(function(){
+  var nums=document.querySelectorAll('.stat-num[data-target]');
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(!e.isIntersecting) return;
+      var el=e.target;
+      var target=parseInt(el.getAttribute('data-target'));
+      var prefix=el.getAttribute('data-prefix')||'';
+      var suffix=el.getAttribute('data-suffix')||'';
+      var start=0,duration=1400,startTime=null;
+      function step(ts){
+        if(!startTime) startTime=ts;
+        var progress=Math.min((ts-startTime)/duration,1);
+        var ease=1-Math.pow(1-progress,3);
+        el.textContent=prefix+Math.round(ease*target)+suffix;
+        if(progress<1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+      obs.unobserve(el);
+    });
+  },{threshold:.5});
+  nums.forEach(function(n){obs.observe(n);});
+})();
+
+// ── Typewriter for Sunshine's message ──
+(function(){
+  var msg="Hey! Here's a first outreach message for a NJ real estate agent:\\n\\n\\\"Hey [Name] — I help agents like you build a consistent pipeline of warm leads without cold calling. Would a quick 15-min chat be worth it this week?\\\"";
+  var el=document.getElementById('typedMsg');
+  var cursor=document.getElementById('typingCursor');
+  if(!el||!cursor) return;
+  var i=0,speed=28;
+  var obs=new IntersectionObserver(function(entries){
+    if(!entries[0].isIntersecting) return;
+    obs.disconnect();
+    setTimeout(function type(){
+      if(i<msg.length){
+        el.textContent+=msg[i]==='\\n'?'\\n':msg[i];
+        i++;
+        setTimeout(type,speed+(Math.random()*20));
+      } else {
+        cursor.style.display='none';
+      }
+    },800);
+  },{threshold:.3});
+  obs.observe(el);
+})();
+</script>
+</body></html>"""
+
 LOGIN_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -6877,6 +7656,7 @@ LOGIN_HTML = r"""
 
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
+      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.9);font-weight:700;">✨ See It In Action</a></div>
       {% if allow_signup %}
         <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
@@ -7400,6 +8180,10 @@ def _hash_token(token: str) -> str:
     if not token:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+@app.get("/showcase")
+def showcase_page():
+    return SHOWCASE_HTML.replace("{{app_title}}", APP_TITLE)
 
 @app.get("/pricing")
 def pricing_page():
@@ -10142,10 +10926,9 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + scout + logout -->
-      <div class="saNavRight" style="display:flex;align-items:center;gap:8px;">
+      <!-- Right: model tag + logout -->
+      <div class="saNavRight">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
-        <button id="scoutSupportBtn" onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 13px;font-size:13px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -10188,7 +10971,6 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
-        <button class="btn" onclick="openScoutPanel();document.getElementById('mobileDrawerOverlay').style.display='none';" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;font-weight:700;">🛟 Support</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
 
@@ -22777,212 +23559,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
 })();
 </script>
 
-<!-- ===== SCOUT SUPPORT PANEL ===== -->
-<style>
-#scoutPanel {
-  display:none;
-  position:fixed;
-  bottom:0; right:0;
-  width:380px; max-width:100vw;
-  height:560px; max-height:90vh;
-  background:linear-gradient(160deg,#0f1629 0%,#13203a 100%);
-  border:1px solid rgba(124,58,237,.45);
-  border-bottom:none; border-right:none;
-  border-radius:18px 0 0 0;
-  box-shadow:-4px -4px 40px rgba(0,0,0,.55), 0 0 0 1px rgba(124,58,237,.12);
-  z-index:9999;
-  flex-direction:column;
-  overflow:hidden;
-  font-family:inherit;
-}
-#scoutPanel.open { display:flex; }
-#scoutHeader {
-  display:flex; align-items:center; justify-content:space-between;
-  padding:14px 16px 12px;
-  background:rgba(124,58,237,.12);
-  border-bottom:1px solid rgba(124,58,237,.25);
-  flex-shrink:0;
-}
-#scoutHeaderLeft { display:flex; align-items:center; gap:10px; }
-#scoutAvatar {
-  width:36px; height:36px; border-radius:50%;
-  background:linear-gradient(135deg,#7c3aed,#4f46e5);
-  display:flex; align-items:center; justify-content:center;
-  font-size:18px; flex-shrink:0;
-  box-shadow:0 0 10px rgba(124,58,237,.5);
-}
-#scoutName { font-size:15px; font-weight:800; color:#c4b5fd; }
-#scoutSub { font-size:11px; color:#64748b; margin-top:1px; }
-#scoutCloseBtn {
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
-  color:#94a3b8; border-radius:8px; padding:4px 10px; font-size:13px;
-  cursor:pointer; transition:background .15s;
-}
-#scoutCloseBtn:hover { background:rgba(255,255,255,.12); color:#e2e8f0; }
-#scoutMessages {
-  flex:1; overflow-y:auto; padding:14px 14px 8px;
-  display:flex; flex-direction:column; gap:10px;
-  scroll-behavior:smooth;
-}
-.scoutMsg {
-  max-width:88%; padding:10px 13px; border-radius:12px;
-  font-size:13px; line-height:1.55; word-break:break-word;
-}
-.scoutMsg.scout {
-  align-self:flex-start;
-  background:rgba(124,58,237,.15);
-  border:1px solid rgba(124,58,237,.25);
-  color:#e2e8f0;
-  border-bottom-left-radius:3px;
-}
-.scoutMsg.user {
-  align-self:flex-end;
-  background:rgba(255,255,255,.07);
-  border:1px solid rgba(255,255,255,.1);
-  color:#e2e8f0;
-  border-bottom-right-radius:3px;
-}
-.scoutMsg.typing { opacity:.6; font-style:italic; }
-#scoutEmailNote {
-  flex-shrink:0;
-  padding:8px 14px;
-  font-size:11px; color:#475569; text-align:center;
-  border-top:1px solid rgba(42,58,106,.4);
-}
-#scoutEmailNote a { color:#7c3aed; text-decoration:none; }
-#scoutEmailNote a:hover { text-decoration:underline; }
-#scoutInputRow {
-  display:flex; gap:8px; padding:10px 12px 14px;
-  flex-shrink:0; border-top:1px solid rgba(42,58,106,.4);
-  align-items:flex-end;
-}
-#scoutInput {
-  flex:1; background:rgba(7,10,20,.7);
-  border:1px solid rgba(42,58,106,.7); border-radius:10px;
-  padding:9px 12px; font-size:13px; color:#e2e8f0;
-  outline:none; resize:none; font-family:inherit;
-  min-height:38px; max-height:100px; line-height:1.4;
-}
-#scoutInput:focus { border-color:rgba(124,58,237,.6); }
-#scoutSendBtn {
-  background:rgba(124,58,237,.7); border:none;
-  color:#fff; border-radius:10px;
-  padding:9px 14px; font-size:14px; font-weight:700;
-  cursor:pointer; flex-shrink:0; transition:background .15s;
-  height:38px;
-}
-#scoutSendBtn:hover { background:rgba(124,58,237,.9); }
-#scoutSendBtn:disabled { opacity:.4; cursor:default; }
-</style>
-
-<div id="scoutPanel">
-  <div id="scoutHeader">
-    <div id="scoutHeaderLeft">
-      <div id="scoutAvatar">🛟</div>
-      <div>
-        <div id="scoutName">Scout</div>
-        <div id="scoutSub">Simply Agentic AI · Support</div>
-      </div>
-    </div>
-    <button id="scoutCloseBtn" onclick="closeScoutPanel()">✕ Close</button>
-  </div>
-  <div id="scoutMessages"></div>
-  <div id="scoutEmailNote">Need a human? <a href="mailto:SimplyAgenticAI@gmail.com">SimplyAgenticAI@gmail.com</a></div>
-  <div id="scoutInputRow">
-    <textarea id="scoutInput" placeholder="Ask Scout anything about Simply Agentic AI…" rows="1"></textarea>
-    <button id="scoutSendBtn" onclick="scoutSend()">➤</button>
-  </div>
-</div>
-
-<script>
-(function(){
-  var scoutHistory = [];
-  var scoutBusy = false;
-
-  window.openScoutPanel = function(){
-    var panel = document.getElementById('scoutPanel');
-    if(!panel) return;
-    panel.classList.add('open');
-    if(scoutHistory.length === 0) scoutGreet();
-    setTimeout(function(){ var i = document.getElementById('scoutInput'); if(i) i.focus(); }, 150);
-  };
-
-  window.closeScoutPanel = function(){
-    var panel = document.getElementById('scoutPanel');
-    if(panel) panel.classList.remove('open');
-  };
-
-  function scoutGreet(){
-    scoutAppendMsg('scout', "Hey! I'm Scout — your Simply Agentic AI support guide. Ask me anything about the software: features, setup, billing, teammates, or troubleshooting. What can I help you with?");
-  }
-
-  function scoutAppendMsg(role, text){
-    var box = document.getElementById('scoutMessages');
-    if(!box) return;
-    var div = document.createElement('div');
-    div.className = 'scoutMsg ' + role;
-    div.innerText = text;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-    return div;
-  }
-
-  function scoutSetBusy(busy){
-    scoutBusy = busy;
-    var btn = document.getElementById('scoutSendBtn');
-    if(btn) btn.disabled = busy;
-  }
-
-  window.scoutSend = async function(){
-    if(scoutBusy) return;
-    var inp = document.getElementById('scoutInput');
-    if(!inp) return;
-    var text = (inp.value || '').trim();
-    if(!text) return;
-    inp.value = '';
-    inp.style.height = 'auto';
-    scoutHistory.push({role:'user', content: text});
-    scoutAppendMsg('user', text);
-    scoutSetBusy(true);
-    var typingEl = scoutAppendMsg('scout', '...');
-    if(typingEl) typingEl.classList.add('typing');
-    try {
-      var res = await fetch('/api/scout/chat', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({messages: scoutHistory})
-      });
-      var data = await res.json();
-      var reply = (data.reply || 'Sorry, something went wrong. Try emailing SimplyAgenticAI@gmail.com.');
-      if(typingEl) typingEl.parentNode && typingEl.parentNode.removeChild(typingEl);
-      scoutHistory.push({role:'assistant', content: reply});
-      scoutAppendMsg('scout', reply);
-    } catch(e) {
-      if(typingEl) typingEl.parentNode && typingEl.parentNode.removeChild(typingEl);
-      scoutAppendMsg('scout', 'Connection issue. Try emailing SimplyAgenticAI@gmail.com for help.');
-    }
-    scoutSetBusy(false);
-  };
-
-  // Enter to send, Shift+Enter for newline
-  document.addEventListener('DOMContentLoaded', function(){
-    var inp = document.getElementById('scoutInput');
-    if(!inp) return;
-    inp.addEventListener('keydown', function(e){
-      if(e.key === 'Enter' && !e.shiftKey){
-        e.preventDefault();
-        window.scoutSend();
-      }
-    });
-    inp.addEventListener('input', function(){
-      this.style.height = 'auto';
-      this.style.height = Math.min(this.scrollHeight, 100) + 'px';
-    });
-  });
-})();
-</script>
-<!-- ===== END SCOUT SUPPORT PANEL ===== -->
-
 </body>
 </html>
 """
@@ -28664,140 +29240,6 @@ def api_tts():
         print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
-
-
-SCOUT_SYSTEM_PROMPT = """You are Scout — the dedicated AI support teammate for Simply Agentic AI. You do not sit at the round table with the other teammates. Your only job is to help users understand, navigate, and get the most out of Simply Agentic AI.
-
-You know the software inside and out. Here is your complete knowledge base:
-
-== OVERVIEW ==
-Simply Agentic AI is an AI-powered business command center. It gives solo operators and small teams a full bench of specialized AI teammates, a built-in CRM, email/SMS broadcast, lead generation, social content, calendar sync, and more — all in one interface. The current version is Simply Agentic AI v1.11.
-
-== THE ROUND TABLE ==
-The Round Table is the main workspace. Users type to their AI teammates here. All active teammates sit at the table and respond in their area of expertise. Users can direct messages to one teammate or let the whole team respond. The session objective (set via Settings → Session Objective) anchors the whole team around a shared goal.
-
-== BUILT-IN AI TEAMMATES ==
-Each teammate has a defined role and persona. They are powered by GPT-4o (or Claude if configured):
-- Ava — Strategist. Business strategy, positioning, growth planning, competitive analysis.
-- Sunshine — Outreach & sales. Writing first messages, follow-ups, DMs, email copy, and prospecting language.
-- Atlas — Operations. Systems, SOPs, workflows, process design, and business infrastructure.
-- Atlis — Governance & integrity. Monitors that teammates stay in role and the system runs clean.
-- Max — Marketing. Campaigns, messaging, content strategy, brand voice.
-- Nova — Creative. Copy, storytelling, visual concepts, brand language.
-- Rex — Research. Market research, competitor analysis, data synthesis.
-Users can also create custom teammates on Growth and Pro plans.
-
-== CUSTOM TEAMMATES ==
-Users on Growth ($97/mo) get 3 custom teammate slots. Operator Pro gets unlimited. Custom teammates have a name, job title, emoji, role description, and system prompt. They appear at the round table alongside built-in teammates. Go to Team → Create teammate to build one.
-
-== PROMPT LIBRARY ==
-A library of pre-built prompts organized by teammate. Users click a prompt to instantly send it to that teammate. Users can also save their own custom prompts. Access via the Tools menu → Prompt Library or the 📚 button.
-
-== LEAD LAB ==
-Found under Tools → Lead Lab (or CRM → Lead Lab tab). Generates organized public lead lists from the web. Users set: target niche, location, lead count (10–100), search mode (balanced/broad/precision), specific areas, contact filter (phone or email), and minimum score. Seed rows are optional — leave blank to let Lead Lab discover prospects from scratch. Results show name, company, phone, email, website. Users can copy contact info, hand off to a teammate to draft outreach, or add leads directly to the CRM.
-
-== CRM (CLIENT COMMAND CENTER) ==
-Accessed via Tools → CRM. Contains:
-- Clients tab: Add, view, and manage contacts. Each client has name, company, email, phone, status, pipeline stage, tags, and notes.
-- Pipeline tab: Kanban-style board. Stages: Lead → Conversation → Interested → Call booked → Client. Drag cards to move clients through stages.
-- Email Broadcast: Send mass emails to client segments.
-- Broadcast SMS: Send mass text messages.
-- Enroll client: Put a client into an automated sequence.
-Starter plan: 500 contacts, 250 broadcast recipients. Growth: 2500 contacts, 1000 recipients. Founder: same as Growth.
-
-== SOCIAL STUDIO ==
-Tools → Social Studio. Generates social media content: posts, hooks, comment scripts, DMs, and launch packs. Users pick platform (Facebook, LinkedIn, Instagram, X), asset type, audience, and offer/angle. Returns ready-to-use content sets.
-
-== OFFER BUILDER ==
-Tools → Offer Builder. Helps users build a cleaner offer, stronger positioning, and ready-to-use copy. Users fill in: who they help, what result they deliver, and how they deliver it. Returns positioning language, offer framing, and copy.
-
-== GROWTH PLAYBOOK ==
-Tools → Growth Playbook. Generates step-by-step action plans for goals like: get clients, grow audience, launch offer, reactivate leads, book calls. Users set a timeline (7–90 days) and business context. Playbooks can be saved.
-
-== EMAIL CONSOLE ==
-Tools → Email Console. Review and approve AI-drafted emails before sending. Works with Gmail OAuth or SMTP. Teammate-drafted emails flow here for human review before they go out.
-
-== CALENDAR ==
-Tools → Calendar. Full motion-style calendar with day/week views. Events can be created manually or via the CRM. Syncs with Google Calendar via OAuth. Supports recurring events.
-
-== IMAGE LIBRARY ==
-Tools → Image Library. View all AI-generated images. Teammates can generate images on request. Images are stored per user and can be viewed, downloaded, or used in content.
-
-== SETTINGS ==
-Settings → User Settings contains:
-- API keys: OpenAI key (required for AI and TTS), Anthropic key (optional, for Claude model).
-- Voice: TTS voice selection (alloy, echo, fable, onyx, nova, shimmer).
-- Default AI model: GPT-4o (default), or Claude models.
-- Notification preferences.
-- Account info.
-Operator Profile (Settings → Operator Profile): Shared context about the user's business that all teammates reference — name, audience, business description, offers, goals, notes.
-
-== TEAM SEATS ==
-Starter: 1 seat (solo only). Growth: 3 seats. Operator Pro: 10 seats. Founder: 2 seats. Owners can invite teammates via Settings → My Team → Invite. Invited users get their own login and share the owner's plan features.
-
-== PLANS & BILLING ==
-- Founder Access — $17/mo, locked forever, limited seats. 3 custom teammates, 2,500 CRM contacts, 2 team seats.
-- Solo Operator — $47/mo. No custom teammates. 500 CRM contacts, 1 seat.
-- Growth System — $97/mo. 3 custom teammates. 2,500 contacts, 3 seats. Most popular.
-- Operator Pro — Custom. Unlimited custom teammates, 10 seats, 5,000+ contacts.
-Free trial: 7 days for new accounts.
-
-== SESSION OBJECTIVE ==
-Set a shared goal for the whole session via Settings → Session Objective. Every teammate references this objective in their responses. Keeps the team aligned around one outcome.
-
-== ACTION STACKS ==
-Multi-step automated workflows that teammates can execute in sequence. Can be scheduled to run once or daily. Found in the teammate panel.
-
-== GOOGLE INTEGRATIONS ==
-- Gmail OAuth: Connect via Settings to send emails through your Gmail account.
-- Google Calendar: Connect via Settings to create and sync calendar events.
-
-== OPENAI API KEY ==
-Required for AI responses and voice (TTS). Get it at platform.openai.com. Enter it in Settings → User Settings → OpenAI API Key. The key stays private and is never shared.
-
-== VOICE (TTS) ==
-AI responses can be read aloud using OpenAI TTS-1. Select a voice in Settings. Requires a valid OpenAI API key.
-
-== MOBILE EXPERIENCE ==
-Simply Agentic AI works on mobile. The bottom bar gives quick access to Menu, Team, and Settings. The mobile drawer contains all tools and navigation. The round table adapts to smaller screens.
-
-== COMMON ISSUES ==
-- "No response from teammate": Check that your OpenAI API key is set in Settings.
-- "Gmail not sending": Reconnect Gmail OAuth in Settings or switch to SMTP.
-- "Calendar events not saving": Make sure Google Calendar is connected in Settings.
-- "Custom teammate not showing": Make sure they are installed at the round table via Team → Add or dismiss.
-- "Lead Lab returning no results": Try broadening the niche, removing location filters, or switching to 'Any public lead' for contact filter.
-
-== YOUR ROLE AS SCOUT ==
-- Answer questions about any feature clearly and practically.
-- Guide users to the right tool for their goal.
-- Never make up features that don't exist.
-- If something sounds like a bug, acknowledge it and suggest they email SimplyAgenticAI@gmail.com for human support.
-- Keep responses concise and actionable.
-- You are friendly, fast, and knowledgeable.
-"""
-
-@app.post("/api/scout/chat")
-def api_scout_chat():
-    """Scout — the Simply Agentic AI support teammate."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload  = request.get_json(silent=True) or {}
-    messages = payload.get("messages") or []
-    if not messages or not isinstance(messages, list):
-        return jsonify({"ok": False, "error": "Missing messages"}), 400
-    # Keep last 20 turns to stay within context
-    messages = messages[-20:]
-    try:
-        reply = call_llm(SCOUT_SYSTEM_PROMPT, messages, temperature=0.5)
-        reply = (reply or "").strip()
-        if not reply:
-            reply = "I'm not sure about that one — try emailing SimplyAgenticAI@gmail.com and a human will help you out."
-        return jsonify({"ok": True, "reply": reply})
-    except Exception as exc:
-        print(f"[SCOUT] error: {exc}", flush=True)
-        return jsonify({"ok": True, "reply": "Something went wrong on my end. For urgent help email SimplyAgenticAI@gmail.com."})
 
 
 if __name__ == "__main__":
