@@ -112,7 +112,7 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
 # the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
-STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "price_1TQC3uKAWBo2NxJsBt6QBdqT")
+STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "")
 FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "100"))  # total slots
 # Fixed epoch: the week counter resets every Monday 00:00 UTC
 FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any past Monday
@@ -203,15 +203,9 @@ PLANS: Dict[str, Any] = {
 }
 
 def _plan_price_id(plan_key: str) -> str:
-    """Return the Stripe price ID for a plan key. Only falls back to Starter price for the starter plan."""
-    p = PLANS.get(plan_key) or {}
-    pid = (p.get("price_id") or "").strip()
-    if pid:
-        return pid
-    # Only use the global starter fallback if this IS the starter plan
-    if plan_key in ("starter", ""):
-        return (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
-    return ""
+    """Return the Stripe price ID for a plan key, falling back to Starter."""
+    p = PLANS.get(plan_key) or PLANS.get("starter") or {}
+    return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
@@ -347,179 +341,6 @@ def _remove_team_member(owner_username: str, member_username: str) -> Tuple[bool
         member["team_owner"] = None
     save_users(data)
     return True, ""
-
-
-# ── Team Invite System ───────────────────────────────────────────────────────
-
-INVITE_EXPIRY_HOURS = 48
-
-def _create_team_invite(owner_username: str, invitee_email: str) -> Tuple[Optional[str], Optional[str]]:
-    """Create a pending invite. Returns (token, error)."""
-    data  = load_users()
-    users = data.get("users") or {}
-    owner = users.get(owner_username)
-    if not owner:
-        return None, "Owner not found"
-
-    plan       = _get_user_plan(owner_username)
-    seat_limit = _team_seat_limit(plan)
-    members    = _get_team_members(owner_username)
-    if (1 + len(members)) >= seat_limit:
-        plan_name = (PLANS.get(plan) or {}).get("name", plan)
-        return None, f"You've used all {seat_limit} seat(s) on your {plan_name} plan. Upgrade to invite more."
-
-    invitee_email = invitee_email.strip().lower()
-    pending = owner.get("pending_invites") or []
-    # Re-use existing pending token for same email
-    for inv in pending:
-        if inv.get("email") == invitee_email and inv.get("status") == "pending":
-            try:
-                if datetime.utcnow() < datetime.fromisoformat(inv["expires"]):
-                    return inv["token"], None
-            except Exception:
-                pass
-
-    token   = secrets.token_urlsafe(32)
-    expires = (datetime.utcnow() + timedelta(hours=INVITE_EXPIRY_HOURS)).isoformat()
-    pending.append({
-        "token":   token,
-        "email":   invitee_email,
-        "owner":   owner_username,
-        "status":  "pending",
-        "created": datetime.utcnow().isoformat(),
-        "expires": expires,
-    })
-    owner["pending_invites"] = pending
-    save_users(data)
-    return token, None
-
-
-def _accept_team_invite(token: str, accepting_username: str) -> Tuple[Optional[str], Optional[str]]:
-    """Accept a magic-link invite. Returns (owner_username, error)."""
-    data = load_users()
-    now  = datetime.utcnow()
-    for uname, udata in (data.get("users") or {}).items():
-        for inv in (udata.get("pending_invites") or []):
-            if inv.get("token") != token or inv.get("status") != "pending":
-                continue
-            try:
-                expires = datetime.fromisoformat(inv["expires"])
-            except Exception:
-                expires = now
-            if now > expires:
-                inv["status"] = "expired"
-                save_users(data)
-                return None, "This invite link has expired. Ask the account owner to resend."
-            # Re-check seat limit
-            plan       = _get_user_plan(uname)
-            seat_limit = _team_seat_limit(plan)
-            members    = _get_team_members(uname)
-            if (1 + len(members)) >= seat_limit:
-                inv["status"] = "expired"
-                save_users(data)
-                return None, "The team is now full. Ask the account owner to upgrade their plan."
-            ok, err = _add_team_member(uname, accepting_username)
-            if not ok:
-                return None, err
-            # Re-load after _add_team_member saved
-            data2 = load_users()
-            udata2 = (data2.get("users") or {}).get(uname, {})
-            for i2 in (udata2.get("pending_invites") or []):
-                if i2.get("token") == token:
-                    i2["status"]      = "accepted"
-                    i2["accepted_by"] = accepting_username
-                    i2["accepted_at"] = now.isoformat()
-            save_users(data2)
-            return uname, None
-    return None, "Invite not found or already used."
-
-
-def _cancel_team_invite(owner_username: str, token: str) -> Tuple[bool, Optional[str]]:
-    """Owner cancels a pending invite by token."""
-    data  = load_users()
-    owner = (data.get("users") or {}).get(owner_username)
-    if not owner:
-        return False, "Owner not found"
-    for inv in (owner.get("pending_invites") or []):
-        if inv.get("token") == token and inv.get("owner") == owner_username:
-            inv["status"] = "cancelled"
-            save_users(data)
-            return True, None
-    return False, "Invite not found."
-
-
-def _get_pending_invites(owner_username: str) -> List[Dict[str, Any]]:
-    """Return active pending invites for an owner, auto-expiring stale ones."""
-    data  = load_users()
-    owner = (data.get("users") or {}).get(owner_username, {})
-    now   = datetime.utcnow()
-    changed = False
-    result  = []
-    for inv in (owner.get("pending_invites") or []):
-        if inv.get("status") != "pending":
-            continue
-        try:
-            if now > datetime.fromisoformat(inv["expires"]):
-                inv["status"] = "expired"
-                changed = True
-                continue
-        except Exception:
-            pass
-        result.append({"token": inv["token"], "email": inv["email"],
-                        "created": inv["created"], "expires": inv["expires"]})
-    if changed:
-        save_users(data)
-    return result
-
-
-def _send_invite_email(owner_username: str, invitee_email: str, token: str) -> Tuple[bool, Optional[str]]:
-    """Send the magic-link invite email. Returns (ok, error)."""
-    base = (PUBLIC_BASE_URL or "http://localhost:5000").rstrip("/")
-    link = f"{base}/team/accept?token={token}"
-    subject  = f"{owner_username} invited you to join their Simply Agentic AI team"
-    html_body = f"""
-<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;
-            background:#0d0d0d;color:#e5e7eb;border-radius:12px;">
-  <h2 style="color:#a78bfa;margin-top:0;">You're invited! 🎉</h2>
-  <p><strong>{owner_username}</strong> has invited you to join their team on
-     <strong>Simply Agentic AI</strong> — an AI-powered command center for
-     sales, outreach, and operations.</p>
-  <p style="margin:28px 0;">
-    <a href="{link}" style="background:#7c3aed;color:#fff;padding:14px 28px;
-       border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">
-      Accept Invitation →
-    </a>
-  </p>
-  <p style="font-size:13px;color:#9ca3af;">
-    This link expires in {INVITE_EXPIRY_HOURS} hours.<br>
-    If you didn't expect this email you can safely ignore it.
-  </p>
-  <hr style="border:none;border-top:1px solid #374151;margin:24px 0;">
-  <p style="font-size:12px;color:#6b7280;">
-    Or copy this URL into your browser:<br>
-    <span style="color:#a78bfa;">{link}</span>
-  </p>
-</div>"""
-    text_body = (
-        f"{owner_username} invited you to Simply Agentic AI.\n\n"
-        f"Accept here (expires in {INVITE_EXPIRY_HOURS} hours):\n{link}\n"
-    )
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = f"{SMTP_FROM_NAME} <{SMTP_USER}>" if SMTP_USER else "noreply@simplyagentic.ai"
-        msg["To"]      = invitee_email
-        msg.attach(MIMEText(text_body, "plain"))
-        msg.attach(MIMEText(html_body, "html"))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            if SMTP_USER and SMTP_PASS:
-                server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(msg["From"], [invitee_email], msg.as_string())
-        return True, None
-    except Exception as exc:
-        return False, str(exc)
 
 
 def _get_user_plan(username: str) -> str:
@@ -1036,6 +857,7 @@ SECRET_PATH          = DATA / "session_secret.key"
 SEATS_PATH           = DATA / "seats.json"
 STRIPE_SESSIONS_PATH = DATA / "stripe_sessions.json"
 FOUNDER_SEATS_PATH   = DATA / "founder_seats.json"
+TEAM_INVITES_PATH    = DATA / "team_invites.json"
 
 # =========================
 # SEAT LICENSING SYSTEM
@@ -5181,10 +5003,9 @@ def api_create_teammate():
                     "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 3 custom teammates, or Operator Pro for unlimited."
                 }), 403
             else:
-                upgrade_hint = "Upgrade to Operator Pro for unlimited custom teammates." if max_custom >= 3 else "Upgrade to Growth ($97/mo) for 3 custom teammates, or Operator Pro for unlimited."
                 return jsonify({
                     "ok": False,
-                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. {upgrade_hint}"
+                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to Operator Pro for unlimited custom teammates."
                 }), 403
 
     try:
@@ -6703,8 +6524,123 @@ AUTH_BASE_CSS = r"""
 .pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
 
 
+/* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
+@media (max-width: 640px){
+  /* Allow horizontal pan if anything still overflows */
+  html, body{ overflow-x: auto !important; }
+  .container{ overflow-x: auto !important; }
 
-/* ===== Legacy round-table mobile rules removed — handled by main 640px block ===== */
+  /* Force the round table region to behave like a centered block */
+  .tableWrap{
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: unset !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: flex !important;
+    justify-content: center !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Lock the table itself: no absolute centering math on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+
+    width: min(92vw, 520px) !important;
+    max-width: min(92vw, 520px) !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+
+    /* Zoom + nudge, without translate(-50%,-50%) */
+    transform: translateX(var(--tableShiftX)) scale(var(--tableScale)) !important;
+    transform-origin: center center !important;
+  }
+}
+
+
+/* ===== NEW: Mobile Round Table Viewport Lock v3 (no clipping, true center, pinch zoom enabled) ===== */
+@media (max-width: 700px){
+  /* Create a dedicated viewport for the round table that can pan if needed */
+  #tableViewport{
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    padding-left: max(8px, env(safe-area-inset-left)) !important;
+    padding-right: max(8px, env(safe-area-inset-right)) !important;
+    box-sizing: border-box !important;
+    scroll-snap-type: x mandatory;
+  }
+  #tableViewport::-webkit-scrollbar{ display:none; }
+
+  /* Force the table to behave like a normal centered block on mobile */
+  .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 auto !important;
+    transform: translateX(var(--tableShiftX, 0px)) !important; /* no centering math here */
+    transform-origin: center top !important;
+    zoom: var(--tableZoom, 0.72) !important; /* zoom affects layout, so centering + scrolling works */
+    scroll-snap-align: center;
+  }
+
+  /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
+  html, body{ overflow-x: auto !important; }
+}
+
+
+/* ===== ADDITIVE UPGRADE: Mobile Round Table Stage v4 (true center, no cut-off, seats visible, pinch zoom) ===== */
+@media (max-width: 700px){
+  /* Keep the tableWrap square on mobile (prevents half-table cut-off from height:auto overrides) */
+  .tableWrap#tableWrap{
+    width: min(96vw, 620px) !important;
+    height: min(96vw, 620px) !important;
+    min-height: min(96vw, 620px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    overflow: hidden !important;
+    position: relative !important;
+    touch-action: none !important; /* required for custom pinch/pan */
+  }
+
+  /* Stage that pans/zooms the table + seats */
+  #rtStage{
+    position:absolute !important;
+    inset:0 !important;
+    transform-origin: 0 0 !important;
+    will-change: transform;
+  }
+
+  /* Preserve original desktop-style table centering on mobile */
+  #rtStage .table{
+    position:absolute !important;
+    inset: 50% 50% !important;
+    transform: translate(-50%,-50%) !important;
+  }
+
+  /* Prevent text clipping inside seat cards */
+  .seatMeta{ min-width: 0 !important; }
+  .seatName, .seatRole{
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+}
 </style>
 """
 
@@ -6840,7 +6776,24 @@ LOGIN_HTML = r"""
     margin-left:auto !important;
   }
 
-  /* tableWrap square sizing handled by main mobile block */
+  .tableWrap#tableWrap{
+    width:min(94vw, 620px) !important;
+    height:min(94vw, 620px) !important;
+    min-height:min(94vw, 620px) !important;
+  }
+
+  #tableViewport{
+    padding-left:0 !important;
+    padding-right:0 !important;
+    overflow-x:hidden !important;
+  }
+
+  .table{
+    transform:translateX(0) !important;
+    zoom:var(--tableZoom, 0.70) !important;
+    margin-left:auto !important;
+    margin-right:auto !important;
+  }
 }
 
 /* ===== MUSHROOM + DRAGONFLY ANIMATION ===== */
@@ -7594,8 +7547,8 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
 
 /* ══ STANDARD PLAN CARDS ══ */
-.plans{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;max-width:1080px;margin:0 auto;align-items:stretch;}}
-.plan-card{{width:100%;min-width:0;max-width:none;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
+.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
+.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
 .plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
 .plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
 .plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
@@ -7786,10 +7739,6 @@ def setup_post():
 
     session["user"] = username
     session.permanent = True
-    # Auto-accept any pending team invite stored before register
-    pending_tok = session.pop("pending_invite_token", None)
-    if pending_tok:
-        _accept_team_invite(pending_tok, username)
     return redirect(url_for("index"))
 
 @app.get("/login")
@@ -7828,10 +7777,6 @@ def login_post():
     session.permanent = bool(remember)
     if remember:
         app.permanent_session_lifetime = timedelta(days=30)
-    # Auto-accept any pending team invite stored before login
-    pending_tok = session.pop("pending_invite_token", None)
-    if pending_tok:
-        _accept_team_invite(pending_tok, username)
 
     return redirect(url_for("index"))
 
@@ -8382,6 +8327,53 @@ def api_operator_profile_set():
 HTML = r"""
 <!doctype html>
 <html>
+<!-- PHONE DETECTION: runs sync before any CSS so layout is correct from first paint -->
+<script>
+(function(){
+  if(window.innerWidth <= 640){
+    document.documentElement.setAttribute('data-phone','1');
+    // Inject high-specificity CSS immediately, before the stylesheet loads
+    var s = document.createElement('style');
+    s.id = 'phone-override';
+    s.textContent = [
+      /* Force tableWrap into vertical flex — specificity (0,1,1,0) same as
+         .tableWrap#tableWrap, but this <style> block is injected first in
+         the <head>, so later blocks can still override it. We use !important
+         to ensure we always win regardless of cascade position. */
+      'html[data-phone] .tableWrap#tableWrap{',
+      '  display:flex!important;flex-direction:column!important;',
+      '  width:100%!important;max-width:100%!important;',
+      '  height:auto!important;min-height:0!important;',
+      '  overflow:visible!important;touch-action:auto!important;',
+      '  padding:8px 12px!important;gap:10px!important;',
+      '  margin:0!important;transform:none!important;',
+      '}',
+      /* Flatten #rtStage if pan-zoom created it — double-ID wins on specificity */
+      'html[data-phone] #tableWrap#tableWrap{',
+      '  position:static!important;',
+      '}',
+      'html[data-phone] #rtStage{',
+      '  position:static!important;inset:auto!important;transform:none!important;',
+      '  display:flex!important;flex-direction:column!important;',
+      '  gap:10px!important;width:100%!important;height:auto!important;',
+      '}',
+      /* Every seat: kill absolute positioning — attr+ID+class = (0,2,1,0) beats all */
+      'html[data-phone] #tableWrap .seat{',
+      '  position:relative!important;',
+      '  left:auto!important;top:auto!important;',
+      '  right:auto!important;bottom:auto!important;',
+      '  transform:none!important;',
+      '  width:100%!important;max-width:100%!important;',
+      '  height:auto!important;min-height:72px!important;',
+      '  margin:0!important;flex-shrink:0!important;',
+      '}',
+      /* Hide the decorative round-table circle */
+      'html[data-phone] #tableWrap .table{display:none!important;}'
+    ].join('');
+    document.head.appendChild(s);
+  }
+})();
+</script>
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -8829,19 +8821,11 @@ HTML = r"""
 
 
     /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{
-      display:flex;align-items:center;gap:10px;
-      padding:8px 16px;
-      background:rgba(18,26,56,.97);
-      border-bottom:1px solid rgba(80,110,200,.3);
-      position:sticky;top:0;z-index:900;
-      backdrop-filter:blur(12px);
-      flex-wrap:nowrap;overflow:visible;
-    }
+    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
-    .saNavCenter{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+    .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
     #saPinnedBar:empty{ display:none; }
-    .saNavRight{flex-shrink:0;display:flex;gap:8px;align-items:center;}
+    .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
     .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
@@ -8849,12 +8833,11 @@ HTML = r"""
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
-    .saDrop.drop-right{left:auto;right:0;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
     .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
-    .saObjectivePill{font-size:13px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;max-width:280px;}
+    .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
@@ -9238,428 +9221,625 @@ HTML = r"""
     }
 
 
-/* ══════════════════════════════════════════════════════════════════
-   MOBILE — minimal fix: stop overflow, don't touch visual style
-   ══════════════════════════════════════════════════════════════════ */
+/* ===== NEW: Mobile Vertical UI v2 (additive, safe-area aware) ===== */
 
-*, *::before, *::after { box-sizing: border-box; }
-html, body { max-width: 100%; overflow-x: hidden !important; }
-:root { --mobile-pad: 14px; }
+/* ===== NEW: Mobile Layout Cleanup v1 (operator on top, teammates below) ===== */
 
-/* 1280px */
-@media (max-width: 1280px) {
-  .commandRow           { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
-  .commandRow.secondary { grid-template-columns: repeat(3, minmax(160px, 1fr)); max-width: none; }
-}
+/* ===== NEW: Mobile Fit & Modal Fix v1 (no cutoffs, no drag, full-screen popups) ===== */
 
-/* 980px */
-@media (max-width: 980px) {
-  .stage         { grid-template-columns: 1fr !important; }
-  .side          { position: relative; top: 0; height: auto; overflow: visible; border-left: 0; }
-  .tableWrap     { min-height: 860px; }
-  .row2          { grid-template-columns: 1fr; }
-  .underTable    { width: min(860px, 92vw); }
-  .modalForm .grid { grid-template-columns: 1fr; }
-  .modal         { width: calc(100vw - 22px); }
-  .modalBarTitle { max-width: 240px; }
-}
+/* ===== NEW: Mobile + Desktop Responsive Fit v1 (portrait + landscape, no cutoffs) ===== */
 
-/* 720px: show mobile bar */
-@media (max-width: 720px) {
-  .rightmeta { display: none !important; }
+/* ===== NEW: Mobile Centering & Symmetry Fix v1 (true centered, no right-lean) ===== */
 
-  .mobileBar {
-    display: flex;
+/* ===== NEW: Mobile Auto-Center v1 (measured centering to eliminate browser quirks) ===== */
+
+/* ===== NEW: Mobile Table Zoom Controls v1 ===== */
+@media (max-width: 640px){
+  :root{ --tableScale: 1; --tableShiftX: 0px; }
+  .table{ transform: none !important; }
+  #tableZoomFab{
     position: fixed;
-    left: 0; right: 0; bottom: 0;
-    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
-    background: rgba(7,10,20,.95);
-    border-top: 1px solid rgba(42,58,106,.5);
-    z-index: 9000;
-    gap: 8px;
-    justify-content: space-between;
-    backdrop-filter: blur(12px);
-    box-shadow: 0 -4px 24px rgba(0,0,0,.4);
+    right: 12px;
+    bottom: calc(86px + env(safe-area-inset-bottom));
+    z-index: 255;
+    display:flex;
+    gap:8px;
+    align-items:center;
   }
-  .mobileBar .btn {
-    flex: 1 1 auto;
-    padding: 10px 6px;
-    font-size: 12px;
-    font-weight: 700;
-    border-color: rgba(124,58,237,.45) !important;
-    text-align: center;
-  }
-  body { padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important; }
-
-  .mobileDrawerOverlay.show {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(2,6,16,.65);
-    z-index: 8900;
+  #tableZoomFab .zbtn{
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow: 0 0 14px rgba(247,211,106,.10), inset 0 0 0 1px rgba(247,211,106,.14);
+    background: rgba(9,14,28,.78);
+    color: var(--text);
+    padding:10px 12px;
+    border-radius: 999px;
+    font-weight:800;
+    cursor:pointer;
+    backdrop-filter: blur(8px);
   }
 
-  /* Nav: hide center + right at 720, keep left dropdowns */
-  .saNavCenter { display: none !important; }
-  .saNavRight  { display: none !important; }
+  /* ===== ADDITIVE: Gold Trim for Controls v1 ===== */
+  #tableZoomFab .zbtn{ border-color: rgba(247,211,106,.22); }
+  #tableZoomFab .zbtn:hover{ border-color: rgba(247,211,106,.40); }
+  #tableZoomFab .zbtn.isLocked{ border-color: rgba(247,211,106,.55); box-shadow: 0 0 18px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22); }
+
+  #tableZoomFab .zbtn:active{ transform: translateY(1px); }
 }
 
-/* 640px: the actual phone fixes — ONLY fixing overflow/clipping, not restyling */
-@media (max-width: 640px) {
+@media (max-width: 640px){
+  :root{ --tableShiftX: 0px; --tableScale: 1; }
+  .table{ transform: none !important; }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  :root{ --tableShiftX: 0px; --tableScale: 1; }
+  .table{ transform: none !important; }
+}
 
-  /* Kill horizontal scroll entirely */
-  html, body {
+@media (max-width: 900px){
+  /* Use symmetric inline padding accounting for safe areas */
+  .container{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding-left: calc(var(--mobile-pad) + env(safe-area-inset-left)) !important;
+    padding-right: calc(var(--mobile-pad) + env(safe-area-inset-right)) !important;
+  }
+  .tableWrap{
+    box-sizing: border-box !important;
+    width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+}
+
+/* Place diagnostics button bottom-left above the mobile bar to avoid any overlap */
+@media (max-width: 640px){
+  #diagFab{
+    left: 12px !important;
+    right: auto !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  #diagFab{
+    left: 12px !important;
+    right: auto !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+
+/* ===== NEW: Mobile Table Fit Tuning v1 (reduce edge clipping) ===== */
+@media (max-width: 640px) and (orientation: portrait){
+  .table{ transform: none !important; }
+}
+
+:root{
+  --mobile-pad: 12px;
+}
+
+/* Safe-area aware page padding */
+@media (max-width: 900px){
+  .container{
+    padding-left: max(var(--mobile-pad), env(safe-area-inset-left)) !important;
+    padding-right: max(var(--mobile-pad), env(safe-area-inset-right)) !important;
+  }
+}
+
+/* Portrait phones: ensure table + seats fit without clipping */
+@media (max-width: 640px) and (orientation: portrait){
+  .table{ width: min(calc(100vw - 24px), 520px) !important; max-width: min(calc(100vw - 24px), 520px) !important; margin: 0 auto !important; transform: none !important; }
+}
+
+/* Landscape phones: side-by-side layout */
+@media (max-width: 900px) and (orientation: landscape){
+  html, body{ overflow-x:hidden !important; }
+  .tableWrap{
+    display:flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .operator{
+    order: 0 !important;
+    width: min(420px, 44vw) !important;
+    flex: 0 0 auto !important;
+  }
+
+  .table{
+    order: 1 !important;
+    flex: 1 1 auto !important;
+    width: min(calc(56vw - 24px), 520px) !important;
+    max-width: min(calc(56vw - 24px), 520px) !important;
+    transform: scale(0.88) !important;
+    transform-origin: center top !important;
+    margin: 0 auto !important;
+  }
+
+  .container{ padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+}
+
+@media (max-width: 640px){
+
+  /* Prevent sideways drag/scroll and keep everything centered */
+  html, body{
     overflow-x: hidden !important;
-    overscroll-behavior-x: none !important;
+    overscroll-behavior-x: none;
   }
-  body {
-    padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important;
+  body{ touch-action: manipulation; }
+
+  /* Ensure the main content can't exceed viewport width */
+  .container, .tableWrap{
+    max-width: 100vw !important;
+  }
+  .tableWrap{
+    padding-left: 12px !important;
+    padding-right: 12px !important;
   }
 
-  /* Hide the desktop nav bar — mobile bar takes over */
-  .saNavBar { display: none !important; }
+  /* Round table always fits within viewport */
+  .table{
+    width: min(calc(100vw - 24px), 560px) !important;
+    max-width: min(calc(100vw - 24px), 560px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
 
-  /* Topbar: just keep the brand, slim it */
-  .topbar { padding: 8px 12px !important; }
-  .topbarMain { flex-wrap: nowrap !important; gap: 8px !important; }
+  /* Seats never push layout wider than the screen */
+  .seat{
+    max-width: calc(100vw - 24px) !important;
+  }
 
-  /* Stage: single column */
-  .stage { grid-template-columns: 1fr !important; }
+  /* Overlays and popups must be fully visible on mobile */
+  .overlay{
+    padding-top: calc(env(safe-area-inset-top) + 10px) !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+    align-items: flex-start !important;
+  }
 
-  /* tableWrap: vertical flex list, full width, NO overflow side */
-  .tableWrap,
-  .tableWrap#tableWrap {
-    display: flex !important;
+  /* Generic modal: full-screen, scrollable body, no resize/drag */
+  .modal{
+    position: fixed !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    resize: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+  .modalBar{
+    cursor: default !important;
+  }
+  .modalBodyWrap{
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* If your implementation uses these ids, force full-screen too */
+  #modalWin{
+    width: 100vw !important;
+    height: 100vh !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  #modalScroll{
+    max-height: calc(100vh - 140px) !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 20px;
+    box-sizing: border-box;
+  }
+  /* modalForm fills the scroll area so content doesn't float in a tiny top block */
+  .modalForm{
+    display:flex;
+    flex-direction:column;
+    min-height: 100%;
+  }
+  .modalForm .modalInner{
+    flex: 1;
+    display:flex;
+    flex-direction:column;
+  }
+}
+
+@media (max-width: 640px){
+  /* Use normal document flow on mobile so panels never overlap */
+  .tableWrap{
+    display:flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
+    gap: 10px !important;
+    padding: 8px 12px !important;
+    /* CRITICAL: kill the desktop fixed height so seats don't overflow into underTable */
     height: auto !important;
     min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    position: relative !important;
     overflow: visible !important;
-    position: relative !important;
-    padding: 8px 10px 16px !important;
-    gap: 10px !important;
-    box-sizing: border-box !important;
-    transform: none !important;
-    zoom: 1 !important;
   }
 
-  /* Hide SVG table circle */
-  .table        { display: none !important; }
-  #rtStage      { display: none !important; }
-  #tableViewport { display: contents !important; }
-
-  /* Every seat: in-flow, full width */
-  .seat,
-  #tableWrap .seat {
+  /* Collapse group console on mobile — saves ~250px, seats appear immediately */
+  .operator{
     position: relative !important;
-    left: auto !important; top: auto !important;
-    right: auto !important; bottom: auto !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    order: 999 !important; /* push to BOTTOM of seat list on mobile */
+    border-radius: 14px !important;
+  }
+
+  /* Round table circle — hide it on mobile. Seats render as a list instead. */
+  .table{
+    display: none !important;
+  }
+
+  /* Show the team label on mobile */
+  .mobileTeamLabel{
+    display: block !important;
+  }
+
+  /* Mobile seat cards: full-width stacked list items */
+  .seat{
+    position: relative !important;
+    left: 0 !important; top: 0 !important;
     transform: none !important;
     width: 100% !important;
     max-width: 100% !important;
-    min-width: 0 !important;
     height: auto !important;
-    min-height: 72px !important;
+    min-height: 76px !important;
     margin: 0 !important;
-    box-sizing: border-box !important;
     overflow: hidden !important;
+    isolation: isolate !important;
+    background: rgba(14,22,48,.98) !important;
+    box-sizing: border-box !important;
+    border-radius: 14px !important;
+    padding: 14px 16px !important;
+    cursor: pointer !important;
   }
-  .seat .seatMeta { min-width: 0 !important; flex: 1 1 0 !important; }
-  .seat .seatName,
-  .seat .seatRole { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; max-width: 100% !important; }
+  /* Seat avatar bigger on mobile for easier tapping */
+  .seat .seatAvatar{
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 20px !important;
+    border-radius: 12px !important;
+    flex-shrink: 0 !important;
+  }
+  /* Seat name bigger on mobile */
+  .seat .seatName{
+    font-size: 17px !important;
+    font-weight: 800 !important;
+  }
+  /* Seat role/subtitle readable size */
+  .seat .seatRole{
+    font-size: 13px !important;
+    margin-top: 2px !important;
+  }
+  .seat .seatStatus{
+    font-size: 13px !important;
+    margin-top: 4px !important;
+  }
+  /* Active seat highlight — must be visible on mobile */
+  .seat.active{
+    border-color: rgba(124,58,237,.9) !important;
+    background: rgba(20,12,48,.98) !important;
+    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
+  }
 
-  /* Operator / Group Console: full width, at bottom */
-  .operator {
-    position: relative !important;
-    left: auto !important; top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
+  /* Give the prompt textarea breathing room */
+  .opText{ min-height: 108px; }
+
+  /* Avoid the bottom mobile bar covering content */
+  .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
+
+  /* ── MOBILE CHAT PANEL FIX ──────────────────────────────────────────
+     The .sideCard has an inline style height:calc(100svh - 80px) which
+     makes it a full-viewport transparent box on mobile. Kill it here.
+  ─────────────────────────────────────────────────────────────────── */
+  .side{
+    padding: 0 12px 12px 12px !important;
+  }
+
+  .sideCard{
     height: auto !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    order: 999 !important;
-  }
-  .operator .opText { width: 100% !important; box-sizing: border-box !important; }
-
-  /* underTable: no overflow */
-  .underTable {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    padding: 0 10px !important;
-    position: relative !important;
-    z-index: 2 !important;
-  }
-
-  /* Side panel */
-  .side {
-    position: relative !important; top: auto !important;
-    height: auto !important; overflow: visible !important;
-    border-left: 0 !important;
-    width: 100% !important; max-width: 100% !important;
-    padding: 0 10px 10px !important;
-    box-sizing: border-box !important;
-  }
-
-  /* sideCard / groupCard */
-  .sideCard, .groupCard {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    height: auto !important;
+    min-height: 0 !important;
     max-height: none !important;
     overflow: visible !important;
-    margin: 0 !important;
-  }
-
-  /* Thread */
-  #thread {
-    max-height: 42vh !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-
-  /* Modal: full screen */
-  .modal, #modalWin {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100dvh !important;
-    border-radius: 0 !important;
-    transform: none !important;
-    box-sizing: border-box !important;
-  }
-  #modalScroll {
-    max-height: calc(100dvh - 52px - 74px - env(safe-area-inset-bottom)) !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    padding: 0 12px 20px !important;
-    box-sizing: border-box !important;
-  }
-  .formGrid2 { display: flex !important; flex-direction: column !important; gap: 14px !important; }
-  .row2 { grid-template-columns: 1fr !important; }
-  .modalForm .grid { grid-template-columns: 1fr !important; }
-
-  /* Prevent iOS zoom */
-  textarea, input, select { font-size: 16px !important; }
-
-  /* Universal guard */
-  .card, .container, .tableWrap, .sideCard, .groupCard, .grid, .underTable {
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-  }
-
-  /* Mobile bar */
-  .mobileBar {
+    background: rgba(11,16,36,.97) !important;
+    border: 1px solid rgba(42,58,106,.9) !important;
+    border-radius: 16px !important;
+    padding: 14px !important;
+    box-shadow: 0 0 24px rgba(0,0,0,.3) !important;
     display: flex !important;
-    position: fixed !important;
-    left: 0 !important; right: 0 !important; bottom: 0 !important;
-    padding: 9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
-    background: rgba(7,10,20,.97) !important;
-    border-top: 1px solid rgba(80,110,200,.4) !important;
-    z-index: 9000 !important;
-    gap: 6px !important;
-    backdrop-filter: blur(20px) !important;
-    box-shadow: 0 -4px 24px rgba(0,0,0,.5) !important;
-  }
-  .mobileBar .btn {
-    flex: 1 1 0 !important;
-    padding: 9px 4px !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    border-color: rgba(124,58,237,.45) !important;
-    text-align: center !important;
-    white-space: nowrap !important;
+    flex-direction: column !important;
+    gap: 10px !important;
   }
 
-  /* Drawer */
-  .mobileDrawerOverlay.show {
-    display: block !important;
-    position: fixed !important;
-    inset: 0 !important;
-    background: rgba(2,6,16,.7) !important;
-    z-index: 8900 !important;
+  /* Hide the duplicate role subtitle — it's already on the seat card above */
+  #seatSub{
+    display: none !important;
   }
-  .mobileDrawer {
-    position: fixed !important;
-    left: 8px !important; right: 8px !important;
-    bottom: calc(62px + env(safe-area-inset-bottom)) !important;
-    max-height: 72vh !important;
+
+  /* Thread scroll area — bounded height on mobile */
+  #thread{
+    height: auto !important;
+    max-height: 50vh !important;
+    min-height: 80px !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
-    z-index: 9100 !important;
   }
 
-  /* Hide desktop-only stuff */
-  .rightmeta    { display: none !important; }
-  #diagFab      { display: none !important; }
-  #tableZoomFab { display: none !important; }
-  #seatSub      { display: none !important; }
-  .commandRow, .commandRow.secondary {
-    grid-template-columns: repeat(2, 1fr) !important;
-    max-width: none !important;
+  /* Follow input row stays full width */
+  .followRow,
+  #followRow{
+    width: 100% !important;
   }
 }
 
-/* 480px: nav fully hidden */
-@media (max-width: 480px) {
-  .saNavBar { display: none !important; }
-}
-
-/* ── Mobile bottom bar styles (shared, not inside media query) ─────────── */
-.mobileBar          { display: none; }
-.mobileDrawerOverlay { display: none; }
-.mobileDrawer {
-  position: absolute;
-  left: 10px; right: 10px;
+.mobileBar{ display:none; }
+.mobileDrawerOverlay{ display:none; }
+.mobileDrawer{
+  position:absolute;
+  left:10px;
+  right:10px;
   bottom: calc(66px + env(safe-area-inset-bottom));
-  background: rgba(10,14,30,.96);
-  border: 1px solid rgba(42,58,106,.6);
-  border-radius: 18px;
-  box-shadow: 0 18px 60px rgba(0,0,0,.55), 0 0 26px rgba(124,58,237,.12);
+  background: rgba(10,14,30,96);
+  border:1px solid rgba(42,58,106,8);
+  border-radius:18px;
+  box-shadow: 0 18px 60px rgba(0,0,0,55), 0 0 26px rgba(124,58,237,12);
   backdrop-filter: blur(10px);
-  overflow: hidden;
+  overflow:hidden;
 }
-.mobileDrawerHead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid rgba(42,58,106,.5);
+.mobileDrawerHead{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 12px 10px 12px;
+  border-bottom:1px solid rgba(42,58,106,7);
 }
-.mobileDrawerTitle { font-weight: 900; font-size: 13px; }
-.mobileDrawerSub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.mobileDrawerGrid  {
-  display: grid;
+.mobileDrawerTitle{ font-weight:900; font-size: 13px; }
+.mobileDrawerSub{ font-size:12px; color: var(--muted); margin-top: 2px; }
+.mobileDrawerGrid{
+  display:grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 12px;
+  gap:10px;
+  padding:12px;
 }
-.mobileDrawerGrid .btn { width: 100%; justify-content: center; }
-.mobileDrawerFoot  { display: flex; gap: 10px; padding: 0 12px 12px; }
-.mobileDrawerFoot .btn { flex: 1 1 auto; }
+.mobileDrawerGrid .btn{ width:100%; justify-content:center; }
+.mobileDrawerFoot{
+  display:flex;
+  gap:10px;
+  padding: 0 12px 12px 12px;
+}
+.mobileDrawerFoot .btn{ flex: 1 1 auto; }
 
-/* ── Button gold trim (design system) ──────────────────────────────────── */
-.btn {
-  box-shadow:
-    inset 0 0 0 1px rgba(247,211,106,.22),
-    0 0 18px rgba(247,211,106,.07);
-}
-.btnPrimary {
-  border-color: rgba(247,211,106,.55) !important;
-  box-shadow:
-    inset 0 0 0 1px rgba(247,211,106,.36),
-    0 0 26px rgba(124,58,237,.16),
-    0 0 18px rgba(247,211,106,.10);
+@media (max-width: 720px){
+  /* keep top brand, move actions to bottom bar + drawer */
+  .rightmeta{ display:none !important; }
+  .mobileBar{
+    display:flex;
+    position:fixed;
+    left:0; right:0; bottom:0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(7,10,20,86);
+    border-top:1px solid rgba(42,58,106,7);
+    z-index: 120;
+    gap:10px;
+    justify-content: space-between;
+    backdrop-filter: blur(10px);
+  }
+  .mobileBar .btn{ flex: 1 1 auto; padding: 10px 10px; }
+  body{ padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .mobileDrawerOverlay.show{
+    display:block;
+    position:fixed;
+    inset:0;
+    background: rgba(2,6,16,62);
+    z-index: 130;
+  }
 }
 
-/* ── Diagnostics panel ──────────────────────────────────────────────────── */
-#diagFab {
-  position: fixed;
-  right: 14px;
-  bottom: 14px;
+/* NEW: Diagnostics Panel v1 (additive) */
+
+/* ===== NEW: Mobile Diag Placement v2 (no overlays) ===== */
+@media (max-width: 640px){
+  #diagFab{ display:none !important; }
+}
+
+#diagFab{
+  position:fixed;
+  right:14px;
+  bottom:14px;
   z-index: 260;
-  display: flex;
-  gap: 8px;
-  align-items: center;
+  display:flex;
+  gap:8px;
+  align-items:center;
 }
-#diagFab button {
-  border: 1px solid rgba(255,255,255,.14);
+#diagFab button{
+  border:1px solid rgba(255,255,255,.14);
   background: rgba(9,14,28,.78);
   color: var(--text);
-  padding: 10px 12px;
+  padding:10px 12px;
   border-radius: 999px;
-  cursor: pointer;
-  font-weight: 700;
-  letter-spacing: .2px;
+  cursor:pointer;
+  font-weight:700;
+  letter-spacing:.2px;
   backdrop-filter: blur(8px);
 }
-#diagFab button:active { transform: translateY(1px); }
-#diagOverlay { display: none; position: fixed; inset: 0; z-index: 270; background: rgba(2,6,16,.62); }
-#diagOverlay.show { display: block; }
-#diagPanel {
-  position: fixed;
+#diagFab button:active{ transform: translateY(1px); }
+
+
+/* ===== NEW: Mobile Diagnostics Button Placement v1 (avoid overlap with bottom bar) ===== */
+@media (max-width: 640px){
+  #diagFab{
+    right: 12px !important;
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important; /* sits above mobile action bar */
+  }
+}
+@media (max-width: 900px) and (orientation: landscape){
+  #diagFab{
+    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+  }
+}
+#diagOverlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index: 270;
+  background: rgba(2,6,16,.62);
+}
+#diagOverlay.show{ display:block; }
+#diagPanel{
+  position:fixed;
   left: 50%;
   transform: translateX(-50%);
   bottom: 14px;
   width: min(980px, calc(100% - 18px));
   max-height: min(72vh, 720px);
   z-index: 280;
-  display: none;
-  border: 1px solid rgba(255,255,255,.12);
+  display:none;
+  border:1px solid rgba(255,255,255,.12);
   border-radius: 16px;
-  overflow: hidden;
+  overflow:hidden;
   background: rgba(7,10,22,.92);
   backdrop-filter: blur(10px);
   box-shadow: 0 18px 50px rgba(0,0,0,.55);
 }
-#diagPanel.show { display: block; }
-#diagHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  gap: 10px;
-  border-bottom: 1px solid rgba(255,255,255,.10);
+#diagPanel.show{ display:block; }
+#diagHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  gap:10px;
+  border-bottom:1px solid rgba(255,255,255,.10);
 }
-#diagHeader .title { font-weight: 800; font-size: 14px; color: var(--text); opacity: .95; }
-#diagHeader .actions { display: flex; gap: 8px; align-items: center; }
-.diagBtn {
-  border: 1px solid rgba(255,255,255,.14);
+#diagHeader .title{
+  font-weight:800;
+  font-size: 14px;
+  color: var(--text);
+  opacity:.95;
+}
+#diagHeader .actions{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.diagBtn{
+  border:1px solid rgba(255,255,255,.14);
   background: rgba(255,255,255,.06);
   color: var(--text);
-  padding: 8px 10px;
+  padding:8px 10px;
   border-radius: 10px;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 12px;
+  cursor:pointer;
+  font-weight:700;
+  font-size:12px;
 }
-.diagBtn:active { transform: translateY(1px); }
-#diagBody  { padding: 10px 12px 12px; }
-#diagGrid  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-.diagCard  {
-  border: 1px solid rgba(255,255,255,.10);
+.diagBtn:active{ transform: translateY(1px); }
+#diagBody{
+  padding: 10px 12px 12px 12px;
+}
+#diagGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:10px;
+  margin-bottom:10px;
+}
+.diagCard{
+  border:1px solid rgba(255,255,255,.10);
   border-radius: 14px;
   background: rgba(255,255,255,.04);
-  padding: 10px;
+  padding:10px;
   min-height: 72px;
   border-top: 3px solid rgba(255,255,255,.1);
   transition: border-top-color .2s;
 }
-.diagCard[data-stage="Lead"]         { border-top-color: rgba(59,130,246,.7);  background: rgba(59,130,246,.05); }
-.diagCard[data-stage="Conversation"] { border-top-color: rgba(234,179,8,.7);   background: rgba(234,179,8,.05); }
-.diagCard[data-stage="Interested"]   { border-top-color: rgba(139,92,246,.7);  background: rgba(139,92,246,.05); }
-.diagCard[data-stage="Call booked"]  { border-top-color: rgba(20,184,166,.7);  background: rgba(20,184,166,.05); }
-.diagCard[data-stage="Client"]       { border-top-color: rgba(16,185,129,.7);  background: rgba(16,185,129,.05); }
-.diagLabel { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.diagValue { font-size: 13px; color: var(--text); line-height: 1.35; word-break: break-word; }
-#diagPre {
-  border: 1px solid rgba(255,255,255,.10);
+.diagCard[data-stage="Lead"]        { border-top-color:rgba(59,130,246,.7);  background:rgba(59,130,246,.05); }
+.diagCard[data-stage="Conversation"]{ border-top-color:rgba(234,179,8,.7);   background:rgba(234,179,8,.05); }
+.diagCard[data-stage="Interested"]  { border-top-color:rgba(139,92,246,.7);  background:rgba(139,92,246,.05); }
+.diagCard[data-stage="Call booked"] { border-top-color:rgba(20,184,166,.7);  background:rgba(20,184,166,.05); }
+.diagCard[data-stage="Client"]      { border-top-color:rgba(16,185,129,.7);  background:rgba(16,185,129,.05); }
+.diagLabel{ font-size:12px; color: var(--muted); margin-bottom:6px; }
+.diagValue{ font-size:13px; color: var(--text); line-height:1.35; word-break:break-word; }
+#diagPre{
+  border:1px solid rgba(255,255,255,.10);
   border-radius: 14px;
   background: rgba(0,0,0,.25);
-  padding: 10px;
+  padding:10px;
   color: var(--text);
-  font-family: ui-monospace, Menlo, Monaco, "Courier New", monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
-  line-height: 1.35;
-  overflow: auto;
+  line-height:1.35;
+  overflow:auto;
   max-height: 42vh;
   white-space: pre-wrap;
 }
-@media (max-width: 820px) {
-  #diagGrid  { grid-template-columns: 1fr; }
-  #diagPanel { bottom: calc(14px + env(safe-area-inset-bottom)); width: calc(100% - 18px); }
-  #diagFab   { bottom: calc(14px + env(safe-area-inset-bottom)); }
+@media (max-width: 820px){
+  #diagGrid{ grid-template-columns: 1fr; }
+  #diagPanel{
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    width: calc(100% - 18px);
+  }
+  #diagFab{
+    bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+}
+
+
+/* === V5: RIGHT-EDGE + BUTTON TRIM FIX (ADDITIVE) === */
+/* Stop any tiny horizontal overflow that causes right-side clipping in mobile webviews (Messenger, etc.) */
+*, *::before, *::after{ box-sizing:border-box; }
+html, body{ max-width:100%; overflow-x:hidden !important; }
+
+/* Ensure primary layout wrappers never exceed viewport width */
+.container, .card, .sideCard, .grid, .row{ max-width:100% !important; }
+
+/* Headers with right-side action buttons: prevent "leaning" and text clipping */
+.sideHead, .cardHead, .panelHead{ max-width:100%; }
+.sideHead{ flex-wrap:wrap; }
+.sideHead .btn{ flex: 0 0 auto; white-space:nowrap; max-width:100%; }
+
+/* Common culprit: elements using vw inside padded containers. Prefer 100% on mobile. */
+@media (max-width: 640px){
+  .card{ width:100% !important; max-width:100% !important; }
+  .side{ width:100% !important; max-width:100% !important; }
+  #modalWin{ max-width: calc(100% - 16px) !important; }
+}
+
+/* Restore + enhance gold trim on console buttons (login gate already has it) */
+.btn{
+  box-shadow:
+    inset 0 0 0 1px rgba(247,211,106,.22),
+    0 0 18px rgba(247,211,106,.07);
+}
+.btnPrimary{
+  border-color: rgba(247,211,106,.55) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(247,211,106,.36),
+    0 0 26px rgba(124,58,237,.16),
+    0 0 18px rgba(247,211,106,.10);
+}
+/* Slightly stronger trim on the bottom mobile bar buttons */
+.mobileBar .btn{
+  border-color: rgba(247,211,106,.35) !important;
 }
 
 /* === Calendar modal (additive, minimal) === */
@@ -9718,7 +9898,81 @@ html, body { max-width: 100%; overflow-x: hidden !important; }
 }
 
 
-/* ===== Mobile Seat Flow — consolidated into main 640px block above ===== */
+/* ===== FINAL ADDITIVE: Mobile Seat Flow Lock v1 =====
+   Goal: the command center prompt box stays first, and teammate cards begin below it.
+   This only affects mobile and does not remove any existing features. */
+@media (max-width: 720px){
+  #tableWrap{
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding-bottom: 18px !important;
+  }
+
+  #tableWrap > .operator{
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 0 4px 0 !important;
+    order: 1 !important;
+    z-index: 6 !important;
+  }
+
+  #tableWrap > .table{
+    position: relative !important;
+    inset: auto !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: min(560px, 100%) !important;
+    height: 92px !important;
+    aspect-ratio: auto !important;
+    margin: 0 auto !important;
+    order: 2 !important;
+    overflow: hidden !important;
+  }
+
+  #tableWrap > .seat{
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 118px !important;
+    height: auto !important;
+    margin: 0 !important;
+    order: 3 !important;
+    z-index: 2 !important;
+  }
+
+  #tableWrap > .seat:hover,
+  #tableWrap > .seat.dragging,
+  #tableWrap > .seat:active{
+    transform: none !important;
+  }
+
+  #tableWrap > .seat .seatTools{
+    position: absolute !important;
+    right: 8px !important;
+    bottom: 8px !important;
+  }
+
+  #tableWrap > .operator .opText{
+    min-height: 124px !important;
+  }
+}
 
 
 /* ===== Full-workspace app windows ===== */
@@ -9865,7 +10119,7 @@ label         { font-size: 14px !important; }
           <div class="saDrop" id="saSettingsDrop">
             <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="myTeamBtn">👥 My Team</button>
+            <button class="saDropItem" id="teamBtn">👥 My Team</button>
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
@@ -9900,10 +10154,9 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn" style="flex:1.2 !important;">☰ Menu</button>
-    <button class="btn" id="mobileManageBtn">👥 Team</button>
-    <button class="btn" id="mobileSettingsBtn">⚙️ Settings</button>
-    <button class="btn" id="mobileChatScrollBtn" onclick="document.getElementById('thread')&&document.getElementById('thread').scrollTo({top:999999,behavior:'smooth'})" title="Jump to latest">⬇️</button>
+    <button class="btn" id="mobileMenuBtn">Menu</button>
+    <button class="btn" id="mobileManageBtn">Team</button>
+    <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -9923,6 +10176,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
+        <button class="btn" id="teamNavBtn">👥 Team</button>
         <button class="btn" data-click="calendarBtn">Calendar</button>
 <button class="btn" data-click="crmBtn">Client Center</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
@@ -10269,51 +10523,55 @@ label         { font-size: 14px !important; }
                 </div>
               </div>
 
-              <!-- ── My Team Panel ──────────────────────────────────────── -->
-              <div class="modalForm" id="myTeamForm">
+              <div class="modalForm" id="teamForm" style="display:none;">
                 <div class="modalInner">
-                  <h3 style="color:#a78bfa;margin-top:0;margin-bottom:4px;">👥 My Team</h3>
-                  <div class="tiny" style="margin-bottom:20px;text-align:center;color:#9ca3af;">
-                    Invite teammates by email. They\'ll get a magic link to register and join your workspace.
+                  <div style="text-align:center;margin-bottom:18px;">
+                    <div id="teamPlanBadge" style="display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:5px 18px;font-size:12px;font-weight:700;color:#e9d5ff;margin-bottom:10px;"></div>
+                    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px;">
+                      <div style="font-size:13px;color:#94a3b8;">Seats used: <strong id="teamSeatsUsed" style="color:#c4b5fd;"></strong> / <strong id="teamSeatsLimit" style="color:#c4b5fd;"></strong></div>
+                    </div>
+                    <div style="background:rgba(0,0,0,.2);border-radius:999px;height:6px;max-width:300px;margin:8px auto 0;overflow:hidden;">
+                      <div id="teamSeatsBar" style="height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#7c3aed);transition:width .5s;"></div>
+                    </div>
                   </div>
 
-                  <!-- Seat bar -->
-                  <div id="teamSeatBar" style="margin-bottom:20px;"></div>
-
-                  <!-- Invite form (owners only) -->
+                  <!-- INVITE FORM (owner only) -->
                   <div id="teamInviteSection">
-                    <label style="font-size:14px;color:#9ca3af;display:block;margin-bottom:6px;font-weight:600;">
-                      Invite by email address
-                    </label>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                      <input id="teamInviteEmail" type="email" placeholder="colleague@example.com"
-                             style="flex:1;min-width:200px;padding:10px 14px;background:#1a1a2e;
-                                    border:1px solid #374151;border-radius:8px;color:#e5e7eb;font-size:14px;">
-                      <button onclick="teamSendInvite()"
-                              style="padding:10px 20px;background:#7c3aed;color:#fff;border:none;
-                                     border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap;">
-                        Send Invite ✉️
-                      </button>
-                    </div>
-                    <div id="teamInviteMsg" style="margin-top:8px;font-size:13px;min-height:20px;"></div>
-                  </div>
-
-                  <!-- Current members -->
-                  <div style="margin-top:24px;">
-                    <h4 style="color:#e5e7eb;margin:0 0 12px;font-size:14px;font-weight:700;">Active Team Members</h4>
-                    <div id="teamMembersList">
-                      <span style="color:#6b7280;font-size:13px;">Loading…</span>
+                    <div style="background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:14px;padding:16px 18px;margin-bottom:18px;">
+                      <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">Invite a Team Member</div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <input id="teamInviteEmail" type="email" placeholder="teammate@email.com" style="flex:1;min-width:180px;background:rgba(15,23,42,.9);border:1px solid rgba(80,110,200,.4);border-radius:10px;padding:10px 14px;color:#e2e8f0;font-size:13px;outline:none;"/>
+                        <button class="btn btnPrimary" id="teamInviteBtn" style="white-space:nowrap;">Send Invite</button>
+                      </div>
+                      <div id="teamInviteStatus" class="tiny" style="margin-top:8px;text-align:center;min-height:18px;"></div>
+                      <div id="teamInviteLink" style="display:none;margin-top:10px;background:rgba(0,0,0,.25);border-radius:8px;padding:10px;font-size:11px;word-break:break-all;color:#94a3b8;"></div>
                     </div>
                   </div>
 
-                  <!-- Pending invites -->
-                  <div id="teamPendingSection" style="margin-top:24px;display:none;">
-                    <h4 style="color:#e5e7eb;margin:0 0 12px;font-size:14px;font-weight:700;">Pending Invites</h4>
-                    <div id="teamPendingList"></div>
+                  <!-- ACTIVE MEMBERS -->
+                  <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Active Team Members</div>
+                  <div id="teamMembersList" style="display:flex;flex-direction:column;gap:8px;min-height:40px;margin-bottom:18px;">
+                    <div class="tiny" style="color:#475569;text-align:center;padding:12px 0;">Loading...</div>
                   </div>
 
-                  <div class="actions" style="justify-content:center;margin-top:20px;">
-                    <button class="btn" id="cancelMyTeam">Close</button>
+                  <!-- PENDING INVITES -->
+                  <div id="pendingInvitesSection">
+                    <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Pending Invites</div>
+                    <div id="teamPendingList" style="display:flex;flex-direction:column;gap:8px;">
+                      <div class="tiny" style="color:#475569;text-align:center;padding:8px 0;">None pending</div>
+                    </div>
+                  </div>
+
+                  <!-- MEMBER VIEW (if user is a team member, not owner) -->
+                  <div id="teamMemberView" style="display:none;text-align:center;padding:20px;">
+                    <div style="font-size:32px;margin-bottom:12px;">👥</div>
+                    <div style="font-size:15px;font-weight:700;color:#c4b5fd;margin-bottom:6px;">You're on a team</div>
+                    <div class="tiny" style="color:#64748b;">Team owner: <strong id="teamOwnerName" style="color:#94a3b8;"></strong></div>
+                    <div class="tiny" style="color:#64748b;margin-top:4px;">Contact your team owner to manage seats and invites.</div>
+                  </div>
+
+                  <div class="actions" style="justify-content:center;margin-top:16px;">
+                    <button class="btn" onclick="showSettingsModal()">← Back to Settings</button>
                   </div>
                 </div>
               </div>
@@ -11867,6 +12125,7 @@ function applyModalPos(){
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
+      if($("teamForm")) $("teamForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       // Restore scroll for non-library modals
       const sc = $("modalScroll");
@@ -12851,41 +13110,63 @@ function makeSeat(defn, idx){
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
 
-      // Ghost Stack fix: final sweep — on mobile, strip any stale inline left/top
-      // from saved positions that may have loaded before the mobile guard was in place
+      // ── NUCLEAR MOBILE FIX ──────────────────────────────────────────────────
+      // Three-layer defence for phones ≤640px:
+      //   1. Inline style override on the container + stage + each seat
+      //   2. MutationObserver that re-fires on every future DOM change
+      //   3. Periodic RAF loop for the first 3 s after render (catches async JS)
       if(window.innerWidth <= 640){
-        // Also ensure the container itself is a flex column (override any JS-set styles)
-        wrap.style.display        = "flex";
-        wrap.style.flexDirection  = "column";
-        wrap.style.width          = "100%";
-        wrap.style.height         = "auto";
-        wrap.style.minHeight      = "0";
-        wrap.style.overflow       = "visible";
-        wrap.style.padding        = "8px 12px";
-        wrap.style.gap            = "10px";
-        // If rtStage was created despite our guard, flatten it too
-        const stage = document.getElementById("rtStage");
-        if(stage){
-          stage.style.position      = "static";
-          stage.style.transform     = "none";
-          stage.style.display       = "flex";
-          stage.style.flexDirection = "column";
-          stage.style.gap           = "10px";
-          stage.style.width         = "100%";
-          stage.style.height        = "auto";
+        function _phoneFlatten(root){
+          if(!root) return;
+          // container
+          root.style.cssText = [
+            "display:flex","flex-direction:column","width:100%","max-width:100%",
+            "height:auto","min-height:0","overflow:visible","touch-action:auto",
+            "padding:8px 12px","gap:10px","margin:0","transform:none","position:relative"
+          ].join("!important;") + "!important;";
+          // stage
+          var stage = document.getElementById("rtStage");
+          if(stage){
+            stage.style.cssText = [
+              "position:static","inset:auto","transform:none",
+              "display:flex","flex-direction:column","gap:10px",
+              "width:100%","height:auto"
+            ].join("!important;") + "!important;";
+          }
+          // seats
+          Array.from(root.querySelectorAll(".seat")).forEach(function(s){
+            s.style.cssText = [
+              "position:relative","left:auto","top:auto","right:auto","bottom:auto",
+              "transform:none","width:100%","max-width:100%",
+              "height:auto","min-height:72px","margin:0","flex-shrink:0"
+            ].join("!important;") + "!important;";
+          });
+          // hide the round table SVG/circle decoration
+          var tbl = root.querySelector(".table");
+          if(tbl) tbl.style.setProperty("display","none","important");
         }
-        Array.from(wrap.querySelectorAll(".seat")).forEach(s => {
-          s.style.position  = "relative";
-          s.style.left      = "";
-          s.style.top       = "";
-          s.style.right     = "";
-          s.style.bottom    = "";
-          s.style.width     = "100%";
-          s.style.maxWidth  = "100%";
-          s.style.height    = "auto";
-          s.style.transform = "none";
-          s.style.margin    = "0";
+
+        _phoneFlatten(wrap);
+
+        // MutationObserver: re-flatten whenever a new .seat is added
+        if(window._phoneObserver) window._phoneObserver.disconnect();
+        window._phoneObserver = new MutationObserver(function(mutations){
+          var needsFlatten = mutations.some(function(m){
+            return Array.from(m.addedNodes).some(function(n){
+              return n.nodeType===1 && (n.classList.contains("seat") || n.querySelector && n.querySelector(".seat"));
+            });
+          });
+          if(needsFlatten) _phoneFlatten(wrap);
         });
+        window._phoneObserver.observe(wrap, {childList:true, subtree:true});
+
+        // RAF loop: re-flatten for 3 s to catch any async JS that sets inline styles
+        var _rafEnd = Date.now() + 3000;
+        function _rafLoop(){
+          _phoneFlatten(wrap);
+          if(Date.now() < _rafEnd) requestAnimationFrame(_rafLoop);
+        }
+        requestAnimationFrame(_rafLoop);
       }
 
       if(!selectedSeat || !seats.includes(selectedSeat)){
@@ -15440,6 +15721,158 @@ Challenge weak assumptions. Surface risks.`;
         $("modalTitle").innerText = "Settings: connect your key + email";
       }
     }
+
+    function showTeamModal(){
+      showModal();
+      try{ ensureModalMinSize(1100, 820); }catch(e){}
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("teamForm")) $("teamForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = "My Team";
+      loadTeamData();
+    }
+
+    async function loadTeamData(){
+      const membersList  = $("teamMembersList");
+      const pendingList  = $("teamPendingList");
+      const planBadge    = $("teamPlanBadge");
+      const seatsUsed    = $("teamSeatsUsed");
+      const seatsLimit   = $("teamSeatsLimit");
+      const seatsBar     = $("teamSeatsBar");
+      const inviteSection = $("teamInviteSection");
+      const pendingSection = $("pendingInvitesSection");
+      const memberView   = $("teamMemberView");
+      const ownerName    = $("teamOwnerName");
+
+      // Fetch team info
+      let teamData = {};
+      let inviteData = {};
+      try{
+        const tr = await fetch("/api/team");
+        teamData = await tr.json();
+      }catch(e){ if(membersList) membersList.innerHTML = "<div class='tiny' style='color:#fca5a5;text-align:center;'>Failed to load team data.</div>"; return; }
+
+      try{
+        const ir = await fetch("/api/team/invites");
+        inviteData = await ir.json();
+      }catch(e){}
+
+      const isOwner   = teamData.is_owner;
+      const limit     = teamData.seats_limit || 1;
+      const used      = teamData.seats_used || 1;
+      const members   = teamData.members || [];
+      const pct       = Math.round((used / limit) * 100);
+      const planName  = teamData.plan_name || "Plan";
+
+      if(planBadge)  planBadge.textContent  = planName;
+      if(seatsUsed)  seatsUsed.textContent  = used;
+      if(seatsLimit) seatsLimit.textContent = limit;
+      if(seatsBar)   seatsBar.style.width   = pct + "%";
+
+      if(!isOwner){
+        // Show member view
+        if(inviteSection)  inviteSection.style.display  = "none";
+        if(pendingSection) pendingSection.style.display = "none";
+        if(memberView)     memberView.style.display     = "block";
+        if(ownerName)      ownerName.textContent        = teamData.owner || "your owner";
+        if(membersList)    membersList.innerHTML         = "";
+        return;
+      }
+
+      // Owner view
+      if(inviteSection)  inviteSection.style.display  = limit > 1 ? "block" : "none";
+      if(pendingSection) pendingSection.style.display = "block";
+      if(memberView)     memberView.style.display     = "none";
+
+      // Render active members
+      if(membersList){
+        if(members.length === 0){
+          membersList.innerHTML = "<div class='tiny' style='color:#475569;text-align:center;padding:12px 0;'>No team members yet — send an invite below.</div>";
+        } else {
+          membersList.innerHTML = members.map(m => `
+            <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 14px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#6d28d9);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;">${m[0].toUpperCase()}</div>
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#e2e8f0;">${m}</div>
+                  <div class="tiny" style="color:#475569;">Team member</div>
+                </div>
+              </div>
+              <button class="btn" style="font-size:11px;padding:4px 10px;color:#fca5a5;border-color:rgba(239,68,68,.3);" onclick="removeTeamMember('${m}')">Remove</button>
+            </div>`).join("");
+        }
+      }
+
+      // Render pending invites
+      const invites = (inviteData.invites || []);
+      if(pendingList){
+        if(invites.length === 0){
+          pendingList.innerHTML = "<div class='tiny' style='color:#475569;text-align:center;padding:8px 0;'>No pending invites</div>";
+        } else {
+          pendingList.innerHTML = invites.map(inv => `
+            <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(251,191,36,.05);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:10px 14px;">
+              <div>
+                <div style="font-size:13px;color:#fcd34d;">${inv.email}</div>
+                <div class="tiny" style="color:#78716c;">Invite pending · sent ${inv.created_at ? inv.created_at.slice(0,10) : ''}</div>
+              </div>
+              <button class="btn" style="font-size:11px;padding:4px 10px;color:#94a3b8;" onclick="revokeInvite('${inv.token}')">Revoke</button>
+            </div>`).join("");
+        }
+      }
+    }
+
+    async function removeTeamMember(username){
+      if(!confirm("Remove " + username + " from your team? They will lose access.")) return;
+      try{
+        const r = await fetch("/api/team/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
+        const d = await r.json();
+        if(d.ok){ showToast("Removed " + username); loadTeamData(); }
+        else showToast(d.error || "Failed","err");
+      }catch(e){ showToast("Network error","err"); }
+    }
+
+    async function revokeInvite(token){
+      try{
+        const r = await fetch("/api/team/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})});
+        const d = await r.json();
+        if(d.ok){ showToast("Invite revoked"); loadTeamData(); }
+        else showToast(d.error || "Failed","err");
+      }catch(e){ showToast("Network error","err"); }
+    }
+
+    // Wire up invite button
+    document.addEventListener("DOMContentLoaded", function(){
+      const invBtn = $("teamInviteBtn");
+      if(invBtn) invBtn.addEventListener("click", async function(){
+        const emailEl = $("teamInviteEmail");
+        const statusEl = $("teamInviteStatus");
+        const linkEl   = $("teamInviteLink");
+        const email = (emailEl ? emailEl.value : "").trim();
+        if(!email){ if(statusEl) statusEl.textContent = "Enter an email address."; return; }
+        if(statusEl){ statusEl.style.color = "#94a3b8"; statusEl.textContent = "Sending invite..."; }
+        try{
+          const r = await fetch("/api/team/invite/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+          const d = await r.json();
+          if(d.ok){
+            if(statusEl){ statusEl.style.color = "#86efac"; statusEl.textContent = d.message; }
+            if(emailEl) emailEl.value = "";
+            if(!d.sent && linkEl){
+              linkEl.style.display = "block";
+              linkEl.innerHTML = "<strong style='color:#fcd34d;'>No email configured — share this link manually:</strong><br/><a href='" + d.join_link + "' style='color:#a78bfa;'>" + d.join_link + "</a>";
+            }
+            loadTeamData();
+          } else {
+            if(statusEl){ statusEl.style.color = "#fca5a5"; statusEl.textContent = d.error || "Failed."; }
+          }
+        }catch(e){ if(statusEl){ statusEl.style.color="#fca5a5"; statusEl.textContent="Network error."; } }
+      });
+
+      // Wire team nav buttons
+      const teamBtn    = $("teamBtn");
+      const teamNavBtn = $("teamNavBtn");
+      if(teamBtn)    teamBtn.onclick    = () => { try{ closeDropdown(); }catch(_){} showTeamModal(); };
+      if(teamNavBtn) teamNavBtn.onclick = () => showTeamModal();
+    });
 
     function showEmailConsoleModal(titleText="Email Console"){
       showModal();
@@ -19349,7 +19782,7 @@ function wcalWireButtons(){
 window.showCalendarModal=function showCalendarModal(){
   showModal();
   if(typeof hideAllModalForms==='function') hideAllModalForms();
-  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','myTeamForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','teamForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
   if(calForm) calForm.style.display='flex';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
@@ -19503,188 +19936,6 @@ try{
 
 
 $("settingsBtn").onclick = () => showSettingsModal();
-
-    // ── My Team ──────────────────────────────────────────────────────────────
-    function showMyTeamModal(){
-      showModal();
-      try{ ensureModalMinSize(900, 700); }catch(e){}
-      if($("frameworkForm"))  $("frameworkForm").style.display  = "none";
-      if($("modalForm"))      $("modalForm").style.display      = "none";
-      if($("manageForm"))     $("manageForm").style.display     = "none";
-      if($("createForm"))     $("createForm").style.display     = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("settingsForm"))   $("settingsForm").style.display   = "none";
-      if($("myTeamForm"))     $("myTeamForm").style.display     = "block";
-      if($("modalBody"))      $("modalBody").style.display      = "none";
-      if($("modalImg"))       $("modalImg").style.display       = "none";
-      if($("modalTitle"))     $("modalTitle").innerText         = "My Team";
-      loadTeamPanel();
-    }
-
-    if($("myTeamBtn"))   $("myTeamBtn").onclick  = () => { closeMenu && closeMenu(); showMyTeamModal(); };
-    if($("cancelMyTeam")) $("cancelMyTeam").onclick = () => hideModal();
-
-    async function loadTeamPanel(){
-      try{
-        const r = await fetch("/api/team");
-        const d = await r.json();
-        if(!d.ok) return;
-
-        // Seat bar
-        const pct = Math.min(100, Math.round((d.seats_used / d.seats_limit) * 100));
-        const col  = pct >= 100 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#10b981";
-        if($("teamSeatBar")) $("teamSeatBar").innerHTML = `
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-size:13px;color:#9ca3af;">${d.plan_name} &mdash; ${d.seats_used} / ${d.seats_limit} seat(s) used</span>
-            <span style="font-size:13px;color:${col};font-weight:600;">${d.seats_left} seat(s) remaining</span>
-          </div>
-          <div style="height:7px;background:#1f2937;border-radius:4px;overflow:hidden;">
-            <div style="width:${pct}%;height:100%;background:${col};border-radius:4px;transition:width .4s;"></div>
-          </div>`;
-
-        // Members list
-        const ml = $("teamMembersList");
-        if(ml){
-          if(!d.members || d.members.length === 0){
-            ml.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:12px 0;">No team members yet — send an invite below.</div>';
-          } else {
-            ml.innerHTML = d.members.map(m => `
-              <div style="display:flex;align-items:center;justify-content:space-between;
-                          padding:10px 14px;background:#1a1a2e;border:1px solid #2d3748;
-                          border-radius:8px;margin-bottom:8px;">
-                <div>
-                  <span style="color:#e5e7eb;font-weight:500;">👤 ${m}</span>
-                  <span style="color:#6b7280;font-size:12px;margin-left:8px;">Team Member</span>
-                </div>
-                ${d.is_owner ? `<button onclick="teamRemoveMember('${m}')"
-                  style="padding:5px 12px;background:#7f1d1d;color:#fca5a5;border:1px solid #991b1b;
-                         border-radius:6px;font-size:12px;cursor:pointer;">Remove</button>` : ""}
-              </div>`).join("");
-          }
-        }
-
-        // Show/hide invite form based on ownership and available seats
-        const invSec = $("teamInviteSection");
-        if(invSec){
-          if(!d.is_owner){
-            invSec.style.display = "none";
-          } else if(d.seats_left <= 0){
-            invSec.innerHTML = `
-              <div style="padding:16px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);
-                           border-radius:10px;text-align:center;">
-                <div style="color:#c4b5fd;font-weight:700;margin-bottom:6px;">All seats filled</div>
-                <div style="color:#9ca3af;font-size:13px;margin-bottom:12px;">
-                  Your ${d.plan_name} plan includes ${d.seats_limit} seat(s). Upgrade to add more team members.
-                </div>
-                <a href="/pricing" target="_blank"
-                   style="display:inline-block;padding:8px 20px;background:#7c3aed;color:#fff;
-                          border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">
-                  Upgrade Plan →
-                </a>
-              </div>`;
-            invSec.style.display = "block";
-          } else {
-            invSec.style.display = "block";
-          }
-        }
-
-        // Pending invites (owners only)
-        if(d.is_owner){
-          const pr = await fetch("/api/team/invites");
-          const pd = await pr.json();
-          const ps = $("teamPendingSection");
-          const pl = $("teamPendingList");
-          if(pd.ok && pd.invites && pd.invites.length > 0 && ps && pl){
-            ps.style.display = "block";
-            pl.innerHTML = pd.invites.map(inv => {
-              const exp = new Date(inv.expires + (inv.expires.endsWith("Z") ? "" : "Z"));
-              return `
-              <div style="display:flex;align-items:center;justify-content:space-between;
-                          padding:10px 14px;background:#111827;border:1px solid #374151;
-                          border-radius:8px;margin-bottom:8px;">
-                <div>
-                  <span style="color:#d1d5db;font-size:13px;">✉️ ${inv.email}</span>
-                  <span style="color:#6b7280;font-size:11px;margin-left:8px;">
-                    Expires ${exp.toLocaleDateString()}
-                  </span>
-                </div>
-                <button onclick="teamCancelInvite('${inv.token}', this)"
-                  style="padding:4px 10px;background:#1f2937;color:#9ca3af;border:1px solid #374151;
-                         border-radius:6px;font-size:12px;cursor:pointer;">Cancel</button>
-              </div>`;
-            }).join("");
-          } else if(ps){
-            ps.style.display = "none";
-          }
-        }
-      } catch(e){ console.error("loadTeamPanel", e); }
-    }
-
-    async function teamSendInvite(){
-      const emailEl = $("teamInviteEmail");
-      const msg     = $("teamInviteMsg");
-      if(!emailEl || !msg) return;
-      const email = emailEl.value.trim();
-      if(!email){ msg.innerHTML = '<span style="color:#f87171;">Please enter an email address.</span>'; return; }
-      msg.innerHTML = '<span style="color:#9ca3af;">Sending…</span>';
-      try{
-        const r = await fetch("/api/team/invite",{
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({email})
-        });
-        const d = await r.json();
-        if(d.ok){
-          let html = `<span style="color:#34d399;">✓ ${d.message || "Invite sent!"}</span>`;
-          if(d.warning) html = `<span style="color:#f59e0b;">⚠️ ${d.warning}</span>`;
-          if(d.link)    html += `<br><span style="color:#9ca3af;font-size:12px;">Copy link: <a href="${d.link}" target="_blank" style="color:#a78bfa;">${d.link}</a></span>`;
-          msg.innerHTML = html;
-          emailEl.value = "";
-          setTimeout(loadTeamPanel, 600);
-        } else {
-          msg.innerHTML = `<span style="color:#f87171;">✗ ${d.error}</span>`;
-        }
-      } catch(e){
-        msg.innerHTML = '<span style="color:#f87171;">Request failed.</span>';
-      }
-    }
-
-    async function teamRemoveMember(username){
-      if(!confirm(`Remove ${username} from your team?`)) return;
-      const r = await fetch("/api/team/remove",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({username})
-      });
-      const d = await r.json();
-      if(d.ok) loadTeamPanel();
-      else alert(d.error);
-    }
-
-    async function teamCancelInvite(token, btn){
-      if(btn) btn.textContent = "…";
-      const r = await fetch("/api/team/invite/cancel",{
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({token})
-      });
-      const d = await r.json();
-      if(d.ok) loadTeamPanel();
-      else alert(d.error);
-    }
-
-    // Show toast if returning from magic-link accept
-    (function(){
-      const p = new URLSearchParams(window.location.search);
-      const m = p.get("invite_msg");
-      if(m === "accepted"){
-        try{ showToast && showToast("✅ You joined the team! Welcome.", "success"); }catch(e){}
-      } else if(m === "login_first"){
-        try{ showToast && showToast("👥 Log in or register to accept your team invite.", "info"); }catch(e){}
-      } else if(m === "error"){
-        const detail = p.get("invite_detail") || "Unknown error";
-        try{ showToast && showToast("❌ Invite error: " + detail, "error"); }catch(e){}
-      }
-    })();
-    // ── End My Team ───────────────────────────────────────────────────────────
-
     $("cancelSettings").onclick = () => hideModal();
 
     // ── Save API Keys button — saves ONLY the key fields, ignores blank fields ──
@@ -20557,9 +20808,13 @@ function bindMobileViewportV3(){
   let stageMO = null;
 
   function isMobileV4(){
-    // Only activate pan/zoom stage on 641-700px (tablet tweaks).
-    // ≤640px uses the stacked list layout — no round table stage at all.
-    try{ return window.matchMedia && window.matchMedia("(min-width: 641px) and (max-width: 700px)").matches; }catch(e){ const w=(window.innerWidth||0); return w > 640 && w <= 700; }
+    // ONLY activate the pan/zoom round-table stage for 641-700px (narrow tablets).
+    // Phones (≤640px) use the stacked list layout — no stage DOM injection at all.
+    var w = window.innerWidth || document.documentElement.clientWidth || 0;
+    if(w <= 640) return false;   // hard stop — never run pan-zoom on phones
+    if(w > 700)  return false;
+    try{ return window.matchMedia("(min-width:641px) and (max-width:700px)").matches; }
+    catch(e){ return true; }
   }
 
   function clampV4(v, a, b){ return Math.max(a, Math.min(b, v)); }
@@ -27697,6 +27952,155 @@ def api_followup_stream():
 
 
 # ── 2. TEXT-TO-SPEECH ─────────────────────────────────────────────────────────
+# ── Team Invite System ───────────────────────────────────────────────────────
+
+def _load_team_invites() -> Dict[str, Any]:
+    try:
+        if TEAM_INVITES_PATH.exists():
+            with open(TEAM_INVITES_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _save_team_invites(data: Dict[str, Any]) -> None:
+    try:
+        with open(TEAM_INVITES_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+def _create_team_invite(owner_username: str, invitee_email: str) -> Tuple[bool, str, str]:
+    """Create a team invite token. Returns (ok, token_or_error, msg)."""
+    ok, err = _can_add_team_member(owner_username)
+    if not ok:
+        return False, "", err
+    invitee_email = invitee_email.strip().lower()
+    if not invitee_email or "@" not in invitee_email:
+        return False, "", "Valid email required."
+    # Check if email already has a pending invite from this owner
+    invites = _load_team_invites()
+    for tok, inv in invites.items():
+        if inv.get("owner") == owner_username and inv.get("email") == invitee_email and not inv.get("used"):
+            return False, "", "An invite for that email is already pending."
+    token = secrets.token_urlsafe(32)
+    invites[token] = {
+        "owner":      owner_username,
+        "email":      invitee_email,
+        "created_at": datetime.utcnow().isoformat(),
+        "used":       False,
+        "used_by":    None,
+    }
+    _save_team_invites(invites)
+    return True, token, f"Invite created for {invitee_email}."
+
+def _get_invite(token: str) -> Optional[Dict[str, Any]]:
+    invites = _load_team_invites()
+    return invites.get(token)
+
+def _accept_invite(token: str, username: str, password: str) -> Tuple[bool, str]:
+    """Register a new user and link them to the invite's owner team."""
+    invites = _load_team_invites()
+    inv = invites.get(token)
+    if not inv:
+        return False, "Invite not found or expired."
+    if inv.get("used"):
+        return False, "This invite has already been used."
+    owner = inv.get("owner", "")
+    # Validate new user
+    username = _clean_username(username)
+    if not username or len(username) < 3:
+        return False, "Username must be at least 3 characters."
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters."
+    data = load_users()
+    users = data.get("users") or {}
+    if username in users:
+        return False, "That username is already taken — please choose another."
+    # Check seat still available
+    ok, err = _can_add_team_member(owner)
+    if not ok:
+        return False, err
+    # Create the new user
+    email = inv.get("email", "")
+    users[username] = _new_user(username=username, password=password, email=email)
+    users[username]["team_owner"] = owner
+    data["users"] = users
+    # Add to owner's team_members list
+    owner_rec = users.get(owner) or {}
+    members = list(owner_rec.get("team_members") or [])
+    if username not in members:
+        members.append(username)
+    owner_rec["team_members"] = members
+    users[owner] = owner_rec
+    save_users(data)
+    # Mark invite used
+    inv["used"]    = True
+    inv["used_by"] = username
+    _save_team_invites(invites)
+    return True, "Account created — you can now sign in."
+
+def _revoke_invite(token: str, owner_username: str) -> Tuple[bool, str]:
+    invites = _load_team_invites()
+    inv = invites.get(token)
+    if not inv:
+        return False, "Invite not found."
+    if inv.get("owner") != owner_username:
+        return False, "Not your invite."
+    del invites[token]
+    _save_team_invites(invites)
+    return True, "Invite revoked."
+
+def _list_pending_invites(owner_username: str) -> List[Dict[str, Any]]:
+    invites = _load_team_invites()
+    result = []
+    for tok, inv in invites.items():
+        if inv.get("owner") == owner_username and not inv.get("used"):
+            result.append({"token": tok, "email": inv.get("email", ""), "created_at": inv.get("created_at", "")})
+    return result
+
+def _send_team_invite_email(owner_username: str, invitee_email: str, token: str) -> Tuple[bool, str]:
+    """Send the invite email using owner's SMTP settings or server SMTP."""
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    if not base:
+        base = "https://your-app.com"  # fallback hint
+    join_link = f"{base}/team/join/{token}"
+    owner_data = load_users().get("users", {}).get(owner_username, {})
+    owner_display = owner_username
+    plan_key  = _get_user_plan(owner_username)
+    plan_name = (PLANS.get(plan_key) or {}).get("name", "Simply Agentic AI")
+    subject = f"You've been invited to join {owner_display}'s team on {APP_TITLE}"
+    body = f"""Hi there,
+
+{owner_display} has invited you to join their team on {APP_TITLE} ({plan_name} plan).
+
+Click the link below to create your account and join the team:
+
+{join_link}
+
+This invite link is personal to you and can only be used once.
+
+If you have any questions, contact the person who sent this invite.
+
+— The {APP_TITLE} Team
+"""
+    # Try owner SMTP first, then server SMTP
+    smtp = (owner_data.get("settings") or {}).get("smtp") or {}
+    host = (smtp.get("host") or "").strip() or SMTP_HOST
+    port = int(smtp.get("port") or SMTP_PORT)
+    user = (smtp.get("user") or "").strip() or SMTP_USER
+    pw   = (smtp.get("pass") or "").strip() or SMTP_PASS
+    from_name = (smtp.get("from_name") or "").strip() or SMTP_FROM_NAME or APP_TITLE
+    if not user or not pw:
+        # Return the link so admin can share manually
+        return False, f"No email configured — share this link manually: {join_link}"
+    try:
+        send_email_smtp_with_creds(invitee_email, subject, body, host, port, user, pw, from_name)
+        return True, f"Invite sent to {invitee_email}."
+    except Exception as exc:
+        return False, f"Email failed ({exc}) — share manually: {join_link}"
+
+
 # ── Team Seats API ───────────────────────────────────────────────────────────
 
 @app.get("/api/team")
@@ -27768,81 +28172,156 @@ def api_team_remove():
     return jsonify({"ok": True, "message": f"{member} removed from your team."})
 
 
-@app.post("/api/team/invite")
-def api_team_invite():
-    """Owner sends a magic-link invite to an email address."""
+# ── Team Invite API endpoints ─────────────────────────────────────────────────
+
+@app.post("/api/team/invite/send")
+def api_team_invite_send():
+    """Owner sends an email invite to a new team member."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = u.get("username", "")
     if _get_team_owner(uname):
-        return jsonify({"ok": False, "error": "Only the account owner can invite team members."}), 403
+        return jsonify({"ok": False, "error": "Only account owners can send invites."}), 403
     payload = request.get_json(silent=True) or {}
     email   = (payload.get("email") or "").strip().lower()
-    if not email or "@" not in email:
-        return jsonify({"ok": False, "error": "A valid email address is required."}), 400
-    token, err = _create_team_invite(uname, email)
-    if err:
-        return jsonify({"ok": False, "error": err}), 400
-    ok, send_err = _send_invite_email(uname, email, token)
-    base = (PUBLIC_BASE_URL or request.host_url.rstrip("/"))
-    link = f"{base}/team/accept?token={token}"
+    if not email:
+        return jsonify({"ok": False, "error": "Email required."}), 400
+    ok, token, msg = _create_team_invite(uname, email)
     if not ok:
-        return jsonify({
-            "ok":      True,
-            "warning": f"Invite created but email failed ({send_err}). Share this link manually:",
-            "link":    link,
-        })
-    return jsonify({"ok": True, "message": f"Invite sent to {email}. Link expires in {INVITE_EXPIRY_HOURS} hours."})
+        return jsonify({"ok": False, "error": msg}), 400
+    sent_ok, sent_msg = _send_team_invite_email(uname, email, token)
+    return jsonify({
+        "ok":        True,
+        "sent":      sent_ok,
+        "message":   sent_msg,
+        "join_link": f"{(PUBLIC_BASE_URL or request.host_url.rstrip('/'))}/team/join/{token}",
+    })
 
-
-@app.get("/api/team/invites")
-def api_team_invites():
-    """Return pending invites for the current owner."""
+@app.post("/api/team/invite/revoke")
+def api_team_invite_revoke():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    if _get_team_owner(uname):
-        return jsonify({"ok": False, "error": "Only account owners can view invites."}), 403
-    return jsonify({"ok": True, "invites": _get_pending_invites(uname)})
-
-
-@app.post("/api/team/invite/cancel")
-def api_team_invite_cancel():
-    """Owner cancels a pending invite by token."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    if _get_team_owner(uname):
-        return jsonify({"ok": False, "error": "Only account owners can cancel invites."}), 403
     payload = request.get_json(silent=True) or {}
     token   = (payload.get("token") or "").strip()
-    if not token:
-        return jsonify({"ok": False, "error": "Token required."}), 400
-    ok, err = _cancel_team_invite(uname, token)
-    if not ok:
-        return jsonify({"ok": False, "error": err}), 400
-    return jsonify({"ok": True, "message": "Invite cancelled."})
+    ok, msg = _revoke_invite(token, u.get("username", ""))
+    return jsonify({"ok": ok, "message": msg})
 
-
-@app.get("/team/accept")
-def team_accept_page():
-    """Magic-link landing page. Auto-accepts if logged in, otherwise stores token and redirects to login."""
-    token = (request.args.get("token") or "").strip()
-    if not token:
-        return redirect(url_for("index") + "?invite_msg=invalid")
+@app.get("/api/team/invites")
+def api_team_invites_list():
     u = current_user()
-    if u:
-        uname      = u.get("username", "")
-        owner, err = _accept_team_invite(token, uname)
-        if err:
-            return redirect(url_for("index") + "?invite_msg=error&invite_detail=" + quote_plus(err))
-        return redirect(url_for("index") + "?invite_msg=accepted")
-    session["pending_invite_token"] = token
-    return redirect(url_for("login") + "?invite_msg=login_first")
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    owner = _get_team_owner(uname) or uname
+    return jsonify({
+        "ok":      True,
+        "invites": _list_pending_invites(owner),
+        "members": _get_team_members(owner),
+        "limit":   _team_seat_limit(_get_user_plan(owner)),
+        "used":    _get_team_seats_used(owner),
+    })
 
+
+# ── Team Join Page (invite acceptance) ────────────────────────────────────────
+
+JOIN_PAGE_HTML = """<!doctype html>
+<html><head>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Join Team — {app_title}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{font-family:system-ui,Arial,sans-serif;background:linear-gradient(180deg,#090d19,#0a1022);color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}}
+.card{{background:rgba(14,22,48,.97);border:1px solid rgba(80,110,200,.35);border-radius:20px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.5);}}
+.brand{{font-size:18px;font-weight:800;color:#c4b5fd;text-align:center;margin-bottom:6px;}}
+h2{{font-size:22px;font-weight:800;color:#f3e8ff;text-align:center;margin-bottom:6px;}}
+.sub{{color:#64748b;font-size:13px;text-align:center;margin-bottom:28px;line-height:1.5;}}
+label{{font-size:12px;font-weight:700;color:#94a3b8;display:block;margin-bottom:4px;margin-top:14px;text-transform:uppercase;letter-spacing:.05em;}}
+input{{width:100%;background:rgba(15,23,42,.9);border:1px solid rgba(80,110,200,.4);border-radius:10px;padding:11px 14px;color:#e2e8f0;font-size:14px;outline:none;}}
+input:focus{{border-color:rgba(124,58,237,.7);box-shadow:0 0 0 3px rgba(124,58,237,.15);}}
+.btn{{width:100%;margin-top:22px;padding:13px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s;}}
+.btn:hover{{opacity:.88;}}
+.err{{color:#fca5a5;font-size:13px;text-align:center;margin-top:12px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:8px 12px;}}
+.ok-box{{color:#86efac;font-size:13px;text-align:center;margin-top:12px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);border-radius:8px;padding:10px 12px;}}
+.invite-info{{background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#c4b5fd;text-align:center;}}
+.invalid{{text-align:center;}}
+.invalid h2{{color:#fca5a5;}}
+</style>
+</head><body>
+<div class='card'>
+  <div class='brand'>{app_title}</div>
+  {body}
+</div>
+</body></html>"""
+
+@app.get("/team/join/<token>")
+def team_join_page(token):
+    inv = _get_invite(token)
+    if not inv or inv.get("used"):
+        body = "<div class='invalid'><h2>Invalid or Expired Invite</h2><p style='color:#64748b;margin-top:12px;font-size:14px;'>This invite link has already been used or doesn't exist.<br/>Contact your team owner for a new invite.</p></div>"
+    else:
+        owner = inv.get("owner", "unknown")
+        plan_key  = _get_user_plan(owner)
+        plan_name = (PLANS.get(plan_key) or {}).get("name", "")
+        body = f"""
+  <h2>You're Invited!</h2>
+  <p class='sub'><strong style='color:#c4b5fd;'>{owner}</strong> has invited you to join their team.</p>
+  <div class='invite-info'>You'll get access to the <strong>{plan_name}</strong> plan features.</div>
+  <form method='POST'>
+    <label>Choose a username</label>
+    <input name='username' type='text' placeholder='yourname' required autocomplete='off'/>
+    <label>Create a password</label>
+    <input name='password' type='password' placeholder='At least 8 characters' required/>
+    <label>Confirm password</label>
+    <input name='password2' type='password' placeholder='Repeat password' required/>
+    <button class='btn' type='submit'>Create Account &amp; Join Team</button>
+  </form>
+  <div id='msg'></div>"""
+    html = JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body)
+    resp = make_response(html)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+@app.post("/team/join/<token>")
+def team_join_accept(token):
+    username  = (request.form.get("username") or "").strip()
+    password  = (request.form.get("password") or "").strip()
+    password2 = (request.form.get("password2") or "").strip()
+    inv = _get_invite(token)
+    if not inv or inv.get("used"):
+        body = "<div class='invalid'><h2>Invalid or Expired Invite</h2><p style='color:#64748b;margin-top:12px;'>This invite link has already been used.</p></div>"
+        return make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+    if password != password2:
+        err = "Passwords don't match."
+    else:
+        ok, msg = _accept_invite(token, username, password)
+        if ok:
+            body = f"<h2>Welcome to the Team!</h2><div class='ok-box'>{msg}</div><div style='text-align:center;margin-top:20px;'><a href='/login' style='color:#a78bfa;font-size:14px;'>Sign in now →</a></div>"
+            resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
+        err = msg
+    owner = inv.get("owner", "unknown")
+    plan_key  = _get_user_plan(owner)
+    plan_name = (PLANS.get(plan_key) or {}).get("name", "")
+    body = f"""
+  <h2>You're Invited!</h2>
+  <p class='sub'><strong style='color:#c4b5fd;'>{owner}</strong> invited you to join their team.</p>
+  <div class='invite-info'>You'll get access to the <strong>{plan_name}</strong> plan features.</div>
+  <form method='POST'>
+    <label>Choose a username</label>
+    <input name='username' type='text' value='{username}' required autocomplete='off'/>
+    <label>Create a password</label>
+    <input name='password' type='password' required/>
+    <label>Confirm password</label>
+    <input name='password2' type='password' required/>
+    <button class='btn' type='submit'>Create Account &amp; Join Team</button>
+  </form>
+  <div class='err'>{err}</div>"""
+    resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/founder/status")
