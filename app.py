@@ -6649,440 +6649,393 @@ SHOWCASE_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>{{app_title}} — See How It Works</title>
+<title>Simply Agentic AI — See How It Works</title>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --purple:#7c3aed;--pl:#a78bfa;--acc:#c4b5fd;
-  --bg:#080c1a;--surf:rgba(14,22,48,.92);--bdr:rgba(42,58,106,.85);
-  --tx:#e2e8f0;--mt:#64748b;
+  --pu:#7c3aed;--pl:#a78bfa;--ac:#c4b5fd;
+  --bg:#07091a;--s1:rgba(13,19,44,.98);--s2:rgba(10,14,32,.95);
+  --bd:rgba(42,58,106,.8);--tx:#e2e8f0;--mt:#64748b;
 }
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
-#starC{position:fixed;inset:0;pointer-events:none;z-index:0;}
+body{background:var(--bg);color:var(--tx);font-family:'Inter',system-ui,sans-serif;overflow-x:hidden;}
+
+/* STARS */
+#sc{position:fixed;inset:0;z-index:0;pointer-events:none;}
 
 /* NAV */
-.snav{position:sticky;top:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:11px 28px;background:rgba(8,12,26,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bdr);}
-.snav-logo{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800;color:var(--acc);text-decoration:none;}
-.snav-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 0 8px rgba(124,58,237,.9);animation:logoDot 2.4s ease-in-out infinite;}
-@keyframes logoDot{0%,100%{box-shadow:0 0 8px rgba(124,58,237,.8);}50%{box-shadow:0 0 22px rgba(124,58,237,1),0 0 44px rgba(124,58,237,.35);}}
-.snav-r{display:flex;gap:8px;align-items:center;}
-.snav-link{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 11px;border-radius:8px;transition:color .2s;}
-.snav-link:hover{color:var(--acc);}
-.snav-cta{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 4px 16px rgba(124,58,237,.4);transition:opacity .2s,transform .15s;}
-.snav-cta:hover{opacity:.88;transform:translateY(-1px);}
+nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-content:space-between;padding:12px 32px;background:rgba(7,9,26,.92);backdrop-filter:blur(18px);border-bottom:1px solid var(--bd);}
+.logo{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;color:var(--ac);text-decoration:none;}
+.logo-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:pd 2.5s ease-in-out infinite;box-shadow:0 0 10px #7c3aed;}
+@keyframes pd{0%,100%{box-shadow:0 0 10px #7c3aed;}50%{box-shadow:0 0 24px #7c3aed,0 0 48px rgba(124,58,237,.4);}}
+.nav-links{display:flex;gap:6px;align-items:center;}
+.nav-a{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 13px;border-radius:8px;transition:color .2s;}
+.nav-a:hover{color:var(--ac);}
+.nav-cta{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;padding:8px 20px;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;display:inline-block;box-shadow:0 4px 18px rgba(124,58,237,.42);transition:opacity .2s,transform .15s;}
+.nav-cta:hover{opacity:.88;transform:translateY(-1px);}
+@media(max-width:700px){.nav-links .nav-a{display:none;}}
 
-section{position:relative;z-index:1;}
+/* SECTIONS */
+.sec{position:relative;z-index:1;padding:80px 24px;}
+.ctr{text-align:center;margin:0 auto;}
+.lbl{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--pl);margin-bottom:12px;}
+.h2{font-size:clamp(24px,4vw,44px);font-weight:900;color:#f3e8ff;line-height:1.1;margin-bottom:14px;}
+.sub{font-size:15px;color:#94a3b8;line-height:1.72;max-width:560px;}
+.ctr .sub{margin:0 auto;}
 
 /* REVEAL */
-.rv{opacity:0;transform:translateY(32px);transition:opacity .7s,transform .7s;}
-.rv.in{opacity:1;transform:none;}
-.rvl{opacity:0;transform:translateX(-34px);transition:opacity .68s,transform .68s;}
-.rvl.in{opacity:1;transform:none;}
-.rvr{opacity:0;transform:translateX(34px);transition:opacity .68s,transform .68s;}
-.rvr.in{opacity:1;transform:none;}
+.rv{opacity:0;transform:translateY(30px);transition:opacity .65s ease,transform .65s ease;}
+.rv.on{opacity:1;transform:none;}
 
 /* HERO */
-.hero{min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 20px 80px;position:relative;overflow:hidden;}
-.hero-glow{position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:1100px;height:700px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.2) 0%,transparent 66%);pointer-events:none;animation:hglow 8s ease-in-out infinite alternate;}
-@keyframes hglow{0%{opacity:.5;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.15);}}
-.hero-orb{position:absolute;border-radius:50%;filter:blur(60px);pointer-events:none;animation:orbf ease-in-out infinite alternate;}
-@keyframes orbf{0%{transform:translate(0,0);}100%{transform:translate(16px,-24px);}}
-.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,.13);border:1px solid rgba(124,58,237,.38);border-radius:999px;padding:6px 18px;font-size:12px;font-weight:700;color:var(--pl);letter-spacing:.07em;text-transform:uppercase;margin-bottom:26px;animation:fdown .7s ease both;}
-@keyframes fdown{from{opacity:0;transform:translateY(-16px);}to{opacity:1;transform:none;}}
-.hero h1{font-size:clamp(36px,7vw,82px);font-weight:900;line-height:1.05;letter-spacing:-.025em;background:linear-gradient(140deg,#f3e8ff 0%,var(--pl) 45%,#818cf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:22px;animation:fup .8s .12s ease both;}
-@keyframes fup{from{opacity:0;transform:translateY(26px);}to{opacity:1;transform:none;}}
-.hero-sub{font-size:clamp(15px,2vw,19px);color:#94a3b8;max-width:580px;line-height:1.72;margin-bottom:36px;animation:fup .8s .26s ease both;}
-.hero-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fup .8s .4s ease both;}
-.btn-p{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 8px 28px rgba(124,58,237,.45);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;}
-.btn-p::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:bsh 3.4s ease-in-out infinite;}
-@keyframes bsh{0%{left:-100%;}100%{left:160%;}}
-.btn-p:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(124,58,237,.62);}
-.btn-s{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--tx);padding:14px 26px;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background .2s,border-color .2s;}
-.btn-s:hover{background:rgba(255,255,255,.1);}
+.hero{min-height:90vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:72px 20px 90px;overflow:hidden;position:relative;}
+.hglow{position:absolute;top:-60px;left:50%;transform:translateX(-50%);width:1000px;height:650px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.2),transparent 65%);pointer-events:none;animation:hg 7s ease-in-out infinite alternate;}
+@keyframes hg{0%{opacity:.5;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.12);}}
+.badge{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.4);border-radius:999px;padding:7px 20px;font-size:12px;font-weight:700;color:var(--pl);letter-spacing:.07em;text-transform:uppercase;margin-bottom:30px;animation:fd .7s ease both;}
+@keyframes fd{from{opacity:0;transform:translateY(-14px);}to{opacity:1;transform:none;}}
+h1{font-size:clamp(38px,7.5vw,88px);font-weight:900;line-height:1.04;letter-spacing:-.03em;background:linear-gradient(140deg,#f3e8ff 0%,var(--pl) 40%,#818cf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:24px;animation:fu .8s .1s ease both;}
+@keyframes fu{from{opacity:0;transform:translateY(24px);}to{opacity:1;transform:none;}}
+.hero-p{font-size:clamp(15px,2vw,19px);color:#94a3b8;max-width:600px;line-height:1.72;margin-bottom:38px;animation:fu .8s .24s ease both;}
+.hbtns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;animation:fu .8s .38s ease both;}
+.bp{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;border:none;padding:15px 34px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 8px 28px rgba(124,58,237,.45);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;}
+.bp::before{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:bs 3.5s ease-in-out infinite;}
+@keyframes bs{0%{left:-100%;}100%{left:160%;}}
+.bp:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(124,58,237,.62);}
+.bs{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:var(--tx);padding:15px 28px;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background .2s;}
+.bs:hover{background:rgba(255,255,255,.1);}
 
 /* STATS */
-.stats{display:flex;justify-content:center;gap:52px;flex-wrap:wrap;max-width:800px;margin:60px auto 0;padding:0 20px;}
-.stat-n{font-size:clamp(30px,5vw,50px);font-weight:900;background:linear-gradient(135deg,var(--pl),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-.stat-l{font-size:13px;color:var(--mt);margin-top:4px;}
-
-/* SECTION */
-.ssec{padding:80px 20px;position:relative;z-index:1;}
-.s-lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:var(--pl);margin-bottom:10px;display:block;}
-.s-h2{font-size:clamp(24px,4vw,42px);font-weight:900;line-height:1.1;color:#f3e8ff;margin-bottom:14px;}
-.s-p{font-size:15px;color:#94a3b8;line-height:1.72;max-width:560px;}
-.s-cx{text-align:center;margin:0 auto;}.s-cx .s-p{margin:0 auto;}
+.stats{display:flex;justify-content:center;gap:56px;flex-wrap:wrap;max-width:820px;margin:56px auto 0;padding:0 20px;}
+.stat-n{font-size:clamp(32px,5vw,52px);font-weight:900;background:linear-gradient(135deg,var(--pl),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;}
+.stat-l{font-size:13px;color:var(--mt);margin-top:5px;}
+@media(max-width:600px){.stats{gap:30px;}}
 
 /* ═══════════════════════════════════════════
-   ROUND TABLE — matches actual software exactly
+   ROUND TABLE PREVIEW
+   Uses a fixed 720×520 canvas, seats at pixel coords
+   so overflow:hidden on wrapper doesn't clip them
 ═══════════════════════════════════════════ */
-.rt-shell{max-width:1140px;margin:44px auto 0;background:rgba(8,12,28,.97);border:1px solid var(--bdr);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.07);}
+.rt-wrapper{max-width:1100px;margin:44px auto 0;background:var(--s1);border:1px solid var(--bd);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.65);}
 
-/* Actual nav bar from software */
-.rt-nav{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;}
-.rt-nb{display:flex;align-items:center;gap:5px;padding:5px 11px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.95);font-size:12px;font-weight:600;cursor:default;white-space:nowrap;}
-.rt-nb.active{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.45);color:var(--acc);}
-.rt-obj{font-size:13px;font-weight:600;color:#fff;opacity:.9;}
-.rt-model{font-size:11px;color:rgba(148,163,184,.6);}
+/* The real app nav bar */
+.rt-nav{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.rnb{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.9);font-size:12px;font-weight:600;white-space:nowrap;}
+.rnb.hi{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.48);color:var(--ac);}
 
-/* Main area = table + sidebar */
-.rt-main{display:flex;min-height:540px;}
+/* Main flex: table + sidebar */
+.rt-body{display:flex;}
 
-/* Table area */
-.rt-arena{flex:1;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 55%,rgba(14,22,64,.7),rgba(8,12,28,.98));}
+/* ── CIRCULAR TABLE ── */
+.rt-table{flex:1;position:relative;background:radial-gradient(ellipse at 50% 52%,rgba(14,22,64,.65),rgba(7,9,26,.98));height:580px;overflow:hidden;}
 
-/* The oval table ring */
-.rt-oval{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:58%;padding-bottom:46%;border-radius:50%;border:1.5px solid rgba(80,100,180,.28);background:radial-gradient(ellipse,rgba(12,18,50,.55),rgba(8,12,28,.05));pointer-events:none;}
+/* Oval ring — drawn with box-shadow so seats can overlap it */
+.rt-ring{position:absolute;top:50%;left:50%;transform:translate(-50%,-52%);width:52%;height:56%;border-radius:50%;border:1.5px solid rgba(70,90,180,.32);background:radial-gradient(ellipse,rgba(12,18,52,.4),transparent 70%);pointer-events:none;}
 
-/* Seat cards — exactly matching real UI */
-.rt-seat{position:absolute;width:148px;background:rgba(14,22,48,.92);border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:9px;display:flex;gap:9px;align-items:flex-start;box-shadow:0 0 20px rgba(0,0,0,.28);transform:translate(-50%,-50%);transition:border-color .2s;}
-.rt-seat:hover{border-color:rgba(124,58,237,.5);}
-.rt-seat.active{border-color:rgba(124,58,237,.65);background:rgba(16,26,58,.85);}
-.rt-av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 14px rgba(0,0,0,.3);}
-.rt-sname{font-size:12px;font-weight:800;color:var(--tx);line-height:1.1;}
-.rt-srole{font-size:10px;color:var(--mt);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;}
-.rt-sstatus{font-size:10px;color:var(--mt);margin-top:4px;opacity:.8;}
-.rt-dot{position:absolute;right:7px;bottom:7px;width:9px;height:9px;border-radius:50%;background:rgba(141,255,179,.6);box-shadow:0 0 8px rgba(141,255,179,.3);border:1px solid rgba(0,0,0,.3);}
-.rt-dot.thinking{background:rgba(255,207,112,.55);box-shadow:0 0 10px rgba(255,207,112,.3);animation:dpulse 1.1s ease-in-out infinite;}
-@keyframes dpulse{0%,100%{transform:scale(1);}50%{transform:scale(1.5);}}
-.rt-editbtn{position:absolute;right:7px;top:7px;font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;}
+/* Seat cards — pixel positioned */
+.seat{position:absolute;display:flex;gap:9px;align-items:flex-start;background:rgba(13,20,46,.92);border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:9px 10px;width:150px;cursor:default;box-shadow:0 4px 20px rgba(0,0,0,.35);transition:border-color .25s;}
+.seat:hover{border-color:rgba(124,58,237,.52);}
+.seat.sel{border-color:rgba(124,58,237,.7);background:rgba(15,24,56,.9);box-shadow:0 0 0 1px rgba(124,58,237,.25),0 8px 28px rgba(0,0,0,.4);}
+.av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.09);}
+.sname{font-size:12px;font-weight:800;color:var(--tx);}
+.srole{font-size:10px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:82px;margin-top:2px;}
+.sstatus{font-size:10px;color:var(--mt);margin-top:4px;}
+.sdot{position:absolute;right:8px;bottom:8px;width:9px;height:9px;border-radius:50%;border:1px solid rgba(0,0,0,.3);}
+.sdot.idle{background:rgba(141,255,179,.55);box-shadow:0 0 7px rgba(141,255,179,.3);}
+.sdot.think{background:rgba(255,207,112,.6);box-shadow:0 0 10px rgba(255,207,112,.3);animation:dp 1.1s ease-in-out infinite;}
+@keyframes dp{0%,100%{transform:scale(1);}50%{transform:scale(1.55);}}
+.sedit{position:absolute;right:8px;top:8px;font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
 
 /* Operator card */
-.rt-op{position:absolute;width:134px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.75);border-radius:12px;padding:8px 10px;transform:translate(-50%,-50%);text-align:left;}
-.rt-op-av{width:34px;height:34px;border-radius:10px;background:#0f766e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#e6edff;margin-bottom:5px;}
-.rt-op-name{font-size:12px;font-weight:700;color:var(--tx);}
-.rt-op-btn{margin-top:5px;font-size:9px;padding:3px 10px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;display:inline-block;}
+.op-card{position:absolute;background:rgba(13,20,46,.88);border:1px solid rgba(42,58,106,.75);border-radius:12px;padding:9px 12px;text-align:left;}
+.op-av{width:32px;height:32px;border-radius:9px;background:#0f766e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#e6edff;margin-bottom:5px;}
+.op-name{font-size:12px;font-weight:700;color:var(--tx);}
+.op-btn{display:inline-block;margin-top:4px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
 
-/* Group Console — center of table */
-.rt-console{position:absolute;width:196px;background:rgba(11,16,36,.94);border:1px solid rgba(42,58,106,.85);border-radius:13px;padding:11px;transform:translate(-50%,-50%);top:50%;left:50%;box-shadow:0 0 30px rgba(0,0,0,.4);}
-.rt-con-title{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
-.rt-con-sub{font-size:10px;color:var(--mt);margin-bottom:8px;line-height:1.4;}
-.rt-con-btns{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
-.rt-con-btn{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:#94a3b8;cursor:default;}
-.rt-con-btn.primary{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.45);color:var(--acc);}
-.rt-con-ta{width:100%;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:6px 8px;font-size:10px;color:#475569;height:52px;resize:none;font-family:inherit;}
-.rt-con-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
-.rt-con-pill{font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.5);color:#475569;}
+/* Group Console */
+.gc{position:absolute;width:196px;background:rgba(10,15,36,.96);border:1px solid rgba(42,58,106,.88);border-radius:13px;padding:12px;box-shadow:0 0 36px rgba(0,0,0,.5);}
+.gc-title{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
+.gc-sub{font-size:10px;color:var(--mt);line-height:1.45;margin-bottom:8px;}
+.gc-btns{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
+.gcb{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:#94a3b8;}
+.gcb.hi{background:rgba(124,58,237,.24);border-color:rgba(124,58,237,.48);color:var(--ac);}
+.gc-ta{width:100%;background:rgba(7,10,20,.85);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:7px;font-size:10px;color:#475569;height:55px;resize:none;font-family:inherit;}
+.gc-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
+.gcp{font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#475569;}
 
 /* Typing dots */
-.tdots{display:inline-flex;gap:3px;align-items:center;}
-.tdots span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.8);animation:tb 1.1s ease-in-out infinite;}
-.tdots span:nth-child(2){animation-delay:.18s;}.tdots span:nth-child(3){animation-delay:.36s;}
+.td{display:inline-flex;gap:3px;align-items:center;}
+.td span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.85);animation:tb 1.1s ease-in-out infinite;}
+.td span:nth-child(2){animation-delay:.18s;}.td span:nth-child(3){animation-delay:.36s;}
 @keyframes tb{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-4px);opacity:1;}}
 
-/* Below-table sections */
-.rt-below{padding:12px 14px;display:flex;flex-direction:column;gap:10px;}
-.rt-grp{background:rgba(11,16,36,.92);border:1px solid rgba(42,58,106,.85);border-radius:13px;padding:10px;}
-.rt-grp-title{font-size:12px;font-weight:800;color:var(--tx);margin-bottom:3px;}
-.rt-grp-sub{font-size:11px;color:var(--mt);}
+/* Below table */
+.rt-below{padding:11px 14px;display:flex;gap:10px;border-top:1px solid rgba(42,58,106,.5);}
+.rt-card{flex:1;background:rgba(10,14,32,.92);border:1px solid rgba(42,58,106,.8);border-radius:12px;padding:10px;}
+.rc-t{font-size:12px;font-weight:800;color:var(--tx);margin-bottom:3px;}
+.rc-s{font-size:11px;color:var(--mt);}
 
-/* Right sidebar — Alex's thread */
-.rt-side{width:280px;flex-shrink:0;border-left:1px solid rgba(34,49,90,.8);background:linear-gradient(180deg,rgba(14,22,48,.92),rgba(10,14,30,.92));display:flex;flex-direction:column;overflow:hidden;}
-.rt-side-hdr{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.6);display:flex;align-items:flex-start;justify-content:space-between;}
-.rt-side-name{font-size:14px;font-weight:800;color:var(--tx);}
-.rt-side-role{font-size:11px;color:var(--mt);margin-top:2px;}
-.rt-side-refresh{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:var(--mt);cursor:default;}
-.rt-side-tabs{padding:7px 10px;display:flex;gap:5px;border-bottom:1px solid rgba(42,58,106,.5);flex-wrap:wrap;}
-.rt-side-tab{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#64748b;cursor:default;}
-.rt-side-tab.act{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.35);color:#fca5a5;}
-.rt-side-tab.sc{background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.35);color:#a5b4fc;}
-.rt-msgs{flex:1;overflow:hidden;padding:10px;display:flex;flex-direction:column;gap:8px;}
-.rt-msg{padding:8px 10px;border-radius:12px;font-size:12px;line-height:1.58;color:#cbd5e1;border:1px solid rgba(42,58,106,.55);background:rgba(14,22,48,.55);}
-.rt-msg.user{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.07);text-align:right;}
-.rt-msg.ai{border-color:rgba(124,58,237,.3);background:rgba(124,58,237,.07);}
-.rt-msg-who{font-size:10px;font-weight:700;color:var(--mt);margin-bottom:4px;}
-.rt-side-inp{padding:8px 10px;border-top:1px solid rgba(42,58,106,.5);}
-.rt-side-inpbox{width:100%;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:7px 10px;font-size:11px;color:#475569;font-family:inherit;}
-.rt-side-btns{display:flex;gap:5px;margin-top:6px;justify-content:space-between;}
-.rt-side-btn{font-size:9px;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#475569;cursor:default;}
-.rt-side-send{font-size:9px;padding:3px 10px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;cursor:default;font-weight:700;}
+/* ── RIGHT SIDEBAR ── */
+.rt-side{width:268px;flex-shrink:0;border-left:1px solid rgba(34,49,90,.8);background:linear-gradient(180deg,rgba(13,20,46,.95),rgba(9,12,28,.95));display:flex;flex-direction:column;overflow:hidden;height:580px;}
+.rsh{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.6);display:flex;justify-content:space-between;align-items:flex-start;}
+.rsh-name{font-size:14px;font-weight:800;color:var(--tx);}
+.rsh-role{font-size:11px;color:var(--mt);margin-top:1px;}
+.rsh-ref{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
+.rsh-tabs{display:flex;gap:4px;padding:7px 10px;border-bottom:1px solid rgba(42,58,106,.5);}
+.rtab{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#334155;}
+.rtab.a{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.35);color:#fca5a5;}
+.rtab.b{background:rgba(99,102,241,.14);border-color:rgba(99,102,241,.35);color:#a5b4fc;}
+.rmsgs{flex:1;overflow:hidden;padding:10px;display:flex;flex-direction:column;gap:8px;}
+.rmsg{padding:8px 10px;border-radius:12px;font-size:12px;line-height:1.58;color:#cbd5e1;}
+.rmsg.u{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.28);text-align:right;}
+.rmsg.a{background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);}
+.rmsg-who{font-size:10px;font-weight:700;color:var(--mt);margin-bottom:4px;}
+.rinp{padding:8px 10px;border-top:1px solid rgba(42,58,106,.5);}
+.rinp-box{width:100%;background:rgba(7,10,20,.85);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:7px 10px;font-size:11px;color:#475569;font-family:inherit;}
+.rinp-btns{display:flex;gap:4px;margin-top:6px;justify-content:space-between;}
+.rbn{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#475569;}
+.rbs{font-size:9px;padding:3px 10px;border-radius:5px;background:linear-gradient(135deg,var(--pu),#4f46e5);border:none;color:#fff;font-weight:700;}
 
 /* ═══════════════════════════════════════════
-   FEATURE DEMO "VIDEOS"
+   ANIMATED DEMO PANELS
 ═══════════════════════════════════════════ */
-.demos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;max-width:1060px;margin:44px auto 0;}
-.demo-card{background:var(--surf);border:1px solid var(--bdr);border-radius:16px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.4);}
-.demo-label{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);font-size:12px;font-weight:700;color:#64748b;}
-.demo-label .rec-dot{width:8px;height:8px;border-radius:50%;background:#ef4444;animation:recdot 1.2s ease-in-out infinite;}
-@keyframes recdot{0%,100%{opacity:1;}50%{opacity:.3;}}
-.demo-body{padding:14px;min-height:220px;display:flex;flex-direction:column;gap:8px;}
+.demos{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;max-width:1060px;margin:44px auto 0;}
+@media(max-width:700px){.demos{grid-template-columns:1fr;}}
+.dc{background:var(--s2);border:1px solid var(--bd);border-radius:16px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.4);}
+.dc-hdr{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:9px 13px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#64748b;}
+.recdot{width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:rdb 1.2s ease-in-out infinite;}
+@keyframes rdb{0%,100%{opacity:1;}50%{opacity:.25;}}
+.dc-body{padding:14px;min-height:240px;}
 
-/* Lead Lab demo animation */
-.ll-demo .ll-fields{display:flex;gap:6px;margin-bottom:6px;}
-.ll-field{flex:1;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 9px;font-size:11px;color:#94a3b8;}
-.ll-lead{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:9px;padding:10px;opacity:0;animation:leadIn 0.5s ease forwards;}
-@keyframes leadIn{to{opacity:1;}}
-.ll-score{display:inline-block;background:rgba(110,231,183,.1);border:1px solid rgba(110,231,183,.28);border-radius:999px;padding:1px 8px;font-size:10px;font-weight:700;color:#6ee7b7;}
-.ll-name{font-size:12px;font-weight:800;color:var(--tx);}
-.ll-det{font-size:10px;color:var(--mt);margin-top:2px;}
-.ll-btn{font-size:9px;padding:3px 9px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;margin-top:6px;cursor:default;}
+/* Lead Lab demo */
+.ll-fields{display:flex;gap:6px;margin-bottom:8px;}
+.lf{flex:1;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 10px;font-size:11px;color:#94a3b8;}
+.ll-lead{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:10px;padding:10px;margin-bottom:7px;animation:llin .4s ease forwards;opacity:0;}
+@keyframes llin{to{opacity:1;transform:none;}from{opacity:0;transform:translateY(8px);}}
+.ls{font-size:13px;font-weight:800;color:var(--tx);}
+.ld{font-size:11px;color:var(--mt);margin-top:2px;}
+.lsc{display:inline-block;background:rgba(110,231,183,.12);border:1px solid rgba(110,231,183,.3);border-radius:999px;padding:1px 9px;font-size:10px;font-weight:700;color:#6ee7b7;float:right;}
+.lbtn{display:inline-block;margin-top:7px;font-size:9px;padding:3px 10px;border-radius:6px;background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;border:none;margin-right:5px;}
+.lbtn2{background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.5);color:#94a3b8;border-radius:6px;padding:3px 10px;font-size:9px;}
 
-/* CRM Pipeline demo */
-.crm-stages{display:flex;gap:6px;margin-bottom:8px;}
-.crm-stage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.45);border-radius:8px;padding:7px;min-height:80px;}
-.crm-slbl{font-size:9px;font-weight:800;text-transform:uppercase;color:#334155;letter-spacing:.06em;margin-bottom:5px;}
-.crm-chip{border-radius:5px;padding:4px 7px;font-size:10px;margin-bottom:4px;display:block;}
+/* CRM demo */
+.pipeline{display:flex;gap:7px;}
+.pstage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.42);border-radius:8px;padding:7px;min-height:90px;}
+.pslbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#334155;margin-bottom:5px;}
+.pchip{border-radius:5px;padding:4px 7px;font-size:10px;margin-bottom:4px;display:block;transition:background .4s,border-color .4s;}
 
 /* Social studio demo */
-.ss-post{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:9px;padding:10px;}
-.ss-platform{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#475569;margin-bottom:6px;}
-.ss-text{font-size:11px;color:#cbd5e1;line-height:1.62;}
-.typed-demo{display:inline;}
+.ss-post{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:10px;padding:11px;margin-bottom:8px;min-height:100px;}
+.ss-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-bottom:6px;}
+.ss-txt{font-size:12px;color:#cbd5e1;line-height:1.65;}
 
 /* Group Console demo */
-.gc-demo-seat{display:flex;align-items:center;gap:8px;padding:6px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.45);border-radius:8px;margin-bottom:5px;}
-.gc-demo-av{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#e6edff;flex-shrink:0;}
-.gc-demo-name{font-size:11px;font-weight:700;color:var(--tx);}
-.gc-demo-status{font-size:10px;color:var(--mt);margin-top:1px;}
+.gc-reply{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.42);border-radius:8px;margin-bottom:6px;opacity:0;transition:opacity .4s;}
+.gc-reply.vis{opacity:1;}
+.gc-rav{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#e6edff;flex-shrink:0;}
+.gc-rname{font-size:11px;font-weight:700;color:var(--tx);}
+.gc-rtxt{font-size:10px;color:#64748b;margin-top:2px;line-height:1.45;}
 
-/* TEAMMATE CARDS */
-.tm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;max-width:1060px;margin:44px auto 0;}
-.tm-card{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:18px;transition:transform .2s,border-color .2s;position:relative;overflow:hidden;}
-.tm-card:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.42);}
-.tm-av{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#e6edff;margin-bottom:10px;border:1px solid rgba(255,255,255,.07);}
-.tm-name{font-size:14px;font-weight:800;color:var(--acc);}
-.tm-role{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-top:2px;}
-.tm-desc{font-size:12px;color:#64748b;line-height:1.6;margin-top:7px;}
-.tm-bar{position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .28s;}
-.tm-card:hover .tm-bar{transform:scaleX(1);}
+/* ═══════════ TEAMMATES ═══════════ */
+.tmg{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;max-width:1060px;margin:44px auto 0;}
+.tmc{background:var(--s2);border:1px solid rgba(42,58,106,.75);border-radius:14px;padding:18px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s;}
+.tmc:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.44);}
+.tmav{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#e6edff;margin-bottom:11px;border:1px solid rgba(255,255,255,.07);}
+.tmn{font-size:14px;font-weight:800;color:var(--ac);}
+.tmr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-top:2px;}
+.tmd{font-size:12px;color:#64748b;line-height:1.6;margin-top:8px;}
+.tmbar{position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .28s;}
+.tmc:hover .tmbar{transform:scaleX(1);}
 
-/* FEAT GRID */
-.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;max-width:1060px;margin:44px auto 0;}
-.fc{background:var(--surf);border:1px solid rgba(42,58,106,.75);border-radius:15px;padding:22px;transition:transform .2s,border-color .2s,box-shadow .2s;position:relative;overflow:hidden;}
-.fc:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.5);box-shadow:0 14px 42px rgba(0,0,0,.45);}
-.fc-icon{font-size:25px;margin-bottom:12px;display:block;}
-.fc-name{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:6px;}
-.fc-desc{font-size:12px;color:#64748b;line-height:1.65;}
+/* ═══════════ FEATURE GRID ═══════════ */
+.fgg{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px;max-width:1060px;margin:44px auto 0;}
+.fgc{background:var(--s2);border:1px solid rgba(42,58,106,.7);border-radius:15px;padding:22px;transition:transform .2s,border-color .22s;}
+.fgc:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.5);}
+.fgc-i{font-size:26px;margin-bottom:12px;display:block;}
+.fgc-n{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:6px;}
+.fgc-d{font-size:12px;color:#64748b;line-height:1.65;}
 
 /* CTA */
-.cta-band{text-align:center;padding:96px 20px;background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(79,70,229,.07));border-top:1px solid rgba(124,58,237,.14);border-bottom:1px solid rgba(124,58,237,.14);position:relative;overflow:hidden;}
-.cta-band::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:700px;height:350px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 70%);pointer-events:none;}
-.cta-band h2{font-size:clamp(26px,4vw,50px);font-weight:900;color:#f3e8ff;margin-bottom:14px;position:relative;}
-.cta-band p{font-size:16px;color:#94a3b8;max-width:480px;margin:0 auto 32px;line-height:1.65;position:relative;}
+.cta{text-align:center;padding:96px 20px;background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(79,70,229,.07));border-top:1px solid rgba(124,58,237,.14);border-bottom:1px solid rgba(124,58,237,.14);position:relative;overflow:hidden;}
+.cta::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:700px;height:350px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.14),transparent 70%);pointer-events:none;}
+.cta h2{font-size:clamp(26px,4.5vw,52px);font-weight:900;color:#f3e8ff;margin-bottom:14px;position:relative;}
+.cta p{font-size:16px;color:#94a3b8;max-width:480px;margin:0 auto 32px;line-height:1.65;position:relative;}
 .cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;position:relative;}
-.sc-footer{text-align:center;padding:28px 20px;font-size:13px;color:#334155;border-top:1px solid rgba(255,255,255,.05);}
-.sc-footer a{color:var(--pl);text-decoration:none;}
-
-/* PILL TAG */
-.pill{display:inline-flex;align-items:center;gap:5px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:var(--acc);}
-
-/* TOOL ROWS */
-.trow{max-width:1060px;margin:52px auto 0;display:flex;align-items:flex-start;gap:44px;}
-.trow.flip{flex-direction:row-reverse;}
-.trow-txt{flex:1;min-width:0;}
-.trow-mock{flex:1;min-width:0;background:var(--surf);border:1px solid var(--bdr);border-radius:15px;overflow:hidden;box-shadow:0 18px 54px rgba(0,0,0,.5);}
-.mock-hdr{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.55);padding:9px 13px;font-size:12px;color:#64748b;font-weight:700;display:flex;align-items:center;gap:7px;}
-.mock-body{padding:13px;display:flex;flex-direction:column;gap:8px;}
-.mf{flex:1;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 9px;font-size:11px;color:#64748b;}
-.ms{background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;}
-.mbtn{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:7px;padding:5px 11px;font-size:10px;font-weight:700;cursor:default;}
-.mbtn-g{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:7px;padding:5px 10px;font-size:10px;cursor:default;}
-
-/* mobile */
-@media(max-width:840px){
-  .snav-link{display:none;}
-  .ssec{padding:52px 14px;}
-  .rt-side{display:none;}
-  .rt-oval{width:75%;padding-bottom:62%;}
-  .trow,.trow.flip{flex-direction:column;gap:22px;}
-  .stats{gap:28px;}
-  .rt-seat{width:128px;}
-  .rt-console{width:170px;}
-  .rt-con-btns{gap:3px;}
-}
-@media(max-width:560px){
-  .rt-seat{width:112px;padding:7px;}
-  .rt-av{width:34px;height:34px;font-size:13px;}
-  .rt-sname{font-size:11px;}
-  .rt-srole{font-size:9px;max-width:68px;}
-  .rt-console{width:152px;padding:8px;}
-  .rt-con-title{font-size:10px;}
-  .rt-con-sub{font-size:9px;}
-  .rt-arena{min-height:420px;}
-}
+footer{text-align:center;padding:28px 20px;font-size:13px;color:#334155;border-top:1px solid rgba(255,255,255,.05);}
+footer a{color:var(--pl);text-decoration:none;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
 </style>
 </head>
 <body>
-<canvas id="starC"></canvas>
+<canvas id="sc"></canvas>
 
-<nav class="snav">
-  <a href="/showcase" class="snav-logo"><div class="snav-dot"></div>{{app_title}}</a>
-  <div class="snav-r">
-    <a href="#roundtable" class="snav-link">Round Table</a>
-    <a href="#teammates" class="snav-link">Teammates</a>
-    <a href="#tools" class="snav-link">Tools</a>
-    <a href="/pricing" class="snav-cta">View Plans →</a>
+<nav>
+  <a href="/showcase" class="logo"><div class="logo-dot"></div>Simply Agentic AI</a>
+  <div class="nav-links">
+    <a href="#roundtable" class="nav-a">Round Table</a>
+    <a href="#demos" class="nav-a">Tools</a>
+    <a href="#teammates" class="nav-a">Teammates</a>
+    <a href="/pricing" class="nav-cta">View Plans →</a>
   </div>
 </nav>
 
-<!-- ══ HERO ══ -->
+<!-- HERO -->
 <section class="hero">
-  <div class="hero-glow"></div>
-  <div class="hero-orb" style="width:360px;height:360px;top:-80px;left:-120px;background:rgba(124,58,237,.1);animation-duration:9s;"></div>
-  <div class="hero-orb" style="width:250px;height:250px;bottom:-60px;right:-80px;background:rgba(79,70,229,.09);animation-duration:13s;animation-delay:2s;"></div>
-  <div class="hero-badge">✨ AI-Powered Business Command Center</div>
-  <h1>7 Specialists.<br/>One Command Center.</h1>
-  <p class="hero-sub">A full team of specialized AI teammates, a built-in CRM, Lead Lab, social studio, email broadcast, calendar sync, and more — all from one interface. Stop stitching tools together.</p>
-  <div class="hero-btns">
-    <a href="/pricing" class="btn-p">🚀 Start Free Trial</a>
-    <a href="#roundtable" class="btn-s">See the Interface ↓</a>
+  <div class="hglow"></div>
+  <div class="badge">✨ AI-Powered Business Command Center</div>
+  <h1>7 Specialists.<br/>One Command<br/>Center.</h1>
+  <p class="hero-p">Stop stitching tools together. Simply Agentic gives you a full team of specialized AI teammates, a built-in CRM, Lead Lab, Social Studio, email broadcast, calendar sync, and more — one interface, zero juggling.</p>
+  <div class="hbtns">
+    <a href="/pricing" class="bp">🚀 Start Free Trial</a>
+    <a href="#roundtable" class="bs">See the Interface ↓</a>
   </div>
 </section>
 
-<!-- ══ STATS ══ -->
+<!-- STATS -->
 <div class="stats rv">
-  <div style="text-align:center;"><div class="stat-n" data-t="7">0</div><div class="stat-l">AI Teammates</div></div>
-  <div style="text-align:center;" class="rv" style="transition-delay:.1s;"><div class="stat-n" data-t="10">0</div><div class="stat-l">Built-in Tools</div></div>
-  <div style="text-align:center;" class="rv" style="transition-delay:.2s;"><div class="stat-n" data-suf="%" data-t="100">0</div><div class="stat-l">Your Key, Your Data</div></div>
-  <div style="text-align:center;" class="rv" style="transition-delay:.3s;"><div class="stat-n" data-pre="$" data-t="17">0</div><div class="stat-l">Starting /month</div></div>
+  <div style="text-align:center"><div class="stat-n" data-t="7">0</div><div class="stat-l">AI Teammates</div></div>
+  <div style="text-align:center"><div class="stat-n" data-t="10">0</div><div class="stat-l">Built-in Tools</div></div>
+  <div style="text-align:center"><div class="stat-n" data-t="100" data-suf="%">0</div><div class="stat-l">Your Key, Your Data</div></div>
+  <div style="text-align:center"><div class="stat-n" data-t="17" data-pre="$">0</div><div class="stat-l">Starting /month</div></div>
 </div>
 
-<!-- ══ ROUND TABLE ══ -->
-<section class="ssec" id="roundtable">
-  <div class="s-cx rv">
-    <span class="s-lbl">The Round Table</span>
-    <h2 class="s-h2">This Is What It Actually Looks Like</h2>
-    <p class="s-p">All 7 teammates seated around the table. The center Group Console broadcasts to everyone at once. Click any seat to open their personal thread on the right.</p>
+<!-- ROUND TABLE -->
+<section class="sec" id="roundtable" style="padding-bottom:32px;">
+  <div class="ctr rv">
+    <span class="lbl">Live Interface Preview</span>
+    <h2 class="h2">This Is What It Actually Looks Like</h2>
+    <p class="sub">All 7 teammates seated around the table. The center Group Console broadcasts to everyone. Click any seat to open their personal conversation thread on the right.</p>
   </div>
 
-  <div class="rt-shell rv" style="transition-delay:.1s;">
-    <!-- Real nav bar -->
+  <div class="rt-wrapper rv" style="transition-delay:.1s;">
+    <!-- Real nav bar replica -->
     <div class="rt-nav">
       <div style="display:flex;gap:6px;align-items:center;">
-        <div style="display:flex;align-items:center;gap:5px;padding:5px 4px;color:rgba(210,220,255,.8);font-size:12px;font-weight:800;">
-          <div style="width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 0 6px rgba(124,58,237,.8);"></div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:rgba(196,181,253,.9);">
+          <div style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 0 7px #7c3aed;animation:pd 2.5s ease-in-out infinite;"></div>
           Simply Agentic AI v1.11
         </div>
-        <div class="rt-nb">Team <span style="font-size:9px;opacity:.6;">▾</span></div>
-        <div class="rt-nb">Tools <span style="font-size:9px;opacity:.6;">▾</span></div>
-        <div class="rt-nb">Settings <span style="font-size:9px;opacity:.6;">▾</span></div>
-        <div class="rt-nb">📊 Dashboard</div>
+        <div class="rnb">Team <span style="font-size:9px;opacity:.5;margin-left:2px;">▾</span></div>
+        <div class="rnb">Tools <span style="font-size:9px;opacity:.5;margin-left:2px;">▾</span></div>
+        <div class="rnb">Settings <span style="font-size:9px;opacity:.5;margin-left:2px;">▾</span></div>
+        <div class="rnb">📊 Dashboard</div>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#94a3b8;">🏳</span><div class="rt-obj">Scale &amp; Freedom</div></div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <div class="rt-model">Model: gpt-4o</div>
-        <div class="rt-nb active">🛟 Support</div>
-        <div class="rt-nb">🚪 Logout</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;">🏳</span>
+        <span style="font-size:13px;font-weight:600;color:#fff;opacity:.9;">Scale &amp; Freedom</span>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;">
+        <span style="font-size:11px;color:rgba(148,163,184,.6);">Model: gpt-4o</span>
+        <div class="rnb hi">🛟 Support</div>
+        <div class="rnb">🚪 Logout</div>
       </div>
     </div>
 
-    <!-- Main: table + sidebar -->
-    <div class="rt-main">
-      <!-- Table arena -->
-      <div class="rt-arena" style="min-height:520px;">
-        <div class="rt-oval"></div>
+    <!-- Table + sidebar -->
+    <div class="rt-body">
+      <!-- TABLE (fixed 580px height, pixel-positioned seats) -->
+      <div class="rt-table">
+        <div class="rt-ring"></div>
 
-        <!-- Operator (top center) -->
-        <div class="rt-op" style="top:12%;left:50%;">
-          <div class="rt-op-av">O</div>
-          <div class="rt-op-name">Operator</div>
-          <div class="rt-op-btn">Profile</div>
+        <!-- OPERATOR top-center -->
+        <div class="op-card" style="top:22px;left:50%;transform:translateX(-50%);">
+          <div class="op-av">O</div>
+          <div class="op-name">Operator</div>
+          <div class="op-btn">Profile</div>
         </div>
 
-        <!-- Sunshine (top-left ~10:30) -->
-        <div class="rt-seat" style="top:27%;left:22%;">
-          <div class="rt-av" style="background:#9a3412;">S</div>
-          <div><div class="rt-sname">Sunshine</div><div class="rt-srole">Sales Specialist</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- SUNSHINE top-left -->
+        <div class="seat" style="top:90px;left:calc(50% - 310px);">
+          <div class="av" style="background:#9a3412;">S</div>
+          <div><div class="sname">Sunshine</div><div class="srole">Sales Specialist</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Atlis (top-right ~1:30) -->
-        <div class="rt-seat" style="top:27%;left:78%;">
-          <div class="rt-av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
-          <div><div class="rt-sname">Atlis</div><div class="rt-srole">System Integrit...</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- ATLIS top-right -->
+        <div class="seat" style="top:90px;left:calc(50% + 160px);">
+          <div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
+          <div><div class="sname">Atlis</div><div class="srole">System Integrit...</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Willow (left ~9) -->
-        <div class="rt-seat" style="top:50%;left:10%;">
-          <div class="rt-av" style="background:#4c1d95;">W</div>
-          <div><div class="rt-sname">Willow</div><div class="rt-srole">Language Spec...</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- WILLOW mid-left -->
+        <div class="seat" style="top:240px;left:calc(50% - 370px);">
+          <div class="av" style="background:#4c1d95;">W</div>
+          <div><div class="sname">Willow</div><div class="srole">Language Spec...</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Ava (right ~3) -->
-        <div class="rt-seat" style="top:50%;left:90%;">
-          <div class="rt-av" style="background:#0f766e;">A</div>
-          <div><div class="rt-sname">Ava</div><div class="rt-srole">Research &amp; Kn...</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- AVA mid-right -->
+        <div class="seat" style="top:240px;left:calc(50% + 220px);">
+          <div class="av" style="background:#0f766e;">A</div>
+          <div><div class="sname">Ava</div><div class="srole">Research &amp; Kn...</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Orion (bottom-left ~7:30) -->
-        <div class="rt-seat" style="top:73%;left:22%;">
-          <div class="rt-av" style="background:#374151;">O</div>
-          <div><div class="rt-sname">Orion</div><div class="rt-srole">Systems Autom...</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- ORION bottom-left -->
+        <div class="seat" style="top:390px;left:calc(50% - 310px);">
+          <div class="av" style="background:#374151;">O</div>
+          <div><div class="sname">Orion</div><div class="srole">Systems Autom...</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Luna (bottom-right ~4:30) -->
-        <div class="rt-seat" style="top:73%;left:78%;">
-          <div class="rt-av" style="background:#7c2d12;">L</div>
-          <div><div class="rt-sname">Luna</div><div class="rt-srole">Creative Engineer</div><div class="rt-sstatus">Idle</div></div>
-          <div class="rt-dot"></div>
-          <div class="rt-editbtn">Edit</div>
+        <!-- LUNA bottom-right -->
+        <div class="seat" style="top:390px;left:calc(50% + 160px);">
+          <div class="av" style="background:#7c2d12;">L</div>
+          <div><div class="sname">Luna</div><div class="srole">Creative Engineer</div><div class="sstatus">Idle</div></div>
+          <div class="sdot idle"></div><div class="sedit">Edit</div>
         </div>
 
-        <!-- Alex (bottom ~6) — active/selected -->
-        <div class="rt-seat active" style="top:90%;left:50%;">
-          <div class="rt-av" style="background:#1e3a8a;">A</div>
-          <div><div class="rt-sname">Alex</div><div class="rt-srole">Chief Marketing...</div><div class="rt-sstatus" style="color:#fcd34d;"><span class="tdots"><span></span><span></span><span></span></span></div></div>
-          <div class="rt-dot thinking"></div>
-          <div class="rt-editbtn">Edit</div>
-        </div>
-
-        <!-- Group Console (center) -->
-        <div class="rt-console">
-          <div class="rt-con-title">Group Console</div>
-          <div class="rt-con-sub">(All Teammates)<br/>Send one prompt to trigger answers from everyone.</div>
-          <div class="rt-con-btns">
-            <div class="rt-con-btn">Assemble</div>
-            <div class="rt-con-btn">🎙 Speak</div>
-            <div class="rt-con-btn">Voice Mode</div>
-            <div class="rt-con-btn">Lighting mode</div>
-            <div class="rt-con-btn">Share screen</div>
-            <div class="rt-con-btn primary">Send to all</div>
+        <!-- ALEX bottom-center (active, selected) -->
+        <div class="seat sel" style="top:480px;left:calc(50% - 75px);">
+          <div class="av" style="background:#1e3a8a;">A</div>
+          <div><div class="sname">Alex</div><div class="srole">Chief Marketing...</div>
+            <div class="sstatus" style="color:#fcd34d;"><span class="td"><span></span><span></span><span></span></span></div>
           </div>
-          <textarea class="rt-con-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea>
-          <div class="rt-con-pills">
-            <div class="rt-con-pill">⚠ Risk</div>
-            <div class="rt-con-pill">📊 Scale</div>
-            <div class="rt-con-pill">✦ Constraints</div>
-            <div class="rt-con-pill">⚡ Optimize</div>
+          <div class="sdot think"></div><div class="sedit">Edit</div>
+        </div>
+
+        <!-- GROUP CONSOLE (center of table) -->
+        <div class="gc" style="top:50%;left:50%;transform:translate(-50%,-53%);">
+          <div class="gc-title">Group Console</div>
+          <div class="gc-sub">(All Teammates)<br/>Send one prompt to trigger answers from everyone.</div>
+          <div class="gc-btns">
+            <div class="gcb">Assemble</div><div class="gcb">🎙 Speak</div>
+            <div class="gcb">Voice Mode</div><div class="gcb">Lighting mode</div>
+            <div class="gcb">Share screen</div><div class="gcb hi">Send to all</div>
+          </div>
+          <textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea>
+          <div class="gc-pills">
+            <div class="gcp">⚠ Risk</div><div class="gcp">📊 Scale</div>
+            <div class="gcp">✦ Constraints</div><div class="gcp">⚡ Optimize</div>
           </div>
         </div>
       </div>
 
-      <!-- Right sidebar — Alex's thread -->
+      <!-- RIGHT SIDEBAR — Alex's active thread -->
       <div class="rt-side">
-        <div class="rt-side-hdr">
-          <div><div class="rt-side-name">Alex</div><div class="rt-side-role">Chief Marketing Officer (CMO)</div></div>
-          <div class="rt-side-refresh">Refresh</div>
+        <div class="rsh">
+          <div><div class="rsh-name">Alex</div><div class="rsh-role">Chief Marketing Officer (CMO)</div></div>
+          <div class="rsh-ref">Refresh</div>
         </div>
-        <div class="rt-side-tabs">
-          <div class="rt-side-tab act">⚠ Risk</div>
-          <div class="rt-side-tab sc">📊 Scale</div>
-          <div class="rt-side-tab">✦ Constraints</div>
-          <div class="rt-side-tab">⚡ Optimize</div>
+        <div class="rsh-tabs">
+          <div class="rtab a">⚠ Risk</div>
+          <div class="rtab b">📊 Scale</div>
+          <div class="rtab">✦ Constraints</div>
+          <div class="rtab">⚡ Optimize</div>
         </div>
-        <div class="rt-msgs">
-          <div class="rt-msg user"><div class="rt-msg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
-          <div class="rt-msg ai"><div class="rt-msg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. I'd anchor the campaign on a pain point agents feel daily — leads who go cold after the first showing. Here's a 3-step engine...</div>
-          <div class="rt-msg user"><div class="rt-msg-who">You</div>What scoring criteria should I use?</div>
-          <div class="rt-msg ai"><div class="rt-msg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
+        <div class="rmsgs">
+          <div class="rmsg u"><div class="rmsg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
+          <div class="rmsg a"><div class="rmsg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. Anchor the campaign on pain agents feel daily — leads who go cold. Here's a 3-step engine to fix that...</div>
+          <div class="rmsg u"><div class="rmsg-who">You</div>What scoring criteria should I use?</div>
+          <div class="rmsg a"><div class="rmsg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
         </div>
-        <div class="rt-side-inp">
-          <div class="rt-side-inpbox">Message selected teammate...</div>
-          <div class="rt-side-btns">
-            <div class="rt-side-btn">📎 Files</div>
-            <div class="rt-side-btn">📷 Screen</div>
-            <div class="rt-side-btn">🔊 Speak</div>
-            <div class="rt-side-btn">🎙 Voice Mode</div>
-            <div class="rt-side-send">Send</div>
+        <div class="rinp">
+          <div class="rinp-box">Message selected teammate...</div>
+          <div class="rinp-btns">
+            <div class="rbn">📎 Files</div><div class="rbn">📷 Screen</div>
+            <div class="rbn">🔊 Speak</div><div class="rbn">🎙 Voice</div>
+            <div class="rbs">Send</div>
           </div>
         </div>
       </div>
@@ -7090,333 +7043,317 @@ section{position:relative;z-index:1;}
 
     <!-- Below table -->
     <div class="rt-below">
-      <div class="rt-grp">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <div><div class="rt-grp-title">🔵 Group Replies</div><div class="rt-grp-sub">Last round table responses in one place.</div></div>
-          <div style="font-size:10px;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.5);color:#334155;cursor:default;">Clear</div>
+      <div class="rt-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><div class="rc-t">🔵 Group Replies</div><div class="rc-s">Last round table responses in one place.</div></div>
+          <div style="font-size:10px;padding:2px 9px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#334155;">Clear</div>
         </div>
-        <div style="margin-top:8px;font-size:11px;color:#334155;">No group replies yet. Use the center Group Console.</div>
+        <div style="margin-top:7px;font-size:11px;color:#334155;">No group replies yet. Use the center Group Console.</div>
       </div>
-      <div class="rt-grp">
-        <div class="rt-grp-title" style="color:#f87171;">🔴 Shared Team Memory</div>
-        <div class="rt-grp-sub">Facts, decisions, and open loops extracted from group sessions.</div>
+      <div class="rt-card">
+        <div class="rc-t" style="color:#f87171;">🔴 Shared Team Memory</div>
+        <div class="rc-s">Facts, decisions, and open loops extracted from group sessions.</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ══ FEATURE DEMOS ══ -->
-<section class="ssec" style="padding-top:16px;" id="tools">
-  <div class="s-cx rv">
-    <span class="s-lbl">In Action</span>
-    <h2 class="s-h2">Watch the Tools Work</h2>
-    <p class="s-p">Animated previews of the core tools — Lead Lab, CRM Pipeline, Social Studio, and the group broadcast.</p>
+<!-- DEMOS -->
+<section class="sec" id="demos" style="padding-top:32px;">
+  <div class="ctr rv">
+    <span class="lbl">Tools in Action</span>
+    <h2 class="h2">Watch the Features Work</h2>
+    <p class="sub">Animated live demos of the four core tools — all running in real time inside the interface.</p>
   </div>
 
-  <div class="demos-grid">
-    <!-- Lead Lab demo -->
-    <div class="demo-card rv ll-demo">
-      <div class="demo-label"><span class="rec-dot"></span> 🔬 Lead Lab — Live Demo</div>
-      <div class="demo-body">
+  <div class="demos">
+    <!-- Lead Lab -->
+    <div class="dc rv">
+      <div class="dc-hdr"><span class="recdot"></span> 🔬 Lead Lab — Generating Leads</div>
+      <div class="dc-body">
         <div class="ll-fields">
-          <div class="ll-field" id="llNiche">real estate agents</div>
-          <div class="ll-field">New Jersey</div>
+          <div class="lf">real estate agents</div>
+          <div class="lf">New Jersey</div>
+          <div class="lf" style="flex:0 0 auto;">25 leads</div>
         </div>
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <div class="ms">25 leads</div>
-          <div class="ms">Balanced</div>
-          <div class="ms">Phone or email</div>
-        </div>
-        <div id="llLeads" style="display:flex;flex-direction:column;gap:6px;"></div>
+        <div id="llBox"></div>
       </div>
     </div>
 
-    <!-- CRM Pipeline demo -->
-    <div class="demo-card rv" style="transition-delay:.1s;">
-      <div class="demo-label"><span class="rec-dot"></span> 📋 CRM Pipeline — Live Demo</div>
-      <div class="demo-body">
-        <div class="crm-stages">
-          <div class="crm-stage">
-            <div class="crm-slbl">Lead</div>
-            <div id="crm-lead"><span class="crm-chip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span><span class="crm-chip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Alex Kim</span></div>
-          </div>
-          <div class="crm-stage">
-            <div class="crm-slbl">Interested</div>
-            <div id="crm-int"><span class="crm-chip" style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fcd34d;">Morgan Lee</span></div>
-          </div>
-          <div class="crm-stage">
-            <div class="crm-slbl">Call Booked</div>
-            <div id="crm-call"></div>
-          </div>
-          <div class="crm-stage">
-            <div class="crm-slbl">Client</div>
-            <div id="crm-client"><span class="crm-chip" style="background:rgba(124,58,237,.13);border:1px solid rgba(124,58,237,.3);color:var(--acc);">Riley Park</span></div>
-          </div>
-        </div>
-        <div style="font-size:10px;color:#334155;margin-bottom:6px;" id="crmMsg">Morgan Lee is moving to Call Booked...</div>
-        <button class="mbtn" style="font-size:10px;width:100%;padding:6px;">⚡ AI Draft Outreach for Morgan Lee</button>
-      </div>
-    </div>
-
-    <!-- Social Studio demo -->
-    <div class="demo-card rv" style="transition-delay:.2s;">
-      <div class="demo-label"><span class="rec-dot"></span> 📣 Social Studio — Live Demo</div>
-      <div class="demo-body">
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <div class="ms">LinkedIn</div>
-          <div class="ms">Content pack</div>
+    <!-- Social Studio -->
+    <div class="dc rv" style="transition-delay:.1s;">
+      <div class="dc-hdr"><span class="recdot"></span> 📣 Social Studio — Writing Content</div>
+      <div class="dc-body">
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <div class="lf" style="flex:0 0 auto;">LinkedIn</div>
+          <div class="lf">Content pack</div>
         </div>
         <div class="ss-post">
-          <div class="ss-platform" id="ssLabel">🪝 Hook Post</div>
-          <div class="ss-text"><span id="ssTyped"></span><span id="ssCursor" style="animation:blink .75s step-end infinite;">|</span></div>
+          <div class="ss-lbl" id="ssLbl">🪝 Hook Post</div>
+          <div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div>
         </div>
-        <div style="margin-top:6px;display:flex;gap:5px;">
-          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">💬 DM Script</div>
-          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">🎯 CTA Pack</div>
-          <div class="ms" style="font-size:10px;padding:3px 8px;flex:1;">🚀 Launch Set</div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <div class="lf" style="font-size:10px;text-align:center;">💬 DM Script</div>
+          <div class="lf" style="font-size:10px;text-align:center;">🎯 CTA Pack</div>
+          <div class="lf" style="font-size:10px;text-align:center;">🚀 Launch Set</div>
         </div>
       </div>
     </div>
 
-    <!-- Group Console demo -->
-    <div class="demo-card rv" style="transition-delay:.3s;">
-      <div class="demo-label"><span class="rec-dot"></span> 🎙 Group Console — Send to All</div>
-      <div class="demo-body">
-        <div style="background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:8px;font-size:11px;color:#94a3b8;margin-bottom:8px;">
-          "Help me build a NJ real estate lead engine. Strategy, outreach, and system design."
+    <!-- CRM Pipeline -->
+    <div class="dc rv" style="transition-delay:.2s;">
+      <div class="dc-hdr"><span class="recdot"></span> 📋 CRM Pipeline — Moving Deals</div>
+      <div class="dc-body">
+        <div class="pipeline">
+          <div class="pstage"><div class="pslbl">Lead</div><div id="ps0"></div></div>
+          <div class="pstage"><div class="pslbl">Interested</div><div id="ps1"></div></div>
+          <div class="pstage"><div class="pslbl">Call Booked</div><div id="ps2"></div></div>
+          <div class="pstage"><div class="pslbl">Client</div><div id="ps3"></div></div>
         </div>
-        <div style="font-size:10px;color:var(--pl);font-weight:700;margin-bottom:6px;">All teammates responding...</div>
-        <div id="gcReplies" style="display:flex;flex-direction:column;gap:5px;"></div>
+        <div style="margin-top:10px;font-size:11px;color:var(--pl);font-weight:600;" id="crmMsg">Watching Morgan Lee move through the pipeline...</div>
+        <div style="margin-top:8px;">
+          <button style="width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;font-size:11px;font-weight:700;cursor:default;">⚡ AI Draft Outreach</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Group Console -->
+    <div class="dc rv" style="transition-delay:.3s;">
+      <div class="dc-hdr"><span class="recdot"></span> 🎙 Group Console — All Teammates Reply</div>
+      <div class="dc-body">
+        <div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#94a3b8;margin-bottom:10px;">
+          "Help me build a lead engine for NJ real estate agents — strategy, outreach, and automation."
+        </div>
+        <div id="gcBox"></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ══ TEAMMATES ══ -->
-<section class="ssec" id="teammates" style="padding-top:20px;">
-  <div class="s-cx rv">
-    <span class="s-lbl">The Team</span>
-    <h2 class="s-h2">Seven Specialists. Each With a Lane.</h2>
-    <p class="s-p">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do — so you get specialist answers, not generic ones.</p>
+<!-- TEAMMATES -->
+<section class="sec" id="teammates" style="padding-top:20px;">
+  <div class="ctr rv">
+    <span class="lbl">The Team</span>
+    <h2 class="h2">Seven Specialists. Each With a Lane.</h2>
+    <p class="sub">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do. Specialist answers, not generic ones.</p>
   </div>
-  <div class="tm-grid">
-    <div class="tm-card rv">
-      <div class="tm-av" style="background:#1e3a8a;">A</div>
-      <div class="tm-name">Alex</div><div class="tm-role">Chief Marketing Officer</div>
-      <div class="tm-desc">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div>
+  <div class="tmg">
+    <div class="tmc rv">
+      <div class="tmav" style="background:#1e3a8a;">A</div>
+      <div class="tmn">Alex</div><div class="tmr">Chief Marketing Officer</div>
+      <div class="tmd">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics, always.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.07s;">
-      <div class="tm-av" style="background:#4c1d95;">W</div>
-      <div class="tm-name">Willow</div><div class="tm-role">Language Specialist</div>
-      <div class="tm-desc">Refines tone, voice, clarity, and meaning. Will not write sales hype or artificial urgency — only clear, ethical, precise language.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#4c1d95,#7c3aed);"></div>
+    <div class="tmc rv" style="transition-delay:.07s;">
+      <div class="tmav" style="background:#4c1d95;">W</div>
+      <div class="tmn">Willow</div><div class="tmr">Language Specialist</div>
+      <div class="tmd">Refines tone, voice, clarity, and meaning. Will not write sales hype, artificial urgency, or manipulative framing — ever.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#4c1d95,#8b5cf6);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.14s;">
-      <div class="tm-av" style="background:#0f766e;">A</div>
-      <div class="tm-name">Ava</div><div class="tm-role">Research &amp; Knowledge Curator</div>
-      <div class="tm-desc">Gathers, validates, and synthesizes information. Separates fact from inference. Labels uncertainty. Never guesses to be helpful.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#0f766e,#14b8a6);"></div>
+    <div class="tmc rv" style="transition-delay:.14s;">
+      <div class="tmav" style="background:#0f766e;">A</div>
+      <div class="tmn">Ava</div><div class="tmr">Research &amp; Knowledge Curator</div>
+      <div class="tmd">Gathers, validates, and synthesizes information. Separates fact from inference. Labels uncertainty explicitly. Never guesses.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#0f766e,#14b8a6);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.21s;">
-      <div class="tm-av" style="background:#374151;">O</div>
-      <div class="tm-name">Orion</div><div class="tm-role">Systems &amp; Automation Engineer</div>
-      <div class="tm-desc">Designs automation systems and workflows for reliable scale. Architecture before execution. Reliability over speed.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div>
+    <div class="tmc rv" style="transition-delay:.21s;">
+      <div class="tmav" style="background:#374151;">O</div>
+      <div class="tmn">Orion</div><div class="tmr">Systems &amp; Automation Engineer</div>
+      <div class="tmd">Designs automation systems and workflows for reliable scale. Architecture before execution. Will not automate unstable processes.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.28s;">
-      <div class="tm-av" style="background:#9a3412;">S</div>
-      <div class="tm-name">Sunshine</div><div class="tm-role">Sales Specialist</div>
-      <div class="tm-desc">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure, manipulate, or force a close.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div>
+    <div class="tmc rv" style="transition-delay:.28s;">
+      <div class="tmav" style="background:#9a3412;">S</div>
+      <div class="tmn">Sunshine</div><div class="tmr">Sales Specialist</div>
+      <div class="tmd">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure, manipulate, or force a close.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.35s;">
-      <div class="tm-av" style="background:#7c2d12;">L</div>
-      <div class="tm-name">Luna</div><div class="tm-role">Creative Engineer</div>
-      <div class="tm-desc">Cinematic, consistent visual systems. Hierarchy before effects. Enhancement without distortion. Keeps designs consistent over time.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div>
+    <div class="tmc rv" style="transition-delay:.35s;">
+      <div class="tmav" style="background:#7c2d12;">L</div>
+      <div class="tmn">Luna</div><div class="tmr">Creative Engineer</div>
+      <div class="tmd">Cinematic, consistent visual systems. Hierarchy before effects. Keeps designs consistent over time. Enhancement without distortion.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div>
     </div>
-    <div class="tm-card rv" style="transition-delay:.42s;">
-      <div class="tm-av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
-      <div class="tm-name">Atlis</div><div class="tm-role">System Integrity Architect</div>
-      <div class="tm-desc">Monitors role boundaries, memory hygiene, and system coherence. Acts as a referee — never a contributor. Protect integrity.</div>
-      <div class="tm-bar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div>
+    <div class="tmc rv" style="transition-delay:.42s;">
+      <div class="tmav" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
+      <div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div>
+      <div class="tmd">Monitors role boundaries, memory hygiene, and system coherence. Acts as a referee, never a contributor. Protects integrity.</div>
+      <div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div>
     </div>
-  </div>
-</section>
-
-<!-- ══ FEATURE CARDS ══ -->
-<section class="ssec" id="features" style="padding-top:20px;">
-  <div class="s-cx rv"><span class="s-lbl">Features</span><h2 class="s-h2">Everything Built In. Nothing Extra to Buy.</h2></div>
-  <div class="fg">
-    <div class="fc rv"><span class="fc-icon">🔬</span><div class="fc-name">Lead Lab</div><div class="fc-desc">Scored, contact-ready lead lists from the web. Filter by niche, location, count, and contact type. One-click add to CRM or hand off to Sunshine.</div></div>
-    <div class="fc rv" style="transition-delay:.07s;"><span class="fc-icon">📋</span><div class="fc-name">CRM &amp; Pipeline</div><div class="fc-desc">Contacts, kanban pipeline, email &amp; SMS broadcast, and client sequences. No extra CRM subscription required.</div></div>
-    <div class="fc rv" style="transition-delay:.14s;"><span class="fc-icon">📣</span><div class="fc-name">Social Studio</div><div class="fc-desc">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X — generated in seconds.</div></div>
-    <div class="fc rv" style="transition-delay:.21s;"><span class="fc-icon">🎯</span><div class="fc-name">Offer Builder</div><div class="fc-desc">Sharpen positioning, clarify your offer, and generate launch-ready copy. Built around who you help, what result you deliver, and how.</div></div>
-    <div class="fc rv" style="transition-delay:.28s;"><span class="fc-icon">📚</span><div class="fc-name">Prompt Library</div><div class="fc-desc">200+ pre-built expert prompts organized by teammate. Click to fire instantly. Save your own custom prompts for repeat use.</div></div>
-    <div class="fc rv" style="transition-delay:.35s;"><span class="fc-icon">📅</span><div class="fc-name">Calendar &amp; Gmail Sync</div><div class="fc-desc">Full motion-style calendar with Google Calendar sync. Teammate-drafted emails pass through a review console before they send.</div></div>
-    <div class="fc rv" style="transition-delay:.42s;"><span class="fc-icon">📈</span><div class="fc-name">Growth Playbooks</div><div class="fc-desc">Step-by-step action plans for getting clients, booking calls, launching offers, and reactivating cold leads — tailored to your business.</div></div>
-    <div class="fc rv" style="transition-delay:.49s;"><span class="fc-icon">🎙</span><div class="fc-name">Voice Mode</div><div class="fc-desc">Speak to your teammates directly. Voice input and TTS playback powered by OpenAI. Every teammate can read their response aloud.</div></div>
-    <div class="fc rv" style="transition-delay:.56s;"><span class="fc-icon">🔑</span><div class="fc-name">Your Key. Your Data.</div><div class="fc-desc">Connect your own OpenAI or Anthropic key. Go direct to GPT-4o with zero markup, zero throttling, and complete data ownership.</div></div>
   </div>
 </section>
 
-<!-- ══ CTA ══ -->
-<section class="cta-band">
-  <span class="s-lbl" style="position:relative;">Ready to Get Started?</span>
+<!-- FEATURES -->
+<section class="sec" id="features" style="padding-top:20px;">
+  <div class="ctr rv"><span class="lbl">Features</span><h2 class="h2">Everything Built In.</h2></div>
+  <div class="fgg">
+    <div class="fgc rv"><span class="fgc-i">🔬</span><div class="fgc-n">Lead Lab</div><div class="fgc-d">Scored, contact-ready leads from the web. Filter by niche, location, count, and contact type. One-click to CRM or Sunshine.</div></div>
+    <div class="fgc rv" style="transition-delay:.06s;"><span class="fgc-i">📋</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email &amp; SMS broadcast, and client sequences — no extra tools required.</div></div>
+    <div class="fgc rv" style="transition-delay:.12s;"><span class="fgc-i">📣</span><div class="fgc-n">Social Studio</div><div class="fgc-d">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X.</div></div>
+    <div class="fgc rv" style="transition-delay:.18s;"><span class="fgc-i">🎯</span><div class="fgc-n">Offer Builder</div><div class="fgc-d">Sharpen positioning, clarify your offer, and generate launch-ready copy from one structured form.</div></div>
+    <div class="fgc rv" style="transition-delay:.24s;"><span class="fgc-i">📚</span><div class="fgc-n">Prompt Library</div><div class="fgc-d">200+ expert prompts organized by teammate. Click to fire instantly. Save custom prompts for reuse.</div></div>
+    <div class="fgc rv" style="transition-delay:.30s;"><span class="fgc-i">📅</span><div class="fgc-n">Calendar &amp; Gmail Sync</div><div class="fgc-d">Full motion calendar with Google sync. Teammate-drafted emails pass through a review console first.</div></div>
+    <div class="fgc rv" style="transition-delay:.36s;"><span class="fgc-i">📈</span><div class="fgc-n">Growth Playbooks</div><div class="fgc-d">Step-by-step plans for getting clients, booking calls, launching offers, and reactivating cold leads.</div></div>
+    <div class="fgc rv" style="transition-delay:.42s;"><span class="fgc-i">🎙</span><div class="fgc-n">Voice Mode &amp; TTS</div><div class="fgc-d">Speak to your teammates directly. Every teammate can read responses aloud via OpenAI TTS.</div></div>
+    <div class="fgc rv" style="transition-delay:.48s;"><span class="fgc-i">🔑</span><div class="fgc-n">Your Key. Your Data.</div><div class="fgc-d">Connect your OpenAI or Anthropic key. Direct access to GPT-4o — zero markup, zero throttling.</div></div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <span class="lbl" style="position:relative;">Ready to Start?</span>
   <h2>Start Free. Scale at Your Pace.</h2>
-  <p>7-day free trial included. No credit card charged until day 8. Cancel anytime.</p>
+  <p>7-day free trial. No credit card charged until day 8. Cancel anytime.</p>
   <div class="cta-btns">
-    <a href="/pricing" class="btn-p" style="font-size:16px;padding:16px 36px;">🚀 View Plans &amp; Start Free</a>
-    <a href="/login" class="btn-s" style="font-size:15px;padding:16px 26px;">Already have an account →</a>
+    <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">🚀 View Plans &amp; Start Free</a>
+    <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Already have an account →</a>
   </div>
   <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">
-    Solo Operator $47/mo · Growth System $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo — limited seats</strong>
+    Solo Operator $47/mo · Growth $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo — limited seats</strong>
   </div>
 </section>
 
-<div class="sc-footer">
-  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;·&nbsp;
-  <a href="/login">Sign In</a> &nbsp;·&nbsp;
-  <a href="/terms">Terms of Service</a> &nbsp;·&nbsp;
-  <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
-  <div style="margin-top:10px;opacity:.4;">© 2025 {{app_title}}. All rights reserved.</div>
-</div>
-
-<style>@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}</style>
+<footer>
+  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;·&nbsp; <a href="/login">Sign In</a> &nbsp;·&nbsp;
+  <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
+  <div style="margin-top:10px;opacity:.4;">© 2025 Simply Agentic AI. All rights reserved.</div>
+</footer>
 
 <script>
 // ── Starfield ──
 (function(){
-  var c=document.getElementById('starC'),ctx=c.getContext('2d');
-  function rsz(){c.width=innerWidth;c.height=innerHeight;}rsz();addEventListener('resize',rsz);
-  var stars=[];for(var i=0;i<180;i++)stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.3+.25,sp:Math.random()*.35+.1,ph:Math.random()*Math.PI*2});
-  (function draw(t){ctx.clearRect(0,0,c.width,c.height);stars.forEach(function(s){var op=.07+.4*(.5+.5*Math.sin(s.ph+t*s.sp*.001));ctx.beginPath();ctx.arc(s.x*c.width,s.y*c.height,s.r,0,Math.PI*2);ctx.fillStyle='rgba(255,255,255,'+op+')';ctx.fill();});requestAnimationFrame(draw);})(0);
+  var c=document.getElementById('sc'),x=c.getContext('2d');
+  function r(){c.width=innerWidth;c.height=innerHeight;}r();addEventListener('resize',r);
+  var s=[];for(var i=0;i<200;i++)s.push({x:Math.random(),y:Math.random(),r:Math.random()*1.4+.2,sp:Math.random()*.3+.08,ph:Math.random()*Math.PI*2});
+  (function draw(t){
+    x.clearRect(0,0,c.width,c.height);
+    s.forEach(function(a){var op=.06+.38*(.5+.5*Math.sin(a.ph+t*a.sp*.001));x.beginPath();x.arc(a.x*c.width,a.y*c.height,a.r,0,Math.PI*2);x.fillStyle='rgba(255,255,255,'+op+')';x.fill();});
+    requestAnimationFrame(draw);
+  })(0);
 })();
 
-// ── Scroll reveal ──
+// ── Reveal on scroll ──
 (function(){
-  var els=document.querySelectorAll('.rv,.rvl,.rvr');
-  var obs=new IntersectionObserver(function(e){e.forEach(function(en){if(en.isIntersecting){en.target.classList.add('in');obs.unobserve(en.target);}});},{threshold:.08});
-  els.forEach(function(el){obs.observe(el);});
+  var els=document.querySelectorAll('.rv');
+  var io=new IntersectionObserver(function(e){e.forEach(function(n){if(n.isIntersecting){n.target.classList.add('on');io.unobserve(n.target);}});},{threshold:.06,rootMargin:'0px 0px -40px 0px'});
+  els.forEach(function(el){io.observe(el);});
 })();
 
 // ── Counters ──
 (function(){
   var ns=document.querySelectorAll('.stat-n[data-t]');
-  var obs=new IntersectionObserver(function(e){e.forEach(function(en){
-    if(!en.isIntersecting)return;
-    var el=en.target,target=parseInt(el.getAttribute('data-t'));
+  var io=new IntersectionObserver(function(e){e.forEach(function(n){
+    if(!n.isIntersecting)return;
+    var el=n.target,t=parseInt(el.getAttribute('data-t'));
     var pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'';
-    var st=null,dur=1400;
-    function step(ts){if(!st)st=ts;var p=Math.min((ts-st)/dur,1),ease=1-Math.pow(1-p,3);el.textContent=pre+Math.round(ease*target)+suf;if(p<1)requestAnimationFrame(step);}
-    requestAnimationFrame(step);obs.unobserve(el);
-  });},{threshold:.5});
-  ns.forEach(function(n){obs.observe(n);});
+    var s=null,d=1400;
+    (function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/d,1),ease=1-Math.pow(1-p,3);el.textContent=pre+Math.round(ease*t)+suf;if(p<1)requestAnimationFrame(step);})(performance.now());
+    io.unobserve(el);
+  });},{threshold:.4});
+  ns.forEach(function(n){io.observe(n);});
 })();
 
 // ── Sidebar typewriter ──
 (function(){
-  var txt='Score leads by: recency of listings (last 90 days), active social presence, domain age, and whether they have a personal brand vs brokerage-only presence. Minimum score of 60 to qualify for outreach.';
-  var el=document.getElementById('sideTyped'),cursor=document.getElementById('sideCursor');
+  var txt='Score by: recency of listings (last 90 days), active social presence, personal domain vs brokerage-only site, and engagement rate. Set minimum score of 65 for outreach qualification.';
+  var el=document.getElementById('sideTyped'),cur=document.getElementById('sideCursor');
   if(!el)return;
-  var i=0;
-  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();
-    setTimeout(function t(){if(i<txt.length){el.textContent+=txt[i++];setTimeout(t,24+(Math.random()*18));}else cursor.style.display='none';},1200);
-  },{threshold:.3});
-  obs.observe(el);
+  var i=0,started=false;
+  var io=new IntersectionObserver(function(e){
+    if(!e[0].isIntersecting||started)return;
+    started=true;
+    setTimeout(function t(){if(i<txt.length){el.textContent+=txt[i++];setTimeout(t,20+Math.random()*15);}else if(cur)cur.style.display='none';},1400);
+  },{threshold:.2});
+  io.observe(el);
 })();
 
-// ── Lead Lab animated demo ──
+// ── Lead Lab demo ──
 (function(){
   var leads=[
-    {name:'Jamie Cole',co:'Garden State Realty · Broker',contact:'📞 (201) 555-0182 · ✉ jcole@gsrealty.com',score:92},
-    {name:'Morgan Lee',co:'BrightPath Investors · Founder',contact:'✉ morgan@brightpath.com',score:85},
-    {name:'Taylor Adams',co:'Northshore Lending · Loan Officer',contact:'📞 (973) 555-0247',score:78}
+    {name:'Jamie Cole',co:'Garden State Realty · Broker',info:'📞 (201) 555-0182 · ✉ jcole@gsrealty.com',score:92},
+    {name:'Morgan Lee',co:'BrightPath Investors · Founder',info:'✉ morgan@brightpath.com',score:85},
+    {name:'Taylor Adams',co:'Northshore Lending · Loan Officer',info:'📞 (973) 555-0247',score:78}
   ];
-  var box=document.getElementById('llLeads');if(!box)return;
-  var idx=0;
+  var box=document.getElementById('llBox');if(!box)return;
+  var idx=0,started=false;
   function addLead(){
-    if(idx>=leads.length){setTimeout(function(){box.innerHTML='';idx=0;setTimeout(addLead,800);},2000);return;}
+    if(idx>=leads.length){setTimeout(function(){box.innerHTML='';idx=0;setTimeout(addLead,600);},2200);return;}
     var l=leads[idx++];
-    var d=document.createElement('div');d.className='ll-lead';d.style.animationDelay='0s';
-    d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.contact+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="display:flex;gap:5px;margin-top:7px;"><button class="ll-btn">+ CRM</button><button class="ll-btn" style="background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);color:#94a3b8;">✉ Email</button></div>';
+    var d=document.createElement('div');d.className='ll-lead';
+    d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ls">'+l.name+'</div><div class="ld">'+l.co+'</div><div class="ld" style="margin-top:2px;">'+l.info+'</div></div><div class="lsc">'+l.score+'</div></div><div style="margin-top:7px;display:flex;gap:5px;"><button class="lbtn">+ CRM</button><button class="lbtn2">✉ Email</button><button class="lbtn2">💬 Text</button></div>';
     box.appendChild(d);
-    setTimeout(addLead,900);
+    setTimeout(addLead,1000);
   }
-  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(addLead,600);},{threshold:.3});
-  obs.observe(box);
+  var io=new IntersectionObserver(function(e){if(!e[0].isIntersecting||started)return;started=true;setTimeout(addLead,500);},{threshold:.2});
+  io.observe(box);
 })();
 
-// ── CRM Pipeline animated demo ──
-(function(){
-  var phase=0;
-  var stages=['crm-lead','crm-int','crm-call','crm-client'];
-  var chipHtml='<span class="crm-chip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;display:block;">Morgan Lee</span>';
-  var msgs=['Morgan Lee is moving to Call Booked...','Morgan Lee booked a call! ✅','Drafting follow-up for Morgan Lee...','Cycle complete — restarting...'];
-  function nextPhase(){
-    phase=(phase+1)%4;
-    var msgEl=document.getElementById('crmMsg');if(msgEl)msgEl.textContent=msgs[phase];
-    if(phase===0){
-      var int=document.getElementById('crm-int');
-      if(int)int.innerHTML='<span class="crm-chip" style="background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fcd34d;">Morgan Lee</span>';
-      var call=document.getElementById('crm-call');if(call)call.innerHTML='';
-    } else if(phase===1){
-      var int=document.getElementById('crm-int');if(int)int.innerHTML='';
-      var call=document.getElementById('crm-call');if(call)call.innerHTML=chipHtml;
-    }
-    setTimeout(nextPhase,2200);
-  }
-  var box=document.getElementById('crm-int');
-  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(nextPhase,2000);},{threshold:.3});
-  if(box)obs.observe(box);
-})();
-
-// ── Social Studio typewriter demo ──
+// ── Social Studio demo ──
 (function(){
   var posts=[
-    {label:'🪝 Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that will never convert.\\n\\nHere\'s the system I use to only talk to buyers and sellers who are already warm 🧵'},
-    {label:'💬 DM Script',txt:'Hey [Name] — saw your post about the Hoboken market. Quick question: are you finding that most of your leads come from referrals, or are you actively building online? I help agents systematize that second channel.'},
-    {label:'🎯 CTA Post',txt:'If you\'re a NJ real estate agent doing 10+ deals a year but spending more time on admin than relationships — I built something for you.\\n\\nComment "SYSTEM" and I\'ll send you the breakdown.'}
+    {lbl:'🪝 Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that will never convert.\n\nHere\'s the system I use to only talk to buyers and sellers who are already warm 🧵'},
+    {lbl:'💬 DM Script',txt:'Hey [Name] — saw your post about the Hoboken market. Quick question: are you finding most leads come from referrals, or are you building an online channel too? I help agents systematize that.'},
+    {lbl:'🎯 CTA Post',txt:'If you\'re a NJ agent doing 10+ deals a year but spending more time on admin than relationships — comment "SYSTEM" and I\'ll send you the breakdown.'}
   ];
-  var pidx=0,cidx=0,typing=false;
-  var el=document.getElementById('ssTyped'),lbl=document.getElementById('ssLabel'),cur=document.getElementById('ssCursor');
-  if(!el)return;
+  var pi=0,ci=0,started=false;
+  var lbl=document.getElementById('ssLbl'),txt=document.getElementById('ssTxt'),cur=document.getElementById('ssCur');
+  if(!txt)return;
   function nextPost(){
-    var p=posts[pidx%posts.length];pidx++;
-    if(lbl)lbl.textContent=p.label;
-    cidx=0;el.textContent='';if(cur)cur.style.display='inline';
-    var txt=p.txt;
-    function type(){if(cidx<txt.length){el.textContent+=txt[cidx]==='\\n'?'\\n':txt[cidx];cidx++;setTimeout(type,22+(Math.random()*16));}else{if(cur)cur.style.display='none';setTimeout(nextPost,3200);}}
-    type();
+    var p=posts[pi%posts.length];pi++;
+    if(lbl)lbl.textContent=p.lbl;
+    ci=0;txt.textContent='';if(cur)cur.style.display='inline';
+    var s=p.txt;
+    (function t(){if(ci<s.length){txt.textContent+=s[ci]==='\\n'?'\\n':s[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(cur)cur.style.display='none';setTimeout(nextPost,3000);}})();
   }
-  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(nextPost,700);},{threshold:.3});
-  obs.observe(el);
+  var io=new IntersectionObserver(function(e){if(!e[0].isIntersecting||started)return;started=true;setTimeout(nextPost,500);},{threshold:.2});
+  io.observe(txt);
 })();
 
-// ── Group Console replies demo ──
+// ── CRM Pipeline demo ──
+(function(){
+  var contacts={
+    jamie:'<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>',
+    morgan_lead:'<span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>',
+    morgan_int:'<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>',
+    morgan_call:'<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>',
+    riley:'<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>'
+  };
+  var stages=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];
+  var msg=document.getElementById('crmMsg');
+  if(!stages[0])return;
+  var phase=0,started=false;
+  function setState(p){
+    if(p===0){stages[0].innerHTML=contacts.jamie+contacts.morgan_lead;stages[1].innerHTML='';stages[2].innerHTML='';stages[3].innerHTML=contacts.riley;if(msg)msg.textContent='Morgan Lee just entered the pipeline as a new Lead.';}
+    else if(p===1){stages[0].innerHTML=contacts.jamie;stages[1].innerHTML=contacts.morgan_int;stages[2].innerHTML='';stages[3].innerHTML=contacts.riley;if(msg)msg.textContent='Morgan showed interest — moved to Interested stage!';}
+    else if(p===2){stages[0].innerHTML=contacts.jamie;stages[1].innerHTML='';stages[2].innerHTML=contacts.morgan_call;stages[3].innerHTML=contacts.riley;if(msg)msg.textContent='Morgan booked a call — AI drafting follow-up now... ✅';}
+    setTimeout(function(){phase=(phase+1)%3;setState(phase);},2400);
+  }
+  var io=new IntersectionObserver(function(e){if(!e[0].isIntersecting||started)return;started=true;setTimeout(function(){setState(0);},{threshold:.2});},500);
+  io.observe(stages[0]);
+})();
+
+// ── Group Console demo ──
 (function(){
   var replies=[
-    {av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: anchor on agents with active listings but low digital presence. Score by recency and social activity.'},
-    {av:'S',bg:'#9a3412',name:'Sunshine',txt:'First outreach: "Hey [Name] — I work with NJ agents converting their online presence into pipeline. 10-min call?"'},
-    {av:'O',bg:'#374151',name:'Orion',txt:'Automation: set up a weekly Lead Lab run → CRM import → Sunshine outreach sequence. No manual steps.'},
-    {av:'W',bg:'#4c1d95',name:'Willow',txt:'Clarity note: your outreach message should lead with their result, not your process. Reframe accordingly.'},
-    {av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: luxury residential in Bergen County, investor-focused in Essex.'}
+    {av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and social engagement rate.'},
+    {av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] — I work with NJ agents converting their online presence into booked calls. 10 min?"'},
+    {av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly Lead Lab run → CRM import → Sunshine outreach sequence. Zero manual steps required.'},
+    {av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe the outreach to be about them, not you.'},
+    {av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Sub-niches: luxury Bergen County, investor-focused Essex County.'}
   ];
-  var box=document.getElementById('gcReplies');if(!box)return;
-  var i=0;
+  var box=document.getElementById('gcBox');if(!box)return;
+  var i=0,started=false;
   function addReply(){
-    if(i>=replies.length){setTimeout(function(){box.innerHTML='';i=0;setTimeout(addReply,1000);},2500);return;}
+    if(i>=replies.length){setTimeout(function(){box.innerHTML='';i=0;setTimeout(addReply,800);},2000);return;}
     var r=replies[i++];
-    var d=document.createElement('div');d.className='gc-demo-seat';
-    d.style.cssText='opacity:0;transition:opacity .4s;';
-    d.innerHTML='<div class="gc-demo-av" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-demo-name">'+r.name+'</div><div class="gc-demo-status">'+r.txt+'</div></div>';
+    var d=document.createElement('div');d.className='gc-reply';
+    d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rname">'+r.name+'</div><div class="gc-rtxt">'+r.txt+'</div></div>';
     box.appendChild(d);
-    setTimeout(function(){d.style.opacity='1';},30);
+    setTimeout(function(){d.classList.add('vis');},30);
     setTimeout(addReply,1100);
   }
-  var obs=new IntersectionObserver(function(e){if(!e[0].isIntersecting)return;obs.disconnect();setTimeout(addReply,500);},{threshold:.3});
-  obs.observe(box);
+  var io=new IntersectionObserver(function(e){if(!e[0].isIntersecting||started)return;started=true;setTimeout(addReply,400);},{threshold:.2});
+  io.observe(box);
 })();
 </script>
 </body></html>"""
