@@ -8890,976 +8890,226 @@ HTML = r"""
     /* ═══════════════════════════════════════════════════════════════ */
 
 
-/* ╔══════════════════════════════════════════════════════════════════════╗
-   ║  MOBILE — premium layout matching desktop visual language           ║
-   ╚══════════════════════════════════════════════════════════════════════╝ */
-@media (max-width: 700px) {
+/* ═══════════════════════════════════════════════════════════
+   MOBILE  —  desktop nav visible + reflow, nothing cut off
+   ═══════════════════════════════════════════════════════════ */
 
-  /* ── Reset & base ─────────────────────────────────────────────────────── */
-  html, body {
-    overflow-x: hidden !important;
-    max-width: 100vw !important;
-    width: 100% !important;
-  }
-  body { padding-bottom: calc(62px + env(safe-area-inset-bottom)) !important; }
-
-  /* Kill desktop elements */
-  .saNavBar, .topbar { display: none !important; }
-  .stage             { display: none !important; }
-
-  /* ── Shell wrapper ────────────────────────────────────────────────────── */
-  #mobileShell {
-    display: flex !important;
-    flex-direction: column !important;
-    width: 100% !important;
-    height: 100dvh !important;
-    background: #070a14 !important;
-    overflow: hidden !important;
-  }
-
-  /* ── Top nav — identical to desktop topbar ───────────────────────────── */
-  #mobileHeader {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    padding: 0 16px !important;
-    height: 52px !important;
-    flex-shrink: 0 !important;
-    background: rgba(18,26,56,.98) !important;
-    border-bottom: 1px solid rgba(80,110,200,.3) !important;
-    backdrop-filter: blur(16px) !important;
-    position: relative !important;
-    z-index: 10 !important;
-  }
-  .mhBrand {
-    font-size: 15px !important;
-    font-weight: 900 !important;
-    color: #eef2ff !important;
-    letter-spacing: -.01em !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-  }
-  .mhBrand::before {
-    content: '' !important;
-    width: 8px !important; height: 8px !important;
-    border-radius: 50% !important;
-    background: #7c3aed !important;
-    box-shadow: 0 0 10px rgba(124,58,237,.9) !important;
-    display: block !important;
-    flex-shrink: 0 !important;
-  }
-
-  /* ── Tab bar — below nav ─────────────────────────────────────────────── */
-  #mobileTabs {
-    display: flex !important;
-    flex-shrink: 0 !important;
-    background: rgba(11,16,40,.97) !important;
-    border-bottom: 1px solid rgba(42,58,106,.6) !important;
-  }
-  .mobileTab {
-    flex: 1 !important;
-    padding: 12px 6px !important;
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    font-size: 12px !important;
-    font-weight: 700 !important;
-    color: rgba(148,163,184,.55) !important;
-    cursor: pointer !important;
-    letter-spacing: .03em !important;
-    text-transform: uppercase !important;
-    transition: color .15s, border-color .15s, background .15s !important;
-  }
-  .mobileTab.active {
-    color: #c4b5fd !important;
-    border-bottom-color: #7c3aed !important;
-    background: rgba(124,58,237,.06) !important;
-  }
-
-  /* ── Scrollable views ────────────────────────────────────────────────── */
-  #mobileViews {
-    flex: 1 !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    overscroll-behavior: contain !important;
-  }
-  .mobileView {
-    display: none !important;
-    min-height: 100% !important;
-    padding: 14px 12px calc(14px + env(safe-area-inset-bottom)) !important;
-    box-sizing: border-box !important;
-  }
-  .mobileView.active { display: block !important; }
-
-  /* ── Team cards — visually identical to desktop .seat ────────────────── */
-  .mcCard {
-    position: relative !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 13px !important;
-    padding: 13px 14px 13px 14px !important;
-    margin-bottom: 10px !important;
-    background: rgba(14,22,48,.92) !important;
-    border: 1px solid rgba(42,58,106,.85) !important;
-    border-radius: 16px !important;
-    box-shadow: 0 2px 20px rgba(0,0,0,.28) !important;
-    backdrop-filter: blur(10px) !important;
-    cursor: pointer !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    transition: border-color .12s, background .12s, box-shadow .12s !important;
-    overflow: hidden !important;
-  }
-  .mcCard::before {
-    content: '' !important;
-    position: absolute !important;
-    inset: 0 !important;
-    border-radius: 16px !important;
-    background: linear-gradient(135deg, rgba(124,58,237,.04) 0%, transparent 60%) !important;
-    pointer-events: none !important;
-  }
-  .mcCard:active { transform: scale(.99) !important; }
-  .mcCard.mcActive {
-    border-color: rgba(124,58,237,.8) !important;
-    background: rgba(18,10,52,.96) !important;
-    box-shadow: 0 0 0 2px rgba(124,58,237,.28), 0 4px 24px rgba(124,58,237,.18) !important;
-  }
-  .mcAvatar {
-    width: 46px !important; height: 46px !important;
-    border-radius: 13px !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-    font-weight: 900 !important; font-size: 19px !important;
-    flex-shrink: 0 !important; position: relative !important;
-    box-shadow: 0 2px 14px rgba(0,0,0,.35) !important;
-    border: 1px solid rgba(255,255,255,.1) !important;
-  }
-  .mcDot {
-    position: absolute !important;
-    right: -4px !important; bottom: -4px !important;
-    width: 12px !important; height: 12px !important;
-    border-radius: 50% !important;
-    border: 2px solid rgba(7,10,20,.9) !important;
-    background: rgba(148,163,184,.3) !important;
-  }
-  .mcDot.thinking { background: rgba(255,207,112,.8) !important; box-shadow: 0 0 8px rgba(255,207,112,.5) !important; }
-  .mcDot.done     { background: rgba(52,211,153,.8) !important; box-shadow: 0 0 8px rgba(52,211,153,.5) !important; }
-  .mcMeta { flex: 1 !important; min-width: 0 !important; }
-  .mcName {
-    font-size: 15px !important; font-weight: 800 !important; color: #eef2ff !important;
-    white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
-    letter-spacing: -.01em !important;
-  }
-  .mcRole {
-    font-size: 12px !important; color: rgba(212,220,255,.65) !important; margin-top: 2px !important;
-    white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
-  }
-  .mcStatus { font-size: 11px !important; color: rgba(148,163,184,.55) !important; margin-top: 3px !important; }
-  .mcBtn {
-    flex-shrink: 0 !important;
-    padding: 7px 13px !important; font-size: 11px !important; font-weight: 600 !important;
-    border: 1px solid rgba(42,58,106,.85) !important;
-    background: rgba(20,30,60,.7) !important;
-    color: rgba(226,232,240,.85) !important;
-    border-radius: 10px !important; cursor: pointer !important;
-    transition: border-color .12s, background .12s !important;
-  }
-  .mcBtn:active { background: rgba(30,50,100,.8) !important; border-color: rgba(124,58,237,.5) !important; }
-
-  /* ── Chat header ──────────────────────────────────────────────────────── */
-  #mobileChatHeader {
-    display: flex !important; align-items: center !important;
-    justify-content: space-between !important;
-    padding: 10px 0 12px !important;
-    border-bottom: 1px solid rgba(42,58,106,.5) !important;
-    margin-bottom: 12px !important;
-  }
-  #mobileChatTitle {
-    font-size: 15px !important; font-weight: 800 !important; color: #c4b5fd !important;
-  }
-
-  /* ── Chat sideCard injected into chat view ───────────────────────────── */
-  #mobileChatView .sideCard {
-    display: block !important; width: 100% !important; height: auto !important;
-    max-height: none !important; position: relative !important;
-    box-sizing: border-box !important; border: none !important;
-    background: transparent !important; padding: 0 !important;
-    box-shadow: none !important;
-  }
-  #mobileChatView #thread {
-    max-height: 46vh !important; min-height: 100px !important;
-    overflow-y: auto !important; -webkit-overflow-scrolling: touch !important;
-    border: 1px solid rgba(42,58,106,.6) !important;
-    border-radius: 14px !important; padding: 10px !important;
-    background: rgba(7,10,20,.6) !important;
-    margin-bottom: 10px !important;
-  }
-
-  /* ── Group console injected into group view ──────────────────────────── */
-  #mobileGroupView .operator {
-    position: relative !important; left: auto !important; top: auto !important;
-    transform: none !important; width: 100% !important;
-    height: auto !important; margin: 0 !important; box-sizing: border-box !important;
-    max-width: 100% !important; min-width: 0 !important;
-  }
-  #mobileGroupView .opText { width: 100% !important; box-sizing: border-box !important; }
-  #mobileGroupView .underTable {
-    position: relative !important; width: 100% !important;
-    box-sizing: border-box !important; margin-top: 14px !important;
-  }
-
-  /* ── Bottom action bar ───────────────────────────────────────────────── */
-  .mobileBar {
-    display: flex !important; position: fixed !important;
-    bottom: 0 !important; left: 0 !important; right: 0 !important;
-    padding: 10px 10px calc(10px + env(safe-area-inset-bottom)) !important;
-    background: rgba(7,10,20,.97) !important;
-    border-top: 1px solid rgba(80,110,200,.25) !important;
-    z-index: 9000 !important; gap: 6px !important;
-    backdrop-filter: blur(24px) !important;
-    box-shadow: 0 -8px 32px rgba(0,0,0,.4) !important;
-  }
-  .mobileBar .btn {
-    flex: 1 !important; padding: 9px 4px !important;
-    font-size: 11px !important; font-weight: 700 !important;
-    text-align: center !important; white-space: nowrap !important;
-    border-color: rgba(80,110,200,.25) !important;
-    letter-spacing: .02em !important;
-  }
-
-  /* ── Prevent iOS input zoom ──────────────────────────────────────────── */
-  textarea, input, select { font-size: 16px !important; }
-}
-    .seatToolBtn:hover{
-      background: rgba(22,34,72,.78);
-      border-color: rgba(124,58,237,.55);
-    }
-
-    .side{
-      position: sticky;
-      top: 0;
-      align-self:start;
-      height: 100vh;
-      overflow:hidden;
-      border-left:1px solid rgba(34,49,90,.8);
-      background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
-      backdrop-filter: blur(10px);
-      padding: 12px;
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
-    }
-
-    .sideCard{
-      background: rgba(11,16,36,.92);
-      border:1px solid rgba(42,58,106,.9);
-      border-radius: 16px;
-      padding: 12px;
-      box-shadow: 0 0 24px rgba(0,0,0,.24);
-      display: flex;
-      flex-direction: column;
-      height: calc(100vh - 48px);
-      overflow: hidden;
-    }
-
-    .sideHead{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      margin-bottom:10px;
-    }
-    .sideTitle{ display:flex; flex-direction:column; gap:2px; min-width:0; }
-    .sideTitle .h1{ font-weight:800; }
-    .sideTitle .h2{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-
-    /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{
-      display:flex;align-items:center;gap:10px;
-      padding:8px 16px;
-      background:rgba(18,26,56,.97);
-      border-bottom:1px solid rgba(80,110,200,.3);
-      position:sticky;top:0;z-index:900;
-      backdrop-filter:blur(12px);
-      flex-wrap:nowrap;overflow:visible;
-    }
-    .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
-    .saNavCenter{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;}
-    #saPinnedBar:empty{ display:none; }
-    .saNavRight{flex-shrink:0;display:flex;gap:8px;align-items:center;}
-    .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
-    .saDropWrap{position:relative;}
-    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
-    .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
-    .saChevron{font-size:9px;opacity:.7;}
-    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
-    .saDrop.open{display:block;}
-    .saDrop.drop-right{left:auto;right:0;}
-    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
-    .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
-
-
-    .saObjectivePill{font-size:13px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;max-width:280px;}
-    .commandHeader,.commandRow{display:none !important;}
-    /* ===== END NAV BAR CSS ===== */
-
-    .thread{
-      height: 40vh;
-      overflow:auto;
-      background: rgba(20,30,60,.65);
-      border:1px solid rgba(42,58,106,.6);
-      border-radius: 14px;
-      padding: 10px;
-      font-size: 13px;
-      line-height: 1.35;
-      white-space: pre-wrap;
-    }
-
-    .msg{
-      margin-bottom: 10px;
-      padding: 10px;
-      border-radius: 14px;
-      border:1px solid rgba(42,58,106,.55);
-      background: rgba(14,22,48,.55);
-    }
-    .msg.user{ border-color: rgba(59,130,246,.35); background: rgba(59,130,246,.08); }
-    .msg.assistant{ border-color: rgba(124,58,237,.35); background: rgba(124,58,237,.08); }
-    .msg .who{
-      font-size: 11px;
-      color: var(--muted);
-      margin-bottom: 6px;
-      font-weight: 700;
-      letter-spacing: .2px;
-    }
-
-    .followBox, .field{
-      width:100%;
-      resize:none;
-      border-radius: 14px;
-      border:1px solid rgba(42,58,106,.9);
-      background: rgba(7,10,20,.75);
-      color: var(--text);
-      padding:10px;
-      outline:none;
-      font-size:13px;
-      line-height:1.3;
-    }
-    .followBox{ height: 92px; }
-
-    .underTable{
-      width: min(860px, 92vw);
-      margin: 0 auto 42px auto;
-      padding: 0 0 18px 0;
-    }
-
-    .groupCard{
-      background: rgba(11,16,36,.92);
-      border:1px solid rgba(42,58,106,.9);
-      border-radius: 16px;
-      padding: 12px;
-      box-shadow: 0 0 24px rgba(0,0,0,.24);
-      margin-top: 16px;
-    }
-
-    .groupReplies{
-      max-height: 52vh;
-      overflow:auto;
-      background: rgba(20,30,60,.65);
-      border:1px solid rgba(42,58,106,.6);
-      border-radius: 14px;
-      padding: 10px;
-    }
-
-    .replyItem{
-      border:1px solid rgba(42,58,106,.55);
-      background: rgba(14,22,48,.55);
-      border-radius: 14px;
-      padding:10px;
-      margin-bottom:10px;
-    }
-    .replyTop{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:8px;
-    }
-    .replyName{
-      font-weight:800;
-      font-size:13px;
-    }
-    .replyBtns{ display:flex; gap:8px; flex-wrap:wrap; }
-    .replyBody{
-      white-space: pre-wrap;
-      font-size:13px;
-      line-height:1.35;
-      color: var(--text);
-    }
-
-    .row2{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .tiny{ font-size: 12px; color:var(--muted); }
-    .modalForm .tiny{ font-size: 13px; }
-
-    .overlay{
-      position:fixed; inset:0; display:none;
-      align-items:flex-start; justify-content:center;
-      padding-top: 68px;
-      background: rgba(20,30,60,.65);
-      backdrop-filter: blur(8px);
-      z-index: 80;
-    }
-    .overlay.show{ display:flex; }
-
-    .modal{
-      position: fixed;
-      left: 50%;
-      top: 64px;
-      transform: translateX(-50%);
-      width: min(1140px, calc(100vw - 32px));
-      max-width: calc(100vw - 22px);
-      height: min(840px, calc(100vh - 90px));
-      max-height: calc(100vh - 90px);
-      background: rgba(14,22,48,.92);
-      border: 1px solid rgba(42,58,106,.9);
-      border-radius: 18px;
-      padding: 12px;
-      box-shadow: 0 0 60px rgba(0,0,0,.45);
-      display: flex;
-      flex-direction: column;
-      resize: both;
-      overflow: hidden;
-      min-width: 620px;
-      min-height: 480px;
-      z-index: 90;
-    }
-
-    .modalBar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding: 8px 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(42,58,106,.7);
-      background: rgba(18,28,56,.5);
-      cursor: move;
-      user-select:none;
-    }
-
-    .modalBarTitle{
-      font-size: 13px;
-      font-weight: 800;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 360px;
-    }
-
-    .modalBarBtns{
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex-wrap:wrap;
-    }
-
-    .modalBodyWrap{
-      margin-top: 10px;
-      flex: 1 1 auto;
-      overflow: auto;
-      border-radius: 14px;
-      border: 1px solid rgba(42,58,106,.6);
-      background: rgba(18,28,56,.5);
-      padding: 10px;
-    }
-
-    .modal pre{
-      margin:0;
-      white-space: pre-wrap;
-      color: var(--text);
-      background: transparent;
-      border: 0;
-      padding: 0;
-      font-size: 13px;
-      line-height: 1.35;
-    }
-
-    .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
-    .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-    /* All modal content: centered column, comfortable reading width */
-    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
-    /* 2-column field pairs inside the centered column */
-    .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
-    .formGrid2 .spanFull{ grid-column:1/-1; }
-    /* Tool results area — wider than the form so output has room */
-    .toolResults{ max-width:1000px; margin:24px auto 0; }
-    /* Primary textarea in each tool form grows to fill available vertical space */
-    .modalForm .primaryArea{ flex:1; min-height:180px; }
-    /* Hint text above forms */
-    .toolHint{ font-size:14px; color:#64748b; margin-bottom:20px; line-height:1.65; text-align:center; }
-    /* Run / action bar */
-    .toolRunBar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:20px; justify-content:center; }
-    .modalForm label{
-      display:block;
-      font-size: 13px;
-      color: var(--muted);
-      margin: 0 0 8px 0;
-      font-weight: 700;
-      letter-spacing: .2px;
-    }
-    .modalForm input, .modalForm textarea, .modalForm select{
-      width:100%;
-      border-radius: 12px;
-      border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.92);
-      color: var(--text);
-      padding:13px 14px;
-      outline:none;
-      font-size:15px;
-      line-height:1.4;
-    }
-    .modalForm textarea{ height: 140px; resize: vertical; }
-    .modalForm select{ padding:12px 14px; }
-    /* Bigger buttons inside modals */
-    .modalForm .btn, .modalForm .btnPrimary{
-      padding:12px 22px;
-      font-size:15px;
-      border-radius:12px;
-    }
-    .modalForm .btnMini{
-      padding:8px 14px;
-      font-size:13px;
-    }
-    .modalForm .actions{ display:flex; gap:12px; flex-wrap:wrap; margin-top:18px; align-items:center; justify-content:center; }
-
-    .imgPreview{
-      width:100%;
-      border-radius: 14px;
-      border:1px solid rgba(42,58,106,.7);
-      margin-top: 10px;
-      display:none;
-    }
-
-    .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
-    .modal.minimized .modalBodyWrap{ display:none; }
-    .modalResizeGrip{
-      position:absolute;
-      right:10px;
-      bottom:10px;
-      width:18px;
-      height:18px;
-      cursor:nwse-resize;
-      z-index:3;
-      border-radius:8px;
-      background:linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.18));
-      border:1px solid rgba(255,255,255,.14);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
-      touch-action:none;
-    }
-    .modalResizeGrip::before{
-      content:"";
-      position:absolute;
-      right:3px;
-      bottom:3px;
-      width:10px;
-      height:10px;
-      border-right:2px solid rgba(255,255,255,.75);
-      border-bottom:2px solid rgba(255,255,255,.75);
-      opacity:.9;
-    }
-
-    .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-
-    .passRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
-    .passRow .tiny{ margin-left: 2px; }
-    .passBtn{ padding:7px 10px; border-radius: 999px; font-weight:800; font-size:12px; }
-    .pill{
-      display:inline-flex;
-      gap:8px;
-      align-items:center;
-      border:1px solid rgba(42,58,106,.7);
-      background: rgba(14,22,48,.45);
-      padding:8px 10px;
-      border-radius:999px;
-      font-size:12px;
-      color: var(--text);
-    }
-    .pill button{
-      border:0;
-      background: transparent;
-      color: var(--muted);
-      cursor:pointer;
-      font-size:12px;
-    }
-    .pill button:hover{ color: var(--text); }
-
-
-    @media (max-width: 1280px){
-      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
-      .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
-      .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
-    }
-
-    @media (max-width: 980px){
-      .stage{ grid-template-columns: 1fr; }
-      .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
-      .tableWrap{ min-height: 860px; }
-      .row2{ grid-template-columns: 1fr; }
-      .underTable{ width: min(860px, 92vw); }
-      .modalForm .grid{ grid-template-columns: 1fr; }
-      .modal{ width: calc(100vw - 22px); }
-      .modalBarTitle{ max-width: 240px; }
-    }
-  
-
-    /* Mobile responsiveness */
-    @media (max-width: 720px){
-      body{ overflow-x:hidden; }
-      .topbar{ height:auto; }
-      .topbarMain{ gap:10px; }
-      .rightmeta{ justify-content:flex-start; }
-      .commandRow, .commandRow.secondary{ grid-template-columns: repeat(2, minmax(0, 1fr)); max-width:none; }
-      .stage{ grid-template-columns: 1fr !important; }
-      .side{ padding: 0 12px 22px 12px; }
-      .sideCard{ position: relative; top:auto; max-height:none; }
-      .arena{ padding: 12px 0 12px 0; }
-
-      /* Round table becomes a clean vertical list to prevent overlap */
-      .tableWrap{
-        width: calc(100vw - 24px);
-        height: auto !important;
-        min-height: 0 !important;
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        gap: 10px;
-        padding-bottom: 14px;
-      }
-      .table{
-        position:relative !important;
-        inset:auto !important;
-        transform:none !important;
-        width: min(520px, 100%);
-        height: 120px;
-        margin: 0 auto 6px auto;
-      }
-      .seat{
-        position:relative !important;
-        left:auto !important;
-        top:auto !important;
-        transform:none !important;
-        width: min(520px, 100%) !important;
-        max-width: 100% !important;
-        height: auto !important;
-        min-height: 118px;
-        cursor: default;
-      }
-      .seatTools{ flex-wrap:wrap; gap:8px; }
-      .seatToolBtn{ flex: 1 1 auto; }
-
-      /* Prevent any long labels from forcing overlap */
-      .pill, .seatRole, .seatStatus{ max-width:100%; overflow:hidden; text-overflow:ellipsis; }
-
-
-/* Mobile: make modal truly full-screen so it never covers seats awkwardly */
-.overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
-#modalWin{
-  position: fixed !important;
-  left: 10px !important;
-  right: 10px !important;
-  top: 10px !important;
-  bottom: 10px !important;
-  width: auto !important;
-  height: auto !important;
-  max-height: none !important;
-}
-#modalScroll{ max-height: calc(100vh - 170px) !important; }
-      /* iOS: prevent zoom on focus */
-      textarea, input, select{ font-size: 16px; }
-    }
-
-
-/* ══════════════════════════════════════════════════════════════════
-   MOBILE — minimal fix: stop overflow, don't touch visual style
-   ══════════════════════════════════════════════════════════════════ */
-
+/* Global */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { max-width: 100%; overflow-x: hidden !important; }
-:root { --mobile-pad: 14px; }
 
-/* 1280px */
-@media (max-width: 1280px) {
-  .commandRow           { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
-  .commandRow.secondary { grid-template-columns: repeat(3, minmax(160px, 1fr)); max-width: none; }
-}
-
-/* 980px */
+/* ── 980px: single column ── */
 @media (max-width: 980px) {
-  .stage         { grid-template-columns: 1fr !important; }
-  .side          { position: relative; top: 0; height: auto; overflow: visible; border-left: 0; }
-  .tableWrap     { min-height: 860px; }
-  .row2          { grid-template-columns: 1fr; }
-  .underTable    { width: min(860px, 92vw); }
-  .modalForm .grid { grid-template-columns: 1fr; }
-  .modal         { width: calc(100vw - 22px); }
-  .modalBarTitle { max-width: 240px; }
+  .stage   { grid-template-columns: 1fr !important; }
+  .side    { position:relative; top:0; height:auto; overflow:visible; border-left:0; }
+  .tableWrap { min-height:860px; }
+  .underTable { width:min(860px,92vw); }
+  .modal   { width:calc(100vw - 22px); }
 }
 
-/* 720px: show mobile bar */
-@media (max-width: 720px) {
-  .rightmeta { display: none !important; }
+/* ── 700px: phone layout ── */
+@media (max-width: 700px) {
 
-  .mobileBar {
-    display: flex;
-    position: fixed;
-    left: 0; right: 0; bottom: 0;
-    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
-    background: rgba(7,10,20,.95);
-    border-top: 1px solid rgba(42,58,106,.5);
-    z-index: 9000;
-    gap: 8px;
-    justify-content: space-between;
-    backdrop-filter: blur(12px);
-    box-shadow: 0 -4px 24px rgba(0,0,0,.4);
+  html, body { overflow-x:hidden !important; }
+  body { padding-bottom:calc(62px + env(safe-area-inset-bottom)) !important; touch-action:manipulation; }
+
+  /* ── Kill mobile shell — use real desktop nav ── */
+  #mobileShell { display:none !important; }
+  .stage       { display:block !important; }
+
+  /* ── Topbar: keep it, slim it ── */
+  .topbar {
+    padding: 6px 10px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 900 !important;
+    background: rgba(18,26,56,.98) !important;
   }
-  .mobileBar .btn {
-    flex: 1 1 auto;
-    padding: 10px 6px;
-    font-size: 12px;
-    font-weight: 700;
-    border-color: rgba(124,58,237,.45) !important;
-    text-align: center;
-  }
-  body { padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important; }
+  .topbarMain { flex-wrap:nowrap !important; gap:6px !important; }
+  .rightmeta  { display:none !important; }
+  .brand div:last-child { font-size:13px !important; }
 
-  .mobileDrawerOverlay.show {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(2,6,16,.65);
-    z-index: 8900;
-  }
-
-  /* Nav: hide center + right at 720, keep left dropdowns */
-  .saNavCenter { display: none !important; }
-  .saNavRight  { display: none !important; }
-}
-
-/* 640px: the actual phone fixes — ONLY fixing overflow/clipping, not restyling */
-@media (max-width: 640px) {
-
-  /* Kill horizontal scroll entirely */
-  html, body {
-    overflow-x: hidden !important;
-    overscroll-behavior-x: none !important;
-  }
-  body {
-    padding-bottom: calc(74px + env(safe-area-inset-bottom)) !important;
-  }
-
-  /* Hide the desktop nav bar — mobile bar takes over */
-  .saNavBar { display: none !important; }
-
-  /* Topbar: just keep the brand, slim it */
-  .topbar { padding: 8px 12px !important; }
-  .topbarMain { flex-wrap: nowrap !important; gap: 8px !important; }
-
-  /* Stage: single column */
-  .stage { grid-template-columns: 1fr !important; }
-
-  /* tableWrap: vertical flex list, full width, NO overflow side */
-  .tableWrap,
-  .tableWrap#tableWrap {
+  /* ── Nav bar: horizontal scroll, all buttons accessible ── */
+  .saNavBar {
     display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
-    position: relative !important;
-    padding: 8px 10px 16px !important;
-    gap: 10px !important;
-    box-sizing: border-box !important;
-    transform: none !important;
-    zoom: 1 !important;
-  }
-
-  /* Hide SVG table circle */
-  .table        { display: none !important; }
-  #rtStage      { display: none !important; }
-  #tableViewport { display: contents !important; }
-
-  /* Every seat: in-flow, full width */
-  .seat,
-  #tableWrap .seat {
-    position: relative !important;
-    left: auto !important; top: auto !important;
-    right: auto !important; bottom: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: auto !important;
-    min-height: 72px !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-  }
-  .seat .seatMeta { min-width: 0 !important; flex: 1 1 0 !important; }
-  .seat .seatName,
-  .seat .seatRole { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; max-width: 100% !important; }
-
-  /* Operator / Group Console: full width, at bottom */
-  .operator {
-    position: relative !important;
-    left: auto !important; top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: auto !important;
-    margin: 0 !important;
-    box-sizing: border-box !important;
-    order: 999 !important;
-  }
-  .operator .opText { width: 100% !important; box-sizing: border-box !important; }
-
-  /* underTable: no overflow */
-  .underTable {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    padding: 0 10px !important;
-    position: relative !important;
-    z-index: 2 !important;
-  }
-
-  /* Side panel */
-  .side {
-    position: relative !important; top: auto !important;
-    height: auto !important; overflow: visible !important;
-    border-left: 0 !important;
-    width: 100% !important; max-width: 100% !important;
-    padding: 0 10px 10px !important;
-    box-sizing: border-box !important;
-  }
-
-  /* sideCard / groupCard */
-  .sideCard, .groupCard {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    margin: 0 !important;
-  }
-
-  /* Thread */
-  #thread {
-    max-height: 42vh !important;
-    overflow-y: auto !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
     -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding: 4px 2px 6px !important;
+    gap: 6px !important;
+    position: static !important;
+  }
+  .saNavBar::-webkit-scrollbar { display:none !important; }
+  .saNavLeft  { flex-shrink:0 !important; display:flex !important; gap:6px !important; flex-wrap:nowrap !important; }
+  .saNavCenter { display:none !important; }
+  .saNavRight { flex-shrink:0 !important; display:flex !important; gap:6px !important; margin-left:auto !important; }
+  .saNavBtn {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  .saChevron { display:none !important; }
+
+  /* Drop menus open downward, full-width */
+  .saDrop {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    max-height: 55vh !important;
+    overflow-y: auto !important;
+    z-index: 9999 !important;
+    min-width: 0 !important;
+  }
+  .saDropItem { font-size:14px !important; padding:13px 16px !important; }
+
+  /* ── Stage: single column block ── */
+  .stage  { display:block !important; min-height:auto !important; }
+  .arena  { padding:6px 0 !important; overflow:visible !important; }
+
+  /* ── tableWrap: vertical list of cards ── */
+  #tableWrap {
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:stretch !important;
+    width:100% !important; max-width:100% !important;
+    height:auto !important; min-height:0 !important;
+    overflow:visible !important;
+    position:relative !important;
+    transform:none !important;
+    padding:8px 10px !important;
+    gap:8px !important;
+  }
+  #tableCore, #rtStage { display:none !important; }
+
+  /* ── Seat cards: full-width ── */
+  #tableWrap .seat {
+    position:relative !important;
+    left:auto !important; top:auto !important; right:auto !important; bottom:auto !important;
+    transform:none !important;
+    width:100% !important; max-width:100% !important;
+    height:auto !important; min-height:70px !important;
+    margin:0 !important;
+    padding:12px 14px 36px !important;
+    box-sizing:border-box !important;
+    flex-shrink:0 !important;
+    cursor:pointer !important;
+  }
+  #tableWrap .seat .seatTools {
+    position:absolute !important; bottom:8px !important; right:10px !important; left:auto !important;
   }
 
-  /* Modal: full screen */
+  /* ── Group Console: full-width ── */
+  #operator {
+    position:relative !important;
+    left:auto !important; top:auto !important;
+    transform:none !important;
+    width:100% !important; max-width:100% !important; min-width:0 !important;
+    height:auto !important; margin:0 !important; box-sizing:border-box !important;
+  }
+  #operator .opText { width:100% !important; box-sizing:border-box !important; }
+
+  /* ── underTable / Group Replies ── */
+  .underTable {
+    width:100% !important; max-width:100% !important;
+    box-sizing:border-box !important; position:relative !important;
+    padding:0 10px !important;
+  }
+
+  /* ── Side chat panel: full-width below ── */
+  .side {
+    display:block !important;
+    width:100% !important; max-width:100% !important;
+    position:relative !important; top:auto !important;
+    height:auto !important; overflow:visible !important;
+    border-left:none !important;
+    padding:8px 10px !important; box-sizing:border-box !important;
+  }
+  .sideCard {
+    width:100% !important; height:auto !important;
+    max-height:none !important; position:relative !important;
+    box-sizing:border-box !important; overflow:visible !important;
+  }
+  #thread {
+    max-height:38vh !important; overflow-y:auto !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+
+  /* ── Prompt Library: fix right-side cutoff ── */
+  #plLayout {
+    flex-direction:column !important;
+    height:auto !important; overflow:visible !important;
+  }
+  #plSidebar {
+    width:100% !important;
+    flex-direction:row !important; flex-wrap:wrap !important;
+    border-right:none !important;
+    border-bottom:1px solid rgba(42,58,106,.55) !important;
+    padding-right:0 !important; padding-bottom:10px !important;
+    margin-bottom:10px !important; gap:6px !important;
+    overflow:visible !important;
+  }
+  #plTabs { flex-direction:row !important; flex-wrap:wrap !important; gap:6px !important; }
+  .plTab  { padding:8px 12px !important; font-size:13px !important; width:auto !important; }
+  #plMain { padding-left:0 !important; overflow:visible !important; }
+  #plCards { overflow:visible !important; padding-right:0 !important; }
+  .plCard {
+    flex-direction:column !important; align-items:flex-start !important;
+    overflow:hidden !important; width:100% !important; box-sizing:border-box !important;
+  }
+  .plCardBtns { flex-direction:row !important; flex-wrap:wrap !important; width:100% !important; gap:6px !important; }
+  .plCardText { -webkit-line-clamp:3 !important; }
+  #plSaveForm { grid-template-columns:1fr !important; }
+
+  /* ── Modals: full screen ── */
   .modal, #modalWin {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100dvh !important;
-    border-radius: 0 !important;
-    transform: none !important;
-    box-sizing: border-box !important;
+    position:fixed !important; inset:0 !important;
+    width:100vw !important; max-width:100vw !important;
+    height:100dvh !important; max-height:100dvh !important;
+    border-radius:0 !important; transform:none !important;
+    box-sizing:border-box !important; resize:none !important;
   }
   #modalScroll {
-    max-height: calc(100dvh - 52px - 74px - env(safe-area-inset-bottom)) !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    padding: 0 12px 20px !important;
-    box-sizing: border-box !important;
+    max-height:calc(100dvh - 52px) !important;
+    overflow-y:auto !important; overflow-x:hidden !important;
+    -webkit-overflow-scrolling:touch !important;
+    padding:10px 12px calc(68px + env(safe-area-inset-bottom)) !important;
+    box-sizing:border-box !important;
   }
-  .formGrid2 { display: flex !important; flex-direction: column !important; gap: 14px !important; }
-  .row2 { grid-template-columns: 1fr !important; }
-  .modalForm .grid { grid-template-columns: 1fr !important; }
+  .formGrid2 { display:flex !important; flex-direction:column !important; gap:12px !important; }
+  .row2 { grid-template-columns:1fr !important; }
+  .modalForm .grid { grid-template-columns:1fr !important; }
 
-  /* Prevent iOS zoom */
-  textarea, input, select { font-size: 16px !important; }
-
-  /* Universal guard */
-  .card, .container, .tableWrap, .sideCard, .groupCard, .grid, .underTable {
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
+  /* ── Command rows: 2 columns ── */
+  .commandRow, .commandRow.secondary {
+    grid-template-columns:1fr 1fr !important; gap:8px !important;
   }
+  .commandRow .btn { font-size:12px !important; min-height:40px !important; padding:8px 4px !important; }
 
-  /* Mobile bar */
+  /* ── Bottom mobile bar ── */
   .mobileBar {
-    display: flex !important;
-    position: fixed !important;
-    left: 0 !important; right: 0 !important; bottom: 0 !important;
-    padding: 9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
-    background: rgba(7,10,20,.97) !important;
-    border-top: 1px solid rgba(80,110,200,.4) !important;
-    z-index: 9000 !important;
-    gap: 6px !important;
-    backdrop-filter: blur(20px) !important;
-    box-shadow: 0 -4px 24px rgba(0,0,0,.5) !important;
+    display:flex !important; position:fixed !important;
+    bottom:0 !important; left:0 !important; right:0 !important;
+    padding:9px 8px calc(9px + env(safe-area-inset-bottom)) !important;
+    background:rgba(7,10,20,.97) !important;
+    border-top:1px solid rgba(80,110,200,.25) !important;
+    z-index:9000 !important; gap:6px !important;
+    backdrop-filter:blur(20px) !important;
   }
   .mobileBar .btn {
-    flex: 1 1 0 !important;
-    padding: 9px 4px !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    border-color: rgba(124,58,237,.45) !important;
-    text-align: center !important;
-    white-space: nowrap !important;
+    flex:1 !important; padding:9px 4px !important;
+    font-size:11px !important; font-weight:700 !important; text-align:center !important;
   }
 
-  /* Drawer */
-  .mobileDrawerOverlay.show {
-    display: block !important;
-    position: fixed !important;
-    inset: 0 !important;
-    background: rgba(2,6,16,.7) !important;
-    z-index: 8900 !important;
-  }
-  .mobileDrawer {
-    position: fixed !important;
-    left: 8px !important; right: 8px !important;
-    bottom: calc(62px + env(safe-area-inset-bottom)) !important;
-    max-height: 72vh !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    z-index: 9100 !important;
-  }
+  /* ── iOS: prevent input zoom ── */
+  textarea, input, select { font-size:16px !important; }
 
-  /* Hide desktop-only stuff */
-  .rightmeta    { display: none !important; }
-  #diagFab      { display: none !important; }
-  #tableZoomFab { display: none !important; }
-  #seatSub      { display: none !important; }
-  .commandRow, .commandRow.secondary {
-    grid-template-columns: repeat(2, 1fr) !important;
-    max-width: none !important;
-  }
+  /* ── applyMobileLayout JS sets inline styles, these back it up ── */
+  #tableWrap { zoom:1 !important; }
 }
-
-/* 480px: nav fully hidden */
-@media (max-width: 480px) {
-  .saNavBar { display: none !important; }
-}
-
 /* ── Mobile bottom bar styles (shared, not inside media query) ─────────── */
 .mobileBar          { display: none; }
 .mobileDrawerOverlay { display: none; }
@@ -13219,10 +12469,10 @@ function makeSeat(defn, idx){
     //  MOBILE RENDERER
     // ══════════════════════════════════════════════════════════════════════
     function renderMobile(){
-      // Show shell, hide desktop
+      // On mobile we use the real desktop layout reflowed — no shell needed
       const shell = document.getElementById("mobileShell");
-      if(shell) shell.style.display = "flex";
-      document.querySelectorAll(".stage").forEach(el => el.style.display = "none");
+      if(shell) shell.style.display = "none";
+      document.querySelectorAll(".stage").forEach(el => el.style.display = "block");
 
       // ── Move operator → group view ──
       const groupView  = document.getElementById("mobileGroupView");
@@ -20461,6 +19711,12 @@ $("saveFramework").onclick = async () => {
 
     function applyMobileLayout(){
       if(!isMobileViewport()) return;
+
+      // Use real desktop layout — hide shell, show stage
+      const shell = document.getElementById("mobileShell");
+      if(shell) shell.style.display = "none";
+      document.querySelectorAll(".stage").forEach(el => el.style.display = "block");
+
       const wrap = document.getElementById("tableWrap");
       if(!wrap) return;
 
