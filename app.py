@@ -6644,703 +6644,6 @@ AUTH_BASE_CSS = r"""
 </style>
 """
 
-SHOWCASE_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Simply Agentic AI - See How It Works</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-:root{
-  --pu:#7c3aed;--pl:#a78bfa;--ac:#c4b5fd;
-  --bg:#07091a;--s1:rgba(13,19,44,.98);--s2:rgba(10,14,32,.95);
-  --bd:rgba(42,58,106,.8);--tx:#e2e8f0;--mt:#64748b;
-}
-html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
-#sc{position:fixed;inset:0;z-index:0;pointer-events:none;}
-
-/* ==================== NAV ==================== */
-nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;background:rgba(7,9,26,.93);backdrop-filter:blur(18px);border-bottom:1px solid var(--bd);}
-.logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;color:var(--ac);text-decoration:none;}
-.logo-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;box-shadow:0 0 10px #7c3aed;}
-@keyframes ld{0%,100%{box-shadow:0 0 10px #7c3aed;}50%{box-shadow:0 0 24px #7c3aed,0 0 48px rgba(124,58,237,.4);}}
-.nav-r{display:flex;gap:6px;align-items:center;}
-.nav-a{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:color .2s;}
-.nav-a:hover{color:var(--ac);}
-.nav-cta{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;box-shadow:0 4px 18px rgba(124,58,237,.4);transition:opacity .2s,transform .15s;display:inline-block;}
-.nav-cta:hover{opacity:.88;transform:translateY(-1px);}
-
-/* ==================== ALL SECTIONS VISIBLE BY DEFAULT ====================
-   Use CSS animations instead of opacity:0 + IntersectionObserver.
-   animation-fill-mode:both means element starts at 'from' state and holds 'to' state.
-   No JavaScript required for content to be visible.
-*/
-@keyframes fadeUp{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
-@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
-@keyframes fadeLeft{from{opacity:0;transform:translateX(-22px);}to{opacity:1;transform:translateX(0);}}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
-
-.a1{animation:fadeUp .7s .05s ease both;}
-.a2{animation:fadeUp .7s .15s ease both;}
-.a3{animation:fadeUp .7s .25s ease both;}
-.a4{animation:fadeUp .7s .35s ease both;}
-.a5{animation:fadeUp .7s .45s ease both;}
-.a6{animation:fadeUp .7s .55s ease both;}
-.a7{animation:fadeUp .7s .65s ease both;}
-.a8{animation:fadeUp .7s .75s ease both;}
-.a9{animation:fadeUp .7s .85s ease both;}
-.al{animation:fadeLeft .7s .2s ease both;}
-
-/* ==================== HERO ==================== */
-.hero{min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:72px 20px 88px;position:relative;overflow:hidden;z-index:1;}
-.hero-glow{position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:1000px;height:650px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.2),transparent 65%);pointer-events:none;animation:hg 8s ease-in-out infinite alternate;}
-@keyframes hg{0%{opacity:.5;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.12);}}
-.badge{display:inline-flex;align-items:center;gap:8px;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.4);border-radius:999px;padding:7px 20px;font-size:12px;font-weight:700;color:var(--pl);letter-spacing:.07em;text-transform:uppercase;margin-bottom:28px;}
-.hero h1{font-size:clamp(38px,7.5vw,86px);font-weight:900;line-height:1.04;letter-spacing:-.03em;background:linear-gradient(140deg,#f3e8ff 0%,var(--pl) 40%,#818cf8 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:22px;}
-.hero-p{font-size:clamp(15px,2vw,19px);color:#94a3b8;max-width:580px;line-height:1.72;margin-bottom:36px;}
-.hbtns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
-.bp{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;border:none;padding:15px 32px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;box-shadow:0 8px 28px rgba(124,58,237,.45);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;}
-.bp::before{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:bs 3.5s ease-in-out infinite;}
-@keyframes bs{0%{left:-100%;}100%{left:160%;}}
-.bp:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(124,58,237,.62);}
-.bs{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:var(--tx);padding:15px 26px;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background .2s;}
-.bs:hover{background:rgba(255,255,255,.1);}
-
-/* ==================== STATS ==================== */
-.stats{display:flex;justify-content:center;gap:52px;flex-wrap:wrap;max-width:800px;margin:56px auto 0;padding:0 20px;position:relative;z-index:1;}
-.stat-n{font-size:clamp(32px,5vw,52px);font-weight:900;background:linear-gradient(135deg,var(--pl),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;}
-.stat-l{font-size:13px;color:var(--mt);margin-top:5px;}
-
-/* ==================== SECTIONS ==================== */
-.sec{padding:80px 24px;position:relative;z-index:1;}
-.lbl{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--pl);margin-bottom:12px;}
-.h2{font-size:clamp(24px,4vw,44px);font-weight:900;color:#f3e8ff;line-height:1.1;margin-bottom:14px;}
-.sub{font-size:15px;color:#94a3b8;line-height:1.72;max-width:560px;}
-.ctr{text-align:center;margin:0 auto;}.ctr .sub{margin:0 auto;}
-
-/* ==================== ROUND TABLE WRAPPER ==================== */
-.rt-shell{max-width:1100px;margin:44px auto 0;background:var(--s1);border:1px solid var(--bd);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.65);}
-
-/* Real nav bar */
-.rt-nav{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
-.rnb{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.9);font-size:12px;font-weight:600;white-space:nowrap;}
-.rnb.hi{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);color:var(--ac);}
-
-/* Body = table + sidebar */
-.rt-body{display:flex;min-height:580px;}
-
-/* ==================== ROUND TABLE GRID LAYOUT ====================
-   3-column grid that accurately represents the circular table.
-   This is bulletproof - no absolute positioning, no overflow clipping.
-   Left column: Sunshine, Willow, Orion
-   Center column: Operator, Group Console, Alex
-   Right column: Atlis, Ava, Luna
-*/
-.rt-arena{
-  flex:1;
-  background:radial-gradient(ellipse at 50% 50%,rgba(14,22,64,.6),rgba(7,9,26,.98));
-  padding:20px;
-  display:grid;
-  grid-template-columns:1fr 1.5fr 1fr;
-  grid-template-rows:auto auto auto;
-  gap:14px;
-  align-items:center;
-  position:relative;
-}
-
-/* Faint oval overlay - purely decorative */
-.rt-arena::before{
-  content:'';
-  position:absolute;
-  top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  width:52%;height:72%;
-  border-radius:50%;
-  border:1.5px solid rgba(70,90,180,.28);
-  background:radial-gradient(ellipse,rgba(12,18,52,.3),transparent 70%);
-  pointer-events:none;
-  z-index:0;
-}
-.rt-arena > *{position:relative;z-index:1;}
-
-/* Seat cards - matching real software */
-.seat{
-  background:rgba(13,20,46,.92);
-  border:1px solid rgba(42,58,106,.85);
-  border-radius:14px;
-  padding:9px 10px;
-  display:flex;
-  gap:9px;
-  align-items:flex-start;
-  box-shadow:0 4px 20px rgba(0,0,0,.35);
-  position:relative;
-  transition:border-color .25s;
-  min-width:0;
-}
-.seat:hover{border-color:rgba(124,58,237,.5);}
-.seat.sel{border-color:rgba(124,58,237,.7);background:rgba(15,24,56,.9);box-shadow:0 0 0 1px rgba(124,58,237,.22),0 8px 28px rgba(0,0,0,.4);}
-.av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.09);}
-.sm{min-width:0;}
-.sn{font-size:12px;font-weight:800;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.sr{font-size:10px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-.ss{font-size:10px;color:var(--mt);margin-top:4px;}
-.sdot{position:absolute;right:8px;bottom:8px;width:9px;height:9px;border-radius:50%;border:1px solid rgba(0,0,0,.3);}
-.idle{background:rgba(141,255,179,.55);box-shadow:0 0 7px rgba(141,255,179,.3);}
-.think{background:rgba(255,207,112,.6);box-shadow:0 0 10px rgba(255,207,112,.3);animation:dp 1.1s ease-in-out infinite;}
-@keyframes dp{0%,100%{transform:scale(1);}50%{transform:scale(1.55);}}
-.sedit{position:absolute;right:8px;top:8px;font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
-
-/* Typing dots */
-.td{display:inline-flex;gap:3px;align-items:center;}
-.td span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.85);animation:tb 1.1s ease-in-out infinite;}
-.td span:nth-child(2){animation-delay:.18s;}.td span:nth-child(3){animation-delay:.36s;}
-@keyframes tb{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-4px);opacity:1;}}
-
-/* Center column items */
-.op-card{background:rgba(13,20,46,.88);border:1px solid rgba(42,58,106,.75);border-radius:12px;padding:9px 12px;text-align:center;}
-.op-av{width:32px;height:32px;border-radius:9px;background:#0f766e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#e6edff;margin:0 auto 5px;}
-.op-name{font-size:12px;font-weight:700;color:var(--tx);}
-.op-btn{display:inline-block;margin-top:4px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
-
-/* Group Console */
-.gc{background:rgba(10,15,36,.96);border:1px solid rgba(42,58,106,.88);border-radius:13px;padding:12px;box-shadow:0 0 36px rgba(0,0,0,.5);}
-.gc-t{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
-.gc-s{font-size:10px;color:var(--mt);line-height:1.45;margin-bottom:8px;}
-.gc-btns{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
-.gcb{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:#94a3b8;cursor:default;}
-.gcb.hi{background:rgba(124,58,237,.24);border-color:rgba(124,58,237,.48);color:var(--ac);}
-.gc-ta{width:100%;background:rgba(7,10,20,.85);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:7px;font-size:10px;color:#475569;height:52px;resize:none;font-family:inherit;}
-.gc-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;}
-.gcp{font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#475569;}
-
-/* Below table */
-.rt-below{padding:11px 14px;display:flex;gap:10px;border-top:1px solid rgba(42,58,106,.5);}
-.rt-card{flex:1;background:rgba(10,14,32,.92);border:1px solid rgba(42,58,106,.8);border-radius:12px;padding:10px;}
-.rc-t{font-size:12px;font-weight:800;color:var(--tx);margin-bottom:3px;}
-.rc-s{font-size:11px;color:var(--mt);}
-
-/* ==================== RIGHT SIDEBAR ==================== */
-.rt-side{width:268px;flex-shrink:0;border-left:1px solid rgba(34,49,90,.8);background:linear-gradient(180deg,rgba(13,20,46,.95),rgba(9,12,28,.95));display:flex;flex-direction:column;overflow:hidden;}
-.rsh{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.6);display:flex;justify-content:space-between;align-items:flex-start;}
-.rsh-name{font-size:14px;font-weight:800;color:var(--tx);}
-.rsh-role{font-size:11px;color:var(--mt);margin-top:1px;}
-.rsh-ref{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
-.rsh-tabs{display:flex;gap:4px;padding:7px 10px;border-bottom:1px solid rgba(42,58,106,.5);flex-wrap:wrap;}
-.rtab{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#334155;}
-.rtab.ra{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.35);color:#fca5a5;}
-.rtab.rb{background:rgba(99,102,241,.14);border-color:rgba(99,102,241,.35);color:#a5b4fc;}
-.rmsgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:260px;}
-.rmsg{padding:8px 10px;border-radius:12px;font-size:12px;line-height:1.58;color:#cbd5e1;}
-.rmsg.u{background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.28);text-align:right;}
-.rmsg.a{background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);}
-.rmsg-who{font-size:10px;font-weight:700;color:var(--mt);margin-bottom:4px;}
-.rinp{padding:8px 10px;border-top:1px solid rgba(42,58,106,.5);}
-.rinp-box{width:100%;background:rgba(7,10,20,.85);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:7px 10px;font-size:11px;color:#475569;font-family:inherit;}
-.rinp-btns{display:flex;gap:4px;margin-top:6px;justify-content:space-between;flex-wrap:wrap;}
-.rbn{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#475569;}
-.rbs{font-size:9px;padding:3px 10px;border-radius:5px;background:linear-gradient(135deg,var(--pu),#4f46e5);border:none;color:#fff;font-weight:700;}
-
-/* ==================== DEMO PANELS ==================== */
-.demos{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;max-width:1060px;margin:44px auto 0;}
-.dc{background:var(--s2);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
-.dc-hdr{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:9px 13px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#64748b;}
-.recdot{width:8px;height:8px;border-radius:50%;background:#ef4444;flex-shrink:0;animation:rdb 1.2s ease-in-out infinite;}
-@keyframes rdb{0%,100%{opacity:1;}50%{opacity:.25;}}
-.dc-body{padding:14px;min-height:240px;}
-
-/* Lead Lab styles */
-.lf{flex:1;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.85);border-radius:8px;padding:6px 10px;font-size:11px;color:#94a3b8;}
-.ll-lead{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:10px;padding:10px;margin-bottom:7px;}
-.ll-name{font-size:12px;font-weight:800;color:var(--tx);}
-.ll-det{font-size:11px;color:var(--mt);margin-top:2px;}
-.ll-score{display:inline-block;background:rgba(110,231,183,.12);border:1px solid rgba(110,231,183,.3);border-radius:999px;padding:1px 9px;font-size:10px;font-weight:700;color:#6ee7b7;float:right;}
-.lbtn{display:inline-block;margin-top:7px;font-size:9px;padding:3px 10px;border-radius:6px;background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;border:none;margin-right:5px;cursor:default;}
-.lbtn2{background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.5);color:#94a3b8;border-radius:6px;padding:3px 10px;font-size:9px;cursor:default;}
-
-/* CRM Pipeline */
-.pipeline{display:flex;gap:7px;}
-.pstage{flex:1;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.42);border-radius:8px;padding:7px;min-height:80px;}
-.pslbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#334155;margin-bottom:5px;}
-.pchip{border-radius:5px;padding:4px 7px;font-size:10px;margin-bottom:4px;display:block;}
-
-/* Social studio */
-.ss-post{background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);border-radius:10px;padding:11px;margin-bottom:8px;min-height:100px;}
-.ss-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-bottom:6px;}
-.ss-txt{font-size:12px;color:#cbd5e1;line-height:1.65;white-space:pre-wrap;}
-
-/* Group Console demo */
-.gc-rep{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;background:rgba(255,255,255,.03);border:1px solid rgba(42,58,106,.42);border-radius:8px;margin-bottom:6px;}
-.gc-rav{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#e6edff;flex-shrink:0;}
-.gc-rn{font-size:11px;font-weight:700;color:var(--tx);}
-.gc-rt{font-size:10px;color:#64748b;margin-top:2px;line-height:1.45;}
-
-/* ==================== TEAMMATES ==================== */
-.tmg{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;max-width:1060px;margin:44px auto 0;}
-.tmc{background:var(--s2);border:1px solid rgba(42,58,106,.75);border-radius:14px;padding:18px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s;}
-.tmc:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.44);}
-.tmav{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#e6edff;margin-bottom:11px;border:1px solid rgba(255,255,255,.07);}
-.tmn{font-size:14px;font-weight:800;color:var(--ac);}
-.tmr{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin-top:2px;}
-.tmd{font-size:12px;color:#64748b;line-height:1.6;margin-top:8px;}
-.tmbar{position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .28s;}
-.tmc:hover .tmbar{transform:scaleX(1);}
-
-/* ==================== FEATURE GRID ==================== */
-.fgg{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px;max-width:1060px;margin:44px auto 0;}
-.fgc{background:var(--s2);border:1px solid rgba(42,58,106,.7);border-radius:15px;padding:22px;transition:transform .2s,border-color .22s;}
-.fgc:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.5);}
-.fgc-i{font-size:26px;margin-bottom:12px;display:block;}
-.fgc-n{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:6px;}
-.fgc-d{font-size:12px;color:#64748b;line-height:1.65;}
-
-/* ==================== CTA ==================== */
-.cta{text-align:center;padding:96px 20px;background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(79,70,229,.07));border-top:1px solid rgba(124,58,237,.14);border-bottom:1px solid rgba(124,58,237,.14);position:relative;overflow:hidden;}
-.cta::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:700px;height:350px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.14),transparent 70%);pointer-events:none;}
-.cta h2{font-size:clamp(26px,4.5vw,52px);font-weight:900;color:#f3e8ff;margin-bottom:14px;position:relative;}
-.cta-p{font-size:16px;color:#94a3b8;max-width:480px;margin:0 auto 32px;line-height:1.65;position:relative;}
-.cta-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;position:relative;}
-footer{text-align:center;padding:28px 20px;font-size:13px;color:#334155;border-top:1px solid rgba(255,255,255,.05);position:relative;z-index:1;}
-footer a{color:var(--pl);text-decoration:none;}
-
-/* ==================== MOBILE ==================== */
-@media(max-width:860px){
-  .nav-r .nav-a{display:none;}
-  .sec{padding:52px 14px;}
-  .rt-side{display:none;}
-  .rt-arena{grid-template-columns:1fr 1.2fr 1fr;gap:8px;padding:14px;}
-  .demos{grid-template-columns:1fr;}
-  .stats{gap:28px;}
-  .av{width:32px;height:32px;font-size:13px;}
-  .sn{font-size:11px;}
-  .sr{font-size:9px;}
-}
-@media(max-width:560px){
-  .rt-arena{grid-template-columns:1fr;padding:10px;}
-  .rt-arena::before{display:none;}
-}
-</style>
-</head>
-<body>
-<canvas id="sc"></canvas>
-
-<nav>
-  <a href="/showcase" class="logo"><div class="logo-dot"></div>Simply Agentic AI</a>
-  <div class="nav-r">
-    <a href="#roundtable" class="nav-a">Round Table</a>
-    <a href="#demos" class="nav-a">Tools</a>
-    <a href="#teammates" class="nav-a">Teammates</a>
-    <a href="/pricing" class="nav-cta">View Plans</a>
-  </div>
-</nav>
-
-<!-- HERO -->
-<section class="hero">
-  <div class="hero-glow"></div>
-  <div class="badge a1">✨ AI-Powered Business Command Center</div>
-  <h1 class="a2">7 Specialists.<br/>One Command Center.</h1>
-  <p class="hero-p a3">Stop stitching tools together. Simply Agentic gives you a full team of specialized AI teammates, a built-in CRM, Lead Lab, Social Studio, email broadcast, calendar sync, and more — one interface, zero juggling.</p>
-  <div class="hbtns a4">
-    <a href="/pricing" class="bp">🚀 Start Free Trial</a>
-    <a href="#roundtable" class="bs">See the Interface ↓</a>
-  </div>
-</section>
-
-<!-- STATS -->
-<div class="stats">
-  <div class="a2" style="text-align:center"><div class="stat-n" data-t="7">7</div><div class="stat-l">AI Teammates</div></div>
-  <div class="a3" style="text-align:center"><div class="stat-n" data-t="10">10</div><div class="stat-l">Built-in Tools</div></div>
-  <div class="a4" style="text-align:center"><div class="stat-n" data-t="100" data-suf="%">100%</div><div class="stat-l">Your Key, Your Data</div></div>
-  <div class="a5" style="text-align:center"><div class="stat-n" data-t="17" data-pre="$">$17</div><div class="stat-l">Starting /month</div></div>
-</div>
-
-<!-- ROUND TABLE -->
-<section class="sec a3" id="roundtable" style="padding-bottom:32px;">
-  <div class="ctr">
-    <span class="lbl">Live Interface Preview</span>
-    <h2 class="h2">This Is What It Actually Looks Like</h2>
-    <p class="sub">All 7 teammates at the table. The center Group Console broadcasts to everyone. Click any seat to open their thread on the right.</p>
-  </div>
-
-  <div class="rt-shell a4">
-    <!-- Real nav bar -->
-    <div class="rt-nav">
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:rgba(196,181,253,.9);">
-          <div style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;"></div>
-          Simply Agentic AI v1.11
-        </div>
-        <div class="rnb">Team <span style="font-size:9px;opacity:.5;">▾</span></div>
-        <div class="rnb">Tools <span style="font-size:9px;opacity:.5;">▾</span></div>
-        <div class="rnb">Settings <span style="font-size:9px;opacity:.5;">▾</span></div>
-        <div class="rnb">📊 Dashboard</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:11px;">🏳</span>
-        <span style="font-size:13px;font-weight:600;color:#fff;opacity:.9;">Scale &amp; Freedom</span>
-      </div>
-      <div style="display:flex;gap:5px;align-items:center;">
-        <span style="font-size:11px;color:rgba(148,163,184,.6);">Model: gpt-4o</span>
-        <div class="rnb hi">🛟 Support</div>
-        <div class="rnb">🚪 Logout</div>
-      </div>
-    </div>
-
-    <div class="rt-body">
-      <!-- GRID TABLE -->
-      <div class="rt-arena">
-
-        <!-- ROW 1: Sunshine | Operator | Atlis -->
-        <div class="seat">
-          <div class="av" style="background:#9a3412;">S</div>
-          <div class="sm"><div class="sn">Sunshine</div><div class="sr">Sales Specialist</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-        <div class="op-card">
-          <div class="op-av">O</div>
-          <div class="op-name">Operator</div>
-          <div class="op-btn">Profile</div>
-        </div>
-
-        <div class="seat">
-          <div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div>
-          <div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-        <!-- ROW 2: Willow | Group Console | Ava -->
-        <div class="seat">
-          <div class="av" style="background:#4c1d95;">W</div>
-          <div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-        <div class="gc">
-          <div class="gc-t">Group Console</div>
-          <div class="gc-s">(All Teammates) — Send one prompt to trigger answers from everyone.</div>
-          <div class="gc-btns">
-            <div class="gcb">Assemble</div><div class="gcb">🎙 Speak</div>
-            <div class="gcb">Voice Mode</div><div class="gcb">Lighting mode</div>
-            <div class="gcb">Share screen</div><div class="gcb hi">Send to all</div>
-          </div>
-          <textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea>
-          <div class="gc-pills">
-            <div class="gcp">⚠ Risk</div><div class="gcp">📊 Scale</div>
-            <div class="gcp">✦ Constraints</div><div class="gcp">⚡ Optimize</div>
-          </div>
-        </div>
-
-        <div class="seat">
-          <div class="av" style="background:#0f766e;">A</div>
-          <div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-        <!-- ROW 3: Orion | Alex (selected) | Luna -->
-        <div class="seat">
-          <div class="av" style="background:#374151;">O</div>
-          <div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-        <div class="seat sel">
-          <div class="av" style="background:#1e3a8a;">A</div>
-          <div class="sm">
-            <div class="sn">Alex</div><div class="sr">Chief Marketing...</div>
-            <div class="ss" style="color:#fcd34d;"><span class="td"><span></span><span></span><span></span></span></div>
-          </div>
-          <div class="sdot think"></div><div class="sedit">Edit</div>
-        </div>
-
-        <div class="seat">
-          <div class="av" style="background:#7c2d12;">L</div>
-          <div class="sm"><div class="sn">Luna</div><div class="sr">Creative Engineer</div><div class="ss">Idle</div></div>
-          <div class="sdot idle"></div><div class="sedit">Edit</div>
-        </div>
-
-      </div><!-- end rt-arena -->
-
-      <!-- RIGHT SIDEBAR -->
-      <div class="rt-side">
-        <div class="rsh">
-          <div><div class="rsh-name">Alex</div><div class="rsh-role">Chief Marketing Officer (CMO)</div></div>
-          <div class="rsh-ref">Refresh</div>
-        </div>
-        <div class="rsh-tabs">
-          <div class="rtab ra">⚠ Risk</div>
-          <div class="rtab rb">📊 Scale</div>
-          <div class="rtab">✦ Constraints</div>
-          <div class="rtab">⚡ Optimize</div>
-        </div>
-        <div class="rmsgs">
-          <div class="rmsg u"><div class="rmsg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
-          <div class="rmsg a"><div class="rmsg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. Anchor the campaign on pain agents feel daily — leads who go cold after the first showing. Here is a 3-step engine...</div>
-          <div class="rmsg u"><div class="rmsg-who">You</div>What scoring criteria should I use?</div>
-          <div class="rmsg a"><div class="rmsg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
-        </div>
-        <div class="rinp">
-          <div class="rinp-box">Message selected teammate...</div>
-          <div class="rinp-btns">
-            <div class="rbn">📎 Files</div><div class="rbn">📷 Screen</div>
-            <div class="rbn">🔊 Speak</div><div class="rbn">🎙 Voice</div>
-            <div class="rbs">Send</div>
-          </div>
-        </div>
-      </div>
-    </div><!-- end rt-body -->
-
-    <div class="rt-below">
-      <div class="rt-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div><div class="rc-t">🔵 Group Replies</div><div class="rc-s">Last round table responses in one place.</div></div>
-          <div style="font-size:10px;padding:2px 9px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#334155;">Clear</div>
-        </div>
-        <div style="margin-top:7px;font-size:11px;color:#334155;">No group replies yet. Use the center Group Console.</div>
-      </div>
-      <div class="rt-card">
-        <div class="rc-t" style="color:#f87171;">🔴 Shared Team Memory</div>
-        <div class="rc-s">Facts, decisions, and open loops extracted from group sessions.</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- DEMOS -->
-<section class="sec a5" id="demos" style="padding-top:32px;">
-  <div class="ctr">
-    <span class="lbl">Tools in Action</span>
-    <h2 class="h2">Watch the Features Work</h2>
-    <p class="sub">Animated live demos of the core tools — all running inside the actual interface.</p>
-  </div>
-
-  <div class="demos">
-    <!-- Lead Lab -->
-    <div class="dc a5">
-      <div class="dc-hdr"><span class="recdot"></span> 🔬 Lead Lab — Generating Leads</div>
-      <div class="dc-body">
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-          <div class="lf">real estate agents</div>
-          <div class="lf">New Jersey</div>
-          <div class="lf" style="flex:0 0 auto;">25 leads</div>
-        </div>
-        <div id="llBox"></div>
-      </div>
-    </div>
-
-    <!-- Social Studio -->
-    <div class="dc a6">
-      <div class="dc-hdr"><span class="recdot"></span> 📣 Social Studio — Writing Content</div>
-      <div class="dc-body">
-        <div style="display:flex;gap:6px;margin-bottom:10px;">
-          <div class="lf" style="flex:0 0 auto;">LinkedIn</div>
-          <div class="lf">Content pack</div>
-        </div>
-        <div class="ss-post">
-          <div class="ss-lbl" id="ssLbl">🪝 Hook Post</div>
-          <div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <div class="lf" style="font-size:10px;text-align:center;flex:1;">💬 DM Script</div>
-          <div class="lf" style="font-size:10px;text-align:center;flex:1;">🎯 CTA Pack</div>
-          <div class="lf" style="font-size:10px;text-align:center;flex:1;">🚀 Launch Set</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- CRM Pipeline -->
-    <div class="dc a7">
-      <div class="dc-hdr"><span class="recdot"></span> 📋 CRM Pipeline — Moving Deals</div>
-      <div class="dc-body">
-        <div class="pipeline">
-          <div class="pstage"><div class="pslbl">Lead</div><div id="ps0"></div></div>
-          <div class="pstage"><div class="pslbl">Interested</div><div id="ps1"></div></div>
-          <div class="pstage"><div class="pslbl">Call Booked</div><div id="ps2"></div></div>
-          <div class="pstage"><div class="pslbl">Client</div><div id="ps3"></div></div>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--pl);font-weight:600;" id="crmMsg">Watching Morgan Lee move through the pipeline...</div>
-        <div style="margin-top:8px;"><button style="width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;font-size:11px;font-weight:700;cursor:default;">⚡ AI Draft Outreach</button></div>
-      </div>
-    </div>
-
-    <!-- Group Console -->
-    <div class="dc a8">
-      <div class="dc-hdr"><span class="recdot"></span> 🎙 Group Console — All Teammates Reply</div>
-      <div class="dc-body">
-        <div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#94a3b8;margin-bottom:10px;">"Help me build a lead engine for NJ real estate — strategy, outreach, and automation."</div>
-        <div id="gcBox"></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- TEAMMATES -->
-<section class="sec a4" id="teammates" style="padding-top:20px;">
-  <div class="ctr">
-    <span class="lbl">The Team</span>
-    <h2 class="h2">Seven Specialists. Each With a Lane.</h2>
-    <p class="sub">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do.</p>
-  </div>
-  <div class="tmg">
-    <div class="tmc a5"><div class="tmav" style="background:#1e3a8a;">A</div><div class="tmn">Alex</div><div class="tmr">Chief Marketing Officer</div><div class="tmd">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics, always.</div><div class="tmbar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div></div>
-    <div class="tmc a6"><div class="tmav" style="background:#4c1d95;">W</div><div class="tmn">Willow</div><div class="tmr">Language Specialist</div><div class="tmd">Refines tone, voice, clarity, and meaning. Will not write sales hype, artificial urgency, or manipulative framing.</div><div class="tmbar" style="background:linear-gradient(90deg,#4c1d95,#8b5cf6);"></div></div>
-    <div class="tmc a7"><div class="tmav" style="background:#0f766e;">A</div><div class="tmn">Ava</div><div class="tmr">Research &amp; Knowledge Curator</div><div class="tmd">Gathers, validates, and synthesizes information. Separates fact from inference. Labels uncertainty. Never guesses.</div><div class="tmbar" style="background:linear-gradient(90deg,#0f766e,#14b8a6);"></div></div>
-    <div class="tmc a5"><div class="tmav" style="background:#374151;">O</div><div class="tmn">Orion</div><div class="tmr">Systems &amp; Automation Engineer</div><div class="tmd">Designs automation systems for reliable scale. Architecture before execution. Will not automate unstable processes.</div><div class="tmbar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div></div>
-    <div class="tmc a6"><div class="tmav" style="background:#9a3412;">S</div><div class="tmn">Sunshine</div><div class="tmr">Sales Specialist</div><div class="tmd">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure or force a close.</div><div class="tmbar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div></div>
-    <div class="tmc a7"><div class="tmav" style="background:#7c2d12;">L</div><div class="tmn">Luna</div><div class="tmr">Creative Engineer</div><div class="tmd">Cinematic, consistent visual systems. Hierarchy before effects. Keeps designs consistent over time.</div><div class="tmbar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div></div>
-    <div class="tmc a8"><div class="tmav" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div><div class="tmd">Monitors role boundaries and system coherence. Acts as referee, never contributor. Protects integrity.</div><div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div></div>
-  </div>
-</section>
-
-<!-- FEATURES -->
-<section class="sec a5" id="features" style="padding-top:20px;">
-  <div class="ctr"><span class="lbl">Features</span><h2 class="h2">Everything Built In. Nothing Extra to Buy.</h2></div>
-  <div class="fgg">
-    <div class="fgc a5"><span class="fgc-i">🔬</span><div class="fgc-n">Lead Lab</div><div class="fgc-d">Scored, contact-ready leads from the web. Filter by niche, location, count, and contact type. One-click to CRM or Sunshine.</div></div>
-    <div class="fgc a6"><span class="fgc-i">📋</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email &amp; SMS broadcast, and client sequences — no extra tools required.</div></div>
-    <div class="fgc a7"><span class="fgc-i">📣</span><div class="fgc-n">Social Studio</div><div class="fgc-d">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X.</div></div>
-    <div class="fgc a5"><span class="fgc-i">🎯</span><div class="fgc-n">Offer Builder</div><div class="fgc-d">Sharpen positioning, clarify your offer, and generate launch-ready copy from one structured form.</div></div>
-    <div class="fgc a6"><span class="fgc-i">📚</span><div class="fgc-n">Prompt Library</div><div class="fgc-d">200+ expert prompts organized by teammate. Click to fire instantly. Save custom prompts for reuse.</div></div>
-    <div class="fgc a7"><span class="fgc-i">📅</span><div class="fgc-n">Calendar &amp; Gmail Sync</div><div class="fgc-d">Full motion calendar with Google sync. Teammate-drafted emails pass through a review console first.</div></div>
-    <div class="fgc a5"><span class="fgc-i">📈</span><div class="fgc-n">Growth Playbooks</div><div class="fgc-d">Step-by-step action plans for getting clients, booking calls, launching offers, and reactivating leads.</div></div>
-    <div class="fgc a6"><span class="fgc-i">🎙</span><div class="fgc-n">Voice Mode &amp; TTS</div><div class="fgc-d">Speak to your teammates directly. Every teammate reads responses aloud via OpenAI TTS.</div></div>
-    <div class="fgc a7"><span class="fgc-i">🔑</span><div class="fgc-n">Your Key. Your Data.</div><div class="fgc-d">Connect your OpenAI or Anthropic key. Direct GPT-4o access — zero markup, zero throttling.</div></div>
-  </div>
-</section>
-
-<!-- CTA -->
-<section class="cta a5">
-  <span class="lbl" style="position:relative;">Ready to Start?</span>
-  <h2>Start Free. Scale at Your Pace.</h2>
-  <p class="cta-p">7-day free trial. No credit card charged until day 8. Cancel anytime.</p>
-  <div class="cta-btns">
-    <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">🚀 View Plans &amp; Start Free</a>
-    <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Already have an account →</a>
-  </div>
-  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">
-    Solo Operator $47/mo · Growth $97/mo · <strong style="color:#fbbf24;">Founder Access $17/mo — limited seats</strong>
-  </div>
-</section>
-
-<footer class="a6">
-  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;·&nbsp; <a href="/login">Sign In</a> &nbsp;·&nbsp;
-  <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
-  <div style="margin-top:10px;opacity:.4;">© 2025 Simply Agentic AI. All rights reserved.</div>
-</footer>
-
-<script>
-// Starfield
-(function(){
-  var c=document.getElementById('sc'),x=c.getContext('2d');
-  function r(){c.width=innerWidth;c.height=innerHeight;}r();addEventListener('resize',r);
-  var s=[];for(var i=0;i<200;i++)s.push({x:Math.random(),y:Math.random(),r:Math.random()*1.4+.2,sp:Math.random()*.3+.08,ph:Math.random()*Math.PI*2});
-  (function draw(t){x.clearRect(0,0,c.width,c.height);s.forEach(function(a){var op=.06+.38*(.5+.5*Math.sin(a.ph+t*a.sp*.001));x.beginPath();x.arc(a.x*c.width,a.y*c.height,a.r,0,Math.PI*2);x.fillStyle='rgba(255,255,255,'+op+')';x.fill();});requestAnimationFrame(draw);})(0);
-})();
-
-// Counters
-(function(){
-  var ns=document.querySelectorAll('.stat-n[data-t]');
-  ns.forEach(function(el){
-    var t=parseInt(el.getAttribute('data-t'));
-    var pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'';
-    var s=null,d=1400;
-    setTimeout(function(){
-      (function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/d,1),e=1-Math.pow(1-p,3);el.textContent=pre+Math.round(e*t)+suf;if(p<1)requestAnimationFrame(step);})(performance.now());
-    },200);
-  });
-})();
-
-// Sidebar typewriter
-(function(){
-  var txt='Score by: recency of listings (past 90 days), active social presence, personal domain vs brokerage-only site, and online engagement rate. Minimum score of 65 to qualify for outreach.';
-  var el=document.getElementById('sideTyped'),cur=document.getElementById('sideCursor');
-  if(!el)return;
-  var i=0;
-  setTimeout(function t(){if(i<txt.length){el.textContent+=txt[i++];setTimeout(t,22+Math.random()*16);}else if(cur)cur.style.display='none';},1200);
-})();
-
-// Lead Lab demo
-(function(){
-  var leads=[
-    {name:'Jamie Cole',co:'Garden State Realty - Broker',info:'📞 (201) 555-0182   ✉ jcole@gsrealty.com',score:92},
-    {name:'Morgan Lee',co:'BrightPath Investors - Founder',info:'✉ morgan@brightpath.com',score:85},
-    {name:'Taylor Adams',co:'Northshore Lending - Loan Officer',info:'📞 (973) 555-0247',score:78}
-  ];
-  var box=document.getElementById('llBox');if(!box)return;
-  var idx=0;
-  function addLead(){
-    if(idx>=leads.length){setTimeout(function(){box.innerHTML='';idx=0;setTimeout(addLead,600);},2200);return;}
-    var l=leads[idx++];
-    var d=document.createElement('div');d.className='ll-lead';
-    d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.info+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="margin-top:7px;"><button class="lbtn">+ CRM</button><button class="lbtn2">✉ Email</button><button class="lbtn2">💬 Text</button></div>';
-    box.appendChild(d);
-    setTimeout(addLead,1000);
-  }
-  setTimeout(addLead,600);
-})();
-
-// Social Studio demo
-(function(){
-  var posts=[
-    {lbl:'Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that never convert.\n\nHere is the system I use to only talk to buyers already warm.'},
-    {lbl:'DM Script',txt:'Hey [Name] -- saw your post about Hoboken. Are most of your leads from referrals, or are you building an online channel too? I help agents systematize that.'},
-    {lbl:'CTA Post',txt:'If you are a NJ agent doing 10+ deals a year but spending more time on admin than relationships -- comment SYSTEM and I will send you the breakdown.'}
-  ];
-  var pi=0,ci=0;
-  var lbl=document.getElementById('ssLbl'),txt=document.getElementById('ssTxt'),cur=document.getElementById('ssCur');
-  if(!txt)return;
-  function nextPost(){
-    var p=posts[pi%posts.length];pi++;
-    if(lbl)lbl.textContent='🪝 '+p.lbl;
-    ci=0;txt.textContent='';if(cur)cur.style.display='inline';
-    var s=p.txt;
-    (function t(){if(ci<s.length){txt.textContent+=s[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(cur)cur.style.display='none';setTimeout(nextPost,3000);}})();
-  }
-  setTimeout(nextPost,600);
-})();
-
-// CRM Pipeline demo
-(function(){
-  var ps=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];
-  var msg=document.getElementById('crmMsg');
-  if(!ps[0])return;
-  var phase=0;
-  function setState(p){
-    if(p===0){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span><span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>';ps[1].innerHTML='';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(msg)msg.textContent='Morgan Lee just entered as a new Lead.';}
-    else if(p===1){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps[1].innerHTML='<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(msg)msg.textContent='Morgan showed interest -- moved to Interested!';}
-    else{ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps[1].innerHTML='';ps[2].innerHTML='<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(msg)msg.textContent='Morgan booked a call -- AI drafting follow-up now!';}
-    setTimeout(function(){phase=(phase+1)%3;setState(phase);},2400);
-  }
-  setTimeout(function(){setState(0);},600);
-})();
-
-// Group Console demo
-(function(){
-  var replies=[
-    {av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},
-    {av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},
-    {av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly Lead Lab run, CRM import, Sunshine sequence. Zero manual steps required.'},
-    {av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe outreach to be about them.'},
-    {av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}
-  ];
-  var box=document.getElementById('gcBox');if(!box)return;
-  var i=0;
-  function addReply(){
-    if(i>=replies.length){setTimeout(function(){box.innerHTML='';i=0;setTimeout(addReply,800);},2000);return;}
-    var r=replies[i++];
-    var d=document.createElement('div');d.className='gc-rep';
-    d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';
-    box.appendChild(d);
-    setTimeout(addReply,1100);
-  }
-  setTimeout(addReply,600);
-})();
-</script>
-</body>
-</html>"""
-
-
 LOGIN_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
@@ -7574,7 +6877,6 @@ LOGIN_HTML = r"""
 
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
-      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.95);font-weight:700;letter-spacing:.01em;">✨ Learn More</a></div>
       {% if allow_signup %}
         <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
@@ -8098,10 +7400,6 @@ def _hash_token(token: str) -> str:
     if not token:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-@app.get("/showcase")
-def showcase_page():
-    return SHOWCASE_HTML.replace("{{app_title}}", APP_TITLE)
 
 @app.get("/pricing")
 def pricing_page():
@@ -10833,6 +10131,9 @@ label         { font-size: 14px !important; }
         <button class="saNavBtn" id="dashboardNavBtn" onclick="saOpenDashboard()" style="padding:7px 14px;">
           📊 Dashboard
         </button>
+        <button class="saNavBtn" id="communityNavBtn" onclick="openCommunityPanel()" style="padding:7px 14px;background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.4);">
+          🏆 Community<span id="communityPendingBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;margin-left:5px;font-weight:800;"></span>
+        </button>
 
       </div>
 
@@ -10844,9 +10145,11 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + logout -->
-      <div class="saNavRight">
+      <!-- Right: model tag + level badge + support + logout -->
+      <div class="saNavRight" style="display:flex;align-items:center;gap:7px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
+        <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
+        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -23477,6 +22780,321 @@ if(typeof maybeAutoShowOnboarding === "function"){
 })();
 </script>
 
+<!-- ===== COMMUNITY HUB PANEL ===== -->
+<style>
+#communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;}
+#communityPanel.open{display:flex;}
+.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}
+.cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
+.cp-title{font-size:18px;font-weight:800;color:#f3e8ff;}
+.cp-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer;}
+.cp-close:hover{background:rgba(255,255,255,.12);}
+.cp-tabs{display:flex;gap:4px;padding:12px 20px 0;flex-shrink:0;border-bottom:1px solid rgba(42,58,106,.5);flex-wrap:wrap;}
+.cp-tab{padding:8px 16px;border-radius:8px 8px 0 0;font-size:13px;font-weight:700;cursor:pointer;color:#64748b;border:1px solid transparent;border-bottom:none;transition:all .15s;}
+.cp-tab.active{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.45);color:#c4b5fd;}
+.cp-tab:hover:not(.active){color:#94a3b8;}
+.cp-body{flex:1;overflow-y:auto;padding:20px;}
+.lb-toggle{display:flex;gap:8px;margin-bottom:16px;}
+.lb-btn{padding:6px 18px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.7);background:transparent;color:#64748b;transition:all .15s;}
+.lb-btn.active{background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.5);color:#c4b5fd;}
+.lb-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid rgba(42,58,106,.55);background:rgba(14,22,48,.45);margin-bottom:8px;transition:border-color .15s;}
+.lb-row:hover{border-color:rgba(124,58,237,.35);}
+.lb-rank{font-size:15px;font-weight:900;color:#475569;width:26px;text-align:center;flex-shrink:0;}
+.lb-rank.gold{color:#fbbf24;}.lb-rank.silver{color:#94a3b8;}.lb-rank.bronze{color:#a16207;}
+.lb-lvl{font-size:17px;flex-shrink:0;}
+.lb-name{font-size:14px;font-weight:700;color:#e2e8f0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lb-pts{font-size:14px;font-weight:800;color:#c4b5fd;white-space:nowrap;}
+.lb-you{border-color:rgba(124,58,237,.6);background:rgba(124,58,237,.08);}
+.idea-form{background:rgba(11,16,36,.9);border:1px solid rgba(42,58,106,.7);border-radius:14px;padding:16px;margin-bottom:18px;}
+.idea-input{width:100%;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:9px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;margin-bottom:8px;display:block;}
+.idea-input:focus{border-color:rgba(124,58,237,.6);}
+.idea-ta{width:100%;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.85);border-radius:10px;padding:9px 12px;font-size:13px;color:#e2e8f0;outline:none;font-family:inherit;height:72px;resize:none;margin-bottom:8px;display:block;}
+.idea-ta:focus{border-color:rgba(124,58,237,.6);}
+.idea-card{background:rgba(14,22,48,.55);border:1px solid rgba(42,58,106,.6);border-radius:14px;padding:14px 16px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;}
+.idea-vote-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;}
+.idea-vote-btn{background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.6);border-radius:8px;width:36px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:all .15s;color:#64748b;}
+.idea-vote-btn:hover{border-color:rgba(124,58,237,.5);color:#c4b5fd;}
+.idea-vote-btn.voted{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.55);color:#c4b5fd;}
+.idea-vote-count{font-size:12px;font-weight:800;color:#94a3b8;}
+.idea-body{flex:1;min-width:0;}
+.idea-title{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:4px;}
+.idea-desc{font-size:13px;color:#64748b;line-height:1.55;margin-bottom:8px;}
+.idea-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.idea-status{font-size:11px;font-weight:700;padding:2px 10px;border-radius:999px;}
+.s-pending{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);color:#fcd34d;}
+.s-approved,.s-open{background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);color:#a5b4fc;}
+.s-considering{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.35);color:#c4b5fd;}
+.s-in_progress{background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:#93c5fd;}
+.s-shipped{background:rgba(110,231,183,.1);border:1px solid rgba(110,231,183,.3);color:#6ee7b7;}
+.s-rejected{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5;}
+.idea-by{font-size:11px;color:#475569;}
+.stats-hero{background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:20px;margin-bottom:18px;text-align:center;}
+.stats-lvl-emoji{font-size:48px;margin-bottom:6px;}
+.stats-lvl-name{font-size:22px;font-weight:900;color:#f3e8ff;}
+.stats-pts{font-size:14px;color:#94a3b8;margin-top:4px;}
+.stats-rank{font-size:13px;color:#64748b;margin-top:4px;}
+.progress-bar{height:10px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin:12px 0 6px;}
+.progress-fill{height:100%;background:linear-gradient(90deg,#7c3aed,#6d28d9);border-radius:999px;transition:width .8s ease;}
+.progress-label{font-size:11px;color:#64748b;display:flex;justify-content:space-between;}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+.stat-box{background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.6);border-radius:12px;padding:14px;text-align:center;}
+.stat-box-n{font-size:24px;font-weight:900;color:#c4b5fd;}
+.stat-box-l{font-size:12px;color:#64748b;margin-top:3px;}
+.hist-item{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-radius:8px;background:rgba(14,22,48,.45);border:1px solid rgba(42,58,106,.4);margin-bottom:6px;font-size:12px;}
+.hist-event{color:#94a3b8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px;}
+.hist-pts{color:#6ee7b7;font-weight:700;flex-shrink:0;}
+.mod-card{background:rgba(14,22,48,.55);border:1px solid rgba(251,191,36,.25);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+.mod-title{font-size:14px;font-weight:800;color:#f3e8ff;margin-bottom:4px;}
+.mod-body-txt{font-size:13px;color:#64748b;margin-bottom:8px;}
+.mod-by{font-size:11px;color:#475569;margin-bottom:10px;}
+.mod-btns{display:flex;gap:6px;flex-wrap:wrap;}
+.mod-btn{font-size:11px;padding:5px 12px;border-radius:7px;cursor:pointer;font-weight:700;border:1px solid;transition:opacity .15s;}
+.mod-btn:hover{opacity:.8;}
+.mod-approve{background:rgba(110,231,183,.12);border-color:rgba(110,231,183,.4);color:#6ee7b7;}
+.mod-reject{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#fca5a5;}
+.mod-consider{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.35);color:#c4b5fd;}
+.mod-inprog{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:#93c5fd;}
+.mod-ship{background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);color:#fcd34d;}
+</style>
+
+<div id="communityPanel">
+  <div class="cpanel">
+    <div class="cp-header">
+      <div class="cp-title">🏆 Community Hub</div>
+      <button class="cp-close" onclick="closeCommunityPanel()">✕ Close</button>
+    </div>
+    <div class="cp-tabs">
+      <div class="cp-tab active" id="cpTab-leaderboard" onclick="cpSwitchTab('leaderboard')">🏆 Leaderboard</div>
+      <div class="cp-tab" id="cpTab-ideas" onclick="cpSwitchTab('ideas')">💡 Idea Board</div>
+      <div class="cp-tab" id="cpTab-stats" onclick="cpSwitchTab('stats')">📊 My Stats</div>
+      <div class="cp-tab" id="cpTab-moderate" style="display:none;" onclick="cpSwitchTab('moderate')">🔧 Moderate <span id="cpModBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 6px;margin-left:3px;"></span></div>
+    </div>
+    <div class="cp-body" id="cpLeaderboard">
+      <div class="lb-toggle">
+        <button class="lb-btn active" id="lbAllBtn" onclick="cpShowLB('all')">🌍 All-Time</button>
+        <button class="lb-btn" id="lbWeekBtn" onclick="cpShowLB('week')">📅 This Week</button>
+      </div>
+      <div id="lbList"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading leaderboard...</div></div>
+    </div>
+    <div class="cp-body" id="cpIdeas" style="display:none;">
+      <div class="idea-form">
+        <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">💡 Submit a Feature Idea <span class="tiny" style="color:#475569;font-weight:400;">(+20 points)</span></div>
+        <input class="idea-input" id="ideaTitleInput" placeholder="Short title for your idea…" maxlength="120"/>
+        <textarea class="idea-ta" id="ideaBodyInput" placeholder="Describe your idea in more detail (optional)…" maxlength="600"></textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div class="tiny" style="color:#475569;">Ideas are reviewed before going live.</div>
+          <button class="btn btnPrimary" style="font-size:12px;padding:7px 18px;" onclick="cpSubmitIdea()">Submit Idea</button>
+        </div>
+        <div class="tiny" id="ideaStatus" style="margin-top:8px;text-align:center;min-height:14px;"></div>
+      </div>
+      <div id="ideasList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading ideas...</div></div>
+    </div>
+    <div class="cp-body" id="cpStats" style="display:none;">
+      <div id="statsContent"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading your stats...</div></div>
+    </div>
+    <div class="cp-body" id="cpModerate" style="display:none;">
+      <div style="font-size:14px;font-weight:700;color:#fcd34d;margin-bottom:14px;">🔧 Pending Ideas — Review Queue</div>
+      <div id="modList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:''};
+
+  window.openCommunityPanel = function(tab){
+    document.getElementById('communityPanel').classList.add('open');
+    cpSwitchTab(tab || _cp.activeTab || 'leaderboard');
+    _cpLoadStats();
+  };
+  window.closeCommunityPanel = function(){
+    document.getElementById('communityPanel').classList.remove('open');
+  };
+  document.getElementById('communityPanel').addEventListener('click',function(e){if(e.target===this)closeCommunityPanel();});
+
+  window.cpSwitchTab = function(tab){
+    _cp.activeTab = tab;
+    ['leaderboard','ideas','stats','moderate'].forEach(function(t){
+      var b=document.getElementById('cpTab-'+t), p=document.getElementById('cp'+t.charAt(0).toUpperCase()+t.slice(1));
+      if(b) b.classList.toggle('active', t===tab);
+      if(p) p.style.display = t===tab ? '' : 'none';
+    });
+    if(tab==='leaderboard') _cpLoadLB();
+    if(tab==='ideas') _cpLoadIdeas();
+    if(tab==='stats') _cpLoadStats();
+    if(tab==='moderate') _cpLoadMod();
+  };
+
+  window.cpShowLB = function(mode){
+    _cp.lbMode = mode;
+    document.getElementById('lbAllBtn').classList.toggle('active', mode==='all');
+    document.getElementById('lbWeekBtn').classList.toggle('active', mode==='week');
+    _renderLB();
+  };
+
+  function _cpLoadLB(){
+    if(_cp.lb){_renderLB();return;}
+    fetch('/api/community/leaderboard').then(function(r){return r.json();}).then(function(d){if(d.ok){_cp.lb=d;_renderLB();}}).catch(function(){});
+  }
+  function _renderLB(){
+    var d=_cp.lb, box=document.getElementById('lbList');
+    if(!d||!box)return;
+    var rows=_cp.lbMode==='all'?d.all_time:d.weekly;
+    if(!rows||!rows.length){box.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;padding:30px;">No data yet — use Simply Agentic to earn points and appear here!</div>';return;}
+    var html='';
+    rows.forEach(function(r){
+      var rc=r.rank===1?'gold':r.rank===2?'silver':r.rank===3?'bronze':'';
+      var yc=r.username===_cp.me?' lb-you':'';
+      var pts=_cp.lbMode==='all'?r.total:r.weekly;
+      html+='<div class="lb-row'+yc+'"><div class="lb-rank '+rc+'">'+(r.rank<=3?['🥇','🥈','🥉'][r.rank-1]:r.rank)+'</div>';
+      html+='<div class="lb-lvl">'+_e(r.level_emoji)+'</div>';
+      html+='<div class="lb-name">'+_e(r.username)+(r.username===_cp.me?' <span style="color:#475569;font-size:10px;">(you)</span>':'')+'</div>';
+      html+='<div style="font-size:11px;color:#475569;margin-right:6px;">'+_e(r.level_name)+'</div>';
+      html+='<div class="lb-pts">'+pts.toLocaleString()+' pts</div></div>';
+    });
+    box.innerHTML=html;
+  }
+
+  function _cpLoadIdeas(){
+    fetch('/api/community/ideas').then(function(r){return r.json();}).then(function(d){if(d.ok){_renderIdeas(d.ideas);}}).catch(function(){});
+  }
+  function _renderIdeas(ideas){
+    var box=document.getElementById('ideasList');if(!box)return;
+    if(!ideas||!ideas.length){box.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;padding:30px;">No ideas yet — be the first!</div>';return;}
+    var sl={pending:'⏳ Pending Review',approved:'✅ Open',considering:'💭 Considering',in_progress:'🚀 In Progress',shipped:'📦 Shipped',rejected:'❌ Not Planned'};
+    var html='';
+    ideas.forEach(function(idea){
+      var st=idea.status||'approved', stl=sl[st]||st;
+      html+='<div class="idea-card"><div class="idea-vote-col">';
+      if(st!=='pending'&&st!=='rejected'){
+        html+='<button class="idea-vote-btn'+(idea.user_voted?' voted':'')+'" onclick="cpVote(\''+_e(idea.id)+'\')">▲</button>';
+      } else { html+='<div style="width:36px;"></div>'; }
+      html+='<div class="idea-vote-count">'+idea.votes+'</div></div>';
+      html+='<div class="idea-body"><div class="idea-title">'+_e(idea.title)+'</div>';
+      if(idea.body) html+='<div class="idea-desc">'+_e(idea.body)+'</div>';
+      html+='<div class="idea-meta"><span class="idea-status s-'+_e(st)+'">'+stl+'</span>';
+      html+='<span class="idea-by">by '+_e(idea.submitted_by)+'</span></div></div></div>';
+    });
+    box.innerHTML=html;
+  }
+
+  window.cpVote = function(id){
+    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/vote',{method:'POST',headers:{'Content-Type':'application/json'}})
+      .then(function(r){return r.json();}).then(function(d){if(d.ok){_cpLoadIdeas();_cp.lb=null;}}).catch(function(){});
+  };
+
+  window.cpSubmitIdea = function(){
+    var t=(document.getElementById('ideaTitleInput').value||'').trim();
+    var b=(document.getElementById('ideaBodyInput').value||'').trim();
+    var st=document.getElementById('ideaStatus');
+    if(!t){if(st)st.innerText='Please add a title.';return;}
+    if(st)st.innerText='Submitting...';
+    fetch('/api/community/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.ok){
+          if(st)st.innerText='✅ Submitted! It will appear after review. +20 points!';
+          document.getElementById('ideaTitleInput').value='';
+          document.getElementById('ideaBodyInput').value='';
+          _cpLoadStats();
+        } else { if(st)st.innerText=d.error||'Failed.'; }
+      }).catch(function(){if(st)st.innerText='Network error.';});
+  };
+
+  function _cpLoadStats(){
+    fetch('/api/community/my_stats').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok)return;
+      _cp.me = d.username||_cp.me||'';
+      _renderStats(d);
+      var nb=document.getElementById('navLevelBadge');
+      if(nb){nb.style.display='';nb.innerText=d.level.emoji+' '+d.level.name;}
+      if(d.is_admin){
+        var mt=document.getElementById('cpTab-moderate');if(mt)mt.style.display='';
+        if(d.pending_count>0){
+          var mb=document.getElementById('cpModBadge');if(mb){mb.style.display='inline';mb.innerText=d.pending_count;}
+          var pb=document.getElementById('communityPendingBadge');if(pb){pb.style.display='inline';pb.innerText=d.pending_count;}
+        }
+      }
+    }).catch(function(){});
+  }
+
+  function _renderStats(d){
+    var box=document.getElementById('statsContent');if(!box)return;
+    var lvl=d.level||{},total=d.total||0,weekly=d.weekly||0;
+    var nextPts=lvl.next||null,minPts=lvl.min||0;
+    var pct=nextPts?Math.min(100,Math.round(((total-minPts)/(nextPts-minPts))*100)):100;
+    var levHtml='<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">';
+    [{emoji:'🌱',name:'Recruit',min:0},{emoji:'⚡',name:'Operator',min:500},{emoji:'🔥',name:'Commander',min:1500},{emoji:'💎',name:'Elite',min:4000},{emoji:'👑',name:'Legend',min:10000}].forEach(function(l){
+      var done=total>=l.min;
+      levHtml+='<div style="font-size:11px;padding:3px 9px;border-radius:6px;'+(done?'background:rgba(124,58,237,.18);color:#c4b5fd;border:1px solid rgba(124,58,237,.3);':'color:#334155;border:1px solid rgba(42,58,106,.3);')+'">'+l.emoji+' '+l.name+'</div>';
+    });
+    levHtml+='</div>';
+    var histHtml='';
+    if(d.history&&d.history.length){
+      histHtml='<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">📋 Recent Activity</div>';
+      d.history.forEach(function(h){histHtml+='<div class="hist-item"><span class="hist-event">'+_e(h.event)+'</span><span class="hist-pts">+'+h.amount+'</span></div>';});
+    }
+    box.innerHTML=
+      '<div class="stats-hero">'+
+        '<div class="stats-lvl-emoji">'+lvl.emoji+'</div>'+
+        '<div class="stats-lvl-name">'+_e(lvl.name)+'</div>'+
+        '<div class="stats-pts">'+total.toLocaleString()+' total points</div>'+
+        '<div class="stats-rank">Rank #'+d.rank+' of '+d.total_users+' operators</div>'+
+        (nextPts?'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
+        '<div class="progress-label"><span>'+_e(lvl.emoji)+' '+_e(lvl.name)+'</span><span>'+total.toLocaleString()+' / '+nextPts.toLocaleString()+' XP to next level</span></div>':
+        '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum level reached!</div>')+
+        levHtml+
+      '</div>'+
+      '<div class="stats-grid">'+
+        '<div class="stat-box"><div class="stat-box-n">'+total.toLocaleString()+'</div><div class="stat-box-l">All-Time Points</div></div>'+
+        '<div class="stat-box"><div class="stat-box-n">'+weekly.toLocaleString()+'</div><div class="stat-box-l">This Week</div></div>'+
+        '<div class="stat-box"><div class="stat-box-n">#'+d.rank+'</div><div class="stat-box-l">Your Rank</div></div>'+
+        '<div class="stat-box"><div class="stat-box-n">'+pct+'%</div><div class="stat-box-l">To Next Level</div></div>'+
+      '</div>'+
+      '<div style="margin-bottom:14px;padding:12px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#64748b;">'+
+        '<strong style="color:#c4b5fd;">How to earn points:</strong> Chat with teammates (+3), add CRM contacts (+5), run Lead Lab (+10-60), generate content (+10), submit ideas (+20), get ideas upvoted (+5 each), get an idea shipped (+200).'+
+      '</div>'+
+      histHtml;
+  }
+
+  function _cpLoadMod(){
+    fetch('/api/community/pending_ideas').then(function(r){return r.json();}).then(function(d){if(d.ok)_renderMod(d.ideas);}).catch(function(){});
+  }
+  function _renderMod(ideas){
+    var box=document.getElementById('modList');if(!box)return;
+    if(!ideas||!ideas.length){box.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;padding:30px;">No pending ideas — all caught up! ✅</div>';return;}
+    var html='';
+    ideas.forEach(function(idea){
+      html+='<div class="mod-card" id="mc-'+_e(idea.id)+'">'+
+        '<div class="mod-title">'+_e(idea.title)+'</div>'+
+        (idea.body?'<div class="mod-body-txt">'+_e(idea.body)+'</div>':'')+
+        '<div class="mod-by">From: '+_e(idea.submitted_by)+'</div>'+
+        '<div class="mod-btns">'+
+          '<button class="mod-btn mod-approve" onclick="cpMod(\''+_e(idea.id)+'\',\'approved\')">✅ Approve</button>'+
+          '<button class="mod-btn mod-consider" onclick="cpMod(\''+_e(idea.id)+'\',\'considering\')">💭 Considering</button>'+
+          '<button class="mod-btn mod-inprog" onclick="cpMod(\''+_e(idea.id)+'\',\'in_progress\')">🚀 In Progress</button>'+
+          '<button class="mod-btn mod-ship" onclick="cpMod(\''+_e(idea.id)+'\',\'shipped\')">📦 Ship It (+200 pts!)</button>'+
+          '<button class="mod-btn mod-reject" onclick="cpMod(\''+_e(idea.id)+'\',\'rejected\')">❌ Reject</button>'+
+        '</div></div>';
+    });
+    box.innerHTML=html;
+  }
+
+  window.cpMod = function(id, status){
+    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.ok){var el=document.getElementById('mc-'+id);if(el)el.remove();_cpLoadStats();_cp.lb=null;}
+      }).catch(function(){});
+  };
+
+  function _e(s){var d=document.createElement('div');d.appendChild(document.createTextNode(String(s||'')));return d.innerHTML;}
+
+  // Load stats on boot for nav badge
+  setTimeout(_cpLoadStats, 1500);
+})();
+</script>
+<!-- ===== END COMMUNITY HUB PANEL ===== -->
+
 </body>
 </html>
 """
@@ -24193,6 +23811,10 @@ def api_crm_clients_create():
         _crm_save(uname, crm)
     except Exception as _save_err:
         return jsonify({"ok": False, "error": f"Storage error: {_save_err}"}), 500
+    try:
+        _award_points(uname, "Added a CRM contact", 5)
+    except Exception:
+        pass
     return jsonify({"ok": True, "client": client})
 
 @app.post("/api/crm/clients/<client_id>")
@@ -25965,6 +25587,15 @@ def api_crm_lead_lab():
         elif len(final) < lead_count:
             warning = f"Built {len(final)} leads from public web signals for this search."
 
+        # ── Award community points ──
+        try:
+            _uname = (u.get("username") if isinstance(u, dict) else None) or ""
+            if _uname:
+                _pts = 10 + (2 * min(len(final), lead_count))
+                _award_points(_uname, f"Ran Lead Lab ({min(len(final),lead_count)} leads)", _pts)
+        except Exception:
+            pass
+
         resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
@@ -26009,6 +25640,12 @@ def api_crm_social_studio():
         f"- If this is relevant to your business, message me and I will show you the simple version."
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
+    try:
+        _u2 = current_user()
+        _un2 = (_u2.get("username") if isinstance(_u2, dict) else None) or ""
+        if _un2: _award_points(_un2, "Generated Social Studio content", 10)
+    except Exception:
+        pass
     return jsonify({"ok": True, "output": output})
 
 @app.post("/api/crm/offer_builder")
@@ -26042,6 +25679,12 @@ def api_crm_offer_builder():
         f"- I help {audience} {result}. The difference is the process: {method}. If you want, I can show you the clean version."
     )
     output = _crm_llm_or_fallback(system, prompt, fallback)
+    try:
+        _u3 = current_user()
+        _un3 = (_u3.get("username") if isinstance(_u3, dict) else None) or ""
+        if _un3: _award_points(_un3, "Built an Offer", 10)
+    except Exception:
+        pass
     return jsonify({"ok": True, "output": output})
 
 @app.post("/api/crm/playbooks")
@@ -28585,6 +28228,11 @@ def api_followup_stream():
     user_content = _build_user_content(msg2, vision_images)
 
     uname = _get_session_username()
+    # Award community points for chatting with a teammate
+    try:
+        if uname: _award_points(uname, f"Chatted with {name}", 3)
+    except Exception:
+        pass
 
     # Set image context for this teammate (mirrors non-streaming followup)
     bind_uploaded_images_to_teammate(name, file_ids, uname)
@@ -29158,6 +28806,229 @@ def api_tts():
         print(f"[TTS] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  COMMUNITY HUB — Points, Levels, Leaderboard, Idea Board
+# ═══════════════════════════════════════════════════════════════════
+
+COMMUNITY_POINTS_FILE = DATA / "community_points.json"
+COMMUNITY_IDEAS_FILE  = DATA / "community_ideas.json"
+
+COMMUNITY_LEVELS = [
+    {"name": "Recruit",   "emoji": "🌱", "min": 0,     "next": 500},
+    {"name": "Operator",  "emoji": "⚡", "min": 500,   "next": 1500},
+    {"name": "Commander", "emoji": "🔥", "min": 1500,  "next": 4000},
+    {"name": "Elite",     "emoji": "💎", "min": 4000,  "next": 10000},
+    {"name": "Legend",    "emoji": "👑", "min": 10000, "next": None},
+]
+
+def _community_level(points: int) -> dict:
+    for lvl in reversed(COMMUNITY_LEVELS):
+        if points >= lvl["min"]:
+            return lvl
+    return COMMUNITY_LEVELS[0]
+
+def _community_week_key() -> str:
+    from datetime import datetime
+    now = datetime.utcnow()
+    return f"{now.year}-W{now.isocalendar()[1]:02d}"
+
+def _community_load_points() -> dict:
+    return load_json(COMMUNITY_POINTS_FILE, {})
+
+def _community_save_points(data: dict) -> None:
+    save_json(COMMUNITY_POINTS_FILE, data)
+
+def _award_points(username: str, event: str, amount: int) -> int:
+    """Award points to a user. Returns new total. Fire-and-forget safe."""
+    try:
+        if not username or amount <= 0:
+            return 0
+        data = _community_load_points()
+        week = _community_week_key()
+        if username not in data:
+            data[username] = {"total": 0, "weeks": {}, "history": []}
+        u = data[username]
+        u["total"] = u.get("total", 0) + amount
+        u.setdefault("weeks", {})[week] = u["weeks"].get(week, 0) + amount
+        hist = u.setdefault("history", [])
+        hist.insert(0, {"event": event, "amount": amount, "ts": now_iso()})
+        u["history"] = hist[:100]
+        _community_save_points(data)
+        return u["total"]
+    except Exception:
+        return 0
+
+def _community_get_user_stats(username: str) -> dict:
+    data = _community_load_points()
+    week = _community_week_key()
+    ud = data.get(username, {"total": 0, "weeks": {}, "history": []})
+    total  = ud.get("total", 0)
+    weekly = ud.get("weeks", {}).get(week, 0)
+    lvl    = _community_level(total)
+    # rank (1-based)
+    totals = sorted([v.get("total", 0) for v in data.values()], reverse=True)
+    rank   = totals.index(total) + 1 if total in totals else len(totals) + 1
+    return {
+        "total": total, "weekly": weekly,
+        "level": lvl, "rank": rank,
+        "total_users": len(data),
+        "history": ud.get("history", [])[:15],
+    }
+
+def _community_load_ideas() -> list:
+    return load_json(COMMUNITY_IDEAS_FILE, [])
+
+def _community_save_ideas(ideas: list) -> None:
+    save_json(COMMUNITY_IDEAS_FILE, ideas)
+
+def _community_is_admin(u: dict) -> bool:
+    """Account owner (not a team-invited member) can moderate ideas."""
+    if not u: return False
+    return not u.get("owner")
+
+# ── Community API routes ────────────────────────────────────────────
+
+@app.get("/api/community/leaderboard")
+def api_community_leaderboard():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data  = _community_load_points()
+    week  = _community_week_key()
+    rows  = []
+    for uname, ud in data.items():
+        total  = ud.get("total", 0)
+        wkpts  = ud.get("weeks", {}).get(week, 0)
+        lvl    = _community_level(total)
+        rows.append({"username": uname, "total": total, "weekly": wkpts,
+                     "level_name": lvl["name"], "level_emoji": lvl["emoji"]})
+    all_time = sorted(rows, key=lambda x: x["total"], reverse=True)[:50]
+    weekly   = sorted([r for r in rows if r["weekly"] > 0],
+                      key=lambda x: x["weekly"], reverse=True)[:50]
+    for i, r in enumerate(all_time): r["rank"] = i + 1
+    for i, r in enumerate(weekly):   r["rank"] = i + 1
+    return jsonify({"ok": True, "all_time": all_time, "weekly": weekly})
+
+@app.get("/api/community/ideas")
+def api_community_ideas_list():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    is_admin = _community_is_admin(u)
+    ideas = _community_load_ideas()
+    visible = []
+    for idea in ideas:
+        st = idea.get("status", "pending")
+        # Users see approved/shipped/considering/in_progress + their own pending
+        if st == "pending" and idea.get("submitted_by") != uname and not is_admin:
+            continue
+        if st == "rejected" and not is_admin:
+            continue
+        out = dict(idea)
+        out["user_voted"] = uname in idea.get("voters", [])
+        out["votes"]      = len(idea.get("voters", []))
+        out.pop("voters", None)
+        visible.append(out)
+    visible.sort(key=lambda x: (
+        x.get("status") == "shipped",
+        x["votes"],
+        x.get("created_at", "")
+    ), reverse=True)
+    return jsonify({"ok": True, "ideas": visible})
+
+@app.post("/api/community/ideas")
+def api_community_ideas_post():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = u.get("username", "")
+    payload = request.get_json(silent=True) or {}
+    title   = (payload.get("title") or "").strip()[:120]
+    body    = (payload.get("body")  or "").strip()[:600]
+    if not title:
+        return jsonify({"ok": False, "error": "Title is required"}), 400
+    ideas = _community_load_ideas()
+    idea  = {
+        "id": str(uuid.uuid4()), "title": title, "body": body,
+        "submitted_by": uname, "status": "pending",
+        "voters": [], "votes": 0, "created_at": now_iso(),
+    }
+    ideas.insert(0, idea)
+    _community_save_ideas(ideas)
+    _award_points(uname, "Submitted an idea", 20)
+    return jsonify({"ok": True, "idea": idea})
+
+@app.post("/api/community/ideas/<idea_id>/vote")
+def api_community_idea_vote(idea_id: str):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    ideas = _community_load_ideas()
+    for idea in ideas:
+        if idea.get("id") != idea_id: continue
+        if idea.get("status") == "pending":
+            return jsonify({"ok": False, "error": "Cannot vote on pending ideas"}), 400
+        voters = idea.setdefault("voters", [])
+        if uname in voters:
+            voters.remove(uname)
+            idea["votes"] = len(voters)
+            _community_save_ideas(ideas)
+            return jsonify({"ok": True, "voted": False, "votes": idea["votes"]})
+        voters.append(uname)
+        idea["votes"] = len(voters)
+        _community_save_ideas(ideas)
+        submitter = idea.get("submitted_by", "")
+        if submitter and submitter != uname:
+            _award_points(submitter, f"Upvote on idea: {idea.get('title','')[:40]}", 5)
+        return jsonify({"ok": True, "voted": True, "votes": idea["votes"]})
+    return jsonify({"ok": False, "error": "Idea not found"}), 404
+
+@app.post("/api/community/ideas/<idea_id>/status")
+def api_community_idea_status(idea_id: str):
+    u = current_user()
+    if not u or not _community_is_admin(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    payload   = request.get_json(silent=True) or {}
+    new_status = (payload.get("status") or "").strip()
+    valid = ("approved", "rejected", "considering", "in_progress", "shipped")
+    if new_status not in valid:
+        return jsonify({"ok": False, "error": "Invalid status"}), 400
+    ideas = _community_load_ideas()
+    for idea in ideas:
+        if idea.get("id") != idea_id: continue
+        old = idea.get("status")
+        idea["status"]             = new_status
+        idea["status_updated_at"]  = now_iso()
+        if new_status == "shipped" and old != "shipped":
+            submitter = idea.get("submitted_by", "")
+            if submitter:
+                _award_points(submitter, f"Idea shipped: {idea.get('title','')[:40]}", 200)
+        _community_save_ideas(ideas)
+        return jsonify({"ok": True, "idea": idea})
+    return jsonify({"ok": False, "error": "Idea not found"}), 404
+
+@app.get("/api/community/my_stats")
+def api_community_my_stats():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    stats = _community_get_user_stats(uname)
+    stats["is_admin"]  = _community_is_admin(u)
+    # Pending ideas count for admin badge
+    if stats["is_admin"]:
+        stats["pending_count"] = sum(
+            1 for i in _community_load_ideas() if i.get("status") == "pending"
+        )
+    return jsonify({"ok": True, **stats})
+
+@app.get("/api/community/pending_ideas")
+def api_community_pending_ideas():
+    u = current_user()
+    if not u or not _community_is_admin(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    ideas   = _community_load_ideas()
+    pending = [i for i in ideas if i.get("status") == "pending"]
+    return jsonify({"ok": True, "ideas": pending})
 
 
 if __name__ == "__main__":
