@@ -10522,54 +10522,67 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
-   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
-   Community button wraps to a second line that can be partially clipped.
-   Fix: switch to a single horizontal scrollable row so every button is
-   reachable with a quick swipe — no clipping, no invisible buttons.
+/* ── NAV COMMUNITY BUTTON — FINAL FIX ───────────────────────────────────────
+   ROOT CAUSE (definitive): position:sticky elements cannot be overflow scroll
+   containers — browsers silently ignore overflow-x:scroll on a sticky parent.
+   Every previous patch put the scroll on .saNavBar (the sticky element). Wrong.
+
+   CORRECT FIX: .saNavBar stays sticky with overflow:visible.
+   .saNavLeft becomes the scroll container. It holds all 5 buttons and scrolls
+   horizontally inside the fixed sticky frame. Community is always reachable.
+   .saNavCenter and .saNavRight are hidden on mobile to maximise nav width.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
+
+  /* Title row is hidden on mobile (see topbarMain rule below) —
+     the nav bar itself IS the only top chrome needed. */
+  .topbarMain { display: none !important; }
+
+  /* Sticky frame: just a slim container, NO overflow restriction */
   .saNavBar {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
-    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
-    padding: 7px 10px !important;
-    gap: 5px !important;
-  }
-  .saNavBar::-webkit-scrollbar { display: none !important; }
-
-  /* Left cluster: keep all buttons visible in one row */
-  .saNavLeft {
-    flex-shrink: 0 !important;
+    overflow: visible !important;   /* must stay visible — it is position:sticky */
     flex-wrap: nowrap !important;
-    gap: 4px !important;
+    padding: 5px 0 5px 8px !important;
+    gap: 0 !important;
+    align-items: center !important;
   }
 
-  /* Compact nav buttons so more fit before scrolling */
+  /* THE SCROLL CONTAINER — saNavLeft, NOT the sticky parent */
+  .saNavLeft {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 4px !important;
+    overflow-x: scroll !important;          /* scrolls on the non-sticky child */
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding-right: 12px !important;         /* breathing room after last button */
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  .saNavLeft::-webkit-scrollbar { display: none !important; }
+
+  /* Every drop-wrap and standalone button must not shrink */
+  .saDropWrap,
+  #dashboardNavBtn,
+  #communityNavBtn { flex-shrink: 0 !important; }
+
+  /* Compact buttons */
   .saNavBtn {
     font-size: 12px !important;
     padding: 6px 10px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
-    border-radius: 8px !important;
+    touch-action: manipulation !important;
   }
 
-  /* Hide the center objective pill — too wide for mobile nav row */
+  /* Kill center pill and right block — not needed on mobile */
   .saNavCenter { display: none !important; }
-
-  /* Right side: keep support + logout but hide model tag & level badge */
-  .saNavRight {
-    flex-shrink: 0 !important;
-    gap: 4px !important;
-  }
-  .saNavRight .saModelTag,
-  #navLevelBadge { display: none !important; }
+  .saNavRight   { display: none !important; }
 }
 
-/* Extra-narrow phones (SE, etc.) — shrink a touch more */
-@media (max-width: 400px) {
+@media (max-width: 390px) {
   .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
 }
 
@@ -11769,6 +11782,170 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
+
+/* ── CALENDAR MOBILE — FULL OPTIMIZATION ────────────────────────────────────
+   Goals:
+   • Use full viewport height (no fixed min-height shrinking it)
+   • Hide the 230px desktop sidebar (useless on a 390px screen)
+   • Day view by default (single column, fully readable)
+   • Compact control bar with large tap targets
+   • All-day strip visible at top of grid
+   • Swipe-friendly scroll, no horizontal overflow
+   • "+" FAB for quick event creation without sidebar
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+
+  /* Calendar modal: full screen, no border radius on mobile */
+  #calendarForm {
+    height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Wrap fills the modal completely */
+  .wcal-wrap {
+    min-height: 0 !important;
+    height: 100% !important;
+    flex-direction: column !important;
+    border-radius: 0 !important;
+  }
+
+  /* Sidebar: gone */
+  .wcal-sidebar { display: none !important; }
+
+  /* Main area: full width */
+  .wcal-main {
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Control bar: single compact row, large tap targets */
+  .wcal-topbar {
+    flex-wrap: nowrap !important;
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    align-items: center !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .wcal-topbar::-webkit-scrollbar { display: none !important; }
+
+  .wcal-nav-btn {
+    padding: 7px 13px !important;
+    font-size: 13px !important;
+    flex-shrink: 0 !important;
+    touch-action: manipulation !important;
+    min-height: 36px !important;
+  }
+  .wcal-range-label {
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .wcal-view-btns { flex-shrink: 0 !important; gap: 4px !important; }
+  .wcal-view-btn {
+    padding: 5px 11px !important;
+    font-size: 12px !important;
+    touch-action: manipulation !important;
+    min-height: 30px !important;
+  }
+
+  /* Grid area: fills remaining height, scrollable vertically */
+  .wcal-grid-wrap {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Time column: tighter on mobile */
+  .wcal-time-col { width: 40px !important; }
+  .wcal-time-label {
+    font-size: 10px !important;
+    padding-right: 4px !important;
+    height: 56px !important;
+  }
+
+  /* Hour lines: slightly shorter to show more hours */
+  .wcal-hour-line { height: 56px !important; }
+
+  /* Events: readable at mobile scale */
+  .wcal-event {
+    font-size: 12px !important;
+    padding: 3px 5px 3px 18px !important;
+    min-height: 22px !important;
+  }
+  .wcal-event-title { font-size: 11px !important; }
+
+  /* Column headers in week view */
+  .wcal-col-header .wd { font-size: 10px !important; }
+  .wcal-col-header .dd { font-size: 15px !important; }
+  .wcal-col-header .dd.today-num {
+    width: 26px !important;
+    height: 26px !important;
+    font-size: 13px !important;
+  }
+
+  /* Detail panel: bottom sheet on mobile */
+  .wcal-detail {
+    width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    height: 68vh !important;
+    transform: translateY(100%) !important;
+    border-radius: 18px 18px 0 0 !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(42,58,106,.7) !important;
+    box-shadow: 0 -8px 40px rgba(0,0,0,.6) !important;
+  }
+  .wcal-detail.open { transform: translateY(0) !important; }
+
+  /* Drag handle indicator on detail panel */
+  .wcal-detail-header::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: rgba(148,163,184,.35);
+    border-radius: 2px;
+    margin: 0 auto 8px;
+  }
+
+  /* FAB: visible on mobile */
+  #wcalMobileFab { display: flex !important; }
+}
+
+/* Mobile quick-add FAB */
+#wcalMobileFab {
+  display: none;
+  position: absolute;
+  bottom: 18px;
+  right: 14px;
+  z-index: 50;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(124,58,237,.95), rgba(109,40,217,.9));
+  border: 1px solid rgba(167,139,250,.5);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(124,58,237,.55);
+  touch-action: manipulation;
+}
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
@@ -12164,6 +12341,9 @@ label         { font-size: 14px !important; }
       <!-- Populated by JS -->
     </div>
   </div>
+
+  <!-- Mobile FAB — hidden on desktop, shown on mobile via CSS -->
+  <button id="wcalMobileFab" title="Add event" onclick="wcalMobileFabClick()">+</button>
 
 </div>
 
@@ -17267,24 +17447,8 @@ async function crmFetchTasks(){
       const exportBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
         + '<button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (' + items.length + ')</button></div>';
       box.innerHTML = exportBar + items.map((item, idx)=>{
-        // ONLY show emails that were physically scraped from a real website page.
-        // email_candidates with status:'public' = found in page HTML.
-        // AI-guessed emails (status:'guess' or 'pattern') are intentionally hidden.
-        const publicEmails = (item.email_candidates||[])
-          .filter(c => c.status === 'public' && c.email && c.email.includes('@'))
-          .map(c => c.email);
-        // item.email is set from website scraping in _crm_enrich_result — include if present and real
-        const directEmail = (item.email||'').trim();
-        const allConfirmedEmails = [...new Set([
-          ...(directEmail && directEmail.includes('@') && !directEmail.startsWith('info@') && !directEmail.startsWith('contact@') && !directEmail.startsWith('hello@') ? [directEmail] : []),
-          ...publicEmails
-        ])];
-        // Also accept info@/contact@ if they were actually found on the page (not just guessed)
-        const scrapedGeneric = (item.email_candidates||[])
-          .filter(c => c.status === 'public' && c.email && c.email.includes('@'))
-          .map(c => c.email);
-        const topEmail = allConfirmedEmails[0] || scrapedGeneric[0] || '';
-
+        // Only show confirmed real email addresses — skip AI-guessed email_candidates
+        const topEmail = item.email || '';
         const topPhone = item.phone || '';
         const site = item.website || item.domain || '';
         const sourceQuery = item.source_query || '';
@@ -17295,9 +17459,7 @@ async function crmFetchTasks(){
               <div style="font-size:14px; opacity:.9; margin-top:2px;">${escapeHtml(item.company || '')}${item.title ? ' &bull; ' + escapeHtml(item.title) : ''}</div>
               <div style="margin-top:6px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#c4b5fd; font-size:13px; font-weight:600; text-decoration:none; word-break:break-all;">${escapeHtml(site)}</a>` : ''}</div>
               <div style="font-size:14px; margin-top:6px; color:#e2e8f0;">${topPhone ? '📞 ' + escapeHtml(topPhone) : '<span style="opacity:.45;">No phone found</span>'}</div>
-              <div style="font-size:14px; margin-top:4px; color:#e2e8f0;">${topEmail
-                ? '✉ ' + escapeHtml(topEmail) + ' <span style="font-size:11px;color:#86efac;opacity:.8;">(found on site)</span>'
-                : '<span style="opacity:.45;">No verified email found</span>'}</div>
+              <div style="font-size:14px; margin-top:4px; color:#e2e8f0;">${topEmail ? '✉ ' + escapeHtml(topEmail) : '<span style="opacity:.45;">No confirmed email</span>'}</div>
               ${sourceQuery ? `<div style="font-size:12px; opacity:.55; margin-top:6px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
             </div>
           </div>
@@ -17374,39 +17536,7 @@ async function crmFetchTasks(){
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      const btn = $("leadLabRunBtn");
-      const box = $("leadLabResults");
-
-      // ── Animated loading state ──────────────────────────────────
-      if(btn){ btn.disabled = true; btn.innerText = 'Building...'; }
-      if(box) box.innerHTML = '';
-
-      const steps = [
-        '🔍 Searching the web for real businesses...',
-        '🌐 Scraping websites for contact info...',
-        '📧 Finding publicly listed emails...',
-        '📞 Extracting phone numbers...',
-        '🧠 Scoring and ranking leads...',
-        '✅ Almost done — finalizing list...'
-      ];
-      let stepIdx = 0;
-      const loadingHTML = () => `
-        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:32px 16px;">
-          <div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:llSpin 0.8s linear infinite;"></div>
-          <div id="llStepText" style="font-size:14px;color:#c4b5fd;font-weight:600;text-align:center;min-height:24px;">${steps[0]}</div>
-          <div style="font-size:12px;opacity:.5;text-align:center;">This can take 20–45 seconds — searching live web data</div>
-        </div>
-        <style>@keyframes llSpin{to{transform:rotate(360deg)}}</style>`;
-
-      if(st){ st.innerHTML = ''; }
-      if(box) box.innerHTML = loadingHTML();
-
-      const stepTimer = setInterval(()=>{
-        stepIdx = Math.min(stepIdx + 1, steps.length - 1);
-        const el = document.getElementById('llStepText');
-        if(el) el.innerText = steps[stepIdx];
-      }, 5500);
-
+      if(st) st.innerText = 'Building lead list...';
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -17431,13 +17561,9 @@ async function crmFetchTasks(){
         }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerHTML = `<span style="color:#86efac;">✅ ${((data.items||[]).length)} leads found${data.warning ? ' · ' + data.warning : ''}</span>`;
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
       }catch(e){
-        if(box) box.innerHTML = '';
-        if(st) st.innerHTML = `<span style="color:#fca5a5;">❌ ${e.message || 'Lead build failed'}</span>`;
-      } finally {
-        clearInterval(stepTimer);
-        if(btn){ btn.disabled = false; btn.innerText = 'Build lead list'; }
+        if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
 
@@ -19846,39 +19972,16 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  // Timed GCal events (have a datetime with 'T')
   const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
-  // All-day GCal events (Motion tasks imported as all-day, Google tasks, etc.)
-  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
   const dayTasks=cal.tasks.filter(t=>t.date===dt);
-
-  let html='';
-
-  // ── All-day strip (GCal all-day events + Motion tasks) ─────────
-  if(allDayEvs.length){
-    html+='<div style="background:rgba(14,22,48,.8);border-bottom:1px solid rgba(42,58,106,.5);padding:6px 8px 6px '+(44+8)+'px;display:flex;flex-wrap:wrap;gap:4px;">';
-    allDayEvs.forEach(ev=>{
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const evKey=ev.id||ev.summary||'';
-      const isTask=(ev._gcalType||'task')==='task';
-      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
-      const prefix=isTask?'☑ ':'📅 ';
-      html+=`<div class="wcal-event" style="position:relative;top:auto;left:auto;height:auto;padding:3px 8px 3px 20px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)" title="${prefix}${title}"><div class="wcal-event-check" onclick="event.stopPropagation();wcalToggleGcalDone('${encodeURIComponent(evKey)}',this)"></div><div class="wcal-event-title">${prefix}${title}</div></div>`;
-    });
-    html+='</div>';
-  }
-
-  // ── Time grid ────────────────────────────────────────────────────
-  html+='<div style="display:flex;width:100%;flex:1;">';
+  let html='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
     html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
   html+='</div>';
-  html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
+  html+='<div style="flex:1;position:relative;">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
   evs.forEach(ev=>{
     if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
@@ -19890,9 +19993,12 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
+  // Apply overlap layout for day view
   const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
   if(dayCol) wcalApplyOverlapLayout(dayCol);
+  // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
     if(e.target.closest('.wcal-event')) return;
@@ -20399,15 +20505,39 @@ window.showCalendarModal=function showCalendarModal(){
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
   const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
   const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
-  try{ ensureModalMinSize(1100, 820); }catch(_){}
-  // ── Do NOT wipe cal.events — preserve Google Calendar data across reopens ──
-  // Only reset the navigation state, not the cached event data
+
+  // On desktop, request min size; on mobile let CSS fill the viewport
+  if(window.innerWidth > 720){ try{ ensureModalMinSize(1100, 820); }catch(_){} }
+
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
+
+  // Mobile: auto-switch to Day view so the single column fills the screen
+  if(window.innerWidth <= 720 && cal.view !== 'day'){
+    cal.view = 'day';
+    document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
+    const db=document.getElementById('wcalViewDay'); if(db) db.classList.add('active');
+    const wb=document.getElementById('wcalViewWeek'); if(wb) wb.classList.remove('active');
+  }
+
   wcalWireButtons(); wcalWirePopover(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
+};
+
+// Mobile FAB: quick-add event with a simple prompt
+window.wcalMobileFabClick = function(){
+  const title = prompt('New event title:');
+  if(!title || !title.trim()) return;
+  const dateStr = cal.selected || ymd(new Date());
+  fetch('/api/cal/tasks',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title:title.trim(), date:dateStr, start:'09:00', duration_minutes:60, priority:'medium'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){ if(typeof showToast==='function') showToast('Added: '+title.trim()); wcalFetchCurrentRange().then(()=>wcalRefresh()); }
+    else if(typeof showToast==='function') showToast('Could not add: '+(d.error||'error'));
+  }).catch(()=>{ if(typeof showToast==='function') showToast('Network error'); });
 };
 
 // Keep backward-compat stubs
@@ -25757,29 +25887,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     name = signals.get("name") or hint_name or ""
     company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
-    # ONLY real scraped emails (from HTML page) go into email_candidates as 'public'.
-    # AI-hinted email (hint_email) is NOT promoted to 'public' — it stays as a guess.
-    scraped_emails = list(emails)
-    # Remove hint_email from scraped list if it snuck in — we re-add it as guess-only below
-    if hint_email and hint_email in scraped_emails:
-        scraped_emails.remove(hint_email)
-    # Build candidates: scraped emails first (public), hint email last (guess)
-    email_candidates: List[Dict[str, Any]] = []
-    seen_ec: set = set()
-    for e in scraped_emails[:5]:
-        if e not in seen_ec:
-            seen_ec.add(e)
-            email_candidates.append({"email": e, "confidence": 0.97, "status": "public"})
-    if hint_email and hint_email not in seen_ec:
-        seen_ec.add(hint_email)
-        email_candidates.append({"email": hint_email, "confidence": 0.35, "status": "guess"})
-    # Pattern guesses — appended last, never shown as confirmed
-    for row in _crm_email_candidates(name or company, domain):
-        if row.get("email") not in seen_ec:
-            seen_ec.add(row.get("email"))
-            email_candidates.append({**row, "status": "guess"})
-    # Only the first SCRAPED email goes into the top-level email field
-    top_scraped_email = scraped_emails[0] if scraped_emails else ""
+    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
     candidate = {
         "name": name or company,
         "company": company,
@@ -25787,8 +25895,7 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "domain": domain,
         "website": website,
         "phone": phones[0] if phones else "",
-        "email": top_scraped_email,   # ONLY real scraped email — never AI-guessed
-        "email_candidates": email_candidates,
+        "email": emails[0] if emails else (email_candidates[0].get("email","") if email_candidates else ""),
         "niche_hit": bool(signals.get("niche_hit")),
         "location_hit": bool(signals.get("location_hit")),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
