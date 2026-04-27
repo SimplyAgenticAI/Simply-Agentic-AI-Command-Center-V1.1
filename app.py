@@ -3074,7 +3074,7 @@ def _strip_motion_boilerplate(text: str) -> str:
 
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    headers = {"Authorization": f"Bearer {access_token}"}
     params = {
         "timeMin": time_min,
         "timeMax": time_max,
@@ -3083,36 +3083,87 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         "maxResults": str(max_results),
         "timeZone": timezone,
     }
-    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
-    data = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise Exception(f"Calendar API error: {data}")
-    items = data.get("items") or []
-    out: List[Dict[str, Any]] = []
-    for it in items:
-        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
-        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
-        raw_attendees = it.get("attendees") or []
-        attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
-        raw_desc = it.get("description", "") or ""
-        # Detect Motion tasks BEFORE stripping boilerplate — Motion adds "task" patterns to description
-        is_motion_task = bool(re.search(
-            r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
-            raw_desc, re.IGNORECASE
-        ))
-        out.append({
-            "id": it.get("id",""),
-            "summary": it.get("summary",""),
-            "start": start,
-            "end": end,
-            "htmlLink": it.get("htmlLink",""),
-            "hangoutLink": it.get("hangoutLink",""),
-            "recurringEventId": it.get("recurringEventId",""),
-            "description": _strip_motion_boilerplate(raw_desc),
-            "location": it.get("location",""),
-            "attendees": attendee_emails,
-            "is_motion_task": is_motion_task,
-        })
+
+    def _fetch_cal(cal_id: str) -> List[Dict[str, Any]]:
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{requests.utils.quote(cal_id, safe='')}/events"
+        try:
+            r = requests.get(url, headers=headers, params=params, timeout=20)
+            data = r.json() if r.content else {}
+            if r.status_code >= 400:
+                return []
+            return data.get("items") or []
+        except Exception:
+            return []
+
+    def _parse_items(items: list, cal_label: str = "") -> List[Dict[str, Any]]:
+        out = []
+        for it in items:
+            start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
+            end   = (it.get("end")   or {}).get("dateTime") or (it.get("end")   or {}).get("date") or ""
+            raw_attendees = it.get("attendees") or []
+            attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
+            raw_desc = it.get("description", "") or ""
+            is_motion_task = bool(re.search(
+                r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
+                raw_desc, re.IGNORECASE
+            ))
+            # Google Task items have status field and no attendees — tag them
+            is_gtask = bool(it.get("status") in ("needsAction", "completed") and cal_label == "tasks")
+            out.append({
+                "id":               it.get("id", ""),
+                "summary":          it.get("summary", ""),
+                "start":            start,
+                "end":              end,
+                "htmlLink":         it.get("htmlLink", ""),
+                "hangoutLink":      it.get("hangoutLink", ""),
+                "recurringEventId": it.get("recurringEventId", ""),
+                "description":      _strip_motion_boilerplate(raw_desc),
+                "location":         it.get("location", ""),
+                "attendees":        attendee_emails,
+                "is_motion_task":   is_motion_task,
+                "is_gtask":         is_gtask,
+                "cal_label":        cal_label,
+            })
+        return out
+
+    # 1. Primary calendar
+    primary_items = _fetch_cal("primary")
+    out = _parse_items(primary_items, "primary")
+
+    # 2. Google Tasks calendar — Google Tasks show here as all-day events
+    #    The ID is stable across all Google accounts.
+    tasks_items = _fetch_cal("tasks@group.v.calendar.google.com")
+    seen_ids = {e["id"] for e in out if e["id"]}
+    for ev in _parse_items(tasks_items, "tasks"):
+        if ev["id"] not in seen_ids:
+            seen_ids.add(ev["id"])
+            out.append(ev)
+
+    # 3. Fetch remaining user calendars (excluding primary and tasks to avoid duplication)
+    try:
+        cl_r = requests.get(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            headers=headers, params={"fields": "items(id,summary,selected,primary,accessRole)"}, timeout=15
+        )
+        if cl_r.status_code == 200:
+            cl_data = cl_r.json() if cl_r.content else {}
+            for cal in (cl_data.get("items") or []):
+                cal_id = cal.get("id") or ""
+                if not cal_id:
+                    continue
+                if cal_id in ("primary", "tasks@group.v.calendar.google.com"):
+                    continue
+                # Skip calendars the user hasn't selected in their calendar view
+                if not cal.get("selected", True):
+                    continue
+                extra_items = _fetch_cal(cal_id)
+                for ev in _parse_items(extra_items, cal.get("summary", cal_id)):
+                    if ev["id"] not in seen_ids:
+                        seen_ids.add(ev["id"])
+                        out.append(ev)
+    except Exception:
+        pass
+
     return out
 
 
@@ -10522,66 +10573,55 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── MOBILE NAV — DEFINITIVE FIX ────────────────────────────────────────────
-   Team/Tools/Settings now open the mobile drawer (JS above).
-   The nav only needs to show Dashboard + Community on mobile — 2 buttons
-   always fit without any overflow or scroll needed.
+/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
+   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
+   Community button wraps to a second line that can be partially clipped.
+   Fix: switch to a single horizontal scrollable row so every button is
+   reachable with a quick swipe — no clipping, no invisible buttons.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  /* Hide the title row — wastes vertical space on mobile */
-  .topbarMain { display: none !important; }
-
-  /* Nav bar: simple flex row, no overflow tricks needed */
   .saNavBar {
-    flex-wrap: nowrap !important;
-    padding: 5px 8px !important;
-    gap: 6px !important;
-    overflow: visible !important;
-  }
-
-  /* Left group: hide Team/Tools/Settings dropdowns (they open drawer instead)
-     but keep Dashboard and Community fully visible */
-  .saDropWrap { display: none !important; }   /* hides Team/Tools/Settings wrappers */
-
-  /* Dashboard and Community sit directly in saNavLeft — keep them */
-  #dashboardNavBtn,
-  #communityNavBtn {
-    display: inline-flex !important;
-    flex-shrink: 0 !important;
-    font-size: 13px !important;
-    padding: 7px 12px !important;
-    white-space: nowrap !important;
-    touch-action: manipulation !important;
-  }
-
-  /* Add a "Menu ☰" button before Dashboard that opens the drawer */
-  /* (injected by JS below — see initMobileNavBar) */
-  #mobileNavMenuBtn {
-    display: inline-flex !important;
-    align-items: center !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
+    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
+    padding: 7px 10px !important;
     gap: 5px !important;
-    font-size: 13px !important;
-    padding: 7px 12px !important;
-    background: rgba(28,40,80,.85) !important;
-    border: 1px solid rgba(80,110,200,.45) !important;
-    border-radius: 10px !important;
-    color: rgba(210,220,255,.95) !important;
-    cursor: pointer !important;
+  }
+  .saNavBar::-webkit-scrollbar { display: none !important; }
+
+  /* Left cluster: keep all buttons visible in one row */
+  .saNavLeft {
     flex-shrink: 0 !important;
-    white-space: nowrap !important;
-    touch-action: manipulation !important;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
   }
 
-  /* Kill center and right — not needed on mobile */
+  /* Compact nav buttons so more fit before scrolling */
+  .saNavBtn {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  /* Hide the center objective pill — too wide for mobile nav row */
   .saNavCenter { display: none !important; }
-  .saNavRight   { display: none !important; }
+
+  /* Right side: keep support + logout but hide model tag & level badge */
+  .saNavRight {
+    flex-shrink: 0 !important;
+    gap: 4px !important;
+  }
+  .saNavRight .saModelTag,
+  #navLevelBadge { display: none !important; }
 }
 
-@media (max-width: 390px) {
-  #dashboardNavBtn, #communityNavBtn, #mobileNavMenuBtn {
-    font-size: 12px !important;
-    padding: 6px 9px !important;
-  }
+/* Extra-narrow phones (SE, etc.) — shrink a touch more */
+@media (max-width: 400px) {
+  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
 }
 
 </style>
@@ -11780,30 +11820,6 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
-
-/* ── CALENDAR MOBILE OPTIMIZATION ───────────────────────────────────────── */
-@media (max-width: 720px) {
-  .wcal-wrap { min-height:0 !important; height:100% !important; flex-direction:column !important; border-radius:0 !important; }
-  .wcal-sidebar { display:none !important; }
-  .wcal-main { width:100% !important; height:100% !important; min-width:0 !important; }
-  .wcal-topbar { flex-wrap:nowrap !important; padding:6px 8px !important; gap:6px !important; overflow-x:auto !important; scrollbar-width:none !important; }
-  .wcal-topbar::-webkit-scrollbar { display:none !important; }
-  .wcal-nav-btn { padding:7px 13px !important; font-size:13px !important; flex-shrink:0 !important; touch-action:manipulation !important; min-height:36px !important; }
-  .wcal-range-label { font-size:12px !important; flex:1 !important; min-width:0 !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
-  .wcal-view-btns { flex-shrink:0 !important; }
-  .wcal-view-btn { padding:5px 11px !important; font-size:12px !important; touch-action:manipulation !important; }
-  .wcal-grid-wrap { flex:1 1 auto !important; min-height:0 !important; overflow-y:auto !important; overflow-x:hidden !important; -webkit-overflow-scrolling:touch !important; }
-  .wcal-time-col { width:40px !important; }
-  .wcal-time-label { font-size:10px !important; padding-right:4px !important; height:56px !important; }
-  .wcal-hour-line { height:56px !important; }
-  .wcal-event { font-size:12px !important; padding:3px 5px 3px 18px !important; min-height:22px !important; }
-  .wcal-col-header .wd { font-size:10px !important; }
-  .wcal-col-header .dd { font-size:15px !important; }
-  .wcal-detail { width:100% !important; left:0 !important; right:0 !important; top:auto !important; bottom:0 !important; height:68vh !important; transform:translateY(100%) !important; border-radius:18px 18px 0 0 !important; border-left:none !important; border-top:1px solid rgba(42,58,106,.7) !important; }
-  .wcal-detail.open { transform:translateY(0) !important; }
-  #wcalMobileFab { display:flex !important; }
-}
-#wcalMobileFab { display:none; position:absolute; bottom:18px; right:14px; z-index:50; width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg,rgba(124,58,237,.95),rgba(109,40,217,.9)); border:1px solid rgba(167,139,250,.5); color:#fff; font-size:26px; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 4px 24px rgba(124,58,237,.55); touch-action:manipulation; }
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
@@ -12199,9 +12215,6 @@ label         { font-size: 14px !important; }
       <!-- Populated by JS -->
     </div>
   </div>
-
-  <!-- Mobile quick-add FAB -->
-  <button id="wcalMobileFab" onclick="wcalMobileFabClick()" title="Add event">+</button>
 
 </div>
 
@@ -15084,44 +15097,23 @@ function makeSeat(defn, idx){
     };
 
     // ===== NAV BAR DROPDOWN JS =====
-    // On DESKTOP: dropdowns work normally (position:absolute, no overflow clip).
-    // On MOBILE: Team/Tools/Settings open the mobile drawer instead of a dropdown
-    //   because position:absolute children cannot escape overflow:scroll or
-    //   backdrop-filter stacking contexts — fundamental CSS physics, not fixable
-    //   with CSS alone. The drawer is the correct mobile pattern.
-
-    function _openMobileDrawer(){
-      const ov = document.getElementById('mobileDrawerOverlay');
-      if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
-      try{ document.body.style.overflow='hidden'; }catch(_){}
-    }
-
     window.saToggleDrop = function saToggleDrop(dropId){
-      // Mobile: open drawer instead of dropdown
-      if(window.innerWidth <= 720){
-        _openMobileDrawer();
-        return;
-      }
-      // Desktop: normal dropdown toggle
-      const allDrops = document.querySelectorAll('.saDrop');
-      const target   = document.getElementById(dropId);
-      const isOpen   = target && target.classList.contains('open');
-      allDrops.forEach(d => d.classList.remove('open'));
-      if(!isOpen && target) target.classList.add('open');
-    };
-
-    // Close desktop dropdowns on outside click
-    document.addEventListener('click', function(e){
-      if(window.innerWidth > 720 && !e.target.closest('.saDropWrap')){
-        document.querySelectorAll('.saDrop').forEach(d => d.classList.remove('open'));
-      }
+      const allDrops=document.querySelectorAll('.saDrop');
+      const target=document.getElementById(dropId);
+      const isOpen=target&&target.classList.contains('open');
+      allDrops.forEach(d=>d.classList.remove('open'));
+      if(!isOpen&&target) target.classList.add('open');
+    }
+    document.addEventListener('click',function(e){
+      if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
     });
 
-    // Auto-close desktop dropdowns after item click
+    // Auto-close dropdowns after any item is clicked
     document.querySelectorAll('.saDropItem').forEach(function(item){
       item.addEventListener('click', function(){
         setTimeout(function(){
           document.querySelectorAll('.saDrop').forEach(function(d){ d.classList.remove('open'); });
+          document.querySelectorAll('.saNavBtn').forEach(function(b){ b.classList.remove('open'); });
         }, 50);
       });
     });
@@ -15130,23 +15122,6 @@ function makeSeat(defn, idx){
     (function(){
       // Cache registry for command-bar teammate detection
       try{ fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; }); }catch(_){}
-    })();
-
-    // ── Mobile nav bar: inject ☰ Menu button on mobile ──────────
-    (function initMobileNavBar(){
-      if(window.innerWidth > 720) return;
-      const navLeft = document.getElementById('saNavBar');
-      if(!navLeft) return;
-      const btn = document.createElement('button');
-      btn.id = 'mobileNavMenuBtn';
-      btn.innerHTML = '☰ Menu';
-      btn.onclick = function(){
-        const ov = document.getElementById('mobileDrawerOverlay');
-        if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
-        try{ document.body.style.overflow='hidden'; }catch(_){}
-      };
-      // Prepend before everything else in the nav bar
-      navLeft.insertBefore(btn, navLeft.firstChild);
     })();
     // ===== END NAV BAR JS =====
 
@@ -17432,15 +17407,7 @@ async function crmFetchTasks(){
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      const btn = $("leadLabRunBtn");
-      const box = $("leadLabResults");
-      if(btn){ btn.disabled=true; btn.innerText='Building...'; }
-      if(box) box.innerHTML='';
-      const steps=['🔍 Searching web for real businesses...','🌐 Scraping websites for contacts...','📧 Finding confirmed emails...','📞 Extracting phone numbers...','🧠 Scoring & ranking leads...','✅ Finalizing list...'];
-      let si=0;
-      if(box) box.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:32px 16px;"><div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:llSpin .8s linear infinite;"></div><div id="llStep" style="font-size:14px;color:#c4b5fd;font-weight:600;text-align:center;">${steps[0]}</div><div style="font-size:12px;opacity:.5;text-align:center;">Can take 20–45 seconds — searching live web</div></div><style>@keyframes llSpin{to{transform:rotate(360deg)}}</style>`;
-      if(st) st.innerHTML='';
-      const timer=setInterval(()=>{ si=Math.min(si+1,steps.length-1); const el=document.getElementById('llStep'); if(el) el.innerText=steps[si]; },5500);
+      if(st) st.innerText = 'Building lead list...';
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -17460,16 +17427,14 @@ async function crmFetchTasks(){
         const raw = await res.text();
         let data = null;
         try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-        if(!ct.includes('application/json') || !data) throw new Error('Invalid server response: ' + raw.slice(0,220));
+        if(!ct.includes('application/json') || !data){
+          throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
+        }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerHTML=`<span style="color:#86efac;">✅ ${(data.items||[]).length} leads found${data.warning?' · '+data.warning:''}</span>`;
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
       }catch(e){
-        if(box) box.innerHTML='';
-        if(st) st.innerHTML=`<span style="color:#fca5a5;">❌ ${e.message||'Lead build failed'}</span>`;
-      } finally {
-        clearInterval(timer);
-        if(btn){ btn.disabled=false; btn.innerText='Build lead list'; }
+        if(st) st.innerText = e.message || 'Lead build failed';
       }
     }
 
@@ -17939,22 +17904,34 @@ async function wcalFetchRange(start, end){
   try{
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
-    if(!data.ok){ if(st) st.innerText = data.error||'Calendar not connected — connect in Settings'; return; }
+    if(!data.ok){
+      const errMsg = data.error||'Calendar not connected — connect in Settings';
+      if(st) st.innerText = errMsg;
+      // Show prominent banner so mobile users (no sidebar) see the error
+      const grid=document.getElementById('wcalGrid');
+      if(grid && !Object.keys(cal.events).length){
+        grid.innerHTML=`<div style="padding:32px 16px;text-align:center;color:#fca5a5;font-size:13px;">
+          <div style="font-size:28px;margin-bottom:12px;">📅</div>
+          <div style="font-weight:700;margin-bottom:8px;">Google Calendar not connected</div>
+          <div style="opacity:.7;margin-bottom:16px;">${errMsg}</div>
+          <button onclick="if(typeof settingsBtn!=='undefined'&&settingsBtn)settingsBtn.click();else if(document.getElementById('settingsBtn'))document.getElementById('settingsBtn').click();" style="background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#c4b5fd;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer;">Open Settings to connect</button>
+        </div>`;
+      }
+      return;
+    }
     const map = {};
     (data.events||[]).forEach(ev=>{
-      // Determine effective display type: user override in meta > Motion task detection > default event
       const evId = ev.id||ev.summary||'';
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
       if(metaType){
         ev._gcalType = metaType;
+      } else if(ev.is_gtask){
+        ev._gcalType = 'task';   // Google Tasks always render as tasks
       } else {
-        ev._gcalType = 'task';
+        ev._gcalType = 'task';   // default: treat as task
       }
-      // Apply stored priority from meta into _evPriority so colors render correctly
-      if(metaEntry.priority){
-        _evPriority[evId] = metaEntry.priority;
-      }
+      if(metaEntry.priority) _evPriority[evId] = metaEntry.priority;
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
     });
@@ -18167,6 +18144,9 @@ function wcalEventHtml(ev, extraStyle=''){
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const _evRawTitle=(ev.summary||'Event');
   const title=(wcalCleanDescription(_evRawTitle)||_evRawTitle).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const evKey=ev.id||ev.summary||'';                              // FIX: was undefined
+  const isDone=_evDone.has(evKey)||(!!(( cal.gcalMeta||{})[evKey]||{}).done); // FIX: was undefined
+  const doneCls=isDone?' is-done':'';                             // FIX: was undefined
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
@@ -19879,26 +19859,30 @@ function wcalRenderDay(){
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 
-  const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
-  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
-  const dayTasks=cal.tasks.filter(t=>t.date===dt);
+  const timedEvs  =(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const allDayEvs =(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
+  const dayTasks  = cal.tasks.filter(t=>t.date===dt);
 
   let html='';
-  // All-day strip (GCal all-day events, Motion tasks imported as all-day)
+
+  // ── All-day strip: Google Tasks + Motion all-day items ─────────
   if(allDayEvs.length){
-    html+='<div style="background:rgba(14,22,48,.8);border-bottom:1px solid rgba(42,58,106,.5);padding:5px 8px;display:flex;flex-wrap:wrap;gap:4px;">';
+    html+='<div style="background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);padding:5px 6px 5px 48px;display:flex;flex-wrap:wrap;gap:4px;min-height:28px;align-items:center;">';
+    html+='<span style="position:absolute;left:6px;font-size:10px;color:rgba(148,168,210,.6);white-space:nowrap;">All day</span>';
     allDayEvs.forEach(ev=>{
+      const evKey=ev.id||ev.summary||'';
+      const isTask=(ev._gcalType||'task')==='task'||ev.is_gtask;
       const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const evKey=encodeURIComponent(ev.id||ev.summary||'');
-      const isTask=(ev._gcalType||'task')==='task';
-      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
-      html+=`<div class="wcal-event" style="position:relative;top:auto;left:auto;height:auto;padding:3px 8px 3px 20px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;max-width:100%;cursor:pointer;" data-eid="${evKey}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)"><div class="wcal-event-title">${isTask?'☑ ':'📅 '}${title}</div></div>`;
+      const bg  =isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
+      const bdr =isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
+      const icon=isTask?'☑':'📅';
+      html+=`<div class="wcal-event" style="position:relative;top:auto;left:auto;height:auto;padding:3px 8px 3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${bdr};border-radius:4px 6px 6px 4px;white-space:nowrap;max-width:calc(100% - 8px);cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)">${icon} ${title}</div>`;
     });
     html+='</div>';
   }
 
-  html+='<div style="display:flex;width:100%;flex:1;">';
+  // ── Timed grid ─────────────────────────────────────────────────
+  html+='<div style="display:flex;width:100%;flex:1;position:relative;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
@@ -19908,8 +19892,8 @@ function wcalRenderDay(){
   html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
   timedEvs.forEach(ev=>{
-    if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
-    else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
+    if(ev._gcalType==='task'||ev.is_gtask){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
+    else{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
   });
   dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
   if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
@@ -19928,10 +19912,8 @@ function wcalRenderDay(){
     const scrolled=wrap?wrap.scrollTop:0;
     const rawY=e.clientY-areaRect.top+scrolled;
     const totalMins=Math.max(0,Math.min(Math.round(rawY),23*60+45));
-    const hh=Math.floor(totalMins/60);
-    const mm=Math.round((totalMins%60)/15)*15;
-    const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
-    wcalPopOpen(e.clientX,e.clientY,dt2,timeStr);
+    const hh=Math.floor(totalMins/60); const mm=Math.round((totalMins%60)/15)*15;
+    wcalPopOpen(e.clientX,e.clientY,dt2,pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm));
   });
   wcalRenderUpcoming();
 }
@@ -20426,27 +20408,13 @@ window.showCalendarModal=function showCalendarModal(){
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
   const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
   const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
-  if(window.innerWidth>720){ try{ ensureModalMinSize(1100,820); }catch(_){} }
+  try{ ensureModalMinSize(1100, 820); }catch(_){}
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
-  // Mobile: auto day view
-  if(window.innerWidth<=720 && cal.view!=='day'){
-    cal.view='day';
-    document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
-    const db=document.getElementById('wcalViewDay'); if(db) db.classList.add('active');
-  }
   wcalWireButtons(); wcalWirePopover(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
-};
-
-window.wcalMobileFabClick=function(){
-  const title=prompt('New event title:');
-  if(!title||!title.trim()) return;
-  const dateStr=cal.selected||ymd(new Date());
-  fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim(),date:dateStr,start:'09:00',duration_minutes:60,priority:'medium'})})
-    .then(r=>r.json()).then(d=>{ if(d.ok){ if(typeof showToast==='function') showToast('Added!'); wcalFetchCurrentRange().then(()=>wcalRefresh()); } }).catch(()=>{});
 };
 
 // Keep backward-compat stubs
