@@ -9195,13 +9195,13 @@ HTML = r"""
     .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
-    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
-    .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;touch-action:manipulation;-webkit-tap-highlight-color:rgba(124,58,237,.2);}
+    .saNavBtn:hover,.saNavBtn:active{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
-    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
-    .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
+    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;-webkit-tap-highlight-color:rgba(124,58,237,.2);touch-action:manipulation;}
+    .saDropItem:hover,.saDropItem:active{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
     .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
@@ -9700,64 +9700,32 @@ HTML = r"""
   .table{ width: min(calc(100vw - 24px), 520px) !important; max-width: min(calc(100vw - 24px), 520px) !important; margin: 0 auto !important; transform: none !important; }
 }
 
-/* Landscape phones: same stacked layout as portrait — no side-by-side, no floating */
-/* ROOT FIX: The old side-by-side layout left .operator as position:absolute causing */
-/* it to float centered over all the teammate cards. Landscape = portrait now.       */
+/* Landscape phones: side-by-side layout */
 @media (max-width: 900px) and (orientation: landscape){
   html, body{ overflow-x:hidden !important; }
-
-  /* Stack vertically — operator on top, cards below */
   .tableWrap{
     display:flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    height: auto !important;
-    min-height: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 6px 12px !important;
-    gap: 8px !important;
-    position: relative !important;
-    overflow: visible !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
   }
 
-  /* Pull operator OUT of absolute positioning into normal document flow */
   .operator{
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    margin: 0 !important;
     order: 0 !important;
-    flex: none !important;
-    border-radius: 14px !important;
+    width: min(420px, 44vw) !important;
+    flex: 0 0 auto !important;
   }
 
-  /* Hide decorative circle in landscape — seats render as stacked cards */
-  .table{ display: none !important; }
-
-  /* Seats: normal flow, compact height for landscape */
-  .seat{
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    min-height: 58px !important;
-    margin: 0 !important;
-    padding: 10px 14px !important;
-    box-sizing: border-box !important;
-    border-radius: 12px !important;
-    background: rgba(14,22,48,.98) !important;
-    cursor: pointer !important;
+  .table{
+    order: 1 !important;
+    flex: 1 1 auto !important;
+    width: min(calc(56vw - 24px), 520px) !important;
+    max-width: min(calc(56vw - 24px), 520px) !important;
+    transform: scale(0.88) !important;
+    transform-origin: center top !important;
+    margin: 0 auto !important;
   }
 
-  .mobileTeamLabel{ display: block !important; }
   .container{ padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
@@ -10554,66 +10522,55 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── NAV BAR FIX v2 ─────────────────────────────────────────────────────────
-   The topbar parent had no overflow:visible, so even with overflow-x:auto on
-   .saNavBar the scrollable area was clipped. Fixed by allowing overflow on the
-   topbar and making the nav a hidden-scrollbar horizontal scroll strip.
+/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
+   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
+   Community button wraps to a second line that can be partially clipped.
+   Fix: switch to a single horizontal scrollable row so every button is
+   reachable with a quick swipe — no clipping, no invisible buttons.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  /* Allow topbar to overflow so the nav can scroll without clipping */
-  .topbar {
-    overflow: visible !important;
-    padding-left: 10px !important;
-    padding-right: 10px !important;
-  }
-  .topbarMain {
-    overflow: visible !important;
-  }
-
-  /* Nav bar: single scrollable row, no wrapping */
   .saNavBar {
-    overflow-x: scroll !important;          /* always scrollable, even on iOS */
-    overflow-y: visible !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
     -webkit-overflow-scrolling: touch !important;
-    flex-wrap: nowrap !important;
-    scrollbar-width: none !important;
-    padding: 6px 8px !important;
-    gap: 4px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
+    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
+    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
+    padding: 7px 10px !important;
+    gap: 5px !important;
   }
   .saNavBar::-webkit-scrollbar { display: none !important; }
 
-  /* Left group: no shrink, no wrap */
+  /* Left cluster: keep all buttons visible in one row */
   .saNavLeft {
     flex-shrink: 0 !important;
     flex-wrap: nowrap !important;
     gap: 4px !important;
-    display: flex !important;
-    align-items: center !important;
   }
 
-  /* Compact all nav buttons */
+  /* Compact nav buttons so more fit before scrolling */
   .saNavBtn {
     font-size: 12px !important;
-    padding: 5px 9px !important;
+    padding: 6px 10px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
     border-radius: 8px !important;
   }
 
-  /* Kill the center pill — too wide */
+  /* Hide the center objective pill — too wide for mobile nav row */
   .saNavCenter { display: none !important; }
 
-  /* Right side: hide model tag and level badge */
-  .saNavRight { flex-shrink: 0 !important; gap: 4px !important; }
+  /* Right side: keep support + logout but hide model tag & level badge */
+  .saNavRight {
+    flex-shrink: 0 !important;
+    gap: 4px !important;
+  }
   .saNavRight .saModelTag,
   #navLevelBadge { display: none !important; }
 }
 
-/* Extra-narrow phones */
-@media (max-width: 390px) {
-  .saNavBtn { font-size: 11px !important; padding: 5px 7px !important; }
+/* Extra-narrow phones (SE, etc.) — shrink a touch more */
+@media (max-width: 400px) {
+  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
 }
 
 </style>
@@ -10703,7 +10660,6 @@ label         { font-size: 14px !important; }
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
-        <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bug</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -10716,7 +10672,6 @@ label         { font-size: 14px !important; }
     <button class="btn" id="mobileMenuBtn">Menu</button>
     <button class="btn" id="mobileManageBtn">Team</button>
     <button class="btn" id="mobileSettingsBtn">Settings</button>
-    <button class="btn" id="mobileBugReportBtn" onclick="openBugReportModal()" style="background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;">🐛</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -15090,27 +15045,116 @@ function makeSeat(defn, idx){
       else{stopAlwaysListening();startAlwaysListening("dm");}
     };
 
-    // ===== NAV BAR DROPDOWN JS =====
-    window.saToggleDrop = function saToggleDrop(dropId){
-      const allDrops=document.querySelectorAll('.saDrop');
-      const target=document.getElementById(dropId);
-      const isOpen=target&&target.classList.contains('open');
-      allDrops.forEach(d=>d.classList.remove('open'));
-      if(!isOpen&&target) target.classList.add('open');
-    }
-    document.addEventListener('click',function(e){
-      if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
-    });
+    // ===== NAV BAR DROPDOWN JS (portal fix) =====
+    // ROOT FIX: On mobile, .saNavBar has overflow-x:scroll which clips
+    // position:absolute children (dropdowns). Fix: on mobile we "portal" the
+    // open dropdown — move it to document.body with fixed positioning so it
+    // is never clipped by the scroll container. On desktop the old in-place
+    // behaviour is kept because overflow is not restricted there.
 
-    // Auto-close dropdowns after any item is clicked
-    document.querySelectorAll('.saDropItem').forEach(function(item){
-      item.addEventListener('click', function(){
-        setTimeout(function(){
-          document.querySelectorAll('.saDrop').forEach(function(d){ d.classList.remove('open'); });
-          document.querySelectorAll('.saNavBtn').forEach(function(b){ b.classList.remove('open'); });
-        }, 50);
+    (function(){
+      var _portalDrop = null;        // the portal wrapper currently shown
+      var _portalSource = null;      // original parent to restore into
+      var _portalOrigNext = null;    // original next sibling to restore before
+
+      function isMobileNav(){
+        return window.innerWidth <= 720;
+      }
+
+      function closeAllDrops(){
+        // Remove portal if open
+        if(_portalDrop){
+          try{
+            if(_portalSource){
+              _portalSource.insertBefore(_portalDrop, _portalOrigNext);
+            }
+          }catch(_){}
+          _portalDrop.classList.remove('open');
+          _portalDrop.style.cssText = '';
+          _portalDrop = null;
+          _portalSource = null;
+          _portalOrigNext = null;
+        }
+        // Close any in-place drops
+        document.querySelectorAll('.saDrop').forEach(function(d){
+          d.classList.remove('open');
+          d.style.cssText = '';
+        });
+      }
+
+      window.saToggleDrop = function saToggleDrop(dropId){
+        var target = document.getElementById(dropId);
+        if(!target) return;
+        var alreadyOpen = (target === _portalDrop) || target.classList.contains('open');
+        closeAllDrops();
+        if(alreadyOpen) return;   // was open → just close
+
+        if(isMobileNav()){
+          // --- PORTAL MODE ---
+          // Find the trigger button (the .saNavBtn that called us)
+          // It's the previous sibling of the drop inside .saDropWrap
+          var wrap = target.parentElement;
+          var triggerBtn = wrap ? wrap.querySelector('.saNavBtn') : null;
+
+          // Save restore info
+          _portalSource  = target.parentElement;
+          _portalOrigNext = target.nextSibling;
+
+          // Move drop to body
+          document.body.appendChild(target);
+          _portalDrop = target;
+
+          // Position it just below the trigger button (or below the nav bar)
+          if(triggerBtn){
+            var rect = triggerBtn.getBoundingClientRect();
+            target.style.position   = 'fixed';
+            target.style.top        = (rect.bottom + 4) + 'px';
+            target.style.left       = Math.max(8, Math.min(rect.left, window.innerWidth - 216)) + 'px';
+            target.style.zIndex     = '999999';
+            target.style.minWidth   = '200px';
+            target.style.maxWidth   = (window.innerWidth - 16) + 'px';
+            target.style.maxHeight  = (window.innerHeight - rect.bottom - 16) + 'px';
+            target.style.overflowY  = 'auto';
+            target.style.display    = 'block';
+          } else {
+            var navBar = document.getElementById('saNavBar');
+            var nbRect = navBar ? navBar.getBoundingClientRect() : {bottom:60, left:8};
+            target.style.position  = 'fixed';
+            target.style.top       = (nbRect.bottom + 4) + 'px';
+            target.style.left      = '8px';
+            target.style.zIndex    = '999999';
+            target.style.minWidth  = (window.innerWidth - 16) + 'px';
+            target.style.display   = 'block';
+          }
+          target.classList.add('open');
+        } else {
+          // --- DESKTOP: classic in-place ---
+          target.classList.add('open');
+        }
+      };
+
+      // Close on outside click
+      document.addEventListener('click', function(e){
+        if(_portalDrop && !_portalDrop.contains(e.target) && !e.target.closest('.saDropWrap') && !e.target.closest('.saNavBtn')){
+          closeAllDrops();
+          return;
+        }
+        if(!_portalDrop && !e.target.closest('.saDropWrap')){
+          closeAllDrops();
+        }
       });
-    });
+
+      // Close on resize/orientation change
+      window.addEventListener('resize', closeAllDrops, {passive:true});
+      window.addEventListener('orientationchange', closeAllDrops, {passive:true});
+
+      // Auto-close when a menu item is clicked
+      document.addEventListener('click', function(e){
+        if(e.target.classList.contains('saDropItem') || e.target.closest('.saDropItem')){
+          setTimeout(closeAllDrops, 60);
+        }
+      });
+    })();
 
     // Wire command bar
     (function(){
@@ -22564,56 +22608,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
   </div>
 </div>
 
-<!-- Bug Report Modal -->
-<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(520px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);">
-      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Report a Bug</span>
-      <button onclick="closeBugReportModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="padding:20px;display:flex;flex-direction:column;gap:12px;">
-      <div class="tiny" style="opacity:.7;line-height:1.6;">Spotted something broken? Tell us what happened and we'll fix it fast.</div>
-
-      <div>
-        <label style="font-size:12px;opacity:.6;letter-spacing:.05em;display:block;margin-bottom:6px;">WHAT WENT WRONG? *</label>
-        <textarea id="bugDescInput" rows="4" placeholder="Describe what happened, what you expected, and what device/browser you're using..." style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:var(--text);border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
-      </div>
-
-      <div>
-        <label style="font-size:12px;opacity:.6;letter-spacing:.05em;display:block;margin-bottom:6px;">STEPS TO REPRODUCE (optional)</label>
-        <textarea id="bugStepsInput" rows="3" placeholder="1. I tapped on...\n2. Then I scrolled to...\n3. The bug appeared when..." style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:var(--text);border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
-      </div>
-
-      <div style="display:flex;gap:8px;align-items:center;">
-        <select id="bugSeverityInput" style="flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:var(--text);border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;">
-          <option value="low">🟡 Low — minor annoyance</option>
-          <option value="medium" selected>🟠 Medium — blocks something</option>
-          <option value="high">🔴 High — app unusable</option>
-        </select>
-      </div>
-
-      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.4),rgba(180,30,60,.3));border:1px solid rgba(239,68,68,.5);color:#fca5a5;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">📤 Send Bug Report</button>
-      <div id="bugReportStatus" class="tiny" style="text-align:center;opacity:.7;display:none;"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Admin Bug Inbox Modal -->
-<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99996;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(760px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);flex-shrink:0;">
-      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Bug Reports Inbox</span>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button onclick="loadBugInbox()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;">↻ Refresh</button>
-        <button onclick="closeBugInboxModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-      </div>
-    </div>
-    <div id="bugInboxBody" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;">
-      <div class="tiny" style="opacity:.5;text-align:center;">Loading…</div>
-    </div>
-  </div>
-</div>
-
 <!-- ═══════════════════════════════════════════════════════════════════════
      SESSION 2 HTML — WEBHOOKS MANAGER MODAL
      ═══════════════════════════════════════════════════════════════════════ -->
@@ -23700,137 +23694,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </script>
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
-<script>
-/* ===== BUG REPORT SYSTEM ===== */
-(function(){
-  window.openBugReportModal = function(){
-    var m = document.getElementById('bugReportModal');
-    if(m){ m.style.display='flex'; document.getElementById('bugDescInput').focus(); }
-    // Pre-populate device/browser info
-    var desc = document.getElementById('bugDescInput');
-    if(desc && !desc.value){
-      var info = '\n\n--- Device info (auto) ---\n' +
-        'Screen: ' + window.innerWidth + 'x' + window.innerHeight +
-        ' | Orientation: ' + (window.innerWidth > window.innerHeight ? 'landscape' : 'portrait') +
-        '\nUA: ' + navigator.userAgent.slice(0,120);
-      desc.placeholder = 'Describe what happened...' + info;
-    }
-  };
-
-  window.closeBugReportModal = function(){
-    var m = document.getElementById('bugReportModal');
-    if(m) m.style.display='none';
-    document.getElementById('bugReportStatus').style.display='none';
-    document.getElementById('bugReportStatus').innerText='';
-  };
-
-  window.submitBugReport = function(){
-    var desc = (document.getElementById('bugDescInput').value||'').trim();
-    var steps = (document.getElementById('bugStepsInput').value||'').trim();
-    var severity = document.getElementById('bugSeverityInput').value||'medium';
-    var status = document.getElementById('bugReportStatus');
-    var btn = document.getElementById('bugSubmitBtn');
-
-    if(!desc){ status.style.display='block'; status.style.color='#fca5a5'; status.innerText='⚠️ Please describe the bug before submitting.'; return; }
-
-    btn.disabled=true; btn.innerText='Sending…';
-    status.style.display='none';
-
-    var deviceInfo = {
-      screenW: window.innerWidth, screenH: window.innerHeight,
-      orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait',
-      ua: navigator.userAgent.slice(0,300),
-      url: location.pathname,
-      ts: new Date().toISOString()
-    };
-
-    fetch('/api/bug_report', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({description: desc, steps: steps, severity: severity, device: deviceInfo})
-    }).then(function(r){return r.json();}).then(function(d){
-      btn.disabled=false; btn.innerText='📤 Send Bug Report';
-      status.style.display='block';
-      if(d.ok){
-        status.style.color='#86efac';
-        status.innerText='✅ Bug reported — thank you! We\'ll look into it.';
-        document.getElementById('bugDescInput').value='';
-        document.getElementById('bugStepsInput').value='';
-        setTimeout(window.closeBugReportModal, 2200);
-      } else {
-        status.style.color='#fca5a5';
-        status.innerText='❌ Error: '+(d.error||'Could not send report.');
-      }
-    }).catch(function(){
-      btn.disabled=false; btn.innerText='📤 Send Bug Report';
-      status.style.display='block'; status.style.color='#fca5a5';
-      status.innerText='❌ Network error. Please try again.';
-    });
-  };
-
-  /* ── Admin bug inbox ── */
-  window.openBugInboxModal = function(){
-    var m = document.getElementById('bugInboxModal');
-    if(m){ m.style.display='flex'; loadBugInbox(); }
-  };
-  window.closeBugInboxModal = function(){
-    var m = document.getElementById('bugInboxModal');
-    if(m) m.style.display='none';
-  };
-
-  window.loadBugInbox = function(){
-    var body = document.getElementById('bugInboxBody');
-    if(!body) return;
-    body.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;">Loading…</div>';
-    fetch('/api/bug_report/list').then(function(r){return r.json();}).then(function(d){
-      if(!d.ok){ body.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;">'+( d.error||'Failed')+'</div>'; return; }
-      var reports = d.reports||[];
-      if(!reports.length){ body.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;">No bug reports yet 🎉</div>'; return; }
-      var sevColor={'high':'#fca5a5','medium':'#fdba74','low':'#fde68a'};
-      var html = reports.map(function(r){
-        var col=sevColor[r.severity]||'#c4b5fd';
-        var statusDot = r.resolved ? '✅' : '🔴';
-        return '<div style="background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.7);border-left:3px solid '+col+';border-radius:10px;padding:12px 14px;">' +
-          '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">' +
-            '<span style="font-size:11px;font-weight:700;color:'+col+';text-transform:uppercase;">'+r.severity+' '+statusDot+'</span>' +
-            '<span class="tiny" style="opacity:.5;font-size:11px;">'+r.submitted_by+' · '+r.created_at.slice(0,16).replace('T',' ')+'</span>' +
-            (r.resolved ? '' : '<button onclick="markBugResolved(\''+r.id+'\')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Mark resolved</button>') +
-          '</div>' +
-          '<div style="font-size:13px;margin-bottom:4px;line-height:1.5;">'+_escBug(r.description)+'</div>' +
-          (r.steps ? '<div class="tiny" style="opacity:.6;margin-top:6px;white-space:pre-wrap;font-size:12px;">Steps: '+_escBug(r.steps)+'</div>' : '') +
-          '<div class="tiny" style="opacity:.4;margin-top:6px;font-size:11px;">'+_escBug((r.device||{}).orientation||'')+'  '+_escBug((r.device||{}).screenW||'')+'x'+_escBug((r.device||{}).screenH||'')+'</div>' +
-        '</div>';
-      }).join('');
-      body.innerHTML = html;
-    }).catch(function(){ body.innerHTML='<div class="tiny" style="opacity:.5;text-align:center;">Error loading reports.</div>'; });
-  };
-
-  window.markBugResolved = function(id){
-    fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'})
-      .then(function(r){return r.json();}).then(function(d){ if(d.ok) loadBugInbox(); }).catch(function(){});
-  };
-
-  function _escBug(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(String(s||''))); return d.innerHTML; }
-
-  // Show admin bug inbox button in nav if admin
-  setTimeout(function(){
-    fetch('/api/bug_report/list').then(function(r){return r.json();}).then(function(d){
-      if(d.ok && d.is_admin){
-        // Add inbox button to desktop nav
-        var navRight = document.querySelector('.saNavRight');
-        if(navRight){
-          var btn = document.createElement('button');
-          btn.onclick = window.openBugInboxModal;
-          var unresolved = (d.reports||[]).filter(function(r){ return !r.resolved; }).length;
-          btn.innerHTML = '🐛 Bugs' + (unresolved ? ' <span style="background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;font-weight:800;">'+unresolved+'</span>' : '');
-          btn.style.cssText='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#fca5a5;padding:5px 10px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;';
-          navRight.insertBefore(btn, navRight.firstChild);
-        }
-      }
-    }).catch(function(){});
-  }, 2000);
-})();
-</script>
+</body>
+</html>
 """
 
 # =========================
@@ -29763,84 +29628,6 @@ def api_community_pending_ideas():
     ideas   = _community_load_ideas()
     pending = [i for i in ideas if i.get("status") == "pending"]
     return jsonify({"ok": True, "ideas": pending})
-
-
-# =========================
-# BUG REPORT SYSTEM
-# =========================
-
-BUG_REPORTS_FILE = DATA / "bug_reports.json"
-
-def _load_bug_reports() -> list:
-    return load_json(BUG_REPORTS_FILE, [])
-
-def _save_bug_reports(reports: list) -> None:
-    save_json(BUG_REPORTS_FILE, reports)
-
-@app.post("/api/bug_report")
-def api_submit_bug_report():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload  = request.get_json(silent=True) or {}
-    desc     = (payload.get("description") or "").strip()[:2000]
-    steps    = (payload.get("steps") or "").strip()[:1000]
-    severity = (payload.get("severity") or "medium").strip()
-    device   = payload.get("device") or {}
-    if not desc:
-        return jsonify({"ok": False, "error": "Description required"}), 400
-    if severity not in ("low", "medium", "high"):
-        severity = "medium"
-    uname = u.get("username", "unknown")
-    report = {
-        "id":           str(uuid.uuid4()),
-        "submitted_by": uname,
-        "description":  desc,
-        "steps":        steps,
-        "severity":     severity,
-        "device":       device,
-        "resolved":     False,
-        "created_at":   now_iso(),
-    }
-    reports = _load_bug_reports()
-    reports.insert(0, report)
-    reports = reports[:500]   # cap at 500 entries
-    _save_bug_reports(reports)
-    # Award community points for reporting a bug
-    try:
-        _award_points(uname, "Submitted a bug report", 10)
-    except Exception:
-        pass
-    return jsonify({"ok": True, "id": report["id"]})
-
-@app.get("/api/bug_report/list")
-def api_list_bug_reports():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    is_admin = _is_admin_user(u)
-    if not is_admin:
-        # Non-admins only see their own reports
-        uname   = u.get("username", "")
-        reports = [r for r in _load_bug_reports() if r.get("submitted_by") == uname]
-        return jsonify({"ok": True, "is_admin": False, "reports": reports})
-    reports = _load_bug_reports()
-    return jsonify({"ok": True, "is_admin": True, "reports": reports})
-
-@app.post("/api/bug_report/<report_id>/resolve")
-def api_resolve_bug_report(report_id: str):
-    u = current_user()
-    if not u or not _is_admin_user(u):
-        return jsonify({"ok": False, "error": "Admin only"}), 403
-    reports = _load_bug_reports()
-    for r in reports:
-        if r.get("id") == report_id:
-            r["resolved"]    = True
-            r["resolved_at"] = now_iso()
-            r["resolved_by"] = u.get("username", "admin")
-            _save_bug_reports(reports)
-            return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Report not found"}), 404
 
 
 if __name__ == "__main__":
