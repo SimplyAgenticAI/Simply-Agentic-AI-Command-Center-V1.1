@@ -29335,6 +29335,7 @@ def api_community_my_stats():
     uname = u.get("username", "")
     stats = _community_get_user_stats(uname)
     stats["is_admin"]  = _community_is_admin(u)
+    stats["username"]  = uname
     # Pending ideas count for admin badge
     if stats["is_admin"]:
         stats["pending_count"] = sum(
