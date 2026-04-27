@@ -10430,6 +10430,149 @@ label         { font-size: 14px !important; }
 #leadLabResults .diagCard { font-size: 14px !important; }
 #leadLabResults .tiny { font-size: 13px !important; }
 
+/* ===== PATCH v1.12: Mobile Landscape Group Console Fix + Portrait Nav Fix ===== */
+
+/* ── LANDSCAPE FIX ──────────────────────────────────────────────────────────
+   Root cause: .operator base CSS is position:absolute; left:50%; top:50%
+   The existing landscape block (flex-direction:row) sets order/flex/width on
+   .operator but never resets position, so the panel stays centered on top of
+   the teammate cards.  Force everything into normal document flow.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) and (orientation: landscape) {
+
+  /* tableWrap becomes a scrollable column — operator first, seats below */
+  .tableWrap {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    height: auto !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 6px 12px !important;
+    gap: 8px !important;
+    position: relative !important;
+    overflow: visible !important;
+  }
+
+  /* Pull operator OUT of absolute positioning so it flows at the top */
+  .operator {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    order: 0 !important;
+    flex: none !important;
+    border-radius: 14px !important;
+  }
+
+  /* Hide decorative round-table circle in landscape (same as portrait) */
+  .table {
+    display: none !important;
+  }
+
+  /* Seats: pull out of absolute positioning, stack as cards */
+  .seat {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 58px !important;
+    margin: 0 !important;
+    padding: 10px 14px !important;
+    box-sizing: border-box !important;
+    border-radius: 12px !important;
+    background: rgba(14,22,48,.98) !important;
+    cursor: pointer !important;
+  }
+
+  /* Compact avatars/text in landscape to save vertical space */
+  .seat .seatAvatar {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+    flex-shrink: 0 !important;
+  }
+  .seat .seatName   { font-size: 14px !important; font-weight: 800 !important; }
+  .seat .seatRole   { font-size: 12px !important; }
+  .seat .seatStatus { font-size: 12px !important; margin-top: 2px !important; }
+
+  /* Keep active-seat highlight */
+  .seat.active {
+    border-color: rgba(124,58,237,.9) !important;
+    background: rgba(20,12,48,.98) !important;
+    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
+  }
+
+  /* Show team label so users know what they're looking at */
+  .mobileTeamLabel { display: block !important; }
+
+  /* Prompt textarea — a bit tighter in landscape */
+  .opText { min-height: 72px !important; }
+
+  /* Bottom padding above mobile action bar */
+  .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+}
+
+/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
+   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
+   Community button wraps to a second line that can be partially clipped.
+   Fix: switch to a single horizontal scrollable row so every button is
+   reachable with a quick swipe — no clipping, no invisible buttons.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .saNavBar {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
+    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
+    padding: 7px 10px !important;
+    gap: 5px !important;
+  }
+  .saNavBar::-webkit-scrollbar { display: none !important; }
+
+  /* Left cluster: keep all buttons visible in one row */
+  .saNavLeft {
+    flex-shrink: 0 !important;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+  }
+
+  /* Compact nav buttons so more fit before scrolling */
+  .saNavBtn {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  /* Hide the center objective pill — too wide for mobile nav row */
+  .saNavCenter { display: none !important; }
+
+  /* Right side: keep support + logout but hide model tag & level badge */
+  .saNavRight {
+    flex-shrink: 0 !important;
+    gap: 4px !important;
+  }
+  .saNavRight .saModelTag,
+  #navLevelBadge { display: none !important; }
+}
+
+/* Extra-narrow phones (SE, etc.) — shrink a touch more */
+@media (max-width: 400px) {
+  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
+}
+
 </style>
 </head>
 <body>
