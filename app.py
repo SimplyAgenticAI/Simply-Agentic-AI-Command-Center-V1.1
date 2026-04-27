@@ -10522,68 +10522,66 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── NAV COMMUNITY BUTTON — FINAL FIX ───────────────────────────────────────
-   ROOT CAUSE (definitive): position:sticky elements cannot be overflow scroll
-   containers — browsers silently ignore overflow-x:scroll on a sticky parent.
-   Every previous patch put the scroll on .saNavBar (the sticky element). Wrong.
-
-   CORRECT FIX: .saNavBar stays sticky with overflow:visible.
-   .saNavLeft becomes the scroll container. It holds all 5 buttons and scrolls
-   horizontally inside the fixed sticky frame. Community is always reachable.
-   .saNavCenter and .saNavRight are hidden on mobile to maximise nav width.
+/* ── MOBILE NAV — DEFINITIVE FIX ────────────────────────────────────────────
+   Team/Tools/Settings now open the mobile drawer (JS above).
+   The nav only needs to show Dashboard + Community on mobile — 2 buttons
+   always fit without any overflow or scroll needed.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-
-  /* Title row is hidden on mobile (see topbarMain rule below) —
-     the nav bar itself IS the only top chrome needed. */
+  /* Hide the title row — wastes vertical space on mobile */
   .topbarMain { display: none !important; }
 
-  /* Sticky frame: just a slim container, NO overflow restriction */
+  /* Nav bar: simple flex row, no overflow tricks needed */
   .saNavBar {
-    overflow: visible !important;   /* must stay visible — it is position:sticky */
     flex-wrap: nowrap !important;
-    padding: 5px 0 5px 8px !important;
-    gap: 0 !important;
-    align-items: center !important;
+    padding: 5px 8px !important;
+    gap: 6px !important;
+    overflow: visible !important;
   }
 
-  /* THE SCROLL CONTAINER — saNavLeft, NOT the sticky parent */
-  .saNavLeft {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    gap: 4px !important;
-    overflow-x: scroll !important;          /* scrolls on the non-sticky child */
-    overflow-y: visible !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    padding-right: 12px !important;         /* breathing room after last button */
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-  }
-  .saNavLeft::-webkit-scrollbar { display: none !important; }
+  /* Left group: hide Team/Tools/Settings dropdowns (they open drawer instead)
+     but keep Dashboard and Community fully visible */
+  .saDropWrap { display: none !important; }   /* hides Team/Tools/Settings wrappers */
 
-  /* Every drop-wrap and standalone button must not shrink */
-  .saDropWrap,
+  /* Dashboard and Community sit directly in saNavLeft — keep them */
   #dashboardNavBtn,
-  #communityNavBtn { flex-shrink: 0 !important; }
-
-  /* Compact buttons */
-  .saNavBtn {
-    font-size: 12px !important;
-    padding: 6px 10px !important;
-    white-space: nowrap !important;
+  #communityNavBtn {
+    display: inline-flex !important;
     flex-shrink: 0 !important;
+    font-size: 13px !important;
+    padding: 7px 12px !important;
+    white-space: nowrap !important;
     touch-action: manipulation !important;
   }
 
-  /* Kill center pill and right block — not needed on mobile */
+  /* Add a "Menu ☰" button before Dashboard that opens the drawer */
+  /* (injected by JS below — see initMobileNavBar) */
+  #mobileNavMenuBtn {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    font-size: 13px !important;
+    padding: 7px 12px !important;
+    background: rgba(28,40,80,.85) !important;
+    border: 1px solid rgba(80,110,200,.45) !important;
+    border-radius: 10px !important;
+    color: rgba(210,220,255,.95) !important;
+    cursor: pointer !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    touch-action: manipulation !important;
+  }
+
+  /* Kill center and right — not needed on mobile */
   .saNavCenter { display: none !important; }
   .saNavRight   { display: none !important; }
 }
 
 @media (max-width: 390px) {
-  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
+  #dashboardNavBtn, #communityNavBtn, #mobileNavMenuBtn {
+    font-size: 12px !important;
+    padding: 6px 9px !important;
+  }
 }
 
 </style>
@@ -11783,169 +11781,29 @@ label         { font-size: 14px !important; }
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
 
-/* ── CALENDAR MOBILE — FULL OPTIMIZATION ────────────────────────────────────
-   Goals:
-   • Use full viewport height (no fixed min-height shrinking it)
-   • Hide the 230px desktop sidebar (useless on a 390px screen)
-   • Day view by default (single column, fully readable)
-   • Compact control bar with large tap targets
-   • All-day strip visible at top of grid
-   • Swipe-friendly scroll, no horizontal overflow
-   • "+" FAB for quick event creation without sidebar
-   ─────────────────────────────────────────────────────────────────────────── */
+/* ── CALENDAR MOBILE OPTIMIZATION ───────────────────────────────────────── */
 @media (max-width: 720px) {
-
-  /* Calendar modal: full screen, no border radius on mobile */
-  #calendarForm {
-    height: 100% !important;
-    max-height: 100% !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-  }
-
-  /* Wrap fills the modal completely */
-  .wcal-wrap {
-    min-height: 0 !important;
-    height: 100% !important;
-    flex-direction: column !important;
-    border-radius: 0 !important;
-  }
-
-  /* Sidebar: gone */
-  .wcal-sidebar { display: none !important; }
-
-  /* Main area: full width */
-  .wcal-main {
-    width: 100% !important;
-    height: 100% !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-  }
-
-  /* Control bar: single compact row, large tap targets */
-  .wcal-topbar {
-    flex-wrap: nowrap !important;
-    padding: 6px 8px !important;
-    gap: 6px !important;
-    align-items: center !important;
-    overflow-x: auto !important;
-    scrollbar-width: none !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-  .wcal-topbar::-webkit-scrollbar { display: none !important; }
-
-  .wcal-nav-btn {
-    padding: 7px 13px !important;
-    font-size: 13px !important;
-    flex-shrink: 0 !important;
-    touch-action: manipulation !important;
-    min-height: 36px !important;
-  }
-  .wcal-range-label {
-    font-size: 12px !important;
-    white-space: nowrap !important;
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-  .wcal-view-btns { flex-shrink: 0 !important; gap: 4px !important; }
-  .wcal-view-btn {
-    padding: 5px 11px !important;
-    font-size: 12px !important;
-    touch-action: manipulation !important;
-    min-height: 30px !important;
-  }
-
-  /* Grid area: fills remaining height, scrollable vertically */
-  .wcal-grid-wrap {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-
-  /* Time column: tighter on mobile */
-  .wcal-time-col { width: 40px !important; }
-  .wcal-time-label {
-    font-size: 10px !important;
-    padding-right: 4px !important;
-    height: 56px !important;
-  }
-
-  /* Hour lines: slightly shorter to show more hours */
-  .wcal-hour-line { height: 56px !important; }
-
-  /* Events: readable at mobile scale */
-  .wcal-event {
-    font-size: 12px !important;
-    padding: 3px 5px 3px 18px !important;
-    min-height: 22px !important;
-  }
-  .wcal-event-title { font-size: 11px !important; }
-
-  /* Column headers in week view */
-  .wcal-col-header .wd { font-size: 10px !important; }
-  .wcal-col-header .dd { font-size: 15px !important; }
-  .wcal-col-header .dd.today-num {
-    width: 26px !important;
-    height: 26px !important;
-    font-size: 13px !important;
-  }
-
-  /* Detail panel: bottom sheet on mobile */
-  .wcal-detail {
-    width: 100% !important;
-    left: 0 !important;
-    right: 0 !important;
-    top: auto !important;
-    bottom: 0 !important;
-    height: 68vh !important;
-    transform: translateY(100%) !important;
-    border-radius: 18px 18px 0 0 !important;
-    border-left: none !important;
-    border-top: 1px solid rgba(42,58,106,.7) !important;
-    box-shadow: 0 -8px 40px rgba(0,0,0,.6) !important;
-  }
-  .wcal-detail.open { transform: translateY(0) !important; }
-
-  /* Drag handle indicator on detail panel */
-  .wcal-detail-header::before {
-    content: '';
-    display: block;
-    width: 36px;
-    height: 4px;
-    background: rgba(148,163,184,.35);
-    border-radius: 2px;
-    margin: 0 auto 8px;
-  }
-
-  /* FAB: visible on mobile */
-  #wcalMobileFab { display: flex !important; }
+  .wcal-wrap { min-height:0 !important; height:100% !important; flex-direction:column !important; border-radius:0 !important; }
+  .wcal-sidebar { display:none !important; }
+  .wcal-main { width:100% !important; height:100% !important; min-width:0 !important; }
+  .wcal-topbar { flex-wrap:nowrap !important; padding:6px 8px !important; gap:6px !important; overflow-x:auto !important; scrollbar-width:none !important; }
+  .wcal-topbar::-webkit-scrollbar { display:none !important; }
+  .wcal-nav-btn { padding:7px 13px !important; font-size:13px !important; flex-shrink:0 !important; touch-action:manipulation !important; min-height:36px !important; }
+  .wcal-range-label { font-size:12px !important; flex:1 !important; min-width:0 !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
+  .wcal-view-btns { flex-shrink:0 !important; }
+  .wcal-view-btn { padding:5px 11px !important; font-size:12px !important; touch-action:manipulation !important; }
+  .wcal-grid-wrap { flex:1 1 auto !important; min-height:0 !important; overflow-y:auto !important; overflow-x:hidden !important; -webkit-overflow-scrolling:touch !important; }
+  .wcal-time-col { width:40px !important; }
+  .wcal-time-label { font-size:10px !important; padding-right:4px !important; height:56px !important; }
+  .wcal-hour-line { height:56px !important; }
+  .wcal-event { font-size:12px !important; padding:3px 5px 3px 18px !important; min-height:22px !important; }
+  .wcal-col-header .wd { font-size:10px !important; }
+  .wcal-col-header .dd { font-size:15px !important; }
+  .wcal-detail { width:100% !important; left:0 !important; right:0 !important; top:auto !important; bottom:0 !important; height:68vh !important; transform:translateY(100%) !important; border-radius:18px 18px 0 0 !important; border-left:none !important; border-top:1px solid rgba(42,58,106,.7) !important; }
+  .wcal-detail.open { transform:translateY(0) !important; }
+  #wcalMobileFab { display:flex !important; }
 }
-
-/* Mobile quick-add FAB */
-#wcalMobileFab {
-  display: none;
-  position: absolute;
-  bottom: 18px;
-  right: 14px;
-  z-index: 50;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(124,58,237,.95), rgba(109,40,217,.9));
-  border: 1px solid rgba(167,139,250,.5);
-  color: #fff;
-  font-size: 26px;
-  line-height: 1;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 24px rgba(124,58,237,.55);
-  touch-action: manipulation;
-}
+#wcalMobileFab { display:none; position:absolute; bottom:18px; right:14px; z-index:50; width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg,rgba(124,58,237,.95),rgba(109,40,217,.9)); border:1px solid rgba(167,139,250,.5); color:#fff; font-size:26px; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 4px 24px rgba(124,58,237,.55); touch-action:manipulation; }
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
@@ -12342,8 +12200,8 @@ label         { font-size: 14px !important; }
     </div>
   </div>
 
-  <!-- Mobile FAB — hidden on desktop, shown on mobile via CSS -->
-  <button id="wcalMobileFab" title="Add event" onclick="wcalMobileFabClick()">+</button>
+  <!-- Mobile quick-add FAB -->
+  <button id="wcalMobileFab" onclick="wcalMobileFabClick()" title="Add event">+</button>
 
 </div>
 
@@ -15226,23 +15084,44 @@ function makeSeat(defn, idx){
     };
 
     // ===== NAV BAR DROPDOWN JS =====
-    window.saToggleDrop = function saToggleDrop(dropId){
-      const allDrops=document.querySelectorAll('.saDrop');
-      const target=document.getElementById(dropId);
-      const isOpen=target&&target.classList.contains('open');
-      allDrops.forEach(d=>d.classList.remove('open'));
-      if(!isOpen&&target) target.classList.add('open');
+    // On DESKTOP: dropdowns work normally (position:absolute, no overflow clip).
+    // On MOBILE: Team/Tools/Settings open the mobile drawer instead of a dropdown
+    //   because position:absolute children cannot escape overflow:scroll or
+    //   backdrop-filter stacking contexts — fundamental CSS physics, not fixable
+    //   with CSS alone. The drawer is the correct mobile pattern.
+
+    function _openMobileDrawer(){
+      const ov = document.getElementById('mobileDrawerOverlay');
+      if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
+      try{ document.body.style.overflow='hidden'; }catch(_){}
     }
-    document.addEventListener('click',function(e){
-      if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
+
+    window.saToggleDrop = function saToggleDrop(dropId){
+      // Mobile: open drawer instead of dropdown
+      if(window.innerWidth <= 720){
+        _openMobileDrawer();
+        return;
+      }
+      // Desktop: normal dropdown toggle
+      const allDrops = document.querySelectorAll('.saDrop');
+      const target   = document.getElementById(dropId);
+      const isOpen   = target && target.classList.contains('open');
+      allDrops.forEach(d => d.classList.remove('open'));
+      if(!isOpen && target) target.classList.add('open');
+    };
+
+    // Close desktop dropdowns on outside click
+    document.addEventListener('click', function(e){
+      if(window.innerWidth > 720 && !e.target.closest('.saDropWrap')){
+        document.querySelectorAll('.saDrop').forEach(d => d.classList.remove('open'));
+      }
     });
 
-    // Auto-close dropdowns after any item is clicked
+    // Auto-close desktop dropdowns after item click
     document.querySelectorAll('.saDropItem').forEach(function(item){
       item.addEventListener('click', function(){
         setTimeout(function(){
           document.querySelectorAll('.saDrop').forEach(function(d){ d.classList.remove('open'); });
-          document.querySelectorAll('.saNavBtn').forEach(function(b){ b.classList.remove('open'); });
         }, 50);
       });
     });
@@ -15251,6 +15130,23 @@ function makeSeat(defn, idx){
     (function(){
       // Cache registry for command-bar teammate detection
       try{ fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; }); }catch(_){}
+    })();
+
+    // ── Mobile nav bar: inject ☰ Menu button on mobile ──────────
+    (function initMobileNavBar(){
+      if(window.innerWidth > 720) return;
+      const navLeft = document.getElementById('saNavBar');
+      if(!navLeft) return;
+      const btn = document.createElement('button');
+      btn.id = 'mobileNavMenuBtn';
+      btn.innerHTML = '☰ Menu';
+      btn.onclick = function(){
+        const ov = document.getElementById('mobileDrawerOverlay');
+        if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
+        try{ document.body.style.overflow='hidden'; }catch(_){}
+      };
+      // Prepend before everything else in the nav bar
+      navLeft.insertBefore(btn, navLeft.firstChild);
     })();
     // ===== END NAV BAR JS =====
 
@@ -17536,7 +17432,15 @@ async function crmFetchTasks(){
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      if(st) st.innerText = 'Building lead list...';
+      const btn = $("leadLabRunBtn");
+      const box = $("leadLabResults");
+      if(btn){ btn.disabled=true; btn.innerText='Building...'; }
+      if(box) box.innerHTML='';
+      const steps=['🔍 Searching web for real businesses...','🌐 Scraping websites for contacts...','📧 Finding confirmed emails...','📞 Extracting phone numbers...','🧠 Scoring & ranking leads...','✅ Finalizing list...'];
+      let si=0;
+      if(box) box.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:32px 16px;"><div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:llSpin .8s linear infinite;"></div><div id="llStep" style="font-size:14px;color:#c4b5fd;font-weight:600;text-align:center;">${steps[0]}</div><div style="font-size:12px;opacity:.5;text-align:center;">Can take 20–45 seconds — searching live web</div></div><style>@keyframes llSpin{to{transform:rotate(360deg)}}</style>`;
+      if(st) st.innerHTML='';
+      const timer=setInterval(()=>{ si=Math.min(si+1,steps.length-1); const el=document.getElementById('llStep'); if(el) el.innerText=steps[si]; },5500);
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -17556,14 +17460,16 @@ async function crmFetchTasks(){
         const raw = await res.text();
         let data = null;
         try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-        if(!ct.includes('application/json') || !data){
-          throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
-        }
+        if(!ct.includes('application/json') || !data) throw new Error('Invalid server response: ' + raw.slice(0,220));
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
+        if(st) st.innerHTML=`<span style="color:#86efac;">✅ ${(data.items||[]).length} leads found${data.warning?' · '+data.warning:''}</span>`;
       }catch(e){
-        if(st) st.innerText = e.message || 'Lead build failed';
+        if(box) box.innerHTML='';
+        if(st) st.innerHTML=`<span style="color:#fca5a5;">❌ ${e.message||'Lead build failed'}</span>`;
+      } finally {
+        clearInterval(timer);
+        if(btn){ btn.disabled=false; btn.innerText='Build lead list'; }
       }
     }
 
@@ -19972,18 +19878,36 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+
+  const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
   const dayTasks=cal.tasks.filter(t=>t.date===dt);
-  let html='<div style="display:flex;width:100%;">';
+
+  let html='';
+  // All-day strip (GCal all-day events, Motion tasks imported as all-day)
+  if(allDayEvs.length){
+    html+='<div style="background:rgba(14,22,48,.8);border-bottom:1px solid rgba(42,58,106,.5);padding:5px 8px;display:flex;flex-wrap:wrap;gap:4px;">';
+    allDayEvs.forEach(ev=>{
+      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const evKey=encodeURIComponent(ev.id||ev.summary||'');
+      const isTask=(ev._gcalType||'task')==='task';
+      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
+      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
+      html+=`<div class="wcal-event" style="position:relative;top:auto;left:auto;height:auto;padding:3px 8px 3px 20px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;max-width:100%;cursor:pointer;" data-eid="${evKey}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)"><div class="wcal-event-title">${isTask?'☑ ':'📅 '}${title}</div></div>`;
+    });
+    html+='</div>';
+  }
+
+  html+='<div style="display:flex;width:100%;flex:1;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
     html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
   html+='</div>';
-  html+='<div style="flex:1;position:relative;">';
+  html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-  evs.forEach(ev=>{
+  timedEvs.forEach(ev=>{
     if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
     else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
   });
@@ -19993,12 +19917,9 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
-  // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
-  // Apply overlap layout for day view
-  const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
+  const dayCol=grid.querySelector('[data-date]');
   if(dayCol) wcalApplyOverlapLayout(dayCol);
-  // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
     if(e.target.closest('.wcal-event')) return;
@@ -20505,39 +20426,27 @@ window.showCalendarModal=function showCalendarModal(){
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
   const modalImg=document.getElementById('modalImg'); if(modalImg) modalImg.style.display='none';
   const modalTitle=document.getElementById('modalTitle'); if(modalTitle) modalTitle.innerText='Calendar';
-
-  // On desktop, request min size; on mobile let CSS fill the viewport
-  if(window.innerWidth > 720){ try{ ensureModalMinSize(1100, 820); }catch(_){} }
-
+  if(window.innerWidth>720){ try{ ensureModalMinSize(1100,820); }catch(_){} }
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
-
-  // Mobile: auto-switch to Day view so the single column fills the screen
-  if(window.innerWidth <= 720 && cal.view !== 'day'){
-    cal.view = 'day';
+  // Mobile: auto day view
+  if(window.innerWidth<=720 && cal.view!=='day'){
+    cal.view='day';
     document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
     const db=document.getElementById('wcalViewDay'); if(db) db.classList.add('active');
-    const wb=document.getElementById('wcalViewWeek'); if(wb) wb.classList.remove('active');
   }
-
   wcalWireButtons(); wcalWirePopover(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
 };
 
-// Mobile FAB: quick-add event with a simple prompt
-window.wcalMobileFabClick = function(){
-  const title = prompt('New event title:');
-  if(!title || !title.trim()) return;
-  const dateStr = cal.selected || ymd(new Date());
-  fetch('/api/cal/tasks',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({title:title.trim(), date:dateStr, start:'09:00', duration_minutes:60, priority:'medium'})
-  }).then(r=>r.json()).then(d=>{
-    if(d.ok){ if(typeof showToast==='function') showToast('Added: '+title.trim()); wcalFetchCurrentRange().then(()=>wcalRefresh()); }
-    else if(typeof showToast==='function') showToast('Could not add: '+(d.error||'error'));
-  }).catch(()=>{ if(typeof showToast==='function') showToast('Network error'); });
+window.wcalMobileFabClick=function(){
+  const title=prompt('New event title:');
+  if(!title||!title.trim()) return;
+  const dateStr=cal.selected||ymd(new Date());
+  fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title.trim(),date:dateStr,start:'09:00',duration_minutes:60,priority:'medium'})})
+    .then(r=>r.json()).then(d=>{ if(d.ok){ if(typeof showToast==='function') showToast('Added!'); wcalFetchCurrentRange().then(()=>wcalRefresh()); } }).catch(()=>{});
 };
 
 // Keep backward-compat stubs
