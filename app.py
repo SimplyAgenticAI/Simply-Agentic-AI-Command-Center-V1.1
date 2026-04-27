@@ -3074,7 +3074,7 @@ def _strip_motion_boilerplate(text: str) -> str:
 
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests
-    headers = {"Authorization": f"Bearer {access_token}"}
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     params = {
         "timeMin": time_min,
         "timeMax": time_max,
@@ -3083,87 +3083,36 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         "maxResults": str(max_results),
         "timeZone": timezone,
     }
-
-    def _fetch_cal(cal_id: str) -> List[Dict[str, Any]]:
-        url = f"https://www.googleapis.com/calendar/v3/calendars/{requests.utils.quote(cal_id, safe='')}/events"
-        try:
-            r = requests.get(url, headers=headers, params=params, timeout=20)
-            data = r.json() if r.content else {}
-            if r.status_code >= 400:
-                return []
-            return data.get("items") or []
-        except Exception:
-            return []
-
-    def _parse_items(items: list, cal_label: str = "") -> List[Dict[str, Any]]:
-        out = []
-        for it in items:
-            start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
-            end   = (it.get("end")   or {}).get("dateTime") or (it.get("end")   or {}).get("date") or ""
-            raw_attendees = it.get("attendees") or []
-            attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
-            raw_desc = it.get("description", "") or ""
-            is_motion_task = bool(re.search(
-                r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
-                raw_desc, re.IGNORECASE
-            ))
-            # Google Task items have status field and no attendees — tag them
-            is_gtask = bool(it.get("status") in ("needsAction", "completed") and cal_label == "tasks")
-            out.append({
-                "id":               it.get("id", ""),
-                "summary":          it.get("summary", ""),
-                "start":            start,
-                "end":              end,
-                "htmlLink":         it.get("htmlLink", ""),
-                "hangoutLink":      it.get("hangoutLink", ""),
-                "recurringEventId": it.get("recurringEventId", ""),
-                "description":      _strip_motion_boilerplate(raw_desc),
-                "location":         it.get("location", ""),
-                "attendees":        attendee_emails,
-                "is_motion_task":   is_motion_task,
-                "is_gtask":         is_gtask,
-                "cal_label":        cal_label,
-            })
-        return out
-
-    # 1. Primary calendar
-    primary_items = _fetch_cal("primary")
-    out = _parse_items(primary_items, "primary")
-
-    # 2. Google Tasks calendar — Google Tasks show here as all-day events
-    #    The ID is stable across all Google accounts.
-    tasks_items = _fetch_cal("tasks@group.v.calendar.google.com")
-    seen_ids = {e["id"] for e in out if e["id"]}
-    for ev in _parse_items(tasks_items, "tasks"):
-        if ev["id"] not in seen_ids:
-            seen_ids.add(ev["id"])
-            out.append(ev)
-
-    # 3. Fetch remaining user calendars (excluding primary and tasks to avoid duplication)
-    try:
-        cl_r = requests.get(
-            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-            headers=headers, params={"fields": "items(id,summary,selected,primary,accessRole)"}, timeout=15
-        )
-        if cl_r.status_code == 200:
-            cl_data = cl_r.json() if cl_r.content else {}
-            for cal in (cl_data.get("items") or []):
-                cal_id = cal.get("id") or ""
-                if not cal_id:
-                    continue
-                if cal_id in ("primary", "tasks@group.v.calendar.google.com"):
-                    continue
-                # Skip calendars the user hasn't selected in their calendar view
-                if not cal.get("selected", True):
-                    continue
-                extra_items = _fetch_cal(cal_id)
-                for ev in _parse_items(extra_items, cal.get("summary", cal_id)):
-                    if ev["id"] not in seen_ids:
-                        seen_ids.add(ev["id"])
-                        out.append(ev)
-    except Exception:
-        pass
-
+    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise Exception(f"Calendar API error: {data}")
+    items = data.get("items") or []
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
+        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
+        raw_attendees = it.get("attendees") or []
+        attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
+        raw_desc = it.get("description", "") or ""
+        # Detect Motion tasks BEFORE stripping boilerplate — Motion adds "task" patterns to description
+        is_motion_task = bool(re.search(
+            r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
+            raw_desc, re.IGNORECASE
+        ))
+        out.append({
+            "id": it.get("id",""),
+            "summary": it.get("summary",""),
+            "start": start,
+            "end": end,
+            "htmlLink": it.get("htmlLink",""),
+            "hangoutLink": it.get("hangoutLink",""),
+            "recurringEventId": it.get("recurringEventId",""),
+            "description": _strip_motion_boilerplate(raw_desc),
+            "location": it.get("location",""),
+            "attendees": attendee_emails,
+            "is_motion_task": is_motion_task,
+        })
     return out
 
 
@@ -10624,10 +10573,329 @@ label         { font-size: 14px !important; }
   .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIMPLY AGENTIC AI — FULL UI OPTIMIZATION PATCH
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── DESKTOP: Wider side panel, persistent thread ───────────────────────── */
+@media (min-width: 1024px) {
+  /* Wider chat column so conversations breathe */
+  .stage { grid-template-columns: minmax(0,1fr) 560px !important; }
+
+  /* Full-height sticky thread panel */
+  .sideCard { height: calc(100vh - 32px) !important; }
+
+  /* Thread fills remaining space — persistent, always visible */
+  .thread {
+    flex: 1 1 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    font-size: 13px !important;
+  }
+
+  /* Taller operator console so users see more context */
+  .opText { height: 140px !important; }
+}
+
+/* ── DESKTOP: Compact operator action buttons ───────────────────────────── */
+/* Group the 6 opHead buttons into a neat 2-row grid on desktop */
+.opHead > div:last-child {
+  display: grid !important;
+  grid-template-columns: repeat(3, auto) !important;
+  gap: 5px !important;
+  flex-wrap: unset !important;
+}
+
+/* ── DESKTOP: Pinnable shortcut pills in the nav center ─────────────────── */
+#saPinnedBar { gap: 4px !important; }
+.saPinBtn {
+  background: rgba(124,58,237,.18);
+  border: 1px solid rgba(124,58,237,.35);
+  color: #c4b5fd;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.saPinBtn:hover { background: rgba(124,58,237,.35); }
+
+/* ── DESKTOP: Teammate list sidebar (replaces guessing table positions) ──── */
+#tmSidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 64px;
+  background: rgba(10,14,30,.96);
+  border-right: 1px solid rgba(34,49,90,.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 6px;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  transition: width .22s cubic-bezier(.4,0,.2,1);
+  overflow: hidden;
+}
+#tmSidebar:hover { width: 200px; }
+#tmSidebar .tm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 14px;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background .12s;
+  min-height: 40px;
+}
+#tmSidebar .tm-item:hover { background: rgba(124,58,237,.18); }
+#tmSidebar .tm-item.active { background: rgba(124,58,237,.28); }
+#tmSidebar .tm-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  flex-shrink: 0;
+  background: rgba(124,58,237,.3);
+  border: 1px solid rgba(124,58,237,.4);
+  color: #c4b5fd;
+}
+#tmSidebar .tm-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(226,232,240,.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity .15s;
+  min-width: 0;
+}
+#tmSidebar:hover .tm-label { opacity: 1; }
+#tmSidebar .tm-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity .15s;
+}
+#tmSidebar:hover .tm-status-dot { opacity: 1; }
+.tm-status-dot.idle { background: rgba(148,163,184,.4); }
+.tm-status-dot.active { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+.tm-status-dot.thinking { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; animation: tmPulse 1s ease-in-out infinite; }
+@keyframes tmPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Push main container right when sidebar exists */
+body.has-tm-sidebar .container { padding-left: 76px !important; }
+
+/* ── DESKTOP: Collapsible analysis pills ────────────────────────────────── */
+.passRow { position: relative; }
+#analyzeMenuBtn {
+  display: none; /* shown via JS when screen is narrow */
+}
+.analyzeMenu {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: rgba(18,28,60,.99);
+  border: 1px solid rgba(80,110,200,.5);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 500;
+  box-shadow: 0 16px 48px rgba(0,0,0,.6);
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+.analyzeMenu.open { display: flex; }
+
+/* ── MOBILE: Simplified bottom bar ─────────────────────────────────────── */
+@media (max-width: 720px) {
+
+  /* topbarMain hidden — nav bar is the only chrome needed */
+  .topbarMain { display: none !important; }
+
+  /* Nav: sticky, no overflow tricks */
+  .saNavBar {
+    overflow: visible !important;
+    flex-wrap: nowrap !important;
+    padding: 5px 0 5px 8px !important;
+    gap: 0 !important;
+  }
+
+  /* saNavLeft scrolls horizontally — NOT the sticky parent */
+  .saNavLeft {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: scroll !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    gap: 4px !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    padding-right: 10px !important;
+  }
+  .saNavLeft::-webkit-scrollbar { display: none !important; }
+  .saDropWrap, #dashboardNavBtn, #communityNavBtn { flex-shrink: 0 !important; }
+  .saNavBtn { font-size: 12px !important; padding: 6px 10px !important; white-space: nowrap !important; flex-shrink: 0 !important; touch-action: manipulation !important; }
+  .saNavCenter { display: none !important; }
+  .saNavRight   { display: none !important; }
+
+  /* Bottom bar: just 2 actions — Menu + Community */
+  .mobileBar {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom)) !important;
+    background: rgba(10,14,30,.97) !important;
+    border-top: 1px solid rgba(34,49,90,.8) !important;
+    backdrop-filter: blur(14px) !important;
+    z-index: 800 !important;
+    gap: 10px !important;
+  }
+  .mobileBar .btn {
+    flex: 1 1 auto !important;
+    padding: 11px 10px !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    border-radius: 12px !important;
+    touch-action: manipulation !important;
+  }
+
+  /* Mobile compose: floating input pinned above bottom bar */
+  #mobileComposeBar {
+    display: flex !important;
+  }
+  #mobileComposeBar { display: none; } /* hidden until shown by JS */
+
+  /* Operator console on mobile: collapsible card */
+  .operator {
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 0 10px 0 !important;
+    border-radius: 14px !important;
+  }
+
+  /* Compact opHead buttons on mobile */
+  .opHead > div:last-child {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 5px !important;
+  }
+  .opHead > div:last-child .btn {
+    font-size: 12px !important;
+    padding: 5px 9px !important;
+  }
+
+  /* Chat input area: Files/Screen/Speak as a + FAB */
+  #mobilePlusBtn { display: flex !important; }
+}
+@media (min-width: 721px) {
+  #mobilePlusBtn { display: none !important; }
+}
+
+/* Mobile + FAB for compose attachments */
+#mobilePlusBtn {
+  display: none;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(124,58,237,.3);
+  border: 1px solid rgba(124,58,237,.5);
+  color: #c4b5fd;
+  font-size: 20px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: manipulation;
+}
+#mobilePlusMenu {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: rgba(18,28,60,.99);
+  border: 1px solid rgba(80,110,200,.5);
+  border-radius: 12px;
+  padding: 8px;
+  z-index: 900;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6);
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+#mobilePlusMenu.open { display: flex; }
+#mobilePlusMenu .mpItem {
+  background: transparent;
+  border: none;
+  color: rgba(226,232,240,.9);
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+}
+#mobilePlusMenu .mpItem:hover { background: rgba(124,58,237,.18); color: #c4b5fd; }
+
+/* ── BOTH: Analysis pills collapse into Analyze menu on narrow viewports ── */
+@media (max-width: 900px) {
+  #analyzeMenuBtn { display: inline-flex !important; }
+  .passBtn { display: none !important; }
+}
+
+/* ── BOTH: Thread improvements ──────────────────────────────────────────── */
+.msg { border-radius: 16px !important; }
+.msg.user {
+  background: rgba(59,130,246,.12) !important;
+  border-color: rgba(59,130,246,.3) !important;
+  margin-left: 20px !important;
+}
+.msg.assistant {
+  background: rgba(124,58,237,.08) !important;
+  border-color: rgba(124,58,237,.25) !important;
+  margin-right: 20px !important;
+}
+
+/* Expand button on messages */
+.msgExpandBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(148,163,184,.6);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+  margin-top: 4px;
+}
+.msgExpandBtn:hover { color: #c4b5fd; background: rgba(124,58,237,.12); }
+
 </style>
 </head>
 <body>
   {{trial_banner|safe}}
+  <!-- ── Teammate sidebar (desktop) — collapses to icon strip, expands on hover ── -->
+  <div id="tmSidebar" style="display:none;">
+    <div id="tmSidebarList"></div>
+  </div>
   <div class="topbar">
     <div class="topbarMain">
       <div class="brand">
@@ -10720,9 +10988,8 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn" id="mobileManageBtn">Team</button>
-    <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileMenuBtn">☰ Menu</button>
+    <button class="btn" id="mobileCommunityBtn" onclick="openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -12356,11 +12623,18 @@ label         { font-size: 14px !important; }
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
-            <div class="passRow" id="groupPassRow">
+            <div class="passRow" id="groupPassRow" style="position:relative;">
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
               <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
+              <button class="btn btnMini" id="analyzeMenuBtn" onclick="toggleAnalyzeMenu('groupAnalyzeMenu')" title="Analyze group output">🔬 Analyze ▾</button>
+              <div class="analyzeMenu" id="groupAnalyzeMenu">
+                <button class="saDropItem" onclick="document.getElementById('passGroupRisk').click();toggleAnalyzeMenu('groupAnalyzeMenu')">🔍 Risk Assessment</button>
+                <button class="saDropItem" onclick="document.getElementById('passGroupScale').click();toggleAnalyzeMenu('groupAnalyzeMenu')">📈 Scale Analysis</button>
+                <button class="saDropItem" onclick="document.getElementById('passGroupConstr').click();toggleAnalyzeMenu('groupAnalyzeMenu')">🧩 Constraints</button>
+                <button class="saDropItem" onclick="document.getElementById('passGroupOpt').click();toggleAnalyzeMenu('groupAnalyzeMenu')">⚡ Optimize</button>
+              </div>
               <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
             </div>
 
@@ -12445,12 +12719,21 @@ label         { font-size: 14px !important; }
         <!-- Sticky input area -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
-          <div class="pillRow" style="margin-top:6px;">
+          <div class="pillRow" style="margin-top:6px;position:relative;align-items:center;">
             <input type="file" id="dmFiles" multiple style="display:none" />
-            <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
-            <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
-            <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
+            <!-- Mobile: + FAB that fans out Files/Screen/Speak -->
+            <button id="mobilePlusBtn" onclick="toggleMobilePlusMenu()" title="Attach">+</button>
+            <div id="mobilePlusMenu">
+              <button class="mpItem" onclick="document.getElementById('dmFiles').click();toggleMobilePlusMenu()">📎 Attach Files</button>
+              <button class="mpItem" onclick="document.getElementById('screenDmBtn').click();toggleMobilePlusMenu()">🖥 Share Screen</button>
+              <button class="mpItem" onclick="document.getElementById('talkDmBtn').click();toggleMobilePlusMenu()">🔊 Speak</button>
+              <button class="mpItem" onclick="document.getElementById('alwaysListenDmBtn').click();toggleMobilePlusMenu()">🎙 Voice Mode</button>
+            </div>
+            <!-- Desktop: individual buttons -->
+            <button class="btn btnMini passBtn" id="pickDmFiles">📎 Files</button>
+            <button class="btn btnMini passBtn" id="screenDmBtn">🖥 Screen</button>
+            <button class="btn btnMini passBtn" id="talkDmBtn">🔊 Speak</button>
+            <button class="btn btnMini passBtn" id="alwaysListenDmBtn">🎙 Voice Mode</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
           </div>
@@ -17904,34 +18187,22 @@ async function wcalFetchRange(start, end){
   try{
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
-    if(!data.ok){
-      const errMsg = data.error||'Calendar not connected — connect in Settings';
-      if(st) st.innerText = errMsg;
-      // Show prominent banner so mobile users (no sidebar) see the error
-      const grid=document.getElementById('wcalGrid');
-      if(grid && !Object.keys(cal.events).length){
-        grid.innerHTML=`<div style="padding:32px 16px;text-align:center;color:#fca5a5;font-size:13px;">
-          <div style="font-size:28px;margin-bottom:12px;">📅</div>
-          <div style="font-weight:700;margin-bottom:8px;">Google Calendar not connected</div>
-          <div style="opacity:.7;margin-bottom:16px;">${errMsg}</div>
-          <button onclick="if(typeof settingsBtn!=='undefined'&&settingsBtn)settingsBtn.click();else if(document.getElementById('settingsBtn'))document.getElementById('settingsBtn').click();" style="background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#c4b5fd;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer;">Open Settings to connect</button>
-        </div>`;
-      }
-      return;
-    }
+    if(!data.ok){ if(st) st.innerText = data.error||'Calendar not connected — connect in Settings'; return; }
     const map = {};
     (data.events||[]).forEach(ev=>{
+      // Determine effective display type: user override in meta > Motion task detection > default event
       const evId = ev.id||ev.summary||'';
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
       if(metaType){
         ev._gcalType = metaType;
-      } else if(ev.is_gtask){
-        ev._gcalType = 'task';   // Google Tasks always render as tasks
       } else {
-        ev._gcalType = 'task';   // default: treat as task
+        ev._gcalType = 'task';
       }
-      if(metaEntry.priority) _evPriority[evId] = metaEntry.priority;
+      // Apply stored priority from meta into _evPriority so colors render correctly
+      if(metaEntry.priority){
+        _evPriority[evId] = metaEntry.priority;
+      }
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
     });
@@ -18144,9 +18415,6 @@ function wcalEventHtml(ev, extraStyle=''){
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const _evRawTitle=(ev.summary||'Event');
   const title=(wcalCleanDescription(_evRawTitle)||_evRawTitle).replace(/"/g,'&quot;').replace(/</g,'&lt;');
-  const evKey=ev.id||ev.summary||'';                              // FIX: was undefined
-  const isDone=_evDone.has(evKey)||(!!(( cal.gcalMeta||{})[evKey]||{}).done); // FIX: was undefined
-  const doneCls=isDone?' is-done':'';                             // FIX: was undefined
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
@@ -19858,42 +20126,20 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  const timedEvs  =(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
-  const allDayEvs =(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
-  const dayTasks  = cal.tasks.filter(t=>t.date===dt);
-
-  let html='';
-
-  // ── All-day strip: Google Tasks + Motion all-day items ─────────
-  if(allDayEvs.length){
-    html+='<div style="background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);padding:5px 6px 5px 48px;display:flex;flex-wrap:wrap;gap:4px;min-height:28px;align-items:center;">';
-    html+='<span style="position:absolute;left:6px;font-size:10px;color:rgba(148,168,210,.6);white-space:nowrap;">All day</span>';
-    allDayEvs.forEach(ev=>{
-      const evKey=ev.id||ev.summary||'';
-      const isTask=(ev._gcalType||'task')==='task'||ev.is_gtask;
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const bg  =isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const bdr =isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
-      const icon=isTask?'☑':'📅';
-      html+=`<div class="wcal-event" style="position:relative;top:auto;left:auto;height:auto;padding:3px 8px 3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${bdr};border-radius:4px 6px 6px 4px;white-space:nowrap;max-width:calc(100% - 8px);cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)">${icon} ${title}</div>`;
-    });
-    html+='</div>';
-  }
-
-  // ── Timed grid ─────────────────────────────────────────────────
-  html+='<div style="display:flex;width:100%;flex:1;position:relative;">';
+  const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const dayTasks=cal.tasks.filter(t=>t.date===dt);
+  let html='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
     html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
   html+='</div>';
-  html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
+  html+='<div style="flex:1;position:relative;">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-  timedEvs.forEach(ev=>{
-    if(ev._gcalType==='task'||ev.is_gtask){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
-    else{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
+  evs.forEach(ev=>{
+    if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
+    else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
   });
   dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
   if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
@@ -19901,9 +20147,12 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
-  const dayCol=grid.querySelector('[data-date]');
+  // Apply overlap layout for day view
+  const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
   if(dayCol) wcalApplyOverlapLayout(dayCol);
+  // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
     if(e.target.closest('.wcal-event')) return;
@@ -19912,8 +20161,10 @@ function wcalRenderDay(){
     const scrolled=wrap?wrap.scrollTop:0;
     const rawY=e.clientY-areaRect.top+scrolled;
     const totalMins=Math.max(0,Math.min(Math.round(rawY),23*60+45));
-    const hh=Math.floor(totalMins/60); const mm=Math.round((totalMins%60)/15)*15;
-    wcalPopOpen(e.clientX,e.clientY,dt2,pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm));
+    const hh=Math.floor(totalMins/60);
+    const mm=Math.round((totalMins%60)/15)*15;
+    const timeStr=pad2(Math.min(hh,23))+':'+pad2(mm>=60?45:mm);
+    wcalPopOpen(e.clientX,e.clientY,dt2,timeStr);
   });
   wcalRenderUpcoming();
 }
@@ -21332,6 +21583,245 @@ function initDiagnosticsPanelV1(){
 try{ initMobileUIv2(); }catch(e){}
 
 try{ initDiagnosticsPanelV1(); }catch(e){}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIMPLY AGENTIC AI — UI OPTIMIZATION JS
+   ═══════════════════════════════════════════════════════════════ */
+(function saUIOptimize(){
+
+  /* ── 1. Fix mobile dropdown buttons → open drawer ────────────── */
+  window.saToggleDrop = function(dropId){
+    if(window.innerWidth <= 720){
+      const ov=document.getElementById('mobileDrawerOverlay');
+      if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
+      try{ document.body.style.overflow='hidden'; }catch(_){}
+      return;
+    }
+    const all=document.querySelectorAll('.saDrop');
+    const t=document.getElementById(dropId);
+    const open=t&&t.classList.contains('open');
+    all.forEach(d=>d.classList.remove('open'));
+    if(!open&&t) t.classList.add('open');
+  };
+  document.addEventListener('click',e=>{
+    if(window.innerWidth>720&&!e.target.closest('.saDropWrap'))
+      document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
+  });
+  document.querySelectorAll('.saDropItem').forEach(el=>
+    el.addEventListener('click',()=>setTimeout(()=>document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open')),50))
+  );
+
+  /* ── 2. Fix wcalEventHtml missing variables ──────────────────── */
+  // (patched inline in wcalEventHtml — this is belt-and-suspenders)
+
+  /* ── 3. GCal day-view all-day strip ─────────────────────────── */
+  // Handled in wcalRenderDay patch below
+
+  /* ── 4. Analyze menu toggle ─────────────────────────────────── */
+  window.toggleAnalyzeMenu = function(id){
+    const m=document.getElementById(id); if(!m) return;
+    const open=m.classList.toggle('open');
+    if(open){
+      document.addEventListener('click',function close(e){
+        if(!m.contains(e.target)){ m.classList.remove('open'); document.removeEventListener('click',close); }
+      });
+    }
+  };
+
+  /* ── 5. Mobile + FAB menu ────────────────────────────────────── */
+  window.toggleMobilePlusMenu = function(){
+    const m=document.getElementById('mobilePlusMenu'); if(!m) return;
+    const open=m.classList.toggle('open');
+    if(open){
+      document.addEventListener('click',function close(e){
+        if(!m.contains(e.target)&&e.target.id!=='mobilePlusBtn'){ m.classList.remove('open'); document.removeEventListener('click',close); }
+      });
+    }
+  };
+  // On desktop, pickDmFiles should trigger dmFiles directly (it already does via onclick)
+  const pdf=document.getElementById('pickDmFiles');
+  if(pdf) pdf.onclick=()=>document.getElementById('dmFiles')&&document.getElementById('dmFiles').click();
+
+  /* ── 6. Teammate sidebar (desktop only) ──────────────────────── */
+  function buildTmSidebar(){
+    if(window.innerWidth<1024) return;
+    const sidebar=document.getElementById('tmSidebar');
+    const list=document.getElementById('tmSidebarList');
+    if(!sidebar||!list) return;
+    // Get installed teammates from the seat elements
+    const seats=document.querySelectorAll('.seat');
+    if(!seats.length){ sidebar.style.display='none'; return; }
+    sidebar.style.display='flex';
+    document.body.classList.add('has-tm-sidebar');
+    list.innerHTML='';
+    seats.forEach(seat=>{
+      const nameEl=seat.querySelector('.seatName,.seatLabel');
+      const name=(nameEl?nameEl.innerText:seat.dataset.name||'?').trim();
+      const firstLetter=name[0]||'?';
+      const item=document.createElement('div');
+      item.className='tm-item';
+      item.innerHTML=`<div class="tm-avatar">${firstLetter}</div><div class="tm-label">${name}</div><div class="tm-status-dot idle" data-seat-name="${name}"></div>`;
+      item.title=name;
+      item.onclick=()=>{ seat.click(); document.querySelectorAll('#tmSidebarList .tm-item').forEach(i=>i.classList.remove('active')); item.classList.add('active'); };
+      list.appendChild(item);
+    });
+  }
+
+  // Update status dots when seat status changes
+  function updateTmDots(){
+    document.querySelectorAll('#tmSidebarList .tm-status-dot').forEach(dot=>{
+      const name=dot.dataset.seatName;
+      const seat=Array.from(document.querySelectorAll('.seat')).find(s=>{
+        const n=s.querySelector('.seatName,.seatLabel'); return n&&n.innerText.trim()===name;
+      });
+      if(!seat) return;
+      const statusEl=seat.querySelector('.seatStatus');
+      const status=statusEl?statusEl.innerText.toLowerCase():'idle';
+      dot.className='tm-status-dot '+(status.includes('think')||status.includes('generat')?'thinking':status.includes('idle')?'idle':'active');
+    });
+  }
+
+  setTimeout(()=>{ try{ buildTmSidebar(); }catch(_){} },1200);
+  // Rebuild when team changes
+  document.addEventListener('click',e=>{
+    if(e.target.closest('#assembleBtn,#installFullBtn,#manageTeamBtn'))
+      setTimeout(()=>{ try{ buildTmSidebar(); }catch(_){} },1800);
+  });
+  setInterval(()=>{ try{ updateTmDots(); }catch(_){} },3000);
+
+  /* ── 7. Nav ☰ Menu button on mobile ─────────────────────────── */
+  function injectMobileNavMenuBtn(){
+    if(window.innerWidth>720) return;
+    if(document.getElementById('mobileNavMenuBtn')) return;
+    const navBar=document.getElementById('saNavBar'); if(!navBar) return;
+    const btn=document.createElement('button');
+    btn.id='mobileNavMenuBtn';
+    btn.className='saNavBtn';
+    btn.innerHTML='☰ Menu';
+    btn.style.cssText='flex-shrink:0;touch-action:manipulation;';
+    btn.onclick=()=>{
+      const ov=document.getElementById('mobileDrawerOverlay');
+      if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
+      try{ document.body.style.overflow='hidden'; }catch(_){}
+    };
+    navBar.insertBefore(btn,navBar.firstChild);
+    // Hide .saDropWrap buttons on mobile
+    document.querySelectorAll('.saDropWrap').forEach(w=>w.style.display='none');
+  }
+  injectMobileNavMenuBtn();
+
+  /* ── 8. GCal calendar bugs ───────────────────────────────────── */
+  // Fix wcalEventHtml missing vars (guarded override)
+  if(typeof wcalEventHtml !== 'undefined'){
+    const _orig=wcalEventHtml;
+    window.wcalEventHtml=function(ev,extraStyle=''){
+      try{ return _orig(ev,extraStyle); }
+      catch(_){
+        // Fallback: render as task
+        if(typeof wcalGcalTaskHtml==='function') return wcalGcalTaskHtml(ev,extraStyle);
+        return '';
+      }
+    };
+  }
+
+  // Patch wcalRenderDay to add all-day strip if not already present
+  if(typeof wcalRenderDay !== 'undefined'){
+    const _origDay=wcalRenderDay;
+    window.wcalRenderDay=function(){
+      _origDay();
+      // After render, check if all-day events exist but strip doesn't
+      const dt=typeof ymd==='function'&&cal&&cal.selected?cal.selected:'';
+      if(!dt) return;
+      const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
+      if(!allDay.length) return;
+      const grid=document.getElementById('wcalGrid'); if(!grid) return;
+      if(grid.querySelector('.sa-allday-strip')) return; // already added
+      const strip=document.createElement('div');
+      strip.className='sa-allday-strip';
+      strip.style.cssText='display:flex;flex-wrap:wrap;gap:3px;padding:4px 6px;background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);';
+      allDay.forEach(ev=>{
+        const title=(ev.summary||'Task').replace(/</g,'&lt;');
+        const evKey=ev.id||ev.summary||'';
+        const isTask=(ev._gcalType||'task')==='task';
+        const pill=document.createElement('div');
+        pill.className='wcal-event';
+        pill.style.cssText=`position:relative;top:auto;height:auto;padding:3px 8px;background:${isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)'};color:#f5f3ff;font-size:11px;border-left:3px solid ${isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)'};border-radius:4px 6px 6px 4px;white-space:nowrap;cursor:pointer;`;
+        pill.setAttribute('data-eid',encodeURIComponent(evKey));
+        pill.setAttribute('data-etype',isTask?'gcal-task':'event');
+        pill.innerHTML=(isTask?'☑ ':'📅 ')+title;
+        if(typeof wcalOpenDetail==='function') pill.onclick=()=>wcalOpenDetail(pill);
+        strip.appendChild(pill);
+      });
+      grid.insertBefore(strip,grid.firstChild);
+    };
+  }
+
+  /* ── 9. Pinnable quick-access shortcuts in nav center ─────────── */
+  function buildPinnedShortcuts(){
+    const bar=document.getElementById('saPinnedBar'); if(!bar) return;
+    if(bar.children.length) return; // already built
+    const shortcuts=[
+      {label:'📅 Cal', id:'calendarBtn'},
+      {label:'🔬 Leads', id:'leadLabBtn'},
+      {label:'👥 CRM', id:'crmBtn'},
+      {label:'📊 Dash', id:'dashboardNavBtn'},
+    ];
+    shortcuts.forEach(s=>{
+      const btn=document.createElement('button');
+      btn.className='saPinBtn';
+      btn.innerText=s.label;
+      btn.title=s.label;
+      btn.onclick=()=>{ const t=document.getElementById(s.id); if(t) t.click(); };
+      bar.appendChild(btn);
+    });
+  }
+  setTimeout(()=>{ try{ buildPinnedShortcuts(); }catch(_){} },500);
+
+})();
+</script>
+<script>
+/* Belt-and-suspenders: wcalRenderDay all-day fix + wcalEventHtml fix run AFTER all other JS */
+try{
+  (function patchCalendarBugs(){
+    /* wcalEventHtml missing evKey/doneCls/isDone */
+    const origEvHtml=window.wcalEventHtml;
+    if(origEvHtml){
+      window.wcalEventHtml=function(ev,extraStyle){
+        extraStyle=extraStyle||'';
+        try{
+          const startDate=new Date(ev.start);
+          const endDate=new Date(ev.end||ev.start);
+          if(isNaN(startDate)) return '';
+          const startMins=startDate.getHours()*60+startDate.getMinutes();
+          const durMins=Math.max(30,(endDate-startDate)/60000);
+          const top=startMins; const height=Math.max(28,durMins);
+          const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+          const evKey=ev.id||ev.summary||'';
+          const isDone=(typeof _evDone!=='undefined'&&_evDone.has(evKey))||!!(((typeof cal!=='undefined'&&cal.gcalMeta)||{})[evKey]||{}).done;
+          const doneCls=isDone?' is-done':'';
+          const _t=ev.summary||'Event';
+          const title=((typeof wcalCleanDescription==='function'?wcalCleanDescription(_t):_t)||_t).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+          const meetLink=ev.hangoutLink||'';
+          const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()">📹 Join</a>`:'';
+          const joinBadge=meetBadge;
+          const isRecur=!!(ev.recurringEventId)||!!(ev.is_motion_task);
+          const recurBadge=isRecur?'<span class="wcal-recur-badge">↻</span>':'';
+          const prio=(typeof _evPriority!=='undefined')&&_evPriority[evKey];
+          const prioCls=prio?' task-prio-'+prio:'';
+          let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="📅 ${title}">`;
+          h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}')"></span>`;
+          if(isRecur) h+=recurBadge;
+          h+=`<div class="wcal-event-row"><span class="wcal-event-title">📅 ${title}</span>${joinBadge}</div>`;
+          if(height>32) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+          h+='</div>';
+          return h;
+        }catch(err){
+          return typeof wcalGcalTaskHtml==='function'?wcalGcalTaskHtml(ev,extraStyle):'';
+        }
+      };
+    }
+  })();
+}catch(_){}
 
 
 // ===== NEW: Mobile Round Table Viewport + AutoFit v3 (additive, fixes right-side clipping) =====
