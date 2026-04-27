@@ -3073,9 +3073,9 @@ def _strip_motion_boilerplate(text: str) -> str:
 
 
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
-    import requests as _req
-    headers = {"Authorization": f"Bearer {access_token}"}
-    base_params = {
+    import requests
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    params = {
         "timeMin": time_min,
         "timeMax": time_max,
         "singleEvents": "true",
@@ -3083,82 +3083,36 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         "maxResults": str(max_results),
         "timeZone": timezone,
     }
-
-    def _fetch(cal_id: str) -> list:
-        safe = _req.utils.quote(cal_id, safe="")
-        try:
-            r = _req.get(
-                f"https://www.googleapis.com/calendar/v3/calendars/{safe}/events",
-                headers=headers, params=base_params, timeout=20
-            )
-            if r.status_code >= 400:
-                return []
-            return (r.json() if r.content else {}).get("items") or []
-        except Exception:
-            return []
-
-    def _parse(items: list) -> List[Dict[str, Any]]:
-        out = []
-        for it in items:
-            start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
-            end   = (it.get("end")   or {}).get("dateTime") or (it.get("end")   or {}).get("date") or ""
-            raw_attendees = it.get("attendees") or []
-            attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
-            raw_desc = it.get("description", "") or ""
-            is_motion_task = bool(re.search(
-                r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
-                raw_desc, re.IGNORECASE
-            ))
-            out.append({
-                "id":               it.get("id", ""),
-                "summary":          it.get("summary", ""),
-                "start":            start,
-                "end":              end,
-                "htmlLink":         it.get("htmlLink", ""),
-                "hangoutLink":      it.get("hangoutLink", ""),
-                "recurringEventId": it.get("recurringEventId", ""),
-                "description":      _strip_motion_boilerplate(raw_desc),
-                "location":         it.get("location", ""),
-                "attendees":        attendee_emails,
-                "is_motion_task":   is_motion_task,
-            })
-        return out
-
-    # 1. Primary calendar (regular events + Motion tasks scheduled here)
-    out = _parse(_fetch("primary"))
-    seen = {e["id"] for e in out if e["id"]}
-
-    # 2. Google Tasks calendar — tasks created via Google Tasks / Calendar task sidebar
-    for ev in _parse(_fetch("tasks@group.v.calendar.google.com")):
-        if ev["id"] not in seen:
-            seen.add(ev["id"])
-            out.append(ev)
-
-    # 3. All other calendars the user has selected (other people's calendars,
-    #    work calendars, Motion's own calendar, etc.)
-    try:
-        cl_r = _req.get(
-            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-            headers=headers,
-            params={"fields": "items(id,summary,selected,accessRole)"},
-            timeout=15
-        )
-        if cl_r.status_code == 200:
-            for cal_item in (cl_r.json() if cl_r.content else {}).get("items") or []:
-                cal_id = cal_item.get("id") or ""
-                if not cal_id:
-                    continue
-                if cal_id in ("primary", "tasks@group.v.calendar.google.com"):
-                    continue
-                if not cal_item.get("selected", True):
-                    continue  # user has hidden this calendar
-                for ev in _parse(_fetch(cal_id)):
-                    if ev["id"] not in seen:
-                        seen.add(ev["id"])
-                        out.append(ev)
-    except Exception:
-        pass
-
+    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
+    data = r.json() if r.content else {}
+    if r.status_code >= 400:
+        raise Exception(f"Calendar API error: {data}")
+    items = data.get("items") or []
+    out: List[Dict[str, Any]] = []
+    for it in items:
+        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
+        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
+        raw_attendees = it.get("attendees") or []
+        attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
+        raw_desc = it.get("description", "") or ""
+        # Detect Motion tasks BEFORE stripping boilerplate — Motion adds "task" patterns to description
+        is_motion_task = bool(re.search(
+            r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
+            raw_desc, re.IGNORECASE
+        ))
+        out.append({
+            "id": it.get("id",""),
+            "summary": it.get("summary",""),
+            "start": start,
+            "end": end,
+            "htmlLink": it.get("htmlLink",""),
+            "hangoutLink": it.get("hangoutLink",""),
+            "recurringEventId": it.get("recurringEventId",""),
+            "description": _strip_motion_boilerplate(raw_desc),
+            "location": it.get("location",""),
+            "attendees": attendee_emails,
+            "is_motion_task": is_motion_task,
+        })
     return out
 
 
@@ -10568,54 +10522,61 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
-   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
-   Community button wraps to a second line that can be partially clipped.
-   Fix: switch to a single horizontal scrollable row so every button is
-   reachable with a quick swipe — no clipping, no invisible buttons.
+/* ── MOBILE NAV — DEFINITIVE FIX ────────────────────────────────────────────
+   KEY INSIGHT: .saNavBar is position:sticky — sticky elements cannot be
+   overflow scroll containers. Putting overflow-x on it does nothing.
+   FIX: .saNavBar stays sticky with overflow:visible. .saNavLeft (the
+   non-sticky child holding all buttons) gets overflow-x:scroll so it
+   scrolls horizontally inside the fixed sticky frame. Community is always
+   reachable — just swipe left.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
+
+  /* Hide the title row — wastes space, nav bar is all that's needed */
+  .topbarMain { display: none !important; }
+
+  /* Sticky frame: no overflow restriction (must stay visible for sticky to work) */
   .saNavBar {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
-    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
-    padding: 7px 10px !important;
-    gap: 5px !important;
-  }
-  .saNavBar::-webkit-scrollbar { display: none !important; }
-
-  /* Left cluster: keep all buttons visible in one row */
-  .saNavLeft {
-    flex-shrink: 0 !important;
+    overflow: visible !important;
     flex-wrap: nowrap !important;
-    gap: 4px !important;
+    padding: 5px 0 5px 6px !important;
+    gap: 0 !important;
   }
 
-  /* Compact nav buttons so more fit before scrolling */
+  /* THE scroll container — the non-sticky child, not the sticky parent */
+  .saNavLeft {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 4px !important;
+    overflow-x: scroll !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding-right: 10px !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  .saNavLeft::-webkit-scrollbar { display: none !important; }
+
+  /* Every button must not shrink */
+  .saDropWrap,
+  .saNavLeft > .saNavBtn { flex-shrink: 0 !important; }
+
+  /* Compact buttons */
   .saNavBtn {
     font-size: 12px !important;
     padding: 6px 10px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
-    border-radius: 8px !important;
+    touch-action: manipulation !important;
   }
 
-  /* Hide the center objective pill — too wide for mobile nav row */
+  /* Kill center and right — not useful on mobile */
   .saNavCenter { display: none !important; }
-
-  /* Right side: keep support + logout but hide model tag & level badge */
-  .saNavRight {
-    flex-shrink: 0 !important;
-    gap: 4px !important;
-  }
-  .saNavRight .saModelTag,
-  #navLevelBadge { display: none !important; }
+  .saNavRight   { display: none !important; }
 }
 
-/* Extra-narrow phones (SE, etc.) — shrink a touch more */
-@media (max-width: 400px) {
+@media (max-width: 390px) {
   .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
 }
 
@@ -10715,9 +10676,8 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn" id="mobileManageBtn">Team</button>
-    <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileMenuBtn">☰ Menu</button>
+    <button class="btn" id="mobileCommunityBtn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -18127,9 +18087,6 @@ function wcalEventHtml(ev, extraStyle=''){
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const _evRawTitle=(ev.summary||'Event');
   const title=(wcalCleanDescription(_evRawTitle)||_evRawTitle).replace(/"/g,'&quot;').replace(/</g,'&lt;');
-  const evKey=ev.id||ev.summary||'';
-  const isDone=_evDone.has(evKey)||!!((cal.gcalMeta||{})[evKey]||{}).done;
-  const doneCls=isDone?' is-done':'';
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
@@ -19841,39 +19798,20 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
-  const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
-  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
+  const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
   const dayTasks=cal.tasks.filter(t=>t.date===dt);
-
-  let html='';
-
-  // All-day strip — Google Tasks and all-day GCal/Motion events
-  if(allDayEvs.length){
-    html+='<div style="display:flex;flex-wrap:wrap;gap:3px;padding:5px 8px;background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);min-height:28px;">';
-    allDayEvs.forEach(ev=>{
-      const evKey=ev.id||ev.summary||'';
-      const isTask=(ev._gcalType||'task')==='task';
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
-      html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)">${isTask?'☑':'📅'} ${title}</div>`;
-    });
-    html+='</div>';
-  }
-
-  html+='<div style="display:flex;width:100%;">';
+  let html='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
     html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
   html+='</div>';
-  html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
+  html+='<div style="flex:1;position:relative;">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-  timedEvs.forEach(ev=>{
-    if(ev._gcalType==='task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
-    else{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
+  evs.forEach(ev=>{
+    if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
+    else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
   });
   dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
   if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
@@ -19881,9 +19819,12 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
+  // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
-  const dayCol=grid.querySelector('[data-date]');
+  // Apply overlap layout for day view
+  const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
   if(dayCol) wcalApplyOverlapLayout(dayCol);
+  // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
     if(e.target.closest('.wcal-event')) return;
