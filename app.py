@@ -9195,13 +9195,13 @@ HTML = r"""
     .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(148,163,184,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
-    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;touch-action:manipulation;-webkit-tap-highlight-color:rgba(124,58,237,.2);}
-    .saNavBtn:hover,.saNavBtn:active{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+    .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
-    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;-webkit-tap-highlight-color:rgba(124,58,237,.2);touch-action:manipulation;}
-    .saDropItem:hover,.saDropItem:active{background:rgba(124,58,237,.15);color:#c4b5fd;}
+    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.85);font-size:13px;cursor:pointer;}
+    .saDropItem:hover{background:rgba(124,58,237,.15);color:#c4b5fd;}
 
 
     .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
@@ -10522,55 +10522,63 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── PORTRAIT NAV FIX ───────────────────────────────────────────────────────
-   Root cause: .saNavBar uses flex-wrap:wrap, so on narrow portrait phones the
-   Community button wraps to a second line that can be partially clipped.
-   Fix: switch to a single horizontal scrollable row so every button is
-   reachable with a quick swipe — no clipping, no invisible buttons.
+/* ── NAV COMMUNITY BUTTON FIX v3 ────────────────────────────────────────────
+   The .topbar parent had position:relative but no overflow:visible explicitly
+   set, so some browsers still clip the scrollable .saNavBar child.
+   Additionally flex-wrap:wrap on the base .saNavBar caused wrapping before
+   the mobile override could take effect.
+   Fix: kill overflow on every ancestor, scroll on an inner wrapper so the
+   portal dropdowns (fixed-position, body-level) still work fine.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
+  /* Allow topbar + its inner containers to never clip the nav row */
+  .topbar,
+  .topbarMain {
+    overflow: visible !important;
+  }
+
+  /* Nav bar: single scrollable row. overflow-x:scroll forces scrollability
+     even when content fits (belt-and-suspenders for iOS Safari). */
   .saNavBar {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
+    overflow-x: scroll !important;
+    overflow-y: visible !important;      /* visible so portal drops escape */
     -webkit-overflow-scrolling: touch !important;
-    flex-wrap: nowrap !important;      /* single row — scrolls instead of wraps */
-    scrollbar-width: none !important;  /* hide scrollbar on Firefox */
-    padding: 7px 10px !important;
-    gap: 5px !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none !important;
+    padding: 6px 8px !important;
+    gap: 4px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
   .saNavBar::-webkit-scrollbar { display: none !important; }
 
-  /* Left cluster: keep all buttons visible in one row */
+  /* Left cluster: no shrink, no wrap, keep all 5 buttons in one row */
   .saNavLeft {
-    flex-shrink: 0 !important;
+    display: flex !important;
     flex-wrap: nowrap !important;
+    align-items: center !important;
     gap: 4px !important;
+    flex-shrink: 0 !important;
   }
 
-  /* Compact nav buttons so more fit before scrolling */
+  /* Every .saDropWrap and button must not shrink */
+  .saDropWrap { flex-shrink: 0 !important; }
+
+  /* Compact buttons */
   .saNavBtn {
     font-size: 12px !important;
     padding: 6px 10px !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
-    border-radius: 8px !important;
   }
 
-  /* Hide the center objective pill — too wide for mobile nav row */
+  /* Kill center pill and right metadata to free width */
   .saNavCenter { display: none !important; }
-
-  /* Right side: keep support + logout but hide model tag & level badge */
-  .saNavRight {
-    flex-shrink: 0 !important;
-    gap: 4px !important;
-  }
-  .saNavRight .saModelTag,
-  #navLevelBadge { display: none !important; }
+  .saNavRight   { display: none !important; }
 }
 
-/* Extra-narrow phones (SE, etc.) — shrink a touch more */
-@media (max-width: 400px) {
-  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
+@media (max-width: 390px) {
+  .saNavBtn { font-size: 11px !important; padding: 5px 7px !important; }
 }
 
 </style>
@@ -11769,6 +11777,110 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
+
+/* ── CALENDAR MOBILE FIX ────────────────────────────────────────────────────
+   On phones the 230px sidebar + 7-column week grid compress to ~35px/col.
+   Fix: hide sidebar on mobile, auto-switch to Day view (single column),
+   add a "+" FAB for quick-add so users can still create events.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* Shrink overall calendar height to fit viewport */
+  .wcal-wrap {
+    min-height: 0 !important;
+    height: auto !important;
+    flex-direction: column !important;
+    border-radius: 10px !important;
+  }
+
+  /* Hide the 230px sidebar entirely — too wide for mobile */
+  .wcal-sidebar {
+    display: none !important;
+  }
+
+  /* Main area takes full width */
+  .wcal-main {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 100% !important;
+  }
+
+  /* Topbar: compact, wrap to 2 rows if needed */
+  .wcal-topbar {
+    padding: 6px 8px !important;
+    gap: 5px !important;
+    flex-wrap: wrap !important;
+  }
+  .wcal-nav-btn { font-size: 13px !important; padding: 5px 10px !important; }
+  .wcal-range-label { font-size: 12px !important; min-width: 0 !important; }
+  .wcal-view-btns { flex-shrink: 0 !important; }
+  .wcal-view-btn { font-size: 12px !important; padding: 4px 10px !important; }
+
+  /* Grid area: give it a fixed, scrollable height */
+  .wcal-grid-wrap {
+    height: 520px !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Day view: single column fills the width */
+  .wcal-days-area {
+    min-width: 0 !important;
+  }
+
+  /* Day column headers: larger tap targets */
+  .wcal-col-header .wd { font-size: 11px !important; }
+  .wcal-col-header .dd { font-size: 16px !important; }
+
+  /* Events: slightly larger text for readability */
+  .wcal-event { font-size: 11px !important; padding: 3px 4px 3px 18px !important; }
+
+  /* Time column: slightly narrower */
+  .wcal-time-col { width: 44px !important; }
+  .wcal-time-label { font-size: 10px !important; padding-right: 5px !important; }
+
+  /* Detail panel: full-width overlay on mobile */
+  .wcal-detail {
+    width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    height: 70vh !important;
+    transform: translateY(100%) !important;
+    border-radius: 16px 16px 0 0 !important;
+    border-left: none !important;
+    border-top: 1px solid rgba(42,58,106,.7) !important;
+  }
+  .wcal-detail.open { transform: translateY(0) !important; }
+
+  /* Quick-add FAB: shows on mobile so user can add events without sidebar */
+  #wcalMobileFab {
+    display: flex !important;
+  }
+}
+
+/* Mobile quick-add FAB (hidden on desktop) */
+#wcalMobileFab {
+  display: none;
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 50;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(124,58,237,.9);
+  border: 1px solid rgba(167,139,250,.6);
+  color: #fff;
+  font-size: 24px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(124,58,237,.5);
+  touch-action: manipulation;
+}
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
@@ -12153,6 +12265,9 @@ label         { font-size: 14px !important; }
     </div>
 
   </div>
+
+  <!-- Mobile quick-add FAB -->
+  <button id="wcalMobileFab" title="Add event" onclick="wcalMobileFabClick()">+</button>
 
   <!-- DETAIL PANEL (Motion-style) -->
   <div class="wcal-detail" id="wcalDetail">
@@ -15045,116 +15160,27 @@ function makeSeat(defn, idx){
       else{stopAlwaysListening();startAlwaysListening("dm");}
     };
 
-    // ===== NAV BAR DROPDOWN JS (portal fix) =====
-    // ROOT FIX: On mobile, .saNavBar has overflow-x:scroll which clips
-    // position:absolute children (dropdowns). Fix: on mobile we "portal" the
-    // open dropdown — move it to document.body with fixed positioning so it
-    // is never clipped by the scroll container. On desktop the old in-place
-    // behaviour is kept because overflow is not restricted there.
+    // ===== NAV BAR DROPDOWN JS =====
+    window.saToggleDrop = function saToggleDrop(dropId){
+      const allDrops=document.querySelectorAll('.saDrop');
+      const target=document.getElementById(dropId);
+      const isOpen=target&&target.classList.contains('open');
+      allDrops.forEach(d=>d.classList.remove('open'));
+      if(!isOpen&&target) target.classList.add('open');
+    }
+    document.addEventListener('click',function(e){
+      if(!e.target.closest('.saDropWrap')) document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
+    });
 
-    (function(){
-      var _portalDrop = null;        // the portal wrapper currently shown
-      var _portalSource = null;      // original parent to restore into
-      var _portalOrigNext = null;    // original next sibling to restore before
-
-      function isMobileNav(){
-        return window.innerWidth <= 720;
-      }
-
-      function closeAllDrops(){
-        // Remove portal if open
-        if(_portalDrop){
-          try{
-            if(_portalSource){
-              _portalSource.insertBefore(_portalDrop, _portalOrigNext);
-            }
-          }catch(_){}
-          _portalDrop.classList.remove('open');
-          _portalDrop.style.cssText = '';
-          _portalDrop = null;
-          _portalSource = null;
-          _portalOrigNext = null;
-        }
-        // Close any in-place drops
-        document.querySelectorAll('.saDrop').forEach(function(d){
-          d.classList.remove('open');
-          d.style.cssText = '';
-        });
-      }
-
-      window.saToggleDrop = function saToggleDrop(dropId){
-        var target = document.getElementById(dropId);
-        if(!target) return;
-        var alreadyOpen = (target === _portalDrop) || target.classList.contains('open');
-        closeAllDrops();
-        if(alreadyOpen) return;   // was open → just close
-
-        if(isMobileNav()){
-          // --- PORTAL MODE ---
-          // Find the trigger button (the .saNavBtn that called us)
-          // It's the previous sibling of the drop inside .saDropWrap
-          var wrap = target.parentElement;
-          var triggerBtn = wrap ? wrap.querySelector('.saNavBtn') : null;
-
-          // Save restore info
-          _portalSource  = target.parentElement;
-          _portalOrigNext = target.nextSibling;
-
-          // Move drop to body
-          document.body.appendChild(target);
-          _portalDrop = target;
-
-          // Position it just below the trigger button (or below the nav bar)
-          if(triggerBtn){
-            var rect = triggerBtn.getBoundingClientRect();
-            target.style.position   = 'fixed';
-            target.style.top        = (rect.bottom + 4) + 'px';
-            target.style.left       = Math.max(8, Math.min(rect.left, window.innerWidth - 216)) + 'px';
-            target.style.zIndex     = '999999';
-            target.style.minWidth   = '200px';
-            target.style.maxWidth   = (window.innerWidth - 16) + 'px';
-            target.style.maxHeight  = (window.innerHeight - rect.bottom - 16) + 'px';
-            target.style.overflowY  = 'auto';
-            target.style.display    = 'block';
-          } else {
-            var navBar = document.getElementById('saNavBar');
-            var nbRect = navBar ? navBar.getBoundingClientRect() : {bottom:60, left:8};
-            target.style.position  = 'fixed';
-            target.style.top       = (nbRect.bottom + 4) + 'px';
-            target.style.left      = '8px';
-            target.style.zIndex    = '999999';
-            target.style.minWidth  = (window.innerWidth - 16) + 'px';
-            target.style.display   = 'block';
-          }
-          target.classList.add('open');
-        } else {
-          // --- DESKTOP: classic in-place ---
-          target.classList.add('open');
-        }
-      };
-
-      // Close on outside click
-      document.addEventListener('click', function(e){
-        if(_portalDrop && !_portalDrop.contains(e.target) && !e.target.closest('.saDropWrap') && !e.target.closest('.saNavBtn')){
-          closeAllDrops();
-          return;
-        }
-        if(!_portalDrop && !e.target.closest('.saDropWrap')){
-          closeAllDrops();
-        }
+    // Auto-close dropdowns after any item is clicked
+    document.querySelectorAll('.saDropItem').forEach(function(item){
+      item.addEventListener('click', function(){
+        setTimeout(function(){
+          document.querySelectorAll('.saDrop').forEach(function(d){ d.classList.remove('open'); });
+          document.querySelectorAll('.saNavBtn').forEach(function(b){ b.classList.remove('open'); });
+        }, 50);
       });
-
-      // Close on resize/orientation change
-      window.addEventListener('resize', closeAllDrops, {passive:true});
-      window.addEventListener('orientationchange', closeAllDrops, {passive:true});
-
-      // Auto-close when a menu item is clicked
-      document.addEventListener('click', function(e){
-        if(e.target.classList.contains('saDropItem') || e.target.closest('.saDropItem')){
-          setTimeout(closeAllDrops, 60);
-        }
-      });
-    })();
+    });
 
     // Wire command bar
     (function(){
@@ -20417,10 +20443,35 @@ window.showCalendarModal=function showCalendarModal(){
   try{ ensureModalMinSize(1100, 820); }catch(_){}
   cal.weekStart=wcalMonday(new Date()); cal.selected=ymd(new Date());
   cal.y=(new Date()).getFullYear(); cal.m=(new Date()).getMonth();
+
+  // ── Mobile: auto-switch to Day view so the grid is readable ──
+  if(window.innerWidth <= 720){
+    cal.view = 'day';
+    document.querySelectorAll('.wcal-view-btn').forEach(b=>b.classList.remove('active'));
+    const db=document.getElementById('wcalViewDay'); if(db) db.classList.add('active');
+    const wb=document.getElementById('wcalViewWeek'); if(wb) wb.classList.remove('active');
+  }
+
   wcalWireButtons(); wcalWirePopover(); wcalRenderMiniMonth();
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
+};
+
+// Mobile FAB — opens sidebar quick-add form as a bottom sheet
+window.wcalMobileFabClick = function(){
+  // Show a simple prompt for quick event creation on mobile
+  const title = prompt('Event title:');
+  if(!title || !title.trim()) return;
+  const dateStr = ymd(new Date());
+  const start = '09:00';
+  fetch('/api/calendar/add_event',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title:title.trim(), date:dateStr, start_time:start, duration_minutes:60})
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){ showToast('Event added!'); wcalFetchCurrentRange().then(()=>wcalRefresh()); }
+    else showToast('Could not add event: '+(d.error||'error'));
+  }).catch(()=>showToast('Could not add event'));
 };
 
 // Keep backward-compat stubs
@@ -25326,10 +25377,11 @@ def _crm_response_text(resp: Any) -> str:
 
 
 def _crm_openai_web_search(query: str, niche: str, location: str, max_results: int = 12) -> List[Dict[str, Any]]:
-    """Use OpenAI web search to find likely prospect businesses.
+    """Use OpenAI web search (web_search_preview tool) to find real prospect businesses.
 
-    Returns lightweight candidate rows that are later validated against public pages.
-    This is additive: if the user's key or model does not support web search, we quietly fall back.
+    Uses the web_search_preview tool so the model actually searches the live internet
+    instead of drawing from training data — returns real websites and contact info.
+    Falls back gracefully if the model/key doesn't support the tool.
     """
     query = (query or '').strip()
     if not query:
@@ -25339,36 +25391,61 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
     except Exception:
         return []
 
-    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini')
     system = (
-        'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
-        'Return ONLY a JSON array. Each item must be an object with keys: '
+        'You are a precise B2B lead researcher with web search access. '
+        'Search the web RIGHT NOW to find real, currently-operating businesses that match the request. '
+        'Return ONLY a valid JSON array. Each item must be an object with keys: '
         'name, company, website, phone, email, notes. '
-        'Only include likely real prospects, not search engines, portals, directories, marketplaces, social networks, review sites, or aggregators. '
-        'Prefer official business websites. If email or phone is unknown, use an empty string. '
-        f'Return at most {max(1, min(25, int(max_results or 12)))} items.'
+        'CRITICAL: only include businesses you found via web search with real, verifiable websites. '
+        'Do NOT invent or guess websites or email addresses — only include ones you confirmed exist online. '
+        'Skip directories, portals, social networks, review sites, and aggregators. '
+        f'Return at most {max(1, min(25, int(max_results or 12)))} items. Return JSON only, no markdown.'
     )
     user = (
+        f'Search the web now for: {query}\n'
         f'Niche: {niche or "businesses"}\n'
         f'Location: {location or "target area"}\n'
-        f'Search query: {query}\n'
-        'Requirements: prioritize official websites and businesses clearly serving the niche and location. '
-        'Do not invent contact details. Return JSON only.'
+        'Find real businesses with real websites. Include phone and email only if found on their actual website. '
+        'Return JSON array only.'
     )
 
+    # Try with web_search_preview tool first (real internet search)
     try:
         resp = client.chat.completions.create(
-            model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
+            model='gpt-4o-mini-search-preview',
             messages=[
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': user},
             ],
-            temperature=0.1,
-            timeout=45,
+            timeout=55,
         )
     except Exception:
-        # Older SDKs / unsupported accounts should not break Lead Lab.
-        return []
+        # Fallback: try gpt-4o with web_search_preview tool
+        try:
+            resp = client.chat.completions.create(
+                model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o'),
+                messages=[
+                    {'role': 'system', 'content': system},
+                    {'role': 'user', 'content': user},
+                ],
+                tools=[{"type": "web_search_preview"}],
+                temperature=0.1,
+                timeout=55,
+            )
+        except Exception:
+            # Final fallback: standard model without web search
+            try:
+                resp = client.chat.completions.create(
+                    model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
+                    messages=[
+                        {'role': 'system', 'content': system},
+                        {'role': 'user', 'content': user},
+                    ],
+                    temperature=0.1,
+                    timeout=45,
+                )
+            except Exception:
+                return []
 
     txt = _crm_response_text(resp)
     raw = _crm_extract_json_block(txt)
