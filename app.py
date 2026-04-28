@@ -85,7 +85,10 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
-CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"]
+CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.readonly",
+]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
 # =========================
@@ -3073,6 +3076,12 @@ def _strip_motion_boilerplate(text: str) -> str:
 
 
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
+    """Fetch events from ALL user calendars: primary + Google Tasks + every selected calendar.
+
+    Previously only fetched 'primary', which missed Motion's calendar,
+    work calendars, Google Tasks, and any other secondary calendars.
+    Now fetches everything the user has access to.
+    """
     import requests as _req
     headers = {"Authorization": f"Bearer {access_token}"}
     base_params = {
@@ -3081,7 +3090,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         "maxResults": str(max_results), "timeZone": timezone,
     }
 
-    def _fetch(cal_id: str) -> list:
+    def _fetch_cal(cal_id: str) -> list:
         safe = _req.utils.quote(cal_id, safe="")
         try:
             r = _req.get(
@@ -3093,7 +3102,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         except Exception:
             return []
 
-    def _parse(items: list) -> List[Dict[str, Any]]:
+    def _parse_items(items: list) -> List[Dict[str, Any]]:
         out = []
         for it in items:
             start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
@@ -3120,40 +3129,48 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             })
         return out
 
-    # 1. Primary calendar — regular events + Motion tasks scheduled here
-    out  = _parse(_fetch("primary"))
+    # ── 1. Primary calendar (always first) ──────────────────────────────────
+    out  = _parse_items(_fetch_cal("primary"))
     seen = {e["id"] for e in out if e["id"]}
 
-    # 2. Google Tasks calendar — tasks created via Google Tasks / Calendar task sidebar
-    for ev in _parse(_fetch("tasks@group.v.calendar.google.com")):
+    # ── 2. Google Tasks calendar ─────────────────────────────────────────────
+    #    Tasks created in Google Tasks / the Calendar task sidebar live here.
+    for ev in _parse_items(_fetch_cal("tasks@group.v.calendar.google.com")):
         if ev["id"] not in seen:
             seen.add(ev["id"])
             out.append(ev)
 
-    # 3. Every other calendar the user has selected
-    #    (Motion's own calendar, shared/work calendars, etc.)
-    #    Requires calendar.readonly scope — silently skipped if not granted yet.
+    # ── 3. All other selected calendars ─────────────────────────────────────
+    #    Includes Motion's calendar, work/school calendars, shared calendars.
+    #    Requires calendar.readonly scope — silently skipped if token predates
+    #    the scope upgrade (user will see the reconnect prompt in the calendar UI).
     try:
         cl_r = _req.get(
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
             headers=headers,
-            params={"fields": "items(id,summary,selected,accessRole)"},
+            params={"fields": "items(id,summary,selected,accessRole,primary)"},
             timeout=15)
         if cl_r.status_code == 200:
-            for cal_item in (cl_r.json() if cl_r.content else {}).get("items") or []:
-                cal_id = cal_item.get("id") or ""
+            items = (cl_r.json() if cl_r.content else {}).get("items") or []
+            for cal_meta in items:
+                cal_id = cal_meta.get("id") or ""
                 if not cal_id:
                     continue
+                # Skip ones we already fetched
                 if cal_id in ("primary", "tasks@group.v.calendar.google.com"):
                     continue
-                if not cal_item.get("selected", True):
-                    continue  # user has hidden this calendar in GCal
-                for ev in _parse(_fetch(cal_id)):
+                # Skip primary calendar by another name
+                if cal_meta.get("primary"):
+                    continue
+                # Skip calendars the user has hidden in GCal
+                if not cal_meta.get("selected", True):
+                    continue
+                for ev in _parse_items(_fetch_cal(cal_id)):
                     if ev["id"] not in seen:
                         seen.add(ev["id"])
                         out.append(ev)
     except Exception:
-        pass
+        pass  # Silently skip — old token without calendar.readonly scope
 
     return out
 
@@ -10564,9 +10581,9 @@ label         { font-size: 14px !important; }
   .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
-/* ── MOBILE NAV ─────────────────────────────────────────────────────────────
-   position:sticky cannot scroll — overflow goes on .saNavLeft (non-sticky child).
-   Community hidden from top nav on mobile (already in bottom bar).
+/* ── MOBILE NAV ──────────────────────────────────────────────────────────────
+   position:sticky cannot scroll. Overflow goes on .saNavLeft (non-sticky child).
+   Community hidden from top nav on mobile — it's already in the bottom bar.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .topbarMain { display: none !important; }
@@ -10663,7 +10680,6 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + level badge + scout + human help + bug + logout -->
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
@@ -11639,7 +11655,7 @@ label         { font-size: 14px !important; }
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
     <div class="modalInner">
-      <div class="toolHint">Generate organized public lead lists from the web. Lead Lab searches the live internet and only shows real websites, phones, and emails found on actual pages — no hallucinated contact info.</div>
+      <div class="toolHint">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
       <div class="formGrid2">
         <div><label>Target niche</label><input id="leadLabNiche" placeholder="real estate agents" /></div>
         <div><label>Location</label><input id="leadLabLocation" placeholder="New Jersey" /></div>
@@ -11663,7 +11679,15 @@ label         { font-size: 14px !important; }
             <option value="any">Any public lead</option>
           </select>
         </div>
+        <div><label>Minimum score</label>
+          <select id="leadLabMinScore">
+            <option value="30">30</option><option value="40" selected>40</option>
+            <option value="50">50</option><option value="60">60</option>
+          </select>
+        </div>
       </div>
+      <label style="margin-top:14px;">Seed rows (optional)</label>
+      <textarea id="leadLabInput" style="height:180px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
       <div class="toolRunBar">
         <button class="btn" id="leadLabSampleBtn">Sample</button>
         <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
@@ -17856,7 +17880,7 @@ async function wcalFetchRange(start, end){
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
     if(!data.ok){
-      if(st) st.innerHTML = `<span style="color:#fca5a5;">${data.error||'Calendar not connected'}</span>`;
+      if(st) st.innerHTML='<span style="color:#fca5a5;">'+( data.error||'Calendar not connected — connect in Settings')+'</span>';
       return;
     }
     const events = data.events||[];
@@ -17865,7 +17889,7 @@ async function wcalFetchRange(start, end){
       const evId = ev.id||ev.summary||'';
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
-      ev._gcalType = metaType || 'task';
+      ev._gcalType = metaType || (ev.is_motion_task ? 'task' : 'task');
       if(metaEntry.priority) _evPriority[evId] = metaEntry.priority;
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
@@ -17873,32 +17897,28 @@ async function wcalFetchRange(start, end){
     cal.events = Object.assign(cal.events, map);
     if(st) st.innerText='';
 
-    // If connected but zero events returned, check if we need expanded permissions
-    if(events.length === 0){
-      const grid = document.getElementById('wcalGrid');
-      const hasSysTasks = cal.tasks && cal.tasks.length > 0;
-      if(grid && !hasSysTasks){
-        // Show reconnect prompt — user likely connected with old narrow scope
-        const existing = grid.querySelector('.sa-cal-reconnect');
-        if(!existing){
-          const banner = document.createElement('div');
-          banner.className='sa-cal-reconnect';
-          banner.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px;gap:12px;text-align:center;';
-          banner.innerHTML=`
-            <div style="font-size:28px;">📅</div>
-            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">No events found for this date</div>
-            <div style="font-size:12px;color:rgba(148,163,184,.7);max-width:320px;line-height:1.6;">
-              If you have Google Calendar events that aren't showing, you may need to
-              <strong style="color:#c4b5fd;">reconnect Google Calendar</strong> to grant full read access
-              (needed to sync all your calendars, including Google Tasks and Motion).
-            </div>
-            <button onclick="document.querySelector('[data-click=settingsBtn]')&&document.querySelector('[data-click=settingsBtn]').click()" style="background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:10px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;">⚙️ Go to Settings → Reconnect Calendar</button>`;
-          grid.appendChild(banner);
+    // Show reconnect prompt if we got 0 events but calendar IS connected.
+    // This usually means the stored token predates the calendar.readonly scope
+    // upgrade and can't enumerate other calendars (Motion, work calendar, etc.)
+    if(events.length===0){
+      const existing=document.getElementById('wcalReconnectBanner');
+      if(!existing){
+        const sidebar=document.getElementById('wcalSidebar');
+        const insertTarget=sidebar||document.getElementById('wcalWrap');
+        if(insertTarget){
+          const banner=document.createElement('div');
+          banner.id='wcalReconnectBanner';
+          banner.style.cssText='background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);border-radius:12px;padding:14px 16px;margin:12px;font-size:13px;line-height:1.6;color:#fde68a;';
+          banner.innerHTML=`<strong>📅 No events found for this period.</strong><br>
+            If you have Google Calendar events that aren't showing, your calendar connection may need to be updated.<br>
+            <button onclick="location.href='/calendar/connect'" style="margin-top:10px;background:rgba(245,158,11,.3);border:1px solid rgba(245,158,11,.5);color:#fde68a;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">🔄 Reconnect Google Calendar</button>
+            <button onclick="document.getElementById('wcalReconnectBanner').remove()" style="margin-top:10px;margin-left:8px;background:transparent;border:1px solid rgba(245,158,11,.3);color:rgba(253,230,138,.6);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;">Dismiss</button>`;
+          if(sidebar) sidebar.appendChild(banner);
+          else insertTarget.prepend(banner);
         }
       }
     } else {
-      // Remove reconnect banner if events loaded
-      const banner = document.querySelector('.sa-cal-reconnect');
+      const banner=document.getElementById('wcalReconnectBanner');
       if(banner) banner.remove();
     }
   }catch(e){
@@ -19824,23 +19844,27 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
-  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
-  const dayTasks=cal.tasks.filter(t=>t.date===dt);
+
+  const timedEvs  = (cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const allDayEvs = (cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
+  const dayTasks  = cal.tasks.filter(t=>t.date===dt);
+
   let html='';
-  // All-day strip: Google Tasks, Motion all-day tasks, GCal all-day events
+
+  // All-day strip — Google Tasks, Motion all-day tasks, GCal all-day events
   if(allDayEvs.length){
     html+='<div style="display:flex;flex-wrap:wrap;gap:3px;padding:5px 8px;background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);min-height:28px;">';
     allDayEvs.forEach(ev=>{
       const evKey=ev.id||ev.summary||'';
       const isTask=(ev._gcalType||'task')==='task';
       const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
+      const bg    = isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
+      const stripe= isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
       html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)">${isTask?'☑':'📅'} ${title}</div>`;
     });
     html+='</div>';
   }
+
   html+='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
@@ -23649,7 +23673,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </script>
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
-<!-- ═══ SCOUT PANEL ═══ -->
+<!-- ═══ SCOUT ═══ -->
 <div id="scoutOverlay" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeScoutPanel()">
   <div style="position:absolute;right:0;top:0;bottom:0;width:min(460px,100vw);background:rgba(10,14,30,.99);border-left:1px solid rgba(80,110,200,.4);display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.7);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;background:rgba(18,28,60,.5);">
@@ -23663,7 +23687,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:5px;border-top:1px solid rgba(42,58,106,.4);">
       <button class="sqBtn" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
       <button class="sqBtn" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
-      <button class="sqBtn" onclick="scoutAsk('How do I connect Google Calendar?')">Connect Calendar?</button>
+      <button class="sqBtn" onclick="scoutAsk('My Google Calendar events are not showing')">Calendar not syncing?</button>
       <button class="sqBtn" onclick="scoutAsk('What can the CRM do?')">CRM features?</button>
       <button class="sqBtn" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
     </div>
@@ -23676,7 +23700,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   </div>
 </div>
 
-<!-- ═══ GET HUMAN HELP MODAL ═══ -->
+<!-- ═══ GET HUMAN HELP ═══ -->
 <div id="humanHelpModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeHumanHelpModal()">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(34,197,94,.3);border-radius:18px;width:min(440px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(34,197,94,.2);background:rgba(34,197,94,.06);">
@@ -23688,24 +23712,17 @@ if(typeof maybeAutoShowOnboarding === "function"){
     </div>
     <div style="padding:24px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;">
       <div style="font-size:40px;">👋</div>
-      <div style="font-size:14px;color:#e2e8f0;line-height:1.7;">
-        Have a question, issue, or idea? Our team is here to help.<br>
-        <strong style="color:#86efac;">SimplyAgenticAI@gmail.com</strong>
-      </div>
+      <div style="font-size:14px;color:#e2e8f0;line-height:1.7;">Have a question, issue, or idea? We're here.<br><strong style="color:#86efac;">SimplyAgenticAI@gmail.com</strong></div>
       <div style="display:flex;flex-direction:column;gap:10px;width:100%;">
-        <button onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20with%20Simply%20Agentic%20AI&body=Hi%20team%2C%0A%0AI%20need%20help%20with...','_blank')" style="background:linear-gradient(135deg,rgba(34,197,94,.5),rgba(22,163,74,.4));border:1px solid rgba(34,197,94,.5);color:#fff;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.02em;">
-          📧 Open Email App
-        </button>
-        <button onclick="navigator.clipboard.writeText('SimplyAgenticAI@gmail.com').then(()=>{const b=this;const orig=b.innerText;b.innerText='✓ Copied!';setTimeout(()=>b.innerText=orig,2000);}).catch(()=>{})" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac;border-radius:12px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">
-          📋 Copy Email Address
-        </button>
+        <button onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20with%20Simply%20Agentic%20AI&body=Hi%20team%2C%0A%0AI%20need%20help%20with...','_blank')" style="background:linear-gradient(135deg,rgba(34,197,94,.5),rgba(22,163,74,.4));border:1px solid rgba(34,197,94,.5);color:#fff;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:700;cursor:pointer;width:100%;">📧 Open Email App</button>
+        <button onclick="navigator.clipboard&&navigator.clipboard.writeText('SimplyAgenticAI@gmail.com').then(()=>{this.innerText='✓ Copied!';setTimeout(()=>this.innerText='📋 Copy Email Address',2000)}).catch(()=>{})" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac;border-radius:12px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">📋 Copy Email Address</button>
       </div>
-      <div style="font-size:12px;color:rgba(148,163,184,.5);line-height:1.6;">We typically respond within 24 hours.</div>
+      <div style="font-size:12px;color:rgba(148,163,184,.5);">We typically respond within 24 hours.</div>
     </div>
   </div>
 </div>
 
-<!-- ═══ BUG REPORT MODAL ═══ -->
+<!-- ═══ BUG REPORT ═══ -->
 <div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(520px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.05);">
@@ -23716,10 +23733,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       <button onclick="closeBugReportModal()" style="background:rgba(180,30,60,.25);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;">✕</button>
     </div>
     <div style="padding:18px;display:flex;flex-direction:column;gap:12px;">
-      <textarea id="bugDescInput" rows="4" placeholder="What happened? What did you expect? What device/browser?"
-        style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
-      <textarea id="bugStepsInput" rows="2" placeholder="Steps to reproduce (optional)"
-        style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
+      <textarea id="bugDescInput" rows="4" placeholder="What happened? What did you expect? What device/browser?" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
+      <textarea id="bugStepsInput" rows="2" placeholder="Steps to reproduce (optional)" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
       <select id="bugSeverityInput" style="background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none;">
         <option value="low">🟡 Low — minor annoyance</option>
         <option value="medium" selected>🟠 Medium — blocks something</option>
@@ -23731,7 +23746,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   </div>
 </div>
 
-<!-- ═══ BUG INBOX (admin only) ═══ -->
+<!-- ═══ BUG INBOX (admin) ═══ -->
 <div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(780px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.05);flex-shrink:0;">
@@ -23756,39 +23771,38 @@ if(typeof maybeAutoShowOnboarding === "function"){
 <script>
 /* ═══ SCOUT ═══ */
 (function(){
-  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI. Key features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (AI B2B lead gen — real web scraping only, no hallucinated contacts), CRM/Client Center, Calendar (syncs Google Calendar + Motion — note: user may need to reconnect Calendar in Settings for full sync), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings. For calendar issues: tell user to go to Settings and reconnect Google Calendar to grant full permissions. Be concise and practical.`;
-  const hist=[];
-  let opened=false;
+  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI.
+Features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (B2B lead gen, real web scraping only — no hallucinated contacts), CRM/Client Center, Calendar (syncs Google Calendar + Motion), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings.
+IMPORTANT CALENDAR NOTE: If a user says their Google Calendar events are not showing, tell them: "Go to Settings → Disconnect Google Calendar → Reconnect Google Calendar. This grants full sync permissions including Motion and other calendars. This is required after the recent update."
+Be concise. Give step-by-step answers.`;
+  const hist=[];let opened=false;
   window.openScoutPanel=function(){
-    const o=document.getElementById('scoutOverlay');
-    if(o) o.style.display='flex';
-    if(!opened){opened=true;_sm('scout',"👋 Hi! I'm Scout. Ask me anything about Simply Agentic AI, or tap a quick question below.");}
+    const o=document.getElementById('scoutOverlay');if(o)o.style.display='flex';
+    if(!opened){opened=true;_sm('scout',"👋 Hi! I'm Scout. Ask me anything about Simply Agentic AI.");}
     setTimeout(()=>{const i=document.getElementById('scoutInput');if(i)i.focus();},100);
   };
   window.closeScoutPanel=function(){const o=document.getElementById('scoutOverlay');if(o)o.style.display='none';};
   function _sm(role,text){
     const box=document.getElementById('scoutMsgs');if(!box)return null;
-    const d=document.createElement('div');
-    d.className=role==='user'?'sMsgUser':'sMsgScout';
+    const d=document.createElement('div');d.className=role==='user'?'sMsgUser':'sMsgScout';
     d.innerText=text;box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
   }
   window.scoutAsk=function(q){const i=document.getElementById('scoutInput');if(i)i.value=q;scoutSend();};
   window.scoutSend=async function(){
     const inp=document.getElementById('scoutInput');
     const q=(inp&&inp.value||'').trim();if(!q)return;
-    inp.value='';
-    _sm('user',q);hist.push({role:'user',content:q});
+    inp.value='';_sm('user',q);hist.push({role:'user',content:q});
     const th=_sm('scout','🤔 Thinking…');if(th)th.style.opacity='.5';
     try{
       const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
       const d=await r.json();if(th)th.remove();
       const ans=d.answer||d.error||'Sorry, had trouble with that.';
       _sm('scout',ans);hist.push({role:'assistant',content:ans});
-    }catch(e){if(th)th.remove();_sm('scout','❌ Network error — please try again.');}
+    }catch(e){if(th)th.remove();_sm('scout','❌ Network error — try again.');}
   };
 })();
 
-/* ═══ GET HUMAN HELP ═══ */
+/* ═══ HUMAN HELP ═══ */
 window.openHumanHelpModal=function(){const m=document.getElementById('humanHelpModal');if(m)m.style.display='flex';};
 window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelpModal');if(m)m.style.display='none';};
 
@@ -23810,9 +23824,8 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     try{
       const r=await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
-      const d=await r.json();
-      status.style.display='block';
-      if(d.ok){status.style.color='#86efac';status.innerText='✅ Report sent — thank you!';document.getElementById('bugDescInput').value='';document.getElementById('bugStepsInput').value='';setTimeout(closeBugReportModal,2000);}
+      const d=await r.json();status.style.display='block';
+      if(d.ok){status.style.color='#86efac';status.innerText='✅ Sent — thank you!';document.getElementById('bugDescInput').value='';document.getElementById('bugStepsInput').value='';setTimeout(closeBugReportModal,2000);}
       else{status.style.color='#fca5a5';status.innerText='❌ '+(d.error||'Failed.');}
     }catch(e){status.style.display='block';status.style.color='#fca5a5';status.innerText='❌ Network error.';}
     finally{btn.disabled=false;btn.innerText='📤 Send Bug Report';}
@@ -23834,7 +23847,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
           <span style="font-size:12px;font-weight:800;color:${sc[rp.severity]||'#c4b5fd'};">${ic[rp.severity]||'⚪'} ${(rp.severity||'').toUpperCase()}</span>
           <span style="font-size:11px;opacity:.5;">${esc(rp.submitted_by)} · ${(rp.created_at||'').slice(0,16).replace('T',' ')}</span>
-          ${rp.resolved?'<span style="font-size:11px;color:#86efac;font-weight:700;">✅ Resolved</span>':`<button onclick="markBugResolved('${rp.id}')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;">Mark resolved</button>`}
+          ${rp.resolved?'<span style="color:#86efac;font-size:11px;font-weight:700;">✅ Resolved</span>':`<button onclick="markBugResolved('${rp.id}')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;">Mark resolved</button>`}
         </div>
         <div style="font-size:13px;line-height:1.6;">${esc(rp.description)}</div>
         ${rp.steps?`<div style="font-size:12px;opacity:.55;margin-top:6px;white-space:pre-wrap;">${esc(rp.steps)}</div>`:''}
@@ -23843,9 +23856,9 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
   };
   window.markBugResolved=async function(id){
     await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
-    loadBugInbox();_checkAdminBadge();
+    loadBugInbox();_checkBadge();
   };
-  async function _checkAdminBadge(){
+  async function _checkBadge(){
     try{
       const r=await fetch('/api/bug_report/list');const d=await r.json();
       const btn=document.getElementById('bugInboxNavBtn');
@@ -23856,10 +23869,10 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
       }
     }catch(_){}
   }
-  setTimeout(_checkAdminBadge,2000);
+  setTimeout(_checkBadge,2000);
 })();
 
-/* ═══ MOBILE NAV: Team/Tools/Settings → drawer ═══ */
+/* ═══ MOBILE: Team/Tools/Settings → drawer ═══ */
 window.saToggleDrop=function(dropId){
   if(window.innerWidth<=720){
     const ov=document.getElementById('mobileDrawerOverlay');
@@ -29842,64 +29855,43 @@ def api_scout_ask():
 
 # ── Bug Report ────────────────────────────────────────────────────────────
 _BUG_FILE = DATA / "bug_reports.json"
-
-def _load_bugs() -> list:
-    return load_json(_BUG_FILE, [])
-
-def _save_bugs(reports: list) -> None:
-    save_json(_BUG_FILE, reports[:500])
+def _load_bugs() -> list: return load_json(_BUG_FILE, [])
+def _save_bugs(r: list) -> None: save_json(_BUG_FILE, r[:500])
 
 @app.post("/api/bug_report")
 def api_submit_bug():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     p = request.get_json(silent=True) or {}
     desc = (p.get("description") or "").strip()[:2000]
-    if not desc:
-        return jsonify({"ok": False, "error": "Description required"}), 400
+    if not desc: return jsonify({"ok": False, "error": "Description required"}), 400
     severity = p.get("severity") or "medium"
-    if severity not in ("low", "medium", "high"):
-        severity = "medium"
-    report = {
-        "id": str(uuid.uuid4()),
-        "submitted_by": u.get("username", "unknown"),
-        "description": desc,
-        "steps": (p.get("steps") or "").strip()[:1000],
-        "severity": severity,
-        "device": p.get("device") or {},
-        "resolved": False,
-        "created_at": now_iso(),
-    }
-    bugs = _load_bugs()
-    bugs.insert(0, report)
-    _save_bugs(bugs)
+    if severity not in ("low", "medium", "high"): severity = "medium"
+    report = {"id": str(uuid.uuid4()), "submitted_by": u.get("username", "unknown"),
+              "description": desc, "steps": (p.get("steps") or "").strip()[:1000],
+              "severity": severity, "device": p.get("device") or {},
+              "resolved": False, "created_at": now_iso()}
+    bugs = _load_bugs(); bugs.insert(0, report); _save_bugs(bugs)
     return jsonify({"ok": True, "id": report["id"]})
 
 @app.get("/api/bug_report/list")
 def api_list_bugs():
     u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     is_admin = _is_admin_user(u)
     bugs = _load_bugs()
-    if not is_admin:
-        bugs = [b for b in bugs if b.get("submitted_by") == u.get("username", "")]
+    if not is_admin: bugs = [b for b in bugs if b.get("submitted_by") == u.get("username", "")]
     return jsonify({"ok": True, "is_admin": is_admin, "reports": bugs})
 
 @app.post("/api/bug_report/<report_id>/resolve")
 def api_resolve_bug(report_id: str):
     u = current_user()
-    if not u or not _is_admin_user(u):
-        return jsonify({"ok": False, "error": "Admin only"}), 403
+    if not u or not _is_admin_user(u): return jsonify({"ok": False, "error": "Admin only"}), 403
     bugs = _load_bugs()
     for b in bugs:
         if b.get("id") == report_id:
-            b["resolved"] = True
-            b["resolved_at"] = now_iso()
-            b["resolved_by"] = u.get("username", "admin")
-            _save_bugs(bugs)
-            return jsonify({"ok": True})
+            b["resolved"] = True; b["resolved_at"] = now_iso(); b["resolved_by"] = u.get("username", "admin")
+            _save_bugs(bugs); return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Not found"}), 404
 
 
