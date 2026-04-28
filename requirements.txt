@@ -9,3 +9,4 @@ google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.126.0
 anthropic
 flask-limiter==3.8.0
+flask-wtf==1.2.2
