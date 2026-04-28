@@ -47,9 +47,98 @@ except Exception:
     google_build = None
     GoogleHttpError = Exception
 
+# =========================
+# SELF-HOSTED ERROR TRACKER
+# =========================
+# Captures unhandled exceptions to DATA/error_log.json — no third-party signup needed.
+# View errors at GET /admin/errors (admin only). Keeps the last 200 entries.
+import traceback as _traceback
+
+_ERROR_LOG_LOCK = threading.Lock()
+_ERROR_LOG_MAX  = 200
+
+def _error_log_path() -> "Path":
+    # DATA may not be defined yet at import time — resolve lazily
+    try:
+        return DATA / "error_log.json"
+    except Exception:
+        return Path("error_log.json")
+
+def _capture_error(exc: Exception, context: str = "") -> None:
+    """Append a structured error entry to the error log. Never raises."""
+    try:
+        entry = {
+            "id":        uuid.uuid4().hex[:12],
+            "at":        datetime.utcnow().isoformat() + "Z",
+            "context":   context or "",
+            "type":      type(exc).__name__,
+            "message":   str(exc),
+            "traceback": _traceback.format_exc(),
+        }
+        try:
+            entry["path"]   = request.path
+            entry["method"] = request.method
+        except Exception:
+            pass
+
+        path = _error_log_path()
+        with _ERROR_LOG_LOCK:
+            try:
+                log = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+            except Exception:
+                log = []
+            log.insert(0, entry)
+            log = log[:_ERROR_LOG_MAX]
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(log, indent=2), encoding="utf-8")
+            tmp.replace(path)
+    except Exception:
+        pass  # error logger must never crash the app
+
 load_dotenv()
 
-APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI v1.11")
+# =========================
+# API KEY ENCRYPTION (Fernet / symmetric AES-128-CBC)
+# =========================
+# Set FIELD_ENCRYPTION_KEY in your environment (Render → Environment).
+# Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# If not set, keys are stored as plaintext — a warning is printed at startup.
+try:
+    from cryptography.fernet import Fernet as _Fernet, InvalidToken as _InvalidToken
+    _ENC_KEY_RAW = (os.getenv("FIELD_ENCRYPTION_KEY") or "").strip().encode()
+    if _ENC_KEY_RAW:
+        _FERNET = _Fernet(_ENC_KEY_RAW)
+        print("[STARTUP] FIELD_ENCRYPTION_KEY loaded — API keys will be encrypted at rest.", flush=True)
+    else:
+        _FERNET = None
+        print("[STARTUP] ⚠️  FIELD_ENCRYPTION_KEY not set — API keys stored as plaintext.", flush=True)
+except Exception as _enc_err:
+    _FERNET = None
+    print(f"[STARTUP] ⚠️  Encryption init failed ({_enc_err}) — API keys stored as plaintext.", flush=True)
+
+def _encrypt_field(value: str) -> str:
+    """Encrypt a sensitive string. Returns prefixed ciphertext, or plaintext if encryption unavailable."""
+    if not value or not _FERNET:
+        return value
+    try:
+        return "enc:" + _FERNET.encrypt(value.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return value
+
+def _decrypt_field(value: str) -> str:
+    """Decrypt a value encrypted by _encrypt_field. Transparently passes through plaintext."""
+    if not value:
+        return value
+    if not value.startswith("enc:"):
+        return value   # plaintext (pre-encryption or no key set)
+    if not _FERNET:
+        return ""      # key missing — return empty rather than expose garbage
+    try:
+        return _FERNET.decrypt(value[4:].encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ""
+
+
 MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -565,7 +654,7 @@ def _get_claude_client_for_user(u):
         return None
     if not u:
         return None
-    key = ((u.get("settings") or {}).get("claude_key") or "").strip()
+    key = _decrypt_field(((u.get("settings") or {}).get("claude_key") or "").strip())
     if not key:
         return None
     return _anthropic_sdk.Anthropic(api_key=key)
@@ -930,18 +1019,31 @@ def _claim_seat_code(code: str, username: str) -> None:
         _save_seats(data)
 
 def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
-    """First registered user is the admin."""
+    """Return True if this user is an admin.
+    Checks the explicit is_admin flag first (fast, O(1)).
+    Falls back to the legacy 'first created user' scan for accounts that
+    pre-date the flag so existing installs are not broken.
+    """
     if not u:
         return False
+    # Fast path: explicit flag set on this record
+    if u.get("is_admin") is True:
+        return True
+    # Legacy fallback: first-ever created user = admin (for pre-flag accounts)
     uname = u.get("username") if isinstance(u, dict) else u
-    data = load_users() if callable(load_users) else {"users": {}}
-    users = data.get("users") or {}
-    if not users:
-        return False
-    # Admin = first created user (lowest created_at)
     try:
+        data = load_users()
+        users = data.get("users") or {}
+        if not users:
+            return False
         first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
-        return first.get("username") == uname
+        is_first = (first.get("username") == uname)
+        # Opportunistically stamp the flag so next call is fast
+        if is_first and not first.get("is_admin"):
+            first["is_admin"] = True
+            data["users"][uname] = first
+            save_users(data)
+        return is_first
     except Exception:
         return False
 
@@ -1234,11 +1336,12 @@ def _find_user_by_login(identifier: str) -> Optional[Dict[str, Any]]:
         return users[clean]
     return None
 
-def _new_user(username: str, password: str, email: str = "") -> Dict[str, Any]:
+def _new_user(username: str, password: str, email: str = "", is_admin: bool = False) -> Dict[str, Any]:
     return {
         "username": username,
         "password_hash": generate_password_hash(password),
         "email": (email or "").strip(),
+        "is_admin": is_admin,
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "tos_accepted_at": now_iso(),
@@ -1415,7 +1518,7 @@ def api_csrf_token():
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -1460,7 +1563,7 @@ def _auth_guard():
     u = current_user()
     user_key = ""
     if u:
-        user_key = (((u.get("settings") or {}).get("openai_key")) or "").strip()
+        user_key = _decrypt_field((((u.get("settings") or {}).get("openai_key")) or "").strip())
     g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
 
     return None
@@ -1569,8 +1672,76 @@ except Exception:
     pass
 
 # =========================
-# TASK LOG (APPEND-ONLY)
+# AUTOMATED DATA BACKUPS
 # =========================
+# Backs up the entire DATA directory to a local /var/backups folder every
+# BACKUP_INTERVAL_HOURS hours (default 6). Each backup is a timestamped .tar.gz.
+# Keeps the last BACKUP_KEEP copies and deletes older ones automatically.
+#
+# For off-site backups, set BACKUP_S3_BUCKET + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+# and each local backup will also be pushed to S3/Backblaze B2.
+#
+BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))
+BACKUP_KEEP           = int(os.getenv("BACKUP_KEEP", "24"))       # 24 × 6h = 6 days of local history
+BACKUP_S3_BUCKET      = os.getenv("BACKUP_S3_BUCKET", "").strip() # e.g. my-app-backups
+BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "/var/backups/simply_agentic"))
+
+def _run_backup() -> None:
+    """Create a timestamped .tar.gz of DATA, prune old copies, optionally push to S3."""
+    import tarfile
+    try:
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        dest  = BACKUP_DIR / f"data_{stamp}.tar.gz"
+        with tarfile.open(dest, "w:gz") as tar:
+            tar.add(str(DATA), arcname="data")
+        print(f"[BACKUP] Created {dest} ({dest.stat().st_size // 1024} KB)", flush=True)
+
+        # Prune oldest backups beyond BACKUP_KEEP
+        backups = sorted(BACKUP_DIR.glob("data_*.tar.gz"), key=lambda p: p.name)
+        for old in backups[:-BACKUP_KEEP]:
+            try:
+                old.unlink()
+                print(f"[BACKUP] Pruned old backup: {old.name}", flush=True)
+            except Exception:
+                pass
+
+        # Optional S3/B2 push — requires boto3 and credentials in env
+        if BACKUP_S3_BUCKET:
+            try:
+                import boto3  # type: ignore
+                s3 = boto3.client("s3")
+                s3_key = f"backups/{dest.name}"
+                s3.upload_file(str(dest), BACKUP_S3_BUCKET, s3_key)
+                print(f"[BACKUP] Uploaded to s3://{BACKUP_S3_BUCKET}/{s3_key}", flush=True)
+            except Exception as e:
+                print(f"[BACKUP] S3 upload failed: {e}", flush=True)
+    except Exception as e:
+        print(f"[BACKUP] Backup failed: {e}", flush=True)
+
+def _backup_loop() -> None:
+    """Background thread: run a backup every BACKUP_INTERVAL_HOURS hours."""
+    import time
+    # Stagger first run by 5 min so it doesn't fire during a cold-start spike
+    time.sleep(300)
+    while True:
+        _run_backup()
+        time.sleep(BACKUP_INTERVAL_HOURS * 3600)
+
+def _start_backup_thread() -> None:
+    if BACKUP_INTERVAL_HOURS <= 0:
+        print("[BACKUP] Automated backups disabled (BACKUP_INTERVAL_HOURS=0).", flush=True)
+        return
+    t = threading.Thread(target=_backup_loop, daemon=True, name="backup-loop")
+    t.start()
+    print(f"[BACKUP] Backup thread started — every {BACKUP_INTERVAL_HOURS}h → {BACKUP_DIR}", flush=True)
+
+try:
+    _start_backup_thread()
+except Exception as _be:
+    print(f"[BACKUP] Could not start backup thread: {_be}", flush=True)
+
+
 
 TASK_LOG_DIR = DATA / "task_logs"
 
@@ -1785,8 +1956,8 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     # Step 1: Preferred AI connected (OpenAI or Claude)
     try:
         settings = ((u or {}).get("settings") or {})
-        openai_key = (settings.get("openai_key") or "").strip()
-        claude_key = (settings.get("claude_key") or settings.get("anthropic_key") or "").strip()
+        openai_key = _decrypt_field((settings.get("openai_key") or "").strip())
+        claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
         provider = (settings.get("ai_provider") or settings.get("provider") or "").strip().lower()
         if openai_key or claude_key or provider in ("openai", "claude"):
             _mark_onboarding_step(username, "preferred_ai", True)
@@ -3739,7 +3910,7 @@ def _get_openai_client_for_username(username: str):
         users = load_users()
         rec = ((users.get("users") or {}).get((username or "").strip().lower()) or {})
         settings = rec.get("settings") or {}
-        key = (settings.get("openai_key") or "").strip()
+        key = _decrypt_field((settings.get("openai_key") or "").strip())
     except Exception:
         key = ""
     key = key or (OPENAI_API_KEY or "")
@@ -4619,11 +4790,76 @@ def api_me():
             "username": u.get("username", ""),
             "email": u.get("email", "")
         },
-        "has_openai_key": bool((settings.get("openai_key") or "").strip()),
+        "has_openai_key": bool(_decrypt_field((settings.get("openai_key") or "").strip())),
         "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {})),
         "is_admin": _is_admin_user(u),
     })
+
+
+@app.get("/api/account/export")
+def api_account_export():
+    """GDPR/CCPA data export — returns a JSON archive of everything we hold for this user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+
+    export: Dict[str, Any] = {
+        "exported_at": now_iso(),
+        "username":    uname,
+        "email":       u.get("email", ""),
+        "created_at":  u.get("created_at", ""),
+        "plan":        _get_user_plan(uname),
+        "settings": {
+            k: v for k, v in (u.get("settings") or {}).items()
+            if k not in ("openai_key", "claude_key", "smtp")   # never export secrets
+        },
+    }
+
+    # Conversation threads
+    try:
+        threads_dir = _user_threads_dir(uname)
+        threads: Dict[str, Any] = {}
+        for p in threads_dir.glob("*.json"):
+            try:
+                threads[p.stem] = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        export["conversation_threads"] = threads
+    except Exception:
+        export["conversation_threads"] = {}
+
+    # AI teammate registry
+    try:
+        reg_path = _user_registry_path(uname)
+        export["teammate_registry"] = json.loads(reg_path.read_text(encoding="utf-8")) if reg_path.exists() else {}
+    except Exception:
+        export["teammate_registry"] = {}
+
+    # CRM data
+    try:
+        crm = _crm_load(uname)
+        export["crm"] = {k: v for k, v in crm.items() if k != "settings"}
+    except Exception:
+        export["crm"] = {}
+
+    # Uploaded file index (metadata only, not file bytes)
+    try:
+        idx = load_json(UPLOAD_INDEX_PATH, {})
+        export["uploaded_files"] = [
+            {k: v for k, v in rec.items() if k != "path"}
+            for rec in (idx.get("files") or [])
+            if rec.get("owner") == uname
+        ]
+    except Exception:
+        export["uploaded_files"] = []
+
+    resp = make_response(json.dumps(export, indent=2, ensure_ascii=False))
+    resp.headers["Content-Type"] = "application/json"
+    resp.headers["Content-Disposition"] = f'attachment; filename="simply_agentic_export_{uname}_{datetime.utcnow().strftime("%Y%m%d")}.json"'
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/onboarding/status")
@@ -4652,10 +4888,10 @@ def api_get_user_settings():
     settings = (u.get("settings") or {})
     smtp = (settings.get("smtp") or {})
 
-    key = (settings.get("openai_key") or "").strip()
+    key = _decrypt_field((settings.get("openai_key") or "").strip())
     key_hint = ("••••" + key[-4:]) if len(key) >= 4 else ("••••" if key else "")
 
-    claude_key = (settings.get("claude_key") or "").strip()
+    claude_key = _decrypt_field((settings.get("claude_key") or "").strip())
     claude_hint = ("••••" + claude_key[-4:]) if len(claude_key) >= 4 else ("••••" if claude_key else "")
 
     safe_smtp = {
@@ -4718,9 +4954,9 @@ def api_set_user_settings():
     # The settings modal intentionally leaves the field blank (shows a hint),
     # so a blank submission must never clear a working saved key.
     if openai_key and len(openai_key) >= 20:
-        rec["settings"]["openai_key"] = openai_key
+        rec["settings"]["openai_key"] = _encrypt_field(openai_key)
     if claude_key and len(claude_key) >= 20:
-        rec["settings"]["claude_key"] = claude_key
+        rec["settings"]["claude_key"] = _encrypt_field(claude_key)
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
 
@@ -8329,12 +8565,6 @@ function startCheckout(plan){{
     return resp
 
 
-@app.get("/terms")
-def terms():
-    resp = make_response(render_template_string(TERMS_HTML, app_title=APP_TITLE))
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
 @app.get("/setup")
 def setup():
     if has_any_user():
@@ -8490,6 +8720,7 @@ def register_post():
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
+    seat_code = ""
     if not is_first_user:
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
@@ -8501,12 +8732,62 @@ def register_post():
     if username in users:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
 
-    users[username] = _new_user(username, pw, email=email)
+    # ── Email verification ────────────────────────────────────────────────────
+    # Skip for: first user (admin, no SMTP yet), or when SMTP is not configured,
+    # or when no email address was given.
+    smtp_configured = bool(SMTP_USER and SMTP_PASS and SMTP_HOST)
+    needs_verification = (not is_first_user) and smtp_configured and bool(email)
+
+    if needs_verification:
+        code = str(secrets.randbelow(900000) + 100000)  # 6-digit code
+        token = secrets.token_urlsafe(32)
+        pending = _load_pending_verifications()
+        # Prune old tokens for the same username/email before adding new one
+        pending = {t: r for t, r in pending.items()
+                   if r.get("username") != username and r.get("email") != email}
+        pending[token] = {
+            "username":     username,
+            "pw_hash":      generate_password_hash(pw),
+            "email":        email,
+            "seat_code":    seat_code,
+            "is_first_user": is_first_user,
+            "code":         code,
+            "created_at":   now_iso(),
+        }
+        _save_pending_verifications(pending)
+        # Send the code
+        try:
+            send_email_smtp(
+                to_addr=email,
+                subject=f"Your {APP_TITLE} verification code",
+                body=(
+                    f"Hi {username},\n\n"
+                    f"Your verification code is: {code}\n\n"
+                    f"Enter this code on the verification page to activate your account.\n"
+                    f"This code expires in 30 minutes.\n\n"
+                    f"If you didn't create this account, you can safely ignore this email.\n\n"
+                    f"— {SMTP_FROM_NAME or APP_TITLE}"
+                ),
+                from_name=SMTP_FROM_NAME or APP_TITLE,
+                from_addr=SMTP_USER,
+            )
+        except Exception as e:
+            print(f"[VERIFY] Failed to send verification email to {email}: {e}", flush=True)
+            # Don't block registration if email fails — fall through to direct creation
+            needs_verification = False
+
+    if needs_verification:
+        session["_pending_verify_token"] = token
+        session.modified = True
+        return redirect(url_for("verify_email_page"))
+
+    # ── Direct registration (first user, no SMTP, or no email) ───────────────
+    users[username] = _new_user(username, pw, email=email, is_admin=is_first_user)
+    users[username]["email_verified"] = True
     data["users"] = users
     save_users(data)
 
-    # Claim the seat code for this user
-    if not is_first_user:
+    if not is_first_user and seat_code:
         try:
             _claim_seat_code(seat_code, username)
         except Exception:
@@ -8515,10 +8796,150 @@ def register_post():
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
+
+
+# ── Pending email verification storage ────────────────────────────────────────
+_PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
+
+def _load_pending_verifications() -> Dict[str, Any]:
+    return load_json(_PENDING_VERIFICATIONS_PATH, {})
+
+def _save_pending_verifications(data: Dict[str, Any]) -> None:
+    # Prune any entries older than 60 minutes
+    cutoff = (datetime.utcnow() - timedelta(minutes=60)).isoformat() + "Z"
+    data = {t: r for t, r in data.items() if (r.get("created_at") or "") >= cutoff}
+    save_json(_PENDING_VERIFICATIONS_PATH, data)
+
+_VERIFY_HTML = """<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Verify Email — {{ app_title }}</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
+  .box{background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:16px;
+       padding:40px;width:100%;max-width:400px;box-sizing:border-box;}
+  h1{font-size:22px;font-weight:700;color:#c4b5fd;margin:0 0 6px;}
+  p{color:#94a3b8;font-size:14px;margin:0 0 24px;line-height:1.6;}
+  input{width:100%;box-sizing:border-box;background:#1e293b;border:1px solid rgba(255,255,255,.12);
+        border-radius:8px;color:#f1f5f9;padding:12px 14px;font-size:22px;
+        letter-spacing:8px;text-align:center;margin-bottom:16px;}
+  input:focus{outline:none;border-color:#7c3aed;}
+  button{width:100%;background:#7c3aed;color:#fff;border:none;border-radius:8px;
+         padding:13px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:12px;}
+  button:hover{background:#6d28d9;}
+  .err{background:rgba(220,38,38,.15);border:1px solid rgba(220,38,38,.3);
+       color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;}
+  .resend{text-align:center;font-size:13px;color:#64748b;}
+  .resend a{color:#a78bfa;cursor:pointer;text-decoration:none;}
+</style></head><body><div class="box">
+<h1>Check your email</h1>
+<p>We sent a 6-digit code to <strong>{{ email }}</strong>. Enter it below to activate your account.</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<form method="post">
+  <input name="code" maxlength="6" placeholder="000000" autocomplete="one-time-code" autofocus inputmode="numeric"/>
+  <button type="submit">Verify &amp; activate account</button>
+</form>
+<div class="resend">Didn't get it? <a href="/verify/resend">Resend code</a> &nbsp;·&nbsp; <a href="/register">Start over</a></div>
+</div></body></html>"""
+
+@app.get("/verify")
+def verify_email_page():
+    token = session.get("_pending_verify_token", "")
+    if not token:
+        return redirect(url_for("register_get"))
+    pending = _load_pending_verifications()
+    rec = pending.get(token)
+    if not rec:
+        return redirect(url_for("register_get"))
+    email = rec.get("email", "")
+    return render_template_string(_VERIFY_HTML, app_title=APP_TITLE, email=email, error=None)
+
+@app.post("/verify")
+def verify_email_post():
+    token = session.get("_pending_verify_token", "")
+    if not token:
+        return redirect(url_for("register_get"))
+    pending = _load_pending_verifications()
+    rec = pending.get(token)
+    if not rec:
+        return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+            email="", error="Verification session expired. Please register again.")
+
+    submitted = (request.form.get("code") or "").strip().replace(" ", "")
+    if not hmac.compare_digest(submitted, str(rec.get("code", ""))):
+        return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+            email=rec.get("email",""), error="Incorrect code. Please try again.")
+
+    # Code matches — create the user
+    username    = rec["username"]
+    email       = rec.get("email", "")
+    is_first    = rec.get("is_first_user", False)
+    seat_code   = rec.get("seat_code", "")
+
+    data = load_users()
+    users = data.get("users") or {}
+    if username not in users:
+        u_rec = _new_user(username, "placeholder", email=email, is_admin=is_first)
+        u_rec["password_hash"] = rec.get("pw_hash", generate_password_hash(secrets.token_hex(16)))
+        u_rec["email_verified"] = True
+        users[username] = u_rec
+        data["users"] = users
+        save_users(data)
+
+    if not is_first and seat_code:
+        try:
+            _claim_seat_code(seat_code, username)
+        except Exception:
+            pass
+
+    # Consume the pending token
+    pending.pop(token, None)
+    _save_pending_verifications(pending)
+    session.pop("_pending_verify_token", None)
+
+    session["user"] = username
+    session.permanent = True
+    return redirect(url_for("index"))
+
+@app.get("/verify/resend")
+def verify_resend():
+    token = session.get("_pending_verify_token", "")
+    if not token:
+        return redirect(url_for("register_get"))
+    pending = _load_pending_verifications()
+    rec = pending.get(token)
+    if not rec:
+        return redirect(url_for("register_get"))
+    # Issue a fresh code
+    new_code = str(secrets.randbelow(900000) + 100000)
+    rec["code"] = new_code
+    rec["created_at"] = now_iso()
+    pending[token] = rec
+    _save_pending_verifications(pending)
+    try:
+        send_email_smtp(
+            to_addr=rec["email"],
+            subject=f"Your {APP_TITLE} verification code (resent)",
+            body=(
+                f"Hi {rec['username']},\n\n"
+                f"Your new verification code is: {new_code}\n\n"
+                f"— {SMTP_FROM_NAME or APP_TITLE}"
+            ),
+            from_name=SMTP_FROM_NAME or APP_TITLE,
+            from_addr=SMTP_USER,
+        )
+    except Exception:
+        pass
+    return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+        email=rec.get("email",""), error=None)
+
+
 @app.get("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
+
+
 
 
 # =========================
@@ -8801,6 +9222,84 @@ def stripe_status():
         "STRIPE_MODE":             STRIPE_MODE,
         "PUBLIC_BASE_URL":         PUBLIC_BASE_URL or "(not set)",
     })
+
+@app.get("/stripe/manage")
+def stripe_manage():
+    """Redirect the logged-in user to their Stripe Billing Portal to manage or cancel their subscription.
+    The portal handles plan changes, payment method updates, and cancellations — Stripe built-in UI,
+    no extra code needed on our side. Requires STRIPE_SECRET_KEY to be set.
+    """
+    u = current_user()
+    if not u:
+        return redirect(url_for("login"))
+    if not STRIPE_SECRET_KEY:
+        return "Billing portal is not configured.", 503
+
+    uname = u.get("username", "")
+    # Look up the Stripe customer ID from their seat record
+    customer_id = ""
+    try:
+        seats = (_load_seats().get("seats") or {})
+        for seat in seats.values():
+            if seat.get("claimed_by") == uname and seat.get("stripe_customer_id"):
+                customer_id = seat["stripe_customer_id"]
+                break
+    except Exception:
+        pass
+
+    if not customer_id:
+        return (
+            "<html><body style='font-family:system-ui;padding:40px;'>"
+            "<h2>No billing record found</h2>"
+            "<p>Your account does not have a Stripe subscription on record. "
+            "If you believe this is an error, please contact support.</p>"
+            "<a href='/'>← Back</a></body></html>"
+        ), 404
+
+    return_url = (PUBLIC_BASE_URL or request.host_url.rstrip("/")) + "/"
+    status, data = _stripe_api("POST", "/billing_portal/sessions", {
+        "customer": customer_id,
+        "return_url": return_url,
+    })
+    if status != 200 or not data.get("url"):
+        err = (data.get("error") or {}).get("message", "Unknown error")
+        return f"Could not open billing portal: {err}", 502
+    return redirect(data["url"])
+
+@app.get("/api/stripe/portal_url")
+def api_stripe_portal_url():
+    """JSON endpoint — returns the billing portal URL for the current user's frontend."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not STRIPE_SECRET_KEY:
+        return jsonify({"ok": False, "error": "Billing portal not configured"})
+
+    uname = u.get("username", "")
+    customer_id = ""
+    try:
+        seats = (_load_seats().get("seats") or {})
+        for seat in seats.values():
+            if seat.get("claimed_by") == uname and seat.get("stripe_customer_id"):
+                customer_id = seat["stripe_customer_id"]
+                break
+    except Exception:
+        pass
+
+    if not customer_id:
+        return jsonify({"ok": False, "error": "No billing record found for this account"})
+
+    return_url = (PUBLIC_BASE_URL or request.host_url.rstrip("/")) + "/"
+    status, data = _stripe_api("POST", "/billing_portal/sessions", {
+        "customer": customer_id,
+        "return_url": return_url,
+    })
+    if status != 200 or not data.get("url"):
+        err = (data.get("error") or {}).get("message", "Unknown error")
+        return jsonify({"ok": False, "error": err})
+    return jsonify({"ok": True, "url": data["url"]})
+
+
 
 @app.get("/reset")
 def reset():
@@ -24109,6 +24608,9 @@ def api_account_delete():
     if not uname:
         return jsonify({"ok": False, "error": "Could not determine username"}), 400
 
+    if _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin accounts cannot be self-deleted. Transfer admin rights first."}), 403
+
     # Require password confirmation
     body = request.get_json(silent=True) or {}
     pw_confirm = (body.get("password") or "").strip()
@@ -24130,7 +24632,25 @@ def api_account_delete():
     except Exception as e:
         errors.append(f"users: {e}")
 
-    # 2. Delete per-user data directories
+    # 2. Cancel Stripe subscription and release seat
+    try:
+        seats_data = _load_seats()
+        for code, seat in (seats_data.get("seats") or {}).items():
+            if seat.get("claimed_by") == uname:
+                cust_id = seat.get("stripe_customer_id", "")
+                if cust_id and STRIPE_SECRET_KEY:
+                    st, sd = _stripe_api("GET", "/subscriptions", {"customer": cust_id, "status": "active", "limit": "5"})
+                    if st == 200:
+                        for sub in (sd.get("data") or []):
+                            _stripe_api("POST", f"/subscriptions/{sub['id']}/cancel", {})
+                seat["claimed_by"] = None
+                seat["status"]     = "inactive"
+                seat["deleted_at"] = now_iso()
+        _save_seats(seats_data)
+    except Exception as e:
+        errors.append(f"stripe/seat: {e}")
+
+    # 3. Delete per-user data directories
     for dirpath in [
         USER_TEAMMATES_DIR / f"{safe}.json",
         USER_THREADS_DIR / safe,
@@ -24153,18 +24673,35 @@ def api_account_delete():
         except Exception as e:
             errors.append(f"{dirpath}: {e}")
 
-    # 3. Clear their session
+    # 4. Remove uploaded files owned by this user
+    try:
+        idx = load_json(UPLOAD_INDEX_PATH, {})
+        kept = []
+        for rec in (idx.get("files") or []):
+            if rec.get("owner") == uname:
+                fp = UPLOADS_DIR / rec.get("path", "")
+                try:
+                    Path(fp).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            else:
+                kept.append(rec)
+        idx["files"] = kept
+        save_json(UPLOAD_INDEX_PATH, idx)
+    except Exception as e:
+        errors.append(f"uploads: {e}")
+
+    # 5. Clear their session
     try:
         session.clear()
     except Exception:
         pass
 
     if errors:
-        # Log but don't fail — partial deletion is better than no deletion
         append_log("account_delete_partial", {"username": uname, "errors": errors})
 
     append_log("account_deleted", {"username": uname, "at": now_iso()})
-    return jsonify({"ok": True, "message": "Account and data deleted successfully."})
+    return jsonify({"ok": True, "message": "Account and data deleted successfully.", "errors": errors})
 
 
 @app.get("/")
@@ -26802,7 +27339,10 @@ def api_crm_log_note():
 @app.errorhandler(Exception)
 def _handle_exception(e):
     try:
+        # Skip logging 404s and auth errors — they're not real crashes
         code = getattr(e, "code", 500) or 500
+        if code not in (404, 401, 403):
+            _capture_error(e, context="unhandled_exception")
         try:
             path = request.path or ""
         except Exception:
@@ -26833,6 +27373,76 @@ def _handle_500(e):
     except Exception:
         pass
     return "<h1>500 Internal Server Error</h1>", 500
+
+
+@app.get("/admin/errors")
+def admin_error_log():
+    """Admin-only: view the self-hosted error log."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return redirect(url_for("login"))
+
+    try:
+        log = json.loads(_error_log_path().read_text(encoding="utf-8")) if _error_log_path().exists() else []
+    except Exception:
+        log = []
+
+    rows = ""
+    for entry in log:
+        color = "#fee2e2" if entry.get("type") else "#f8fafc"
+        tb = (entry.get("traceback") or "").replace("<", "&lt;").replace(">", "&gt;")
+        rows += f"""
+        <details style="background:{color};border:1px solid rgba(0,0,0,.08);border-radius:8px;margin-bottom:10px;padding:12px 16px;">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">
+            [{entry.get('at','')[:19].replace('T',' ')}]&nbsp;
+            <span style="color:#dc2626;">{entry.get('type','?')}</span>&nbsp;—&nbsp;
+            {entry.get('method','?')} {entry.get('path','')} &nbsp;
+            <span style="color:#64748b;font-weight:400;">{str(entry.get('message',''))[:120]}</span>
+          </summary>
+          <pre style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;color:#334155;overflow-x:auto;">{tb}</pre>
+        </details>"""
+
+    clear_btn = """<form method="post" action="/admin/errors/clear" style="display:inline;">
+        <button style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;">
+        Clear all errors</button></form>"""
+
+    html = f"""<!doctype html><html lang="en"><head>
+    <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Error Log — {APP_TITLE}</title>
+    <style>body{{font-family:system-ui,sans-serif;background:#f1f5f9;margin:0;padding:24px;}}
+    h1{{font-size:20px;font-weight:700;color:#0f172a;margin:0 0 4px;}}
+    .meta{{font-size:13px;color:#64748b;margin:0 0 20px;}}
+    a{{color:#6d28d9;font-size:13px;}}</style></head><body>
+    <h1>Error Log</h1>
+    <p class="meta">{len(log)} error(s) stored (last 200 kept) &nbsp;·&nbsp; {clear_btn} &nbsp;·&nbsp; <a href="/">← Back</a></p>
+    {'<p style="color:#64748b;font-size:14px;">No errors recorded yet. 🎉</p>' if not log else rows}
+    </body></html>"""
+    return html
+
+@app.post("/admin/errors/clear")
+def admin_error_log_clear():
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return redirect(url_for("login"))
+    try:
+        _error_log_path().write_text("[]", encoding="utf-8")
+    except Exception:
+        pass
+    return redirect(url_for("admin_error_log"))
+
+@app.get("/api/admin/errors")
+def api_admin_errors():
+    """JSON version of the error log for programmatic access."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    try:
+        log = json.loads(_error_log_path().read_text(encoding="utf-8")) if _error_log_path().exists() else []
+    except Exception:
+        log = []
+    return jsonify({"ok": True, "count": len(log), "errors": log})
+
+
 
 
 
@@ -29713,7 +30323,7 @@ def api_tts_test():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    user_key  = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    user_key  = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     server_key = (OPENAI_API_KEY or "").strip()
     openai_key = user_key or server_key
     source = "user_settings" if user_key else ("env_var" if server_key else "none")
@@ -29738,7 +30348,7 @@ def api_tts_debug():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     settings = u.get("settings") or {}
-    openai_key = (settings.get("openai_key") or "").strip()
+    openai_key = _decrypt_field((settings.get("openai_key") or "").strip())
     key_len = len(openai_key)
     key_hint = ("sk-..." + openai_key[-4:]) if key_len >= 4 else ("(empty)" if not openai_key else openai_key)
     return jsonify({
@@ -29774,7 +30384,7 @@ def api_tts():
 
     # TTS: prefer the user's own stored key, fall back to the server-level OPENAI_API_KEY env var.
     # This means voice works as long as EITHER the user has entered their key OR the server has one.
-    user_key = ((u.get("settings") or {}).get("openai_key") or "").strip()
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     openai_key = user_key or (OPENAI_API_KEY or "").strip()
     username = u.get("username", "unknown")
     key_source = "user_settings" if user_key else ("env_var" if openai_key else "none")
