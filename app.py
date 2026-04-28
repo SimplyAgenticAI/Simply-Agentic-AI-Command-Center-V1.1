@@ -140,6 +140,7 @@ def _decrypt_field(value: str) -> str:
         return ""
 
 
+APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI v1.11")
 MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
