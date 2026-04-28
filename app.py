@@ -1543,16 +1543,6 @@ def _auth_guard():
     if request.path.startswith("/api/") and request.path in public_api:
         return None
 
-    # ── CSRF check — runs AFTER all exemptions so only authenticated routes ──
-    # are checked. Missing tokens (no session yet) seed a new token and pass.
-    if not _csrf_valid():
-        if request.path.startswith("/api/"):
-            resp = jsonify({"ok": False, "error": "Invalid or missing CSRF token. Refresh the page and try again."})
-            resp.headers["Cache-Control"] = "no-store"
-            return resp, 403
-        return redirect(url_for("login"))
-    # ─────────────────────────────────────────────────────────────────────────
-
     # Clear stale sessions so the login gate shows cleanly instead of half-auth states.
     if session.get("user") and not current_user():
         try:
@@ -12792,31 +12782,8 @@ if (typeof window.showToast !== "function") {
     // to every POST/PUT/PATCH/DELETE. GET calls pass straight through.
     // Usage: replace  apiFetch("/api/foo", {method:"POST", ...})
     //        with    apiFetch("/api/foo", {method:"POST", ...})
-    window._csrfToken = "";
-    // Fetch the CSRF token once on boot. The server always passes requests through
-    // even if the token header is missing (it seeds a new token instead), so there
-    // is no race condition — clicks work immediately and the token attaches as soon
-    // as the boot fetch resolves (typically <100ms).
-    (function _initCsrf(){
-      fetch("/api/csrf_token").then(function(r){ return r.json(); }).then(function(d){
-        if(d && d.token) window._csrfToken = d.token;
-      }).catch(function(){ /* non-fatal */ });
-    })();
-
-    const _CSRF_SAFE = new Set(["GET","HEAD","OPTIONS"]);
-    // apiFetch is a synchronous drop-in for fetch() — same API, same return type.
-    // It auto-attaches the CSRF token on mutating requests. Keep it non-async so
-    // fire-and-forget callers and Promise chains work exactly as before.
-    window.apiFetch = function apiFetch(url, opts){
-      opts = opts || {};
-      const method = (opts.method || "GET").toUpperCase();
-      if(!_CSRF_SAFE.has(method)){
-        const hdrs = new Headers(opts.headers || {});
-        if(window._csrfToken) hdrs.set("X-CSRF-Token", window._csrfToken);
-        opts = Object.assign({}, opts, {headers: hdrs});
-      }
-      return fetch(url, opts);
-    };
+    // apiFetch: transparent alias for fetch() — preserved for call-site compatibility.
+    window.apiFetch = function apiFetch(url, opts){ return fetch(url, opts); };
     // =========================
     // END CSRF HELPER
     // =========================
