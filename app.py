@@ -6644,20 +6644,18 @@ AUTH_BASE_CSS = r"""
 </style>
 """
 
-# ── Showcase / Learn More page ──────────────────────────────────────
 SHOWCASE_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Simply Agentic AI &mdash; See How It Works</title>
+<title>Simply Agentic AI — See How It Works</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{--pu:#7c3aed;--pl:#a78bfa;--ac:#c4b5fd;--bg:#07091a;--s1:rgba(13,19,44,.98);--s2:rgba(10,14,32,.95);--bd:rgba(42,58,106,.8);--tx:#e2e8f0;--mt:#64748b;}
 html{scroll-behavior:smooth;}
 body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;}
 #sc{position:fixed;inset:0;z-index:0;pointer-events:none;}
-/* NAV */
 nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;background:rgba(7,9,26,.93);backdrop-filter:blur(18px);border-bottom:1px solid var(--bd);}
 .logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;color:var(--ac);text-decoration:none;}
 .logo-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;box-shadow:0 0 10px #7c3aed;}
@@ -6668,19 +6666,13 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .nav-cta{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;box-shadow:0 4px 18px rgba(124,58,237,.4);transition:opacity .2s,transform .15s;display:inline-block;}
 .nav-cta:hover{opacity:.88;transform:translateY(-1px);}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
-/* CSS ANIMATIONS - everything visible immediately, no JS required */
-@keyframes fu{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:none;}}
-.a1{animation:fu .7s .05s ease both;}.a2{animation:fu .7s .15s ease both;}
-.a3{animation:fu .7s .25s ease both;}.a4{animation:fu .7s .35s ease both;}
-.a5{animation:fu .7s .45s ease both;}.a6{animation:fu .7s .55s ease both;}
-.a7{animation:fu .7s .65s ease both;}.a8{animation:fu .7s .75s ease both;}
-/* SECTIONS */
+@keyframes fu{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+.a1{animation:fu .7s .05s ease both;}.a2{animation:fu .7s .15s ease both;}.a3{animation:fu .7s .25s ease both;}.a4{animation:fu .7s .35s ease both;}.a5{animation:fu .7s .45s ease both;}.a6{animation:fu .7s .55s ease both;}.a7{animation:fu .7s .65s ease both;}.a8{animation:fu .7s .75s ease both;}
 .sec{padding:80px 20px;position:relative;z-index:1;}
 .lbl{display:block;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:var(--pl);margin-bottom:12px;}
 .h2{font-size:clamp(24px,4vw,44px);font-weight:900;color:#f3e8ff;line-height:1.1;margin-bottom:14px;}
 .sub{font-size:15px;color:#94a3b8;line-height:1.72;max-width:560px;}
 .ctr{text-align:center;margin:0 auto;}.ctr .sub{margin:0 auto;}
-/* HERO */
 .hero{min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:72px 20px 88px;position:relative;overflow:hidden;z-index:1;}
 .hglow{position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:1000px;height:650px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.2),transparent 65%);pointer-events:none;animation:hg 8s ease-in-out infinite alternate;}
 @keyframes hg{0%{opacity:.5;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.12);}}
@@ -6694,20 +6686,18 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .bp:hover{transform:translateY(-2px);box-shadow:0 12px 36px rgba(124,58,237,.62);}
 .bs{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:var(--tx);padding:15px 26px;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background .2s;}
 .bs:hover{background:rgba(255,255,255,.1);}
-/* STATS */
 .stats{display:flex;justify-content:center;gap:52px;flex-wrap:wrap;max-width:800px;margin:56px auto 0;padding:0 20px;position:relative;z-index:1;}
 .stat-n{font-size:clamp(32px,5vw,52px);font-weight:900;background:linear-gradient(135deg,var(--pl),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;}
 .stat-l{font-size:13px;color:var(--mt);margin-top:5px;}
-/* ROUND TABLE */
+/* ── Round Table ── */
 .rt-shell{max-width:1100px;margin:44px auto 0;background:var(--s1);border:1px solid var(--bd);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.65);}
 .rt-nav{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
 .rnb{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.9);font-size:12px;font-weight:600;white-space:nowrap;}
 .rnb.hi{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);color:var(--ac);}
 .rt-body{display:flex;}
-/* Grid-based table - bulletproof, no absolute positioning */
 .rt-arena{flex:1;background:radial-gradient(ellipse at 50% 50%,rgba(14,22,64,.6),rgba(7,9,26,.98));padding:20px;display:grid;grid-template-columns:1fr 1.5fr 1fr;grid-template-rows:auto auto auto;gap:14px;align-items:center;position:relative;}
 .rt-arena::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:52%;height:72%;border-radius:50%;border:1.5px solid rgba(70,90,180,.28);background:radial-gradient(ellipse,rgba(12,18,52,.3),transparent 70%);pointer-events:none;z-index:0;}
-.rt-arena>*{position:relative;z-index:1;}
+.rt-arena > *{position:relative;z-index:1;}
 .seat{background:rgba(13,20,46,.92);border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:9px 10px;display:flex;gap:9px;align-items:flex-start;box-shadow:0 4px 20px rgba(0,0,0,.35);position:relative;transition:border-color .25s;min-width:0;}
 .seat:hover{border-color:rgba(124,58,237,.5);}
 .seat.sel{border-color:rgba(124,58,237,.7);background:rgba(15,24,56,.9);box-shadow:0 0 0 1px rgba(124,58,237,.22),0 8px 28px rgba(0,0,0,.4);}
@@ -6742,7 +6732,6 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .rt-card{flex:1;min-width:200px;background:rgba(10,14,32,.92);border:1px solid rgba(42,58,106,.8);border-radius:12px;padding:10px;}
 .rc-t{font-size:12px;font-weight:800;color:var(--tx);margin-bottom:3px;}
 .rc-s{font-size:11px;color:var(--mt);}
-/* RIGHT SIDEBAR */
 .rt-side{width:268px;flex-shrink:0;border-left:1px solid rgba(34,49,90,.8);background:linear-gradient(180deg,rgba(13,20,46,.95),rgba(9,12,28,.95));display:flex;flex-direction:column;overflow:hidden;}
 .rsh{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.6);display:flex;justify-content:space-between;align-items:flex-start;}
 .rsh-name{font-size:14px;font-weight:800;color:var(--tx);}
@@ -6762,7 +6751,7 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .rinp-btns{display:flex;gap:4px;margin-top:6px;justify-content:space-between;flex-wrap:wrap;}
 .rbn{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.45);color:#475569;}
 .rbs{font-size:9px;padding:3px 10px;border-radius:5px;background:linear-gradient(135deg,var(--pu),#4f46e5);border:none;color:#fff;font-weight:700;}
-/* DEMOS */
+/* Demos */
 .demos{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;max-width:1060px;margin:44px auto 0;}
 .dc{background:var(--s2);border:1px solid var(--bd);border-radius:16px;overflow:hidden;}
 .dc-hdr{background:rgba(14,20,46,.98);border-bottom:1px solid rgba(42,58,106,.6);padding:9px 13px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#64748b;}
@@ -6787,7 +6776,7 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .gc-rav{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#e6edff;flex-shrink:0;}
 .gc-rn{font-size:11px;font-weight:700;color:var(--tx);}
 .gc-rt{font-size:10px;color:#64748b;margin-top:2px;line-height:1.45;}
-/* TEAMMATES */
+/* Teammates */
 .tmg{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;max-width:1060px;margin:44px auto 0;}
 .tmc{background:var(--s2);border:1px solid rgba(42,58,106,.75);border-radius:14px;padding:18px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s;}
 .tmc:hover{transform:translateY(-3px);border-color:rgba(124,58,237,.44);}
@@ -6797,7 +6786,7 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .tmd{font-size:12px;color:#64748b;line-height:1.6;margin-top:8px;}
 .tmbar{position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .28s;}
 .tmc:hover .tmbar{transform:scaleX(1);}
-/* FEATURES */
+/* Features */
 .fgg{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px;max-width:1060px;margin:44px auto 0;}
 .fgc{background:var(--s2);border:1px solid rgba(42,58,106,.7);border-radius:15px;padding:22px;transition:transform .2s,border-color .22s;}
 .fgc:hover{transform:translateY(-4px);border-color:rgba(124,58,237,.5);}
@@ -6827,8 +6816,6 @@ footer a{color:var(--pl);text-decoration:none;}
     <a href="/pricing" class="nav-cta">View Plans &rarr;</a>
   </div>
 </nav>
-
-<!-- HERO -->
 <section class="hero">
   <div class="hglow"></div>
   <div class="badge a1">&#10024; AI-Powered Business Command Center</div>
@@ -6839,24 +6826,19 @@ footer a{color:var(--pl);text-decoration:none;}
     <a href="#roundtable" class="bs">See the Interface &darr;</a>
   </div>
 </section>
-
-<!-- STATS -->
 <div class="stats a3">
   <div style="text-align:center"><div class="stat-n" data-t="7">7</div><div class="stat-l">AI Teammates</div></div>
   <div style="text-align:center"><div class="stat-n" data-t="10">10</div><div class="stat-l">Built-in Tools</div></div>
   <div style="text-align:center"><div class="stat-n" data-t="100" data-suf="%">100%</div><div class="stat-l">Your Key, Your Data</div></div>
   <div style="text-align:center"><div class="stat-n" data-t="17" data-pre="$">$17</div><div class="stat-l">Starting /month</div></div>
 </div>
-
-<!-- ROUND TABLE PREVIEW -->
 <section class="sec a3" id="roundtable" style="padding-bottom:32px;">
   <div class="ctr">
     <span class="lbl">Live Interface Preview</span>
     <h2 class="h2">This Is What It Actually Looks Like</h2>
-    <p class="sub">All 7 teammates seated around the table. The center Group Console broadcasts to everyone. Click any seat to open their personal thread on the right.</p>
+    <p class="sub">All 7 teammates seated around the table. The center Group Console broadcasts to everyone. Click any seat to open their thread on the right.</p>
   </div>
   <div class="rt-shell a4">
-    <!-- Exact nav bar replica -->
     <div class="rt-nav">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:rgba(196,181,253,.9);"><div style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;"></div>Simply Agentic AI v1.11</div>
@@ -6874,28 +6856,23 @@ footer a{color:var(--pl);text-decoration:none;}
       </div>
     </div>
     <div class="rt-body">
-      <!-- 3-column grid table -->
       <div class="rt-arena">
-        <!-- Row 1: Sunshine | Operator | Atlis -->
         <div class="seat"><div class="av" style="background:#9a3412;">S</div><div class="sm"><div class="sn">Sunshine</div><div class="sr">Sales Specialist</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <div class="op-card"><div class="op-av">O</div><div class="op-name">Operator</div><div class="op-btn">Profile</div></div>
         <div class="seat"><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <!-- Row 2: Willow | Group Console | Ava -->
         <div class="seat"><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Lighting mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
         <div class="seat"><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <!-- Row 3: Orion | Alex (active) | Luna -->
         <div class="seat"><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <div class="seat sel"><div class="av" style="background:#1e3a8a;">A</div><div class="sm"><div class="sn">Alex</div><div class="sr">Chief Marketing...</div><div class="ss" style="color:#fcd34d;"><span class="td"><span></span><span></span><span></span></span></div></div><div class="sdot think"></div><div class="sedit">Edit</div></div>
         <div class="seat"><div class="av" style="background:#7c2d12;">L</div><div class="sm"><div class="sn">Luna</div><div class="sr">Creative Engineer</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
       </div>
-      <!-- Right sidebar: Alex's thread -->
       <div class="rt-side">
         <div class="rsh"><div><div class="rsh-name">Alex</div><div class="rsh-role">Chief Marketing Officer (CMO)</div></div><div class="rsh-ref">Refresh</div></div>
         <div class="rsh-tabs"><div class="rtab ra">&#9888; Risk</div><div class="rtab rb">&#128202; Scale</div><div class="rtab">&#10022; Constraints</div><div class="rtab">&#9889; Optimize</div></div>
         <div class="rmsgs">
           <div class="rmsg u"><div class="rmsg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
-          <div class="rmsg a"><div class="rmsg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. Anchor the campaign on pain agents feel daily. Here is a 3-step engine to fix that...</div>
+          <div class="rmsg a"><div class="rmsg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. Anchor the campaign on pain agents feel daily. Here is a 3-step engine...</div>
           <div class="rmsg u"><div class="rmsg-who">You</div>What scoring criteria should I use?</div>
           <div class="rmsg a"><div class="rmsg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
         </div>
@@ -6908,14 +6885,8 @@ footer a{color:var(--pl);text-decoration:none;}
     </div>
   </div>
 </section>
-
-<!-- ANIMATED DEMOS -->
 <section class="sec a5" id="demos" style="padding-top:32px;">
-  <div class="ctr">
-    <span class="lbl">Tools in Action</span>
-    <h2 class="h2">Watch the Features Work</h2>
-    <p class="sub">Animated live demos of the four core tools, running in real time inside the actual interface.</p>
-  </div>
+  <div class="ctr"><span class="lbl">Tools in Action</span><h2 class="h2">Watch the Features Work</h2><p class="sub">Animated live demos of the four core tools, running in real time.</p></div>
   <div class="demos">
     <div class="dc a5"><div class="dc-hdr"><span class="recdot"></span> &#128302; Lead Lab &mdash; Generating Leads</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:8px;"><div class="lf">real estate agents</div><div class="lf">New Jersey</div><div class="lf" style="flex:0 0 auto;">25 leads</div></div><div id="llBox"></div></div></div>
     <div class="dc a6"><div class="dc-hdr"><span class="recdot"></span> &#128227; Social Studio &mdash; Writing Content</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:10px;"><div class="lf" style="flex:0 0 auto;">LinkedIn</div><div class="lf">Content pack</div></div><div class="ss-post"><div class="ss-lbl" id="ssLbl">&#129379; Hook Post</div><div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div></div><div style="display:flex;gap:6px;"><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128172; DM Script</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#127919; CTA Pack</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128640; Launch Set</div></div></div></div>
@@ -6923,14 +6894,8 @@ footer a{color:var(--pl);text-decoration:none;}
     <div class="dc a8"><div class="dc-hdr"><span class="recdot"></span> &#127897; Group Console &mdash; All Teammates Reply</div><div class="dc-body"><div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#94a3b8;margin-bottom:10px;">"Help me build a lead engine for NJ real estate &mdash; strategy, outreach, and automation."</div><div id="gcBox"></div></div></div>
   </div>
 </section>
-
-<!-- TEAMMATES -->
 <section class="sec a4" id="teammates" style="padding-top:20px;">
-  <div class="ctr">
-    <span class="lbl">The Team</span>
-    <h2 class="h2">Seven Specialists. Each With a Lane.</h2>
-    <p class="sub">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do.</p>
-  </div>
+  <div class="ctr"><span class="lbl">The Team</span><h2 class="h2">Seven Specialists. Each With a Lane.</h2><p class="sub">Every teammate has a defined job title, a specific thinking style, and a clear list of things they will not do.</p></div>
   <div class="tmg">
     <div class="tmc a5"><div class="tmav" style="background:#1e3a8a;">A</div><div class="tmn">Alex</div><div class="tmr">Chief Marketing Officer</div><div class="tmd">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics, always.</div><div class="tmbar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div></div>
     <div class="tmc a6"><div class="tmav" style="background:#4c1d95;">W</div><div class="tmn">Willow</div><div class="tmr">Language Specialist</div><div class="tmd">Refines tone, voice, clarity, and meaning. Will not write sales hype, artificial urgency, or manipulative framing.</div><div class="tmbar" style="background:linear-gradient(90deg,#4c1d95,#8b5cf6);"></div></div>
@@ -6938,11 +6903,9 @@ footer a{color:var(--pl);text-decoration:none;}
     <div class="tmc a5"><div class="tmav" style="background:#374151;">O</div><div class="tmn">Orion</div><div class="tmr">Systems &amp; Automation Engineer</div><div class="tmd">Designs automation systems for reliable scale. Architecture before execution. Will not automate unstable processes.</div><div class="tmbar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div></div>
     <div class="tmc a6"><div class="tmav" style="background:#9a3412;">S</div><div class="tmn">Sunshine</div><div class="tmr">Sales Specialist</div><div class="tmd">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure or force a close.</div><div class="tmbar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div></div>
     <div class="tmc a7"><div class="tmav" style="background:#7c2d12;">L</div><div class="tmn">Luna</div><div class="tmr">Creative Engineer</div><div class="tmd">Cinematic, consistent visual systems. Hierarchy before effects. Keeps designs consistent over time.</div><div class="tmbar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div></div>
-    <div class="tmc a8"><div class="tmav" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div><div class="tmd">Monitors role boundaries and system coherence. Acts as referee, never contributor. Protects integrity at all times.</div><div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div></div>
+    <div class="tmc a8"><div class="tmav" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div><div class="tmd">Monitors role boundaries and system coherence. Acts as referee, never contributor. Protects integrity.</div><div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div></div>
   </div>
 </section>
-
-<!-- FEATURES -->
 <section class="sec a5" id="features" style="padding-top:20px;">
   <div class="ctr"><span class="lbl">Features</span><h2 class="h2">Everything Built In. Nothing Extra to Buy.</h2></div>
   <div class="fgg">
@@ -6957,8 +6920,6 @@ footer a{color:var(--pl);text-decoration:none;}
     <div class="fgc a7"><span class="fgc-i">&#128273;</span><div class="fgc-n">Your Key. Your Data.</div><div class="fgc-d">Connect your OpenAI or Anthropic key. Direct GPT-4o access &mdash; zero markup, zero throttling.</div></div>
   </div>
 </section>
-
-<!-- CTA -->
 <section class="cta a5">
   <span class="lbl" style="position:relative;">Ready to Start?</span>
   <h2>Start Free. Scale at Your Pace.</h2>
@@ -6969,39 +6930,30 @@ footer a{color:var(--pl);text-decoration:none;}
   </div>
   <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Solo Operator $47/mo &middot; Growth $97/mo &middot; <strong style="color:#fbbf24;">Founder Access $17/mo &mdash; limited seats</strong></div>
 </section>
-
 <footer class="a6">
   <a href="/pricing">Plans &amp; Pricing</a> &nbsp;&middot;&nbsp; <a href="/login">Sign In</a> &nbsp;&middot;&nbsp; <a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
   <div style="margin-top:10px;opacity:.4;">&copy; 2025 Simply Agentic AI. All rights reserved.</div>
 </footer>
-
 <script>
 (function(){
-  // Starfield
   var c=document.getElementById('sc'),x=c.getContext('2d');
   function r(){c.width=innerWidth;c.height=innerHeight;}r();addEventListener('resize',r);
   var s=[];for(var i=0;i<200;i++)s.push({x:Math.random(),y:Math.random(),r:Math.random()*1.4+.2,sp:Math.random()*.3+.08,ph:Math.random()*Math.PI*2});
   (function draw(t){x.clearRect(0,0,c.width,c.height);s.forEach(function(a){var op=.06+.38*(.5+.5*Math.sin(a.ph+t*a.sp*.001));x.beginPath();x.arc(a.x*c.width,a.y*c.height,a.r,0,Math.PI*2);x.fillStyle='rgba(255,255,255,'+op+')';x.fill();});requestAnimationFrame(draw);})(0);
-  // Counters - run on load (elements already visible via CSS animation)
   var ns=document.querySelectorAll('.stat-n[data-t]');
-  ns.forEach(function(el){var t=parseInt(el.getAttribute('data-t')),pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'',s=null,d=1400;setTimeout(function(){(function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/d,1),e=1-Math.pow(1-p,3);el.textContent=pre+Math.round(e*t)+suf;if(p<1)requestAnimationFrame(step);})(performance.now());},400);});
-  // Sidebar typewriter
-  var stxt='Score by: recency of listings (past 90 days), active social presence, personal domain vs brokerage-only site, and online engagement rate. Minimum score of 65 to qualify for outreach.';
-  var sel=document.getElementById('sideTyped'),scur=document.getElementById('sideCursor');
-  if(sel){var si=0;setTimeout(function t(){if(si<stxt.length){sel.textContent+=stxt[si++];setTimeout(t,22+Math.random()*16);}else if(scur)scur.style.display='none';},1400);}
-  // Lead Lab demo
+  ns.forEach(function(el){var t=parseInt(el.getAttribute('data-t')),pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'',s=null,d=1400;setTimeout(function(){(function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/d,1),e=1-Math.pow(1-p,3);el.textContent=pre+Math.round(e*t)+suf;if(p<1)requestAnimationFrame(step);})(performance.now());},300);});
+  var txt='Score by: recency of listings (past 90 days), active social presence, personal domain vs brokerage-only site, and engagement rate. Minimum score of 65 to qualify for outreach.';
+  var el=document.getElementById('sideTyped'),cur=document.getElementById('sideCursor');
+  if(el){var i=0;setTimeout(function t(){if(i<txt.length){el.textContent+=txt[i++];setTimeout(t,22+Math.random()*16);}else if(cur)cur.style.display='none';},1400);}
   var leads=[{name:'Jamie Cole',co:'Garden State Realty - Broker',info:'(201) 555-0182 / jcole@gsrealty.com',score:92},{name:'Morgan Lee',co:'BrightPath Investors - Founder',info:'morgan@brightpath.com',score:85},{name:'Taylor Adams',co:'Northshore Lending - Loan Officer',info:'(973) 555-0247',score:78}];
-  var llb=document.getElementById('llBox');if(llb){var li=0;function addLead(){if(li>=leads.length){setTimeout(function(){llb.innerHTML='';li=0;setTimeout(addLead,600);},2200);return;}var l=leads[li++];var d=document.createElement('div');d.className='ll-lead';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.info+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="margin-top:7px;"><button class="lbtn">+ CRM</button><button class="lbtn2">Email</button><button class="lbtn2">Text</button></div>';llb.appendChild(d);setTimeout(addLead,1000);}setTimeout(addLead,600);}
-  // Social Studio demo
+  var box=document.getElementById('llBox');if(box){var li=0;function addLead(){if(li>=leads.length){setTimeout(function(){box.innerHTML='';li=0;setTimeout(addLead,600);},2200);return;}var l=leads[li++];var d=document.createElement('div');d.className='ll-lead';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.info+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="margin-top:7px;"><button class="lbtn">+ CRM</button><button class="lbtn2">Email</button><button class="lbtn2">Text</button></div>';box.appendChild(d);setTimeout(addLead,1000);}setTimeout(addLead,600);}
   var posts=[{lbl:'Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that never convert.\n\nHere is the system I use to only talk to buyers already warm.'},{lbl:'DM Script',txt:'Hey [Name] -- saw your post about Hoboken. Are most of your leads from referrals, or are you building an online channel too?'},{lbl:'CTA Post',txt:'If you are a NJ agent doing 10+ deals a year but spending more time on admin than relationships -- comment SYSTEM.'}];
-  var pi=0,ci=0,lbl=document.getElementById('ssLbl'),stxt2=document.getElementById('ssTxt'),scur2=document.getElementById('ssCur');
-  if(stxt2){function nextPost(){var p=posts[pi%posts.length];pi++;if(lbl)lbl.textContent=p.lbl;ci=0;stxt2.textContent='';if(scur2)scur2.style.display='inline';var ps=p.txt;(function t(){if(ci<ps.length){stxt2.textContent+=ps[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(scur2)scur2.style.display='none';setTimeout(nextPost,3000);}})();}setTimeout(nextPost,600);}
-  // CRM Pipeline demo
-  var ps=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];var cmsg=document.getElementById('crmMsg');
-  if(ps[0]){var ph=0;function setState(p){if(p===0){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span><span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>';ps[1].innerHTML='';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan Lee just entered as a new Lead.';}else if(p===1){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps[1].innerHTML='<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan showed interest -- moved to Interested!';}else{ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps[1].innerHTML='';ps[2].innerHTML='<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan booked a call -- AI drafting follow-up now!';}setTimeout(function(){ph=(ph+1)%3;setState(ph);},2400);}setTimeout(function(){setState(0);},600);}
-  // Group Console demo
-  var gcr=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly Lead Lab run, CRM import, Sunshine sequence. Zero manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe to be about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}];
-  var gcb=document.getElementById('gcBox');if(gcb){var gi=0;function addR(){if(gi>=gcr.length){setTimeout(function(){gcb.innerHTML='';gi=0;setTimeout(addR,800);},2000);return;}var r=gcr[gi++];var d=document.createElement('div');d.className='gc-rep';d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';gcb.appendChild(d);setTimeout(addR,1100);}setTimeout(addR,600);}
+  var pi=0,ci=0,lbl=document.getElementById('ssLbl'),stxt=document.getElementById('ssTxt'),scur=document.getElementById('ssCur');
+  if(stxt){function nextPost(){var p=posts[pi%posts.length];pi++;if(lbl)lbl.textContent=p.lbl;ci=0;stxt.textContent='';if(scur)scur.style.display='inline';var ps=p.txt;(function t(){if(ci<ps.length){stxt.textContent+=ps[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(scur)scur.style.display='none';setTimeout(nextPost,3000);}})();}setTimeout(nextPost,600);}
+  var ps2=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];var cmsg=document.getElementById('crmMsg');
+  if(ps2[0]){var ph=0;function setState(p){if(p===0){ps2[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span><span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>';ps2[1].innerHTML='';ps2[2].innerHTML='';ps2[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan Lee just entered as a new Lead.';}else if(p===1){ps2[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps2[1].innerHTML='<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>';ps2[2].innerHTML='';ps2[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan showed interest -- moved to Interested!';}else{ps2[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#94a3b8;">Jamie Cole</span>';ps2[1].innerHTML='';ps2[2].innerHTML='<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>';ps2[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan booked a call -- AI drafting follow-up now!';}setTimeout(function(){ph=(ph+1)%3;setState(ph);},2400);}setTimeout(function(){setState(0);},600);}
+  var gcReplies=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly Lead Lab run, CRM import, Sunshine sequence. Zero manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe outreach to be about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}];
+  var gcb=document.getElementById('gcBox');if(gcb){var gi=0;function addGcReply(){if(gi>=gcReplies.length){setTimeout(function(){gcb.innerHTML='';gi=0;setTimeout(addGcReply,800);},2000);return;}var r=gcReplies[gi++];var d=document.createElement('div');d.className='gc-rep';d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';gcb.appendChild(d);setTimeout(addGcReply,1100);}setTimeout(addGcReply,600);}
 })();
 </script>
 </body></html>"""
@@ -7239,7 +7191,7 @@ LOGIN_HTML = r"""
 
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
-      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.95);font-weight:700;">&#10024; Learn More</a></div>
+      <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.95);font-weight:700;">✨ Learn More</a></div>
       {% if allow_signup %}
         <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
@@ -9197,6 +9149,7 @@ HTML = r"""
     .saDropWrap{position:relative;}
     .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:10px;color:rgba(210,220,255,.95);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
     .saNavBtn:hover{background:rgba(30,40,80,.9);border-color:rgba(124,58,237,.5);}
+    @media(max-width:768px){#communityNavBtn{display:none!important;}#dashboardNavBtn{display:none!important;}}
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(18,28,60,.99);border:1px solid rgba(80,110,200,.5);border-radius:12px;padding:6px;z-index:9999;box-shadow:0 16px 48px rgba(0,0,0,.6);}
     .saDrop.open{display:block;}
@@ -10430,152 +10383,6 @@ label         { font-size: 14px !important; }
 #leadLabResults .diagCard { font-size: 14px !important; }
 #leadLabResults .tiny { font-size: 13px !important; }
 
-/* ===== PATCH v1.12: Mobile Landscape Group Console Fix + Portrait Nav Fix ===== */
-
-/* ── LANDSCAPE FIX ──────────────────────────────────────────────────────────
-   Root cause: .operator base CSS is position:absolute; left:50%; top:50%
-   The existing landscape block (flex-direction:row) sets order/flex/width on
-   .operator but never resets position, so the panel stays centered on top of
-   the teammate cards.  Force everything into normal document flow.
-   ─────────────────────────────────────────────────────────────────────────── */
-@media (max-width: 900px) and (orientation: landscape) {
-
-  /* tableWrap becomes a scrollable column — operator first, seats below */
-  .tableWrap {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    height: auto !important;
-    min-height: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 6px 12px !important;
-    gap: 8px !important;
-    position: relative !important;
-    overflow: visible !important;
-  }
-
-  /* Pull operator OUT of absolute positioning so it flows at the top */
-  .operator {
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    margin: 0 !important;
-    order: 0 !important;
-    flex: none !important;
-    border-radius: 14px !important;
-  }
-
-  /* Hide decorative round-table circle in landscape (same as portrait) */
-  .table {
-    display: none !important;
-  }
-
-  /* Seats: pull out of absolute positioning, stack as cards */
-  .seat {
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    min-height: 58px !important;
-    margin: 0 !important;
-    padding: 10px 14px !important;
-    box-sizing: border-box !important;
-    border-radius: 12px !important;
-    background: rgba(14,22,48,.98) !important;
-    cursor: pointer !important;
-  }
-
-  /* Compact avatars/text in landscape to save vertical space */
-  .seat .seatAvatar {
-    width: 38px !important;
-    height: 38px !important;
-    font-size: 16px !important;
-    border-radius: 10px !important;
-    flex-shrink: 0 !important;
-  }
-  .seat .seatName   { font-size: 14px !important; font-weight: 800 !important; }
-  .seat .seatRole   { font-size: 12px !important; }
-  .seat .seatStatus { font-size: 12px !important; margin-top: 2px !important; }
-
-  /* Keep active-seat highlight */
-  .seat.active {
-    border-color: rgba(124,58,237,.9) !important;
-    background: rgba(20,12,48,.98) !important;
-    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
-  }
-
-  /* Show team label so users know what they're looking at */
-  .mobileTeamLabel { display: block !important; }
-
-  /* Prompt textarea — a bit tighter in landscape */
-  .opText { min-height: 72px !important; }
-
-  /* Bottom padding above mobile action bar */
-  .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
-}
-
-/* ── MOBILE NAV — DEFINITIVE FIX ────────────────────────────────────────────
-   position:sticky cannot scroll — overflow on sticky element is ignored.
-   Scroll goes on .saNavLeft (non-sticky child).
-   Community is in the bottom bar so hidden from top nav on mobile.
-   ─────────────────────────────────────────────────────────────────────────── */
-@media (max-width: 720px) {
-  /* Hide title row */
-  .topbarMain { display: none !important; }
-
-  /* Sticky frame — overflow MUST be visible for sticky + dropdown portals */
-  .saNavBar {
-    overflow: visible !important;
-    flex-wrap: nowrap !important;
-    padding: 5px 0 5px 6px !important;
-    gap: 0 !important;
-  }
-
-  /* Scroll container = saNavLeft, NOT the sticky saNavBar */
-  .saNavLeft {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    gap: 4px !important;
-    overflow-x: scroll !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    padding-right: 8px !important;
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-  }
-  .saNavLeft::-webkit-scrollbar { display: none !important; }
-  .saDropWrap { flex-shrink: 0 !important; }
-
-  /* Compact buttons */
-  .saNavBtn {
-    font-size: 12px !important;
-    padding: 6px 10px !important;
-    white-space: nowrap !important;
-    flex-shrink: 0 !important;
-    touch-action: manipulation !important;
-  }
-
-  /* Community is in bottom bar — hide from top nav on mobile */
-  #communityNavBtn { display: none !important; }
-
-  /* Kill center + right entirely on mobile */
-  .saNavCenter { display: none !important; }
-  .saNavRight   { display: none !important; }
-}
-
-@media (max-width: 390px) {
-  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
-}
-
 </style>
 </head>
 <body>
@@ -10658,12 +10465,11 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + level badge + bug report + support + logout -->
+      <!-- Right: model tag + level badge + support + logout -->
       <div class="saNavRight" style="display:flex;align-items:center;gap:7px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
-        <button id="bugReportNavBtn" onclick="openBugReportModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:none;">🐛 Bugs</button>
-        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Get Human Support</button>
+        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -10673,8 +10479,9 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn">☰ Menu</button>
-    <button class="btn" id="mobileCommunityBtn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
+    <button class="btn" id="mobileMenuBtn">Menu</button>
+    <button class="btn" id="mobileManageBtn">Team</button>
+    <button class="btn" id="mobileSettingsBtn">Settings</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -10705,6 +10512,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
+        <button class="btn" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;font-weight:700;" onclick="document.getElementById('mobileDrawerOverlay').style.display='none';openCommunityPanel();">🏆 Community</button>
         <a class="btn" href="/logout" style="text-decoration:none; display:inline-block; text-align:center;">Logout</a>
       </div>
 
@@ -23520,7 +23328,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       _cp.me = d.username||_cp.me||'';
       _renderStats(d);
       var nb=document.getElementById('navLevelBadge');
-      if(nb){nb.style.display='';nb.innerText=d.level.emoji+' '+d.level.name;}
+      if(nb) nb.style.display='none'; // level shown inside Community only
       if(d.is_admin){
         var mt=document.getElementById('cpTab-moderate');if(mt)mt.style.display='';
         if(d.pending_count>0){
@@ -23606,265 +23414,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   setTimeout(_cpLoadStats, 1500);
 })();
 </script>
-<!-- ===== SCOUT SUPPORT PANEL ===== -->
-<div id="scoutPanel" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:flex-end;justify-content:flex-end;" onclick="if(event.target===this)closeScoutPanel()">
-  <div style="width:min(480px,100vw);height:100%;max-height:100%;background:rgba(10,14,30,.98);border-left:1px solid rgba(80,110,200,.4);display:flex;flex-direction:column;box-shadow:-16px 0 60px rgba(0,0,0,.6);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
-      <div>
-        <div style="font-weight:800;font-size:15px;color:#c4b5fd;">🛟 Scout — Built-in Help</div>
-        <div style="font-size:11px;opacity:.6;margin-top:2px;">Knows everything about Simply Agentic AI</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <a href="mailto:SimplyAgenticAI@gmail.com" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;text-decoration:none;white-space:nowrap;">✉ Get Human Support</a>
-        <button onclick="closeScoutPanel()" style="background:rgba(80,80,120,.3);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕</button>
-      </div>
-    </div>
-    <div id="scoutMessages" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
-    <div style="padding:12px 14px;border-top:1px solid rgba(42,58,106,.6);flex-shrink:0;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;" id="scoutQuickBtns">
-        <button class="scoutQ" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
-        <button class="scoutQ" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
-        <button class="scoutQ" onclick="scoutAsk('How do I connect Google Calendar?')">Connect Calendar?</button>
-        <button class="scoutQ" onclick="scoutAsk('What can the CRM do?')">CRM features?</button>
-        <button class="scoutQ" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <textarea id="scoutInput" rows="2" placeholder="Ask Scout anything about the system..." style="flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;resize:none;font-family:inherit;line-height:1.5;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();scoutSend();}"></textarea>
-        <button onclick="scoutSend()" style="background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(109,40,217,.7));border:1px solid rgba(124,58,237,.5);color:#fff;border-radius:10px;padding:9px 16px;font-size:14px;cursor:pointer;font-weight:700;flex-shrink:0;align-self:flex-end;">Send</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== BUG REPORT MODAL ===== -->
-<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(520px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);">
-      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Report a Bug</span>
-      <button onclick="closeBugReportModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
-    <div style="padding:18px;display:flex;flex-direction:column;gap:11px;">
-      <div style="font-size:12px;opacity:.65;line-height:1.6;">Spotted something broken? Tell us and we'll fix it fast.</div>
-      <textarea id="bugDescInput" rows="4" placeholder="What happened? What did you expect? What device/browser?" style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
-      <textarea id="bugStepsInput" rows="2" placeholder="Steps to reproduce (optional)" style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
-      <select id="bugSeverityInput" style="background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;">
-        <option value="low">🟡 Low — minor annoyance</option>
-        <option value="medium" selected>🟠 Medium — blocks something</option>
-        <option value="high">🔴 High — app unusable</option>
-      </select>
-      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.4),rgba(180,30,60,.3));border:1px solid rgba(239,68,68,.5);color:#fca5a5;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;">📤 Send Bug Report</button>
-      <div id="bugReportStatus" style="text-align:center;font-size:13px;display:none;"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== BUG INBOX MODAL (admin only) ===== -->
-<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(760px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);flex-shrink:0;">
-      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Bug Reports Inbox</span>
-      <div style="display:flex;gap:8px;">
-        <button onclick="loadBugInbox()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;">↻ Refresh</button>
-        <button onclick="closeBugInboxModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
-      </div>
-    </div>
-    <div id="bugInboxBody" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;">
-      <div style="opacity:.5;font-size:13px;text-align:center;">Loading…</div>
-    </div>
-  </div>
-</div>
-
-<style>
-.scoutQ{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.35);color:#c4b5fd;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;touch-action:manipulation;}
-.scoutQ:hover{background:rgba(124,58,237,.3);}
-.scoutMsg{padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.6;max-width:90%;}
-.scoutMsg.user{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);align-self:flex-end;color:#e2e8f0;}
-.scoutMsg.scout{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);align-self:flex-start;color:#e2e8f0;}
-.scoutMsg.thinking{opacity:.6;font-style:italic;}
-</style>
-
-<script>
-/* ===== SCOUT PANEL ===== */
-(function(){
-  const SCOUT_SYSTEM = `You are Scout, the built-in help assistant for Simply Agentic AI. You know everything about the system.
-
-Simply Agentic AI is an AI-powered business command center with:
-- A round-table of AI teammates (CMO, CFO, CTO, etc.) each with custom personas, memory, and tools
-- Group Console: send one prompt to all teammates simultaneously
-- Lead Lab: AI-powered B2B lead generation that scrapes real websites for contacts
-- CRM: manage leads, contacts, pipeline
-- Calendar: syncs with Google Calendar and Motion, shows all events and tasks
-- Email Console: send/receive emails via Gmail integration
-- Community Hub: leaderboard, ideas board, announcements
-- Voice Mode: speak to teammates, hands-free
-- Dashboard: analytics and performance metrics
-- Settings: connect Google Calendar, Gmail, configure API keys, manage teammates
-- Bug Report: report issues directly to the admin
-
-Keep answers concise and practical. If asked how to do something, give step-by-step instructions.`;
-
-  const history = [];
-
-  window.openScoutPanel = function(){
-    const p = document.getElementById('scoutPanel');
-    if(p){ p.style.display='flex'; }
-    if(!history.length) scoutAddMsg('scout','👋 Hi! I\'m Scout, your built-in help assistant. I know everything about Simply Agentic AI — ask me anything! Or tap one of the quick questions below.');
-  };
-
-  window.closeScoutPanel = function(){
-    const p = document.getElementById('scoutPanel');
-    if(p) p.style.display='none';
-  };
-
-  function scoutAddMsg(role, text){
-    const box = document.getElementById('scoutMessages'); if(!box) return null;
-    const div = document.createElement('div');
-    div.className = 'scoutMsg ' + role;
-    div.innerText = text;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-    return div;
-  }
-
-  window.scoutAsk = function(q){
-    document.getElementById('scoutInput').value = q;
-    scoutSend();
-  };
-
-  window.scoutSend = async function(){
-    const inp = document.getElementById('scoutInput');
-    const q = (inp.value||'').trim();
-    if(!q) return;
-    inp.value = '';
-    scoutAddMsg('user', q);
-    history.push({role:'user', content: q});
-    const thinking = scoutAddMsg('scout','🤔 Thinking…');
-    if(thinking) thinking.classList.add('thinking');
-    try{
-      const resp = await fetch('/api/scout_ask', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({messages: history, system: SCOUT_SYSTEM})
-      });
-      const d = await resp.json();
-      if(thinking) thinking.remove();
-      const answer = d.answer || d.error || 'Sorry, I had trouble answering that.';
-      scoutAddMsg('scout', answer);
-      history.push({role:'assistant', content: answer});
-    }catch(e){
-      if(thinking) thinking.remove();
-      scoutAddMsg('scout','❌ Network error — please try again.');
-    }
-  };
-})();
-
-/* ===== BUG REPORT ===== */
-(function(){
-  window.openBugReportModal = function(){
-    const m = document.getElementById('bugReportModal');
-    if(m) m.style.display='flex';
-    // Pre-fill device info hint
-    const inp = document.getElementById('bugDescInput');
-    if(inp && !inp.value) inp.placeholder = `What happened? Device: ${window.innerWidth}x${window.innerHeight} ${window.innerWidth>window.innerHeight?'landscape':'portrait'}`;
-  };
-  window.closeBugReportModal = function(){
-    const m = document.getElementById('bugReportModal');
-    if(m) m.style.display='none';
-    const s = document.getElementById('bugReportStatus');
-    if(s){ s.style.display='none'; s.innerText=''; }
-  };
-  window.submitBugReport = async function(){
-    const desc = (document.getElementById('bugDescInput').value||'').trim();
-    const steps = (document.getElementById('bugStepsInput').value||'').trim();
-    const severity = document.getElementById('bugSeverityInput').value||'medium';
-    const status = document.getElementById('bugReportStatus');
-    const btn = document.getElementById('bugSubmitBtn');
-    if(!desc){ status.style.display='block'; status.style.color='#fca5a5'; status.innerText='⚠️ Please describe the bug.'; return; }
-    btn.disabled=true; btn.innerText='Sending…';
-    try{
-      const r = await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
-      const d = await r.json();
-      status.style.display='block';
-      if(d.ok){ status.style.color='#86efac'; status.innerText='✅ Report sent — thank you!'; document.getElementById('bugDescInput').value=''; document.getElementById('bugStepsInput').value=''; setTimeout(closeBugReportModal,2000); }
-      else{ status.style.color='#fca5a5'; status.innerText='❌ '+(d.error||'Failed to send.'); }
-    }catch(e){ status.style.display='block'; status.style.color='#fca5a5'; status.innerText='❌ Network error.'; }
-    finally{ btn.disabled=false; btn.innerText='📤 Send Bug Report'; }
-  };
-
-  window.openBugInboxModal = function(){
-    const m = document.getElementById('bugInboxModal');
-    if(m){ m.style.display='flex'; loadBugInbox(); }
-  };
-  window.closeBugInboxModal = function(){
-    const m = document.getElementById('bugInboxModal');
-    if(m) m.style.display='none';
-  };
-  window.loadBugInbox = async function(){
-    const body = document.getElementById('bugInboxBody'); if(!body) return;
-    body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">Loading…</div>';
-    try{
-      const r = await fetch('/api/bug_report/list');
-      const d = await r.json();
-      if(!d.ok){ body.innerHTML=`<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">${d.error||'Error'}</div>`; return; }
-      const reports = d.reports||[];
-      if(!reports.length){ body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">No bug reports yet 🎉</div>'; return; }
-      const sc={'high':'#fca5a5','medium':'#fdba74','low':'#fde68a'};
-      body.innerHTML = reports.map(r=>{
-        const col=sc[r.severity]||'#c4b5fd';
-        return `<div style="background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.7);border-left:3px solid ${col};border-radius:10px;padding:12px 14px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-            <span style="font-size:11px;font-weight:700;color:${col};text-transform:uppercase;">${r.severity} ${r.resolved?'✅':'🔴'}</span>
-            <span style="font-size:11px;opacity:.5;">${(r.submitted_by||'?')} · ${(r.created_at||'').slice(0,16).replace('T',' ')}</span>
-            ${r.resolved?'':'<button onclick="markBugResolved(\''+r.id+'\')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Mark resolved</button>'}
-          </div>
-          <div style="font-size:13px;line-height:1.5;">${(r.description||'').replace(/</g,'&lt;')}</div>
-          ${r.steps?`<div style="font-size:12px;opacity:.6;margin-top:5px;white-space:pre-wrap;">${(r.steps||'').replace(/</g,'&lt;')}</div>`:''}
-          <div style="font-size:11px;opacity:.4;margin-top:5px;">${(r.device||{}).orientation||''} ${(r.device||{}).screenW||''}x${(r.device||{}).screenH||''}</div>
-        </div>`;
-      }).join('');
-    }catch(e){ body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">Error loading.</div>'; }
-  };
-  window.markBugResolved = async function(id){
-    await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
-    loadBugInbox();
-  };
-
-  // On load: show admin Bug button and load count
-  setTimeout(async function(){
-    try{
-      const r = await fetch('/api/bug_report/list');
-      const d = await r.json();
-      if(d.ok && d.is_admin){
-        const btn = document.getElementById('bugReportNavBtn');
-        if(btn){
-          btn.style.display='';
-          const unresolved=(d.reports||[]).filter(x=>!x.resolved).length;
-          btn.innerHTML='🐛 Bugs'+(unresolved?` <span style="background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;font-weight:800;">${unresolved}</span>`:'');
-          btn.onclick=()=>openBugInboxModal();
-        }
-      }
-    }catch(_){}
-  }, 2000);
-
-  // Mobile drawer: add bug report button
-  setTimeout(function(){
-    const grid = document.getElementById('mobileDrawerGrid');
-    if(!grid) return;
-    if(grid.querySelector('[data-bug-btn]')) return;
-    const btn = document.createElement('button');
-    btn.className='drawerBtn';
-    btn.setAttribute('data-bug-btn','1');
-    btn.innerHTML='🐛 Report Bug';
-    btn.onclick=()=>{
-      const ov=document.getElementById('mobileDrawerOverlay');
-      if(ov) ov.classList.remove('show');
-      openBugReportModal();
-    };
-    grid.appendChild(btn);
-  },1500);
-})();
-</script>
+<!-- ===== END COMMUNITY HUB PANEL ===== -->
 
 </body>
 </html>
@@ -29785,6 +29335,7 @@ def api_community_my_stats():
     uname = u.get("username", "")
     stats = _community_get_user_stats(uname)
     stats["is_admin"]  = _community_is_admin(u)
+    stats["username"]  = uname
     # Pending ideas count for admin badge
     if stats["is_admin"]:
         stats["pending_count"] = sum(
@@ -29800,99 +29351,6 @@ def api_community_pending_ideas():
     ideas   = _community_load_ideas()
     pending = [i for i in ideas if i.get("status") == "pending"]
     return jsonify({"ok": True, "ideas": pending})
-
-
-# ── Scout built-in help ──────────────────────────────────────────────────────
-@app.post("/api/scout_ask")
-def api_scout_ask():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload  = request.get_json(silent=True) or {}
-    messages = payload.get("messages") or []
-    system   = payload.get("system") or "You are Scout, a helpful assistant for Simply Agentic AI."
-    if not messages:
-        return jsonify({"ok": False, "error": "No messages"}), 400
-    try:
-        client = get_openai_client()
-        resp   = client.chat.completions.create(
-            model   = "gpt-4o-mini",
-            messages= [{"role": "system", "content": system}] + [
-                {"role": m.get("role","user"), "content": m.get("content","")}
-                for m in messages[-20:]          # keep context window reasonable
-            ],
-            max_tokens  = 600,
-            temperature = 0.4,
-        )
-        answer = (resp.choices[0].message.content or "").strip()
-        return jsonify({"ok": True, "answer": answer})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# ── Bug Report system ─────────────────────────────────────────────────────────
-BUG_REPORTS_FILE = DATA / "bug_reports.json"
-
-def _load_bug_reports() -> list:
-    return load_json(BUG_REPORTS_FILE, [])
-
-def _save_bug_reports(reports: list) -> None:
-    save_json(BUG_REPORTS_FILE, reports)
-
-@app.post("/api/bug_report")
-def api_submit_bug_report():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    p        = request.get_json(silent=True) or {}
-    desc     = (p.get("description") or "").strip()[:2000]
-    steps    = (p.get("steps") or "").strip()[:1000]
-    severity = (p.get("severity") or "medium").strip()
-    device   = p.get("device") or {}
-    if not desc:
-        return jsonify({"ok": False, "error": "Description required"}), 400
-    if severity not in ("low", "medium", "high"):
-        severity = "medium"
-    report = {
-        "id":           str(uuid.uuid4()),
-        "submitted_by": u.get("username", "unknown"),
-        "description":  desc,
-        "steps":        steps,
-        "severity":     severity,
-        "device":       device,
-        "resolved":     False,
-        "created_at":   now_iso(),
-    }
-    reports = _load_bug_reports()
-    reports.insert(0, report)
-    _save_bug_reports(reports[:500])
-    return jsonify({"ok": True, "id": report["id"]})
-
-@app.get("/api/bug_report/list")
-def api_list_bug_reports():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    is_admin = _is_admin_user(u)
-    reports  = _load_bug_reports()
-    if not is_admin:
-        reports = [r for r in reports if r.get("submitted_by") == u.get("username","")]
-    return jsonify({"ok": True, "is_admin": is_admin, "reports": reports})
-
-@app.post("/api/bug_report/<report_id>/resolve")
-def api_resolve_bug_report(report_id: str):
-    u = current_user()
-    if not u or not _is_admin_user(u):
-        return jsonify({"ok": False, "error": "Admin only"}), 403
-    reports = _load_bug_reports()
-    for r in reports:
-        if r.get("id") == report_id:
-            r["resolved"]    = True
-            r["resolved_at"] = now_iso()
-            r["resolved_by"] = u.get("username", "admin")
-            _save_bug_reports(reports)
-            return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Not found"}), 404
 
 
 if __name__ == "__main__":
