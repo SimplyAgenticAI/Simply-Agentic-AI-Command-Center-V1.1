@@ -1524,6 +1524,7 @@ def _add_security_headers(response):
 
 @app.before_request
 def _auth_guard():
+    # ── Public page routes — no auth, no CSRF needed ─────────────────────────
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase", "/health"):
         return None
     if request.path.startswith("/static/"):
@@ -1537,11 +1538,13 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
+    # ── Public API routes — no CSRF check ────────────────────────────────────
     public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
 
-    # ── CSRF check (all state-mutating requests) ──────────────────────────────
+    # ── CSRF check — runs AFTER all exemptions so only authenticated routes ──
+    # are checked. Missing tokens (no session yet) seed a new token and pass.
     if not _csrf_valid():
         if request.path.startswith("/api/"):
             resp = jsonify({"ok": False, "error": "Invalid or missing CSRF token. Refresh the page and try again."})
@@ -8392,7 +8395,9 @@ def setup_post():
     data["users"][username] = _new_user(username=username, password=password, email=email)
     save_users(data)
 
-    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
+    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
+    session.clear()  # Prevent session fixation
+    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -8429,7 +8434,9 @@ def login_post():
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
-    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
+    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
+    session.clear()  # Prevent session fixation
+    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
@@ -8545,7 +8552,9 @@ def register_post():
         except Exception:
             pass
 
-    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
+    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
+    session.clear()  # Prevent session fixation
+    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -12784,23 +12793,24 @@ if (typeof window.showToast !== "function") {
     // Usage: replace  apiFetch("/api/foo", {method:"POST", ...})
     //        with    apiFetch("/api/foo", {method:"POST", ...})
     window._csrfToken = "";
-    // Promise that resolves once the token is fetched — apiFetch awaits it on
-    // the first mutating call so there's no race between page load and button clicks.
-    window._csrfReady = (async function _initCsrf(){
-      try{
-        const r = await fetch("/api/csrf_token");
-        const d = await r.json();
+    // Fetch the CSRF token once on boot. The server always passes requests through
+    // even if the token header is missing (it seeds a new token instead), so there
+    // is no race condition — clicks work immediately and the token attaches as soon
+    // as the boot fetch resolves (typically <100ms).
+    (function _initCsrf(){
+      fetch("/api/csrf_token").then(function(r){ return r.json(); }).then(function(d){
         if(d && d.token) window._csrfToken = d.token;
-      }catch(e){ /* non-fatal — server passes tokenless requests through */ }
+      }).catch(function(){ /* non-fatal */ });
     })();
 
     const _CSRF_SAFE = new Set(["GET","HEAD","OPTIONS"]);
-    window.apiFetch = async function apiFetch(url, opts){
+    // apiFetch is a synchronous drop-in for fetch() — same API, same return type.
+    // It auto-attaches the CSRF token on mutating requests. Keep it non-async so
+    // fire-and-forget callers and Promise chains work exactly as before.
+    window.apiFetch = function apiFetch(url, opts){
       opts = opts || {};
       const method = (opts.method || "GET").toUpperCase();
       if(!_CSRF_SAFE.has(method)){
-        // Await the init promise — no-op after first resolution (Promise caches result)
-        try{ await window._csrfReady; }catch(e){}
         const hdrs = new Headers(opts.headers || {});
         if(window._csrfToken) hdrs.set("X-CSRF-Token", window._csrfToken);
         opts = Object.assign({}, opts, {headers: hdrs});
