@@ -1098,6 +1098,65 @@ app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE_URL.startswith("https://")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # =========================
+# CSRF PROTECTION
+# =========================
+# Double-submit cookie pattern: a token is stored in the session and the client
+# must echo it back in X-CSRF-Token on every state-mutating request (POST/PUT/PATCH/DELETE).
+# GET/HEAD/OPTIONS are safe methods and are never checked.
+# Routes explicitly listed in _CSRF_EXEMPT are skipped (Stripe webhooks, OAuth callbacks).
+
+_CSRF_EXEMPT_PATHS = {
+    # Stripe webhook — verified by HMAC, no session
+    "/stripe/webhook",
+    # OAuth callbacks arrive from Google, not the browser JS
+    "/oauth/google/callback",
+    "/oauth/google/calendar/callback",
+    # Public auth endpoints
+    "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
+}
+
+_CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+def _get_csrf_token() -> str:
+    """Return (and lazily create) the per-session CSRF token."""
+    tok = session.get("_csrf_token")
+    if not tok:
+        tok = secrets.token_hex(32)
+        session["_csrf_token"] = tok
+        session.modified = True
+    return tok
+
+def _csrf_valid() -> bool:
+    """Return True if the incoming request carries a valid CSRF token."""
+    if request.method in _CSRF_SAFE_METHODS:
+        return True
+    if request.path in _CSRF_EXEMPT_PATHS:
+        return True
+    if request.path.startswith("/stripe/"):
+        return True
+    if request.path.startswith("/admin/"):
+        # Admin routes have their own auth; exempt from JS-CSRF (they use session auth directly)
+        return True
+    expected = session.get("_csrf_token") or ""
+    if not expected:
+        return False
+    incoming = (
+        request.headers.get("X-CSRF-Token")
+        or request.headers.get("X-Csrf-Token")
+        or (request.get_json(silent=True) or {}).get("_csrf_token", "")
+        or request.form.get("_csrf_token", "")
+    )
+    return hmac.compare_digest(expected, incoming)
+
+@app.get("/api/csrf_token")
+def api_csrf_token():
+    """Public GET endpoint — returns the current session CSRF token.
+    The JS layer calls this once on boot and caches the result for all subsequent POSTs.
+    No auth required: unauthenticated pages (login, register) also need CSRF protection.
+    """
+    return jsonify({"ok": True, "token": _get_csrf_token()})
+
+# =========================
 # LOGIN BRUTE-FORCE PROTECTION
 # =========================
 # In-memory store: { ip_or_user -> {"count": int, "locked_until": datetime|None} }
@@ -1372,9 +1431,18 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"}
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
+
+    # ── CSRF check (all state-mutating requests) ──────────────────────────────
+    if not _csrf_valid():
+        if request.path.startswith("/api/"):
+            resp = jsonify({"ok": False, "error": "Invalid or missing CSRF token. Refresh the page and try again."})
+            resp.headers["Cache-Control"] = "no-store"
+            return resp, 403
+        return redirect(url_for("login"))
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Clear stale sessions so the login gate shows cleanly instead of half-auth states.
     if session.get("user") and not current_user():
@@ -12526,6 +12594,38 @@ if (typeof window.showToast !== "function") {
 
     const $ = (id) => document.getElementById(id);
 
+    // =========================
+    // CSRF-AWARE FETCH HELPER
+    // =========================
+    // Drop-in replacement for apiFetch() on all state-mutating calls.
+    // Fetches the CSRF token once on boot, then auto-attaches X-CSRF-Token
+    // to every POST/PUT/PATCH/DELETE. GET calls pass straight through.
+    // Usage: replace  apiFetch("/api/foo", {method:"POST", ...})
+    //        with    apiFetch("/api/foo", {method:"POST", ...})
+    window._csrfToken = "";
+    (async function _initCsrf(){
+      try{
+        const r = await fetch("/api/csrf_token");
+        const d = await r.json();
+        if(d && d.token) window._csrfToken = d.token;
+      }catch(e){ /* non-fatal — worst case the server returns 403 */ }
+    })();
+
+    const _CSRF_SAFE = new Set(["GET","HEAD","OPTIONS"]);
+    window.apiFetch = function apiFetch(url, opts){
+      opts = opts || {};
+      const method = (opts.method || "GET").toUpperCase();
+      if(!_CSRF_SAFE.has(method)){
+        const hdrs = new Headers(opts.headers || {});
+        if(window._csrfToken) hdrs.set("X-CSRF-Token", window._csrfToken);
+        opts = Object.assign({}, opts, {headers: hdrs});
+      }
+      return fetch(url, opts);
+    };
+    // =========================
+    // END CSRF HELPER
+    // =========================
+
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -13227,7 +13327,7 @@ window.showModal = function showModal(title, body, imgUrl){
       }
 
       try{
-        const res = await fetch('/api/followup', {
+        const res = await apiFetch('/api/followup', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({name: teammate, message: prompt})
@@ -13293,7 +13393,7 @@ window.showModal = function showModal(title, body, imgUrl){
           title: (($("sessionObjectiveInput")||{}).value || '').trim(),
           context: (($("sessionObjectiveContext")||{}).value || '').trim()
         };
-        const res = await fetch('/api/os/session_objective', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await apiFetch('/api/os/session_objective', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         if(st) st.innerText = 'Saved';
@@ -13345,7 +13445,7 @@ window.showModal = function showModal(title, body, imgUrl){
         notes: ($("opm_notes")?.value || '').trim()
       };
       try{
-        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await apiFetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         // Keep global cache fresh for email sign-off replacement
@@ -13420,7 +13520,7 @@ window.showModal = function showModal(title, body, imgUrl){
         tts_voice: ($("editTtsVoice") ? $("editTtsVoice").value : "") || "alloy",
       };
 
-      const res = await fetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
+      const res = await apiFetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify(payload)
@@ -14007,7 +14107,7 @@ function makeSeat(defn, idx){
           keepBtn.innerText = "Approve current";
           keepBtn.onclick = async ()=>{
             try{
-              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/approve_current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+              const r = await apiFetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/approve_current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
               const d = await r.json();
               if(!d.ok) throw new Error(d.error || 'Could not approve image');
               lastImageState = d.image_state || lastImageState || {};
@@ -14087,10 +14187,10 @@ function makeSeat(defn, idx){
           useBtn.innerText = "Use for revisions";
           useBtn.onclick = async ()=>{
             try{
-              const imgs = await fetch('/api/images').then(r=>r.json());
+              const imgs = await apiFetch('/api/images').then(r=>r.json());
               const match = (imgs.images || []).find(x => x.url === url);
               if(!match || !match.id) throw new Error('Could not find this image in the library');
-              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
+              const r = await apiFetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
               const d = await r.json();
               if(!d.ok) throw new Error(d.error || 'Could not set current image');
               lastImageState = d.image_state || {};
@@ -14198,7 +14298,7 @@ function makeSeat(defn, idx){
           goals: $("op_goals").value,
           notes: $("op_notes").value
         };
-        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const res = await apiFetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
@@ -14216,7 +14316,7 @@ function makeSeat(defn, idx){
           goals: $("op_goals").value,
           notes: $("op_notes").value
         };
-        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const res = await apiFetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
@@ -14363,7 +14463,7 @@ function makeSeat(defn, idx){
       const fd = new FormData();
       fd.append("file", file);
 
-      const res = await fetch("/api/upload", {
+      const res = await apiFetch("/api/upload", {
         method: "POST",
         body: fd
       });
@@ -14840,7 +14940,7 @@ function makeSeat(defn, idx){
       try{ setSeatLive(seat,"thinking"); }catch(_){}
       try{ setOpStatus("Sending…"); }catch(_){}
       try{
-        const res=await fetch("/api/followup",{
+        const res=await apiFetch("/api/followup",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
           body:JSON.stringify({name:seat, message:msg,
@@ -14879,7 +14979,7 @@ function makeSeat(defn, idx){
       const outputs={},drafts={},images={};
       for(const n of order){
         try{
-          const res=await fetch("/api/followup",{
+          const res=await apiFetch("/api/followup",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({name:n, message:msg,
@@ -15126,7 +15226,7 @@ function makeSeat(defn, idx){
         updateTablePulseFromStatuses();
 
         try{
-          const res = await fetch("/api/convene", {
+          const res = await apiFetch("/api/convene", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
@@ -15173,7 +15273,7 @@ function makeSeat(defn, idx){
         try{
           const controller = new AbortController();
           const t = setTimeout(() => controller.abort(), 120000); // 120s safety
-          const res = await fetch("/api/followup", {
+          const res = await apiFetch("/api/followup", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
@@ -15315,7 +15415,7 @@ async function pollImageJob(jobId, seatName){
 
       async function _savePinned(){
         try{
-          await fetch('/api/user/pinned_features',{
+          await apiFetch('/api/user/pinned_features',{
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({pinned_features: _pinned})
           });
@@ -15463,7 +15563,7 @@ async function pollImageJob(jobId, seatName){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await fetch("/api/followup", {
+      const res = await apiFetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
@@ -15514,7 +15614,7 @@ async function pollImageJob(jobId, seatName){
         hideModal();
         await new Promise(r=>setTimeout(r,150));
       }
-      const res = await fetch("/api/install/full", {method:"POST"});
+      const res = await apiFetch("/api/install/full", {method:"POST"});
       const data = await res.json();
       if(!data.ok){
         showModal("Error", data.error || "Install failed");
@@ -15539,7 +15639,7 @@ async function pollImageJob(jobId, seatName){
       var title = prompt('Name this playbook:', titleHint || 'Round Table Playbook');
       if(!title) return;
       try{
-        var res = await fetch('/api/playbooks/save', {
+        var res = await apiFetch('/api/playbooks/save', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ title: title.trim(), content: text.trim() })
         });
@@ -15583,7 +15683,7 @@ async function pollImageJob(jobId, seatName){
 
       showModal("Running " + pass + "...", "Thinking...");
       try{
-        const res = await fetch("/api/passes/run", {
+        const res = await apiFetch("/api/passes/run", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({pass, text, seat})
@@ -15638,7 +15738,7 @@ $("draftWithSelected").onclick = async () => {
         "```\n\n" +
         `Existing fields:\nTo: ${toAddr || "[empty]"}\nSubject: ${subj || "[empty]"}\nBody: ${body ? "[present]" : "[empty]"}\n`;
 
-      const res = await fetch("/api/followup", {
+      const res = await apiFetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: prompt})
@@ -15677,7 +15777,7 @@ $("draftWithSelected").onclick = async () => {
       );
       if(!ok) return;
 
-      const res = await fetch("/api/send_email", {
+      const res = await apiFetch("/api/send_email", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
@@ -15717,7 +15817,7 @@ $("draftWithSelected").onclick = async () => {
 To: ${toPhone || "[empty]"}
 Body: ${body ? "[present]" : "[empty]"}
 `;
-      const res = await fetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
+      const res = await apiFetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
       const data = await res.json();
       if(!data.ok){ showModal('Error', data.error || 'Draft failed'); return; }
       const draft = {to: toPhone, body: (data.response || '').trim()};
@@ -15735,7 +15835,7 @@ Body: ${body ? "[present]" : "[empty]"}
       const fromLabel = $("smsFrom").value || '';
       const ok = confirm('Approve and send this text now?\n\nFrom: ' + fromLabel + '\nTo: ' + toPhone);
       if(!ok) return;
-      const res = await fetch('/api/send_sms', {
+      const res = await apiFetch('/api/send_sms', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({to: toPhone, body, from_teammate: lastSmsDraftBy || selectedSeat || ''})
@@ -15849,7 +15949,7 @@ Body: ${body ? "[present]" : "[empty]"}
 
     $("saveManage").onclick = async () => {
       $("manageStatus").innerText = "Saving...";
-      const res = await fetch("/api/active_order", {
+      const res = await apiFetch("/api/active_order", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({active_order: manageDraftActive})
@@ -15883,7 +15983,7 @@ Body: ${body ? "[present]" : "[empty]"}
         will_not_do: $("newWillNotDo").value || "",
       };
 
-      const res = await fetch("/api/teammate/create", {
+      const res = await apiFetch("/api/teammate/create", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify(payload)
@@ -16073,7 +16173,7 @@ Challenge weak assumptions. Surface risks.`;
       }
 
       // 4. Track usage fire-and-forget
-      try{ await fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
+      try{ await apiFetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
 
       showToast("✅ " + (p.title||"Prompt") + " loaded — edit if needed, then send");
     };
@@ -16106,7 +16206,7 @@ Challenge weak assumptions. Surface risks.`;
       if(e) e.stopPropagation();
       if(!confirm("Delete this custom prompt?")) return;
       try{
-        const res  = await fetch("/api/prompts/"+encodeURIComponent(id),{method:"DELETE"});
+        const res  = await apiFetch("/api/prompts/"+encodeURIComponent(id),{method:"DELETE"});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||"Delete failed");
         showToast("Prompt deleted");
@@ -16133,7 +16233,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!tm||!title||!prompt){ if(status) status.innerText="Teammate, title, and prompt are required."; return; }
         if(status) status.innerText = "Saving…";
         try{
-          const res  = await fetch("/api/prompts",{
+          const res  = await apiFetch("/api/prompts",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body: JSON.stringify({teammate:tm,title,category,prompt})
@@ -16363,7 +16463,7 @@ Challenge weak assumptions. Surface risks.`;
     async function removeTeamMember(username){
       if(!confirm("Remove " + username + " from your team? They will lose access.")) return;
       try{
-        const r = await fetch("/api/team/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
+        const r = await apiFetch("/api/team/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
         const d = await r.json();
         if(d.ok){ showToast("Removed " + username); loadTeamData(); }
         else showToast(d.error || "Failed","err");
@@ -16372,7 +16472,7 @@ Challenge weak assumptions. Surface risks.`;
 
     async function revokeInvite(token){
       try{
-        const r = await fetch("/api/team/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})});
+        const r = await apiFetch("/api/team/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})});
         const d = await r.json();
         if(d.ok){ showToast("Invite revoked"); loadTeamData(); }
         else showToast(d.error || "Failed","err");
@@ -16390,7 +16490,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!email){ if(statusEl) statusEl.textContent = "Enter an email address."; return; }
         if(statusEl){ statusEl.style.color = "#94a3b8"; statusEl.textContent = "Sending invite..."; }
         try{
-          const r = await fetch("/api/team/invite/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+          const r = await apiFetch("/api/team/invite/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
           const d = await r.json();
           if(d.ok){
             if(statusEl){ statusEl.style.color = "#86efac"; statusEl.textContent = d.message; }
@@ -16499,7 +16599,7 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Importing...';
       try{
         const txt = await file.text();
-        const res = await fetch('/api/crm/clients/import_csv', {
+        const res = await apiFetch('/api/crm/clients/import_csv', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({csv_text: txt, filename: file.name || 'prospects.csv'})
@@ -16628,7 +16728,7 @@ Challenge weak assumptions. Surface risks.`;
       if(!id) return;
       if(!confirm('Delete this client?')) return;
       try{
-        const res = await fetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
+        const res = await apiFetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchClients();
@@ -16695,7 +16795,7 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Saving...';
       const stages = ($("crmStagesText").value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
       try{
-        const res = await fetch('/api/crm/pipeline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stages})});
+        const res = await apiFetch('/api/crm/pipeline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stages})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText = 'Saved';
@@ -16735,7 +16835,7 @@ Challenge weak assumptions. Surface risks.`;
       if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
 
       try{
-        const res = await fetch('/api/crm/broadcast/email', {
+        const res = await apiFetch('/api/crm/broadcast/email', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload)
@@ -16787,7 +16887,7 @@ async function crmBroadcastSMS(dry_run=false){
   if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
 
   try{
-    const res = await fetch('/api/crm/broadcast/sms', {
+    const res = await apiFetch('/api/crm/broadcast/sms', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
@@ -16838,7 +16938,7 @@ async function settingsSaveSmsSettings(){
     twilio_token: ($("twilioToken") ? $("twilioToken").value : "").trim(),
   };
   try{
-    const res = await fetch("/api/settings/sms", {
+    const res = await apiFetch("/api/settings/sms", {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
@@ -16860,7 +16960,7 @@ async function settingsTestSms(){
     body: ($("twilioTestBody") ? $("twilioTestBody").value : "").trim() || "Test SMS from Simply Agentic"
   };
   try{
-    const res = await fetch("/api/settings/sms/test", {
+    const res = await apiFetch("/api/settings/sms/test", {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
@@ -16904,7 +17004,7 @@ async function crmSaveSmsSettings(){
     twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value : "")
   };
   try{
-    const res = await fetch("/api/crm/settings/sms", {
+    const res = await apiFetch("/api/crm/settings/sms", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify(payload)
@@ -16931,7 +17031,7 @@ async function crmTestSmsSettings(){
     return;
   }
   try{
-    const res = await fetch("/api/crm/settings/sms/test", {
+    const res = await apiFetch("/api/crm/settings/sms/test", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({to, body})
@@ -17018,7 +17118,7 @@ async function crmFetchTasks(){
       try{
         let url='/api/crm/tasks';
         if(crmEditingTaskId) url='/api/crm/tasks/' + encodeURIComponent(crmEditingTaskId);
-        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await apiFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText='Saved';
@@ -17037,7 +17137,7 @@ async function crmFetchTasks(){
       const t = (crmCache.tasks||[]).find(x=>x.id===id);
       if(!t) return;
       try{
-        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !t.done})});
+        const res = await apiFetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !t.done})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'toggle failed');
         await crmFetchTasks();
@@ -17049,7 +17149,7 @@ async function crmFetchTasks(){
       if(!id) return;
       if(!confirm('Delete this task?')) return;
       try{
-        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'DELETE'});
+        const res = await apiFetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'DELETE'});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchTasks();
@@ -17096,7 +17196,7 @@ async function crmFetchTasks(){
       const raw = ($("crmSeqSteps").value||'').trim();
       try{
         const steps = raw ? JSON.parse(raw) : [];
-        const res = await fetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
+        const res = await apiFetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText='Saved';
@@ -17127,7 +17227,7 @@ async function crmFetchTasks(){
       const client_id = ($("crmEnrollClient").value||'').trim();
       const sequence_id = ($("crmEnrollSeq").value||'').trim();
       try{
-        const res = await fetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
+        const res = await apiFetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'enroll failed');
         if(st) st.innerText='Enrolled';
@@ -17146,7 +17246,7 @@ async function crmFetchTasks(){
         description: ($("crmCalDesc").value||'').trim(),
       };
       try{
-        const res = await fetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await apiFetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'calendar failed');
         if(st) st.innerText = 'Created';
@@ -17331,7 +17431,7 @@ async function crmFetchTasks(){
           const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
           const top = item.email || '';
           try{
-            const res = await fetch('/api/crm/clients', {
+            const res = await apiFetch('/api/crm/clients', {
               method:'POST',
               headers:{'Content-Type':'application/json'},
               body: JSON.stringify({
@@ -17360,7 +17460,7 @@ async function crmFetchTasks(){
       const st = $("leadLabStatus");
       if(st) st.innerText = 'Building lead list...';
       try{
-        const res = await fetch('/api/crm/lead_lab', {
+        const res = await apiFetch('/api/crm/lead_lab', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
@@ -17407,7 +17507,7 @@ async function crmFetchTasks(){
       if(st) st.innerText = 'Generating...';
       if(box) box.innerHTML = '';
       try{
-        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const res = await apiFetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Generation failed');
         const output = data.output || '';
@@ -17536,7 +17636,7 @@ async function crmFetchTasks(){
             const client = (crmCache.clients||[]).find(x=>x.id===clientId);
             if(!client) return;
             const payload = {...client, pipeline_stage: stage};
-            const res = await fetch('/api/crm/clients/' + encodeURIComponent(clientId), {
+            const res = await apiFetch('/api/crm/clients/' + encodeURIComponent(clientId), {
               method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
             });
             const data = await res.json();
@@ -17569,7 +17669,7 @@ async function crmFetchTasks(){
     on_complete_teammate: '',
   };
   try{
-    const res = await fetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const res = await apiFetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error||'Failed');
     showToast('Task added: ' + defaultTitle);
@@ -17642,7 +17742,7 @@ window.crmPipelineOpenClient = function(clientId){
       showToast('⚡ Drafting outreach for ' + (c.name||'client') + '…');
 
       try{
-        const res = await fetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
+        const res = await apiFetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({channel})
@@ -17759,7 +17859,7 @@ window.crmPipelineOpenClient = function(clientId){
       window.wcalDeletePlaybook = async function(pbId, btn){
         if(!confirm('Delete this playbook?')) return;
         try{
-          const res = await fetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pbId})});
+          const res = await apiFetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pbId})});
           const data = await res.json();
           if(data.ok){ btn.closest('[data-pbcard]').remove(); showToast('Playbook deleted'); }
           else throw new Error(data.error||'Delete failed');
@@ -18218,7 +18318,7 @@ window.wcalToggleTask = async function(e, taskId){
   try{
     const body = { done: newDone };
     if(isRecurring && instanceDate) body.instance_date = instanceDate;
-    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 
     // Update in-memory done_dates on all instances of this task
     if(isRecurring && instanceDate){
@@ -18367,7 +18467,7 @@ async function wcalOfferDraftFromCircle(taskId, task){
   });
   // Log note to CRM if provided and contact email is known
   if(wantDraft.note && (task.on_complete_client_email||'').trim()){
-    fetch('/api/crm/log_note', {
+    apiFetch('/api/crm/log_note', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ email: task.on_complete_client_email, note: wantDraft.note, task_title: task.title||'' })
     }).then(function(r){ return r.json(); }).then(function(d){ if(d.ok) showToast('Note logged to CRM'); }).catch(function(){});
@@ -18434,7 +18534,7 @@ async function wcalFireCompleteAction(taskId, task){
   showToast('⚡ Drafting email as ' + (voice==='operator'?'you':teammate) + '…');
   try{
     // Pass on_complete fields inline so this works for both local tasks AND Google Calendar events
-    const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
+    const res = await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -18527,7 +18627,7 @@ window.wcalShowDraftSendModal = function(draft, drafterName){
     if(!to||!subject||!body){ st.style.color='#f87171'; st.innerText='Please fill in all fields.'; return; }
     btn.disabled=true; btn.innerText='Sending...'; st.innerText='';
     try{
-      var res = await fetch('/api/send_email',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to:to, subject:subject, body:body, from_teammate: drafterName||''}) });
+      var res = await apiFetch('/api/send_email',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to:to, subject:subject, body:body, from_teammate: drafterName||''}) });
       var data = await res.json();
       if(data.ok){ st.style.color='#6ee7b7'; st.innerText='Sent!'; showToast('Email sent to '+to); setTimeout(close,1600); }
       else throw new Error(data.error||'Send failed');
@@ -18667,7 +18767,7 @@ function wcalShowTaskDetail(task){
 window.wcalToggleGcalItemType = async function(evId, currentType){
   const newType = currentType === 'task' ? 'event' : 'task';
   try{
-    const res = await fetch('/api/calendar/event_type_toggle',{
+    const res = await apiFetch('/api/calendar/event_type_toggle',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({event_id: evId, gcal_item_type: newType})
     });
@@ -18954,7 +19054,7 @@ window.wcalDetToggleEvDone = async function(evId){
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value||meta.on_complete_client_email||'').trim(),
   };
   try{
-    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19006,7 +19106,7 @@ window.wcalDetToggleDone = async function(){
       priority: document.getElementById('detPriority')?.value || 'high',
     };
     try{
-      const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await res.json();
       if(!d.ok) throw new Error(d.error||'Failed');
       if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19060,7 +19160,7 @@ window.wcalDetToggleDone = async function(){
 
 async function wcalToggleTaskById(id,done){
   try{
-    await fetch('/api/cal/tasks/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})});
+    await apiFetch('/api/cal/tasks/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})});
     const t=cal.tasks.find(x=>x.id===id); if(t){ t.done=done; t.completed_at=done?new Date().toISOString():null; }
     wcalRefresh(); wcalRenderUpcoming();
     showToast(done?'✓ Task complete':'Task marked todo');
@@ -19098,7 +19198,7 @@ window.wcalDetSaveTask = async function(taskId){
     on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
-    const res=await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
     // Re-fetch and re-expand so recurring changes show immediately
     await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
@@ -19115,7 +19215,7 @@ window.wcalDetSaveTask = async function(taskId){
       const today=new Date().toISOString().slice(0,10);
       const matched=(crmCache.clients||[]).find(c=>(c.email||'').toLowerCase()===clientEmail.toLowerCase());
       if(matched && matched.id){
-        fetch('/api/crm/clients/'+encodeURIComponent(matched.id),{
+        apiFetch('/api/crm/clients/'+encodeURIComponent(matched.id),{
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({...matched, last_contact:today})
         }).then(r=>r.json()).then(d=>{
@@ -19131,7 +19231,7 @@ window.wcalDetSaveTask = async function(taskId){
 window.wcalDetDeleteTask = async function(taskId){
   if(!confirm('Delete this task?')) return;
   try{
-    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
+    await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
     cal.tasks=cal.tasks.filter(t=>t.id!==taskId);
     if(cal._rawTasks) cal._rawTasks=cal._rawTasks.filter(t=>t.id!==taskId);
     document.getElementById('wcalDetail')?.classList.remove('open');
@@ -19160,7 +19260,7 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
   try{
-    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19264,7 +19364,7 @@ window.wcalDetGcalTaskPriorityChange = function(val){
         _ctxPendingAction=false; _ctxEl=null;
         if(!confirm('Remove this task?')) return;
         try{
-          const res = await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
+          const res = await apiFetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
           const d = await res.json();
           if(d && d.ok !== false){
             cal.tasks = cal.tasks.filter(t=>t.id!==tid);
@@ -19285,7 +19385,7 @@ window.wcalDetGcalTaskPriorityChange = function(val){
         const itemLabel = 'task';
         if(!confirm('Remove "' + (ev.summary||'this '+itemLabel) + '" from your calendar?')) return;
         try{
-          const res = await fetch('/api/calendar/delete_event', {
+          const res = await apiFetch('/api/calendar/delete_event', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({event_id: ev.id || eid})
@@ -19362,7 +19462,7 @@ window.wcalDetSaveEvent = async function(encodedId){
         recurring: document.getElementById('detRecurring')?.value||'none',
         recur_days: _wcalGetActiveDays('detDayPicker'),
       };
-      const mr=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
+      const mr=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
       const md=await mr.json();
       if(md&&md.ok){ if(!cal.gcalMeta) cal.gcalMeta={}; cal.gcalMeta[evId]=md.meta; }
     }catch(e){}
@@ -19374,7 +19474,7 @@ window.wcalDetSaveEvent = async function(encodedId){
     const endDt=new Date(dateVal+'T'+(endVal||'10:00')+':00');
     const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
     try{
-      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await res.json();
       if(!d.ok) throw new Error(d.error||'Failed');
       if(st) st.innerText='Saved ✓';
@@ -19580,7 +19680,7 @@ const wcalDrag={
         } else {
           payload={date:targetDate, start:newStart};
         }
-        const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
+        const res=await apiFetch('/api/cal/tasks/'+encodeURIComponent(tid),{
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify(payload)
         });
@@ -19613,7 +19713,7 @@ const wcalDrag={
       if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
       try{
         if(!ev.id) throw new Error('No event ID — refresh and try again');
-        const res=await fetch('/api/calendar/move_event',{
+        const res=await apiFetch('/api/calendar/move_event',{
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify({event_id:ev.id, start:newStartDt.toISOString(), end:newEndDt.toISOString(), timezone:cal.tz, resend})
         });
@@ -20036,7 +20136,7 @@ async function wcalAddEvent(){
   const startDt=new Date(date+'T'+start+':00');
   const endDt=new Date(startDt.getTime()+dur*60000);
   try{
-    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet,location:zoomUrl})});
+    const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet,location:zoomUrl})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
     if(st) st.innerText='✓ Created';
     document.getElementById('wcalAddTitle').value='';
@@ -20067,7 +20167,7 @@ async function wcalAddTask(){
   if(!title){ if(st) st.innerText='Title required'; return; }
   if(!date){  if(st) st.innerText='Date required'; return; }
   try{
-    const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring,recur_days})});
+    const res=await apiFetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring,recur_days})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
     // Re-expand so recurring instances appear immediately across all dates
     const base=cal.tasks.filter(t=>!t._isRecurInstance);
@@ -20279,7 +20379,7 @@ async function wcalPopCreate(){
     const endDt=new Date(startDt.getTime()+dur*60000);
     if(st) st.innerText='Creating…';
     try{
-      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},
+      const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
       cal.events[_wcalPopDate]=cal.events[_wcalPopDate]||[];
@@ -20292,7 +20392,7 @@ async function wcalPopCreate(){
     const recurring=document.getElementById('wcalPopRecurring')?.value||'none';
     const recur_days=_wcalGetActiveDays('wcalPopDayPicker');
     try{
-      const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+      const res=await apiFetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority,recurring,recur_days})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
       // Re-expand so recurring instances appear immediately across all dates
@@ -20459,7 +20559,7 @@ async function showImageLibraryModal(){
         const seat = selectedSeat || "";
         if(!seat || seat === "Operator"){ showModal("Select a teammate first", "Choose a teammate, then click Use."); return; }
         try{
-          const rr = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
+          const rr = await apiFetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
           const dd = await rr.json();
           if(!dd.ok) throw new Error(dd.error || 'Could not set current image');
           lastImageState = dd.image_state || {};
@@ -20536,7 +20636,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
           const payload = {};
           if(oKey) payload.openai_key  = oKey;
           if(cKey) payload.claude_key  = cKey;
-          const res  = await fetch("/api/user/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          const res  = await apiFetch("/api/user/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
           const data = await res.json();
           if(data.ok){
             if(st){ st.textContent = "✅ Keys saved!"; st.style.color = "#6ee7b7"; }
@@ -20604,7 +20704,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
       };
       try{
-        const res = await fetch("/api/user/settings", {
+        const res = await apiFetch("/api/user/settings", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify(payload)
@@ -20650,7 +20750,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       if(!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
       if(statusEl) statusEl.innerText = "Deleting…";
       try{
-        const res = await fetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
+        const res = await apiFetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
         const d   = await res.json();
         if(!d.ok){ if(statusEl) statusEl.innerText = d.error || "Delete failed"; return; }
         if(nameInput) nameInput.value = "";
@@ -20691,11 +20791,11 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // ── end Save & Exit handlers ────────────────────────────────────
 
     if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
-      try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
+      try{ await apiFetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
     };
     if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').onclick = async () => {
-      try{ await fetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
+      try{ await apiFetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
     };
 
@@ -20781,7 +20881,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
 $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saving...";
       const fw = $("frameworkText").value || "";
-      const res = await fetch("/api/framework", {
+      const res = await apiFetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({framework: fw})
@@ -20802,7 +20902,7 @@ $("saveFramework").onclick = async () => {
       if(!ok) return;
       $("frameworkText").value = "";
       $("frameworkStatus").innerText = "Resetting...";
-      const res = await fetch("/api/framework", {
+      const res = await apiFetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({framework: ""})
@@ -20925,7 +21025,7 @@ async function loadClients(){
 }
 
 async function setActiveClient(cid){
-  await fetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
+  await apiFetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
   ClientStore.active_id = cid || "";
   const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
   _fillClientForm(active);
@@ -20941,7 +21041,7 @@ async function createNewClient(){
     notes: ($("clientNotes").value || "").trim(),
     last_summary: ($("clientSummary").value || "").trim(),
   };
-  const res = await fetch("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const res = await apiFetch("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   const data = await res.json();
   if(!data.ok) return;
   await loadClients();
@@ -20965,7 +21065,7 @@ async function saveCurrentClient(){
     notes: ($("clientNotes").value || "").trim(),
     last_summary: ($("clientSummary").value || "").trim(),
   };
-  const res = await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const res = await apiFetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   const data = await res.json();
   if(!data.ok) return;
   await loadClients();
@@ -20975,7 +21075,7 @@ async function saveCurrentClient(){
 async function deleteCurrentClient(){
   const cid = ClientStore.active_id;
   if(!cid) return;
-  await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"DELETE"});
+  await apiFetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"DELETE"});
   await loadClients();
   $("activeClientSelect").value = ClientStore.active_id || "";
 }
@@ -21754,7 +21854,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
             sel.onchange = async () => {
               try{
                 const newStage = sel.value;
-                const res = await fetch("/api/crm/clients/"+encodeURIComponent(c.id), {
+                const res = await apiFetch("/api/crm/clients/"+encodeURIComponent(c.id), {
                   method:"POST",
                   headers:{"Content-Type":"application/json"},
                   body: JSON.stringify({pipeline_stage:newStage})
@@ -21892,7 +21992,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     suppressAutoOpen = false;
     saveOnbHidden(false);
     try{
-      await fetch("/api/onboarding/dismiss", {
+      await apiFetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({dismissed:false})
@@ -22032,7 +22132,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
   async function dismissOnboarding(){
     saveOnbHidden(true);
-    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
+    try{ await apiFetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
@@ -22091,7 +22191,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
           if(btn){
             btn.click();
           }else{
-            const r = await fetch("/api/install/full", {method:"POST"});
+            const r = await apiFetch("/api/install/full", {method:"POST"});
             const d = await r.json();
             if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
             else{ if(typeof showToast === "function") showToast("Install failed"); }
@@ -22700,7 +22800,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
       const label = prompt("Name this snapshot (optional):", now_short()) || "";
       try{
-        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/snapshot",{
+        const r = await apiFetch("/api/thread/"+encodeURIComponent(seat)+"/snapshot",{
           method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({label})
         });
         const d = await r.json();
@@ -22717,7 +22817,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const seat = window.selectedSeat; if(!seat) return;
       if(!confirm("Restore this snapshot? Current conversation will be replaced.")){ this.value=""; return; }
       try{
-        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/restore/"+encodeURIComponent(bid),{method:"POST"});
+        const r = await apiFetch("/api/thread/"+encodeURIComponent(seat)+"/restore/"+encodeURIComponent(bid),{method:"POST"});
         const d = await r.json();
         if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Restore failed","error"); return; }
         if(typeof showToast==="function") showToast("Restored: "+d.label+" ("+d.msg_count+" msgs)");
@@ -22775,7 +22875,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     const st=document.getElementById("shareStatus");
     if(st) st.innerText="Creating link…";
     try{
-      const r=await fetch("/api/share",{method:"POST",headers:{"Content-Type":"application/json"},
+      const r=await apiFetch("/api/share",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({teammate:seat,title:"Conversation with "+seat})});
       const d=await r.json();
       if(!d.ok){ if(st) st.innerText=d.error||"Failed"; return; }
@@ -22796,11 +22896,11 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(st) st.innerText="Uploading…";
     try{
       const fd=new FormData(); fd.append("file",file);
-      const up=await fetch("/api/upload",{method:"POST",body:fd});
+      const up=await apiFetch("/api/upload",{method:"POST",body:fd});
       const upd=await up.json();
       if(!upd.ok){ if(st) st.innerText=upd.error||"Upload failed"; return; }
       if(st) st.innerText="Indexing (10–30 seconds)…";
-      const ix=await fetch("/api/rag/index",{method:"POST",headers:{"Content-Type":"application/json"},
+      const ix=await apiFetch("/api/rag/index",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({file_id:upd.file.id,label:file.name})});
       const ixd=await ix.json();
       if(!ixd.ok){ if(st) st.innerText=ixd.error||"Indexing failed"; return; }
@@ -22829,7 +22929,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window.saDeleteRagDoc = async function saDeleteRagDoc(doc_id){
     if(!confirm("Remove this document from the knowledge base?")) return;
     try{
-      const r=await fetch("/api/rag/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_id})});
+      const r=await apiFetch("/api/rag/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_id})});
       const d=await r.json();
       if(typeof showToast==="function") showToast(d.ok?"Removed":d.error||"Error");
       await saLoadRagDocs();
@@ -22892,7 +22992,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     const clrBtn = document.getElementById("clearSharedMemoryBtn");
     if(clrBtn) clrBtn.addEventListener("click", async function(){
       try{
-        await fetch("/api/os/shared_memory/clear", {method:"POST"});
+        await apiFetch("/api/os/shared_memory/clear", {method:"POST"});
         const card = document.getElementById("sharedMemoryCard");
         if(card) card.style.display = "none";
         if(typeof showToast==="function") showToast("Shared memory cleared");
@@ -23079,7 +23179,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     try{
       // Fetch audio from OpenAI via our server
-      var resp = await fetch("/api/tts", {
+      var resp = await apiFetch("/api/tts", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({text: text.slice(0,2000), voice: voice || "alloy"})
@@ -23239,7 +23339,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     let fullText = "";
 
     try{
-      const response = await fetch("/api/followup/stream",{
+      const response = await apiFetch("/api/followup/stream",{
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({name:seat, message:msg, file_ids:dmFileIds, lighting_mode:lightingOn})
       });
@@ -23534,7 +23634,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   }
 
   window.cpVote = function(id){
-    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/vote',{method:'POST',headers:{'Content-Type':'application/json'}})
+    apiFetch('/api/community/ideas/'+encodeURIComponent(id)+'/vote',{method:'POST',headers:{'Content-Type':'application/json'}})
       .then(function(r){return r.json();}).then(function(d){if(d.ok){_cpLoadIdeas();_cp.lb=null;}}).catch(function(){});
   };
 
@@ -23544,7 +23644,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     var st=document.getElementById('ideaStatus');
     if(!t){if(st)st.innerText='Please add a title.';return;}
     if(st)st.innerText='Submitting...';
-    fetch('/api/community/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})})
+    apiFetch('/api/community/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){
           if(st)st.innerText='✅ Submitted! It will appear after review. +20 points!';
@@ -23635,7 +23735,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   }
 
   window.cpMod = function(id, status){
-    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
+    apiFetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){var el=document.getElementById('mc-'+id);if(el)el.remove();_cpLoadStats();_cp.lb=null;}
       }).catch(function(){});
@@ -23780,7 +23880,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     _sm('user',q);hist.push({role:'user',content:q});
     const th=_sm('scout','🤔 Thinking…');if(th)th.style.opacity='.5';
     try{
-      const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
+      const r=await apiFetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
       const d=await r.json();if(th)th.remove();
       const ans=d.answer||d.error||'Sorry, had trouble with that.';
       _sm('scout',ans);hist.push({role:'assistant',content:ans});
@@ -23808,7 +23908,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     if(!desc){status.style.display='block';status.style.color='#fca5a5';status.innerText='⚠️ Please describe the bug.';return;}
     btn.disabled=true;btn.innerText='Sending…';
     try{
-      const r=await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
+      const r=await apiFetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
       const d=await r.json();
       status.style.display='block';
@@ -23842,7 +23942,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     }catch(e){body.innerHTML='<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">Error loading.</div>';}
   };
   window.markBugResolved=async function(id){
-    await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
+    await apiFetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
     loadBugInbox();_checkAdminBadge();
   };
   async function _checkAdminBadge(){
