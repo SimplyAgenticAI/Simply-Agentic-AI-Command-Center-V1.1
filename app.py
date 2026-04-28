@@ -602,12 +602,34 @@ limiter = Limiter(
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    """Return a clean JSON 429 instead of an HTML error page."""
-    retry = getattr(e, "description", None)
+    """
+    For API routes → clean JSON 429.
+    For HTML form routes (/login, /register, /reset, /setup) → re-render the
+    correct page with an inline error message so the user never sees raw JSON.
+    """
+    msg = "Too many attempts — please wait a minute and try again."
+    path = request.path
+
+    if path == "/login":
+        return render_template_string(
+            LOGIN_HTML, app_title=APP_TITLE, error=msg,
+            allow_setup=(not has_any_user()), allow_signup=_signup_enabled()
+        ), 429
+    if path == "/register":
+        return render_template_string(
+            REGISTER_HTML, app_title=APP_TITLE, error=msg, ok=None,
+            require_code=True, stripe_code=None, stripe_email=None,
+            stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name=""
+        ), 429
+    if path in ("/reset", "/reset_password", "/setup"):
+        # These pages all share a similar error pattern; fall through to JSON
+        # since they're less commonly hit and the JSON is readable enough.
+        pass
+
+    # Default: JSON (covers all /api/* routes)
     return jsonify({
         "ok": False,
-        "error": "Too many requests — please slow down and try again shortly.",
-        "retry_after": str(retry) if retry else None,
+        "error": msg,
     }), 429
 
 # -----------------------------
@@ -8205,7 +8227,7 @@ def login():
     return resp
 
 @app.post("/login")
-@limiter.limit("10 per minute")
+@limiter.limit("5 per minute")
 def login_post():
     username = _clean_username(request.form.get("username", ""))
     password = (request.form.get("password") or "").strip()
