@@ -1474,7 +1474,7 @@ def _error_500(e):
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase", "/health"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -7987,7 +7987,8 @@ def _hash_token(token: str) -> str:
 
 @app.get("/showcase")
 def showcase_page():
-    return SHOWCASE_HTML
+    # Substitute APP_TITLE so the nav bar version never goes stale
+    return SHOWCASE_HTML.replace("Simply Agentic AI v1.11", APP_TITLE, 1)
 
 @app.get("/pricing")
 def pricing_page():
@@ -8835,7 +8836,7 @@ def reset_password_post():
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
-    if not th or _hash_token(token) != th:
+    if not th or not hmac.compare_digest(_hash_token(token), th):
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token.", token=None, ok=None)
 
     # Token expires after 1 hour
@@ -30112,6 +30113,40 @@ def api_resolve_bug(report_id: str):
             _save_bugs(bugs)
             return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Not found"}), 404
+
+
+
+# =========================
+# HEALTH CHECK
+# =========================
+# Lightweight endpoint for uptime monitors (Render, UptimeRobot, etc.)
+# Returns 200 + basic app state. No auth required, no sensitive data exposed.
+
+@app.get("/health")
+def health_check():
+    healthy = True
+    detail: Dict[str, Any] = {"status": "ok", "app": APP_TITLE}
+
+    # Check data dir is writable
+    try:
+        probe = DATA / ".health_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        detail["data_dir"] = "writable"
+    except Exception as e:
+        detail["data_dir"] = f"error: {e}"
+        healthy = False
+
+    # Check users file is readable
+    try:
+        u = load_users()
+        detail["users"] = len(u.get("users") or {})
+    except Exception as e:
+        detail["users"] = f"error: {e}"
+        healthy = False
+
+    detail["status"] = "ok" if healthy else "degraded"
+    return jsonify(detail), (200 if healthy else 503)
 
 
 if __name__ == "__main__":
