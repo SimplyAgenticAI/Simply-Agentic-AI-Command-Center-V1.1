@@ -19,7 +19,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_wtf.csrf import CSRFProtect, generate_csrf
 from dotenv import load_dotenv
 from openai import OpenAI
 from email.mime.text import MIMEText
@@ -601,48 +600,14 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-# =========================
-# CSRF PROTECTION (additive — fix #2)
-# =========================
-# WTF_CSRF_CHECK_DEFAULT = False means CSRF is opt-in per route via @csrf.protect.
-# This keeps all /api/* JSON endpoints and /stripe/webhook completely untouched.
-# Only the 5 HTML form routes below get the @csrf.protect decorator added.
-app.config["WTF_CSRF_SECRET_KEY"]    = app.secret_key
-app.config["WTF_CSRF_CHECK_DEFAULT"] = False   # opt-in, not global
-app.config["WTF_CSRF_TIME_LIMIT"]    = 3600    # token valid for 1 hour
-csrf = CSRFProtect(app)
-# csrf_token() is now available as a Jinja2 global in all render_template_string calls
-
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    """
-    For API routes → clean JSON 429.
-    For HTML form routes (/login, /register, /reset, /setup) → re-render the
-    correct page with an inline error message so the user never sees raw JSON.
-    """
-    msg = "Too many attempts — please wait a minute and try again."
-    path = request.path
-
-    if path == "/login":
-        return render_template_string(
-            LOGIN_HTML, app_title=APP_TITLE, error=msg,
-            allow_setup=(not has_any_user()), allow_signup=_signup_enabled()
-        ), 429
-    if path == "/register":
-        return render_template_string(
-            REGISTER_HTML, app_title=APP_TITLE, error=msg, ok=None,
-            require_code=True, stripe_code=None, stripe_email=None,
-            stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name=""
-        ), 429
-    if path in ("/reset", "/reset_password", "/setup"):
-        # These pages all share a similar error pattern; fall through to JSON
-        # since they're less commonly hit and the JSON is readable enough.
-        pass
-
-    # Default: JSON (covers all /api/* routes)
+    """Return a clean JSON 429 instead of an HTML error page."""
+    retry = getattr(e, "description", None)
     return jsonify({
         "ok": False,
-        "error": msg,
+        "error": "Too many requests — please slow down and try again shortly.",
+        "retry_after": str(retry) if retry else None,
     }), 429
 
 # -----------------------------
@@ -7346,7 +7311,6 @@ LOGIN_HTML = r"""
     <div class="muted">Sign in to your command center.</div>
 
     <form method="post" action="/login">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label>Username</label>
       <input name="username" placeholder="Username" autocomplete="username" required/>
       <label>Password</label>
@@ -7553,7 +7517,6 @@ REGISTER_HTML = r"""
     {% endif %}
 
     <form method="post" action="/register">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label>Username</label>
       <input name="username" placeholder="Choose a username" autocomplete="username" required/>
       {% if stripe_email %}
@@ -7823,7 +7786,6 @@ SETUP_HTML = r"""
     <div class="muted">Welcome! Create the admin account to get started.</div>
 
     <form method="post" action="/setup">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label>Username</label>
       <input name="username" placeholder="Choose a username" autocomplete="username" required/>
       <label>Password</label>
@@ -7850,7 +7812,6 @@ RESET_HTML = r"""
     <div class="muted">Request a reset token, then set a new password.</div>
 
     <form method="post" action="/reset">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
       <div class="row">
@@ -7865,7 +7826,6 @@ RESET_HTML = r"""
     <div style="height:14px"></div>
 
     <form method="post" action="/reset_password">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
       <label>Reset token</label>
@@ -8212,7 +8172,6 @@ def setup():
 
 @app.post("/setup")
 @limiter.limit("5 per minute")
-@csrf.protect
 def setup_post():
     if has_any_user():
         return redirect(url_for("login"))
@@ -8246,8 +8205,7 @@ def login():
     return resp
 
 @app.post("/login")
-@limiter.limit("5 per minute")
-@csrf.protect
+@limiter.limit("10 per minute")
 def login_post():
     username = _clean_username(request.form.get("username", ""))
     password = (request.form.get("password") or "").strip()
@@ -8345,7 +8303,6 @@ def register_get():
 
 @app.post("/register")
 @limiter.limit("5 per minute")
-@csrf.protect
 def register_post():
     if not _signup_enabled():
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
@@ -8683,7 +8640,6 @@ def reset():
 
 @app.post("/reset")
 @limiter.limit("5 per minute")
-@csrf.protect
 def reset_post():
     username = _clean_username(request.form.get("username", ""))
     data = load_users()
@@ -8735,7 +8691,6 @@ def reset_post():
 
 @app.post("/reset_password")
 @limiter.limit("5 per minute")
-@csrf.protect
 def reset_password_post():
     username = _clean_username(request.form.get("username", ""))
     token = (request.form.get("token") or "").strip()
