@@ -13160,6 +13160,77 @@ label         { font-size: 14px !important; }
 
 <script>
 
+// =============================================================
+// CSRF TOKEN — global fetch interceptor
+// Automatically fetches the session CSRF token once, then injects
+// the X-CSRF-Token header into every POST/PUT/PATCH/DELETE request.
+// This means no individual fetch() call needs to be changed.
+// =============================================================
+(function() {
+  var _csrfToken = null;
+  var _csrfFetching = false;
+  var _csrfQueue = [];
+
+  function _loadCsrf(cb) {
+    if (_csrfToken) { cb(_csrfToken); return; }
+    _csrfQueue.push(cb);
+    if (_csrfFetching) return;
+    _csrfFetching = true;
+    window._nativeFetch('/api/csrf_token', {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        _csrfToken = d.csrf_token || '';
+        _csrfFetching = false;
+        _csrfQueue.forEach(function(fn){ fn(_csrfToken); });
+        _csrfQueue = [];
+      })
+      .catch(function(){
+        _csrfFetching = false;
+        _csrfQueue.forEach(function(fn){ fn(''); });
+        _csrfQueue = [];
+      });
+  }
+
+  // Save the real fetch before we override it
+  window._nativeFetch = window.fetch.bind(window);
+
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    var method = (opts.method || 'GET').toUpperCase();
+    var stateMutating = ['POST','PUT','PATCH','DELETE'].indexOf(method) !== -1;
+
+    // Skip CSRF for external URLs, Stripe, OAuth, and public endpoints
+    var urlStr = (typeof url === 'string') ? url : (url.url || '');
+    var isExternal = urlStr.startsWith('http') && urlStr.indexOf(window.location.hostname) === -1;
+    var isExempt = isExternal ||
+      urlStr.startsWith('/stripe/') ||
+      urlStr.startsWith('/oauth/') ||
+      urlStr === '/api/login' ||
+      urlStr === '/api/register' ||
+      urlStr === '/api/csrf_token';
+
+    if (!stateMutating || isExempt) {
+      return window._nativeFetch(url, opts);
+    }
+
+    // Inject CSRF token then fire the real request
+    return new Promise(function(resolve, reject) {
+      _loadCsrf(function(token) {
+        opts.headers = opts.headers || {};
+        // Support both plain objects and Headers instances
+        if (opts.headers instanceof Headers) {
+          opts.headers.set('X-CSRF-Token', token);
+        } else {
+          opts.headers['X-CSRF-Token'] = token;
+        }
+        opts.credentials = opts.credentials || 'same-origin';
+        window._nativeFetch(url, opts).then(resolve).catch(reject);
+      });
+    });
+  };
+})();
+// =============================================================
+
 if (typeof window.showToast !== "function") {
   window.showToast = function(msg, type) {
     try {
