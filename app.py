@@ -85,7 +85,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
-CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
 # =========================
@@ -3075,14 +3075,18 @@ def _strip_motion_boilerplate(text: str) -> str:
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
     import requests as _req
     headers = {"Authorization": f"Bearer {access_token}"}
-    base_params = {"timeMin": time_min, "timeMax": time_max, "singleEvents": "true",
-                   "orderBy": "startTime", "maxResults": str(max_results), "timeZone": timezone}
+    base_params = {
+        "timeMin": time_min, "timeMax": time_max,
+        "singleEvents": "true", "orderBy": "startTime",
+        "maxResults": str(max_results), "timeZone": timezone,
+    }
 
     def _fetch(cal_id: str) -> list:
         safe = _req.utils.quote(cal_id, safe="")
         try:
-            r = _req.get(f"https://www.googleapis.com/calendar/v3/calendars/{safe}/events",
-                         headers=headers, params=base_params, timeout=20)
+            r = _req.get(
+                f"https://www.googleapis.com/calendar/v3/calendars/{safe}/events",
+                headers=headers, params=base_params, timeout=20)
             if r.status_code >= 400:
                 return []
             return (r.json() if r.content else {}).get("items") or []
@@ -3095,35 +3099,40 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
             end   = (it.get("end")   or {}).get("dateTime") or (it.get("end")   or {}).get("date") or ""
             raw_attendees = it.get("attendees") or []
-            attendee_emails = [a.get("email","") for a in raw_attendees
+            attendee_emails = [a.get("email", "") for a in raw_attendees
                                if a.get("email") and a.get("self") is not True]
             raw_desc = it.get("description", "") or ""
             is_motion_task = bool(re.search(
                 r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
                 raw_desc, re.IGNORECASE))
             out.append({
-                "id": it.get("id",""), "summary": it.get("summary",""),
-                "start": start, "end": end,
-                "htmlLink": it.get("htmlLink",""), "hangoutLink": it.get("hangoutLink",""),
-                "recurringEventId": it.get("recurringEventId",""),
-                "description": _strip_motion_boilerplate(raw_desc),
-                "location": it.get("location",""),
-                "attendees": attendee_emails, "is_motion_task": is_motion_task,
+                "id":               it.get("id", ""),
+                "summary":          it.get("summary", ""),
+                "start":            start,
+                "end":              end,
+                "htmlLink":         it.get("htmlLink", ""),
+                "hangoutLink":      it.get("hangoutLink", ""),
+                "recurringEventId": it.get("recurringEventId", ""),
+                "description":      _strip_motion_boilerplate(raw_desc),
+                "location":         it.get("location", ""),
+                "attendees":        attendee_emails,
+                "is_motion_task":   is_motion_task,
             })
         return out
 
-    # 1. Primary calendar (regular events + Motion tasks scheduled here)
-    out = _parse(_fetch("primary"))
+    # 1. Primary calendar — regular events + Motion tasks scheduled here
+    out  = _parse(_fetch("primary"))
     seen = {e["id"] for e in out if e["id"]}
 
-    # 2. Google Tasks calendar — tasks created via Google Tasks / Calendar sidebar
+    # 2. Google Tasks calendar — tasks created via Google Tasks / Calendar task sidebar
     for ev in _parse(_fetch("tasks@group.v.calendar.google.com")):
         if ev["id"] not in seen:
             seen.add(ev["id"])
             out.append(ev)
 
-    # 3. All other calendars the user has selected (Motion's own calendar,
-    #    shared/work calendars, etc.)
+    # 3. Every other calendar the user has selected
+    #    (Motion's own calendar, shared/work calendars, etc.)
+    #    Requires calendar.readonly scope — silently skipped if not granted yet.
     try:
         cl_r = _req.get(
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
@@ -10556,9 +10565,8 @@ label         { font-size: 14px !important; }
 }
 
 /* ── MOBILE NAV ─────────────────────────────────────────────────────────────
-   position:sticky cannot be an overflow scroll container.
-   Scroll goes on .saNavLeft (non-sticky child), NOT .saNavBar.
-   Community is in the bottom bar so hidden from top nav on mobile.
+   position:sticky cannot scroll — overflow goes on .saNavLeft (non-sticky child).
+   Community hidden from top nav on mobile (already in bottom bar).
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .topbarMain { display: none !important; }
@@ -10660,7 +10668,7 @@ label         { font-size: 14px !important; }
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🤖 Scout</button>
-        <button onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20Request&body=Hi%2C%20I%20need%20help%20with...','_blank')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
+        <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
         <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
@@ -10703,7 +10711,7 @@ label         { font-size: 14px !important; }
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openScoutPanel,200);">🤖 Scout Help</button>
-        <button class="btn" onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20Request&body=Hi%2C%20I%20need%20help%20with...','_blank');">✉ Get Human Help</button>
+        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
         <a class="btn" href="/logout" style="text-decoration:none;display:inline-block;text-align:center;">Logout</a>
       </div>
@@ -11631,7 +11639,7 @@ label         { font-size: 14px !important; }
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
     <div class="modalInner">
-      <div class="toolHint">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
+      <div class="toolHint">Generate organized public lead lists from the web. Lead Lab searches the live internet and only shows real websites, phones, and emails found on actual pages — no hallucinated contact info.</div>
       <div class="formGrid2">
         <div><label>Target niche</label><input id="leadLabNiche" placeholder="real estate agents" /></div>
         <div><label>Location</label><input id="leadLabLocation" placeholder="New Jersey" /></div>
@@ -11655,15 +11663,7 @@ label         { font-size: 14px !important; }
             <option value="any">Any public lead</option>
           </select>
         </div>
-        <div><label>Minimum score</label>
-          <select id="leadLabMinScore">
-            <option value="30">30</option><option value="40" selected>40</option>
-            <option value="50">50</option><option value="60">60</option>
-          </select>
-        </div>
       </div>
-      <label style="margin-top:14px;">Seed rows (optional)</label>
-      <textarea id="leadLabInput" style="height:180px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
       <div class="toolRunBar">
         <button class="btn" id="leadLabSampleBtn">Sample</button>
         <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
@@ -17855,28 +17855,55 @@ async function wcalFetchRange(start, end){
   try{
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
-    if(!data.ok){ if(st) st.innerText = data.error||'Calendar not connected — connect in Settings'; return; }
+    if(!data.ok){
+      if(st) st.innerHTML = `<span style="color:#fca5a5;">${data.error||'Calendar not connected'}</span>`;
+      return;
+    }
+    const events = data.events||[];
     const map = {};
-    (data.events||[]).forEach(ev=>{
-      // Determine effective display type: user override in meta > Motion task detection > default event
+    events.forEach(ev=>{
       const evId = ev.id||ev.summary||'';
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
-      if(metaType){
-        ev._gcalType = metaType;
-      } else {
-        ev._gcalType = 'task';
-      }
-      // Apply stored priority from meta into _evPriority so colors render correctly
-      if(metaEntry.priority){
-        _evPriority[evId] = metaEntry.priority;
-      }
+      ev._gcalType = metaType || 'task';
+      if(metaEntry.priority) _evPriority[evId] = metaEntry.priority;
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);
     });
     cal.events = Object.assign(cal.events, map);
     if(st) st.innerText='';
-  }catch(e){ if(st) st.innerText='Could not load events'; }
+
+    // If connected but zero events returned, check if we need expanded permissions
+    if(events.length === 0){
+      const grid = document.getElementById('wcalGrid');
+      const hasSysTasks = cal.tasks && cal.tasks.length > 0;
+      if(grid && !hasSysTasks){
+        // Show reconnect prompt — user likely connected with old narrow scope
+        const existing = grid.querySelector('.sa-cal-reconnect');
+        if(!existing){
+          const banner = document.createElement('div');
+          banner.className='sa-cal-reconnect';
+          banner.style.cssText='display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px;gap:12px;text-align:center;';
+          banner.innerHTML=`
+            <div style="font-size:28px;">📅</div>
+            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">No events found for this date</div>
+            <div style="font-size:12px;color:rgba(148,163,184,.7);max-width:320px;line-height:1.6;">
+              If you have Google Calendar events that aren't showing, you may need to
+              <strong style="color:#c4b5fd;">reconnect Google Calendar</strong> to grant full read access
+              (needed to sync all your calendars, including Google Tasks and Motion).
+            </div>
+            <button onclick="document.querySelector('[data-click=settingsBtn]')&&document.querySelector('[data-click=settingsBtn]').click()" style="background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:10px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;">⚙️ Go to Settings → Reconnect Calendar</button>`;
+          grid.appendChild(banner);
+        }
+      }
+    } else {
+      // Remove reconnect banner if events loaded
+      const banner = document.querySelector('.sa-cal-reconnect');
+      if(banner) banner.remove();
+    }
+  }catch(e){
+    if(st) st.innerText='Could not load events';
+  }
 }
 
 // ── Fetch local tasks + expand recurring ──────────────────────
@@ -19797,14 +19824,11 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-
   const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
   const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
   const dayTasks=cal.tasks.filter(t=>t.date===dt);
-
   let html='';
-
-  // All-day strip — renders Google Tasks, Motion all-day tasks, GCal all-day events
+  // All-day strip: Google Tasks, Motion all-day tasks, GCal all-day events
   if(allDayEvs.length){
     html+='<div style="display:flex;flex-wrap:wrap;gap:3px;padding:5px 8px;background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);min-height:28px;">';
     allDayEvs.forEach(ev=>{
@@ -19817,7 +19841,6 @@ function wcalRenderDay(){
     });
     html+='</div>';
   }
-
   html+='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
@@ -23637,7 +23660,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       <button onclick="closeScoutPanel()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;">✕</button>
     </div>
     <div id="scoutMsgs" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
-    <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:5px;border-top:1px solid rgba(42,58,106,.4);" id="scoutQuickRow">
+    <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:5px;border-top:1px solid rgba(42,58,106,.4);">
       <button class="sqBtn" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
       <button class="sqBtn" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
       <button class="sqBtn" onclick="scoutAsk('How do I connect Google Calendar?')">Connect Calendar?</button>
@@ -23653,8 +23676,37 @@ if(typeof maybeAutoShowOnboarding === "function"){
   </div>
 </div>
 
+<!-- ═══ GET HUMAN HELP MODAL ═══ -->
+<div id="humanHelpModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeHumanHelpModal()">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(34,197,94,.3);border-radius:18px;width:min(440px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(34,197,94,.2);background:rgba(34,197,94,.06);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#86efac;">✉ Get Human Help</div>
+        <div style="font-size:11px;color:rgba(134,239,172,.6);margin-top:2px;">Real person, real answers</div>
+      </div>
+      <button onclick="closeHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#86efac;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;">✕</button>
+    </div>
+    <div style="padding:24px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;">
+      <div style="font-size:40px;">👋</div>
+      <div style="font-size:14px;color:#e2e8f0;line-height:1.7;">
+        Have a question, issue, or idea? Our team is here to help.<br>
+        <strong style="color:#86efac;">SimplyAgenticAI@gmail.com</strong>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;width:100%;">
+        <button onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20with%20Simply%20Agentic%20AI&body=Hi%20team%2C%0A%0AI%20need%20help%20with...','_blank')" style="background:linear-gradient(135deg,rgba(34,197,94,.5),rgba(22,163,74,.4));border:1px solid rgba(34,197,94,.5);color:#fff;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.02em;">
+          📧 Open Email App
+        </button>
+        <button onclick="navigator.clipboard.writeText('SimplyAgenticAI@gmail.com').then(()=>{const b=this;const orig=b.innerText;b.innerText='✓ Copied!';setTimeout(()=>b.innerText=orig,2000);}).catch(()=>{})" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac;border-radius:12px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">
+          📋 Copy Email Address
+        </button>
+      </div>
+      <div style="font-size:12px;color:rgba(148,163,184,.5);line-height:1.6;">We typically respond within 24 hours.</div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ BUG REPORT MODAL ═══ -->
-<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
+<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(520px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.05);">
       <div>
@@ -23673,14 +23725,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
         <option value="medium" selected>🟠 Medium — blocks something</option>
         <option value="high">🔴 High — app is broken</option>
       </select>
-      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.5),rgba(180,30,60,.4));border:1px solid rgba(239,68,68,.5);color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.02em;">📤 Send Bug Report</button>
+      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.5),rgba(180,30,60,.4));border:1px solid rgba(239,68,68,.5);color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">📤 Send Bug Report</button>
       <div id="bugReportStatus" style="text-align:center;font-size:13px;display:none;"></div>
     </div>
   </div>
 </div>
 
 <!-- ═══ BUG INBOX (admin only) ═══ -->
-<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
+<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(780px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.05);flex-shrink:0;">
       <div style="font-size:15px;font-weight:800;color:#fca5a5;">🐛 Bug Reports Inbox</div>
@@ -23704,76 +23756,48 @@ if(typeof maybeAutoShowOnboarding === "function"){
 <script>
 /* ═══ SCOUT ═══ */
 (function(){
-  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI.
-Key features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (AI B2B lead gen with real web scraping), CRM/Client Center, Calendar (syncs Google Calendar + Motion), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings (connect Calendar/Gmail/API keys), Bug Report, Get Human Help (emails SimplyAgenticAI@gmail.com).
-Be concise. Give step-by-step answers when asked how to do something.`;
+  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI. Key features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (AI B2B lead gen — real web scraping only, no hallucinated contacts), CRM/Client Center, Calendar (syncs Google Calendar + Motion — note: user may need to reconnect Calendar in Settings for full sync), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings. For calendar issues: tell user to go to Settings and reconnect Google Calendar to grant full permissions. Be concise and practical.`;
   const hist=[];
   let opened=false;
-
   window.openScoutPanel=function(){
     const o=document.getElementById('scoutOverlay');
     if(o) o.style.display='flex';
-    if(!opened){
-      opened=true;
-      _addMsg('scout',"👋 Hi! I'm Scout. Ask me anything about Simply Agentic AI, or tap a quick question below.");
-    }
+    if(!opened){opened=true;_sm('scout',"👋 Hi! I'm Scout. Ask me anything about Simply Agentic AI, or tap a quick question below.");}
     setTimeout(()=>{const i=document.getElementById('scoutInput');if(i)i.focus();},100);
   };
-  window.closeScoutPanel=function(){
-    const o=document.getElementById('scoutOverlay');
-    if(o) o.style.display='none';
-  };
-  function _addMsg(role,text){
+  window.closeScoutPanel=function(){const o=document.getElementById('scoutOverlay');if(o)o.style.display='none';};
+  function _sm(role,text){
     const box=document.getElementById('scoutMsgs');if(!box)return null;
     const d=document.createElement('div');
     d.className=role==='user'?'sMsgUser':'sMsgScout';
-    d.innerText=text;
-    box.appendChild(d);
-    box.scrollTop=box.scrollHeight;
-    return d;
+    d.innerText=text;box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
   }
-  window.scoutAsk=function(q){
-    const i=document.getElementById('scoutInput');
-    if(i) i.value=q;
-    scoutSend();
-  };
+  window.scoutAsk=function(q){const i=document.getElementById('scoutInput');if(i)i.value=q;scoutSend();};
   window.scoutSend=async function(){
     const inp=document.getElementById('scoutInput');
-    const q=(inp&&inp.value||'').trim();
-    if(!q) return;
+    const q=(inp&&inp.value||'').trim();if(!q)return;
     inp.value='';
-    const qr=document.getElementById('scoutQuickRow');
-    if(qr) qr.style.display='none';
-    _addMsg('user',q);
-    hist.push({role:'user',content:q});
-    const th=_addMsg('scout','🤔 Thinking…');
-    if(th) th.style.opacity='.55';
+    _sm('user',q);hist.push({role:'user',content:q});
+    const th=_sm('scout','🤔 Thinking…');if(th)th.style.opacity='.5';
     try{
-      const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
-      const d=await r.json();
-      if(th) th.remove();
-      const ans=d.answer||d.error||'Sorry, I had trouble with that.';
-      _addMsg('scout',ans);
-      hist.push({role:'assistant',content:ans});
-    }catch(e){
-      if(th) th.remove();
-      _addMsg('scout','❌ Network error — please try again.');
-    }
+      const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
+      const d=await r.json();if(th)th.remove();
+      const ans=d.answer||d.error||'Sorry, had trouble with that.';
+      _sm('scout',ans);hist.push({role:'assistant',content:ans});
+    }catch(e){if(th)th.remove();_sm('scout','❌ Network error — please try again.');}
   };
 })();
 
+/* ═══ GET HUMAN HELP ═══ */
+window.openHumanHelpModal=function(){const m=document.getElementById('humanHelpModal');if(m)m.style.display='flex';};
+window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelpModal');if(m)m.style.display='none';};
+
 /* ═══ BUG REPORT ═══ */
 (function(){
-  window.openBugReportModal=function(){
-    const m=document.getElementById('bugReportModal');
-    if(m) m.style.display='flex';
-  };
+  window.openBugReportModal=function(){const m=document.getElementById('bugReportModal');if(m)m.style.display='flex';};
   window.closeBugReportModal=function(){
-    const m=document.getElementById('bugReportModal');
-    if(m) m.style.display='none';
-    const s=document.getElementById('bugReportStatus');
-    if(s){s.style.display='none';s.innerText='';}
+    const m=document.getElementById('bugReportModal');if(m)m.style.display='none';
+    const s=document.getElementById('bugReportStatus');if(s){s.style.display='none';s.innerText='';}
   };
   window.submitBugReport=async function(){
     const desc=(document.getElementById('bugDescInput').value||'').trim();
@@ -23785,75 +23809,45 @@ Be concise. Give step-by-step answers when asked how to do something.`;
     btn.disabled=true;btn.innerText='Sending…';
     try{
       const r=await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({description:desc,steps,severity,device:{
-          screenW:window.innerWidth,screenH:window.innerHeight,
-          orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',
-          ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()
-        }})});
+        body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
       const d=await r.json();
       status.style.display='block';
-      if(d.ok){
-        status.style.color='#86efac';
-        status.innerText='✅ Report sent — thank you!';
-        document.getElementById('bugDescInput').value='';
-        document.getElementById('bugStepsInput').value='';
-        setTimeout(closeBugReportModal,2000);
-      }else{
-        status.style.color='#fca5a5';
-        status.innerText='❌ '+(d.error||'Failed.');
-      }
-    }catch(e){
-      status.style.display='block';status.style.color='#fca5a5';status.innerText='❌ Network error.';
-    }finally{
-      btn.disabled=false;btn.innerText='📤 Send Bug Report';
-    }
+      if(d.ok){status.style.color='#86efac';status.innerText='✅ Report sent — thank you!';document.getElementById('bugDescInput').value='';document.getElementById('bugStepsInput').value='';setTimeout(closeBugReportModal,2000);}
+      else{status.style.color='#fca5a5';status.innerText='❌ '+(d.error||'Failed.');}
+    }catch(e){status.style.display='block';status.style.color='#fca5a5';status.innerText='❌ Network error.';}
+    finally{btn.disabled=false;btn.innerText='📤 Send Bug Report';}
   };
-
-  window.openBugInboxModal=function(){
-    const m=document.getElementById('bugInboxModal');
-    if(m){m.style.display='flex';loadBugInbox();}
-  };
-  window.closeBugInboxModal=function(){
-    const m=document.getElementById('bugInboxModal');
-    if(m) m.style.display='none';
-  };
+  window.openBugInboxModal=function(){const m=document.getElementById('bugInboxModal');if(m){m.style.display='flex';loadBugInbox();}};
+  window.closeBugInboxModal=function(){const m=document.getElementById('bugInboxModal');if(m)m.style.display='none';};
   window.loadBugInbox=async function(){
     const body=document.getElementById('bugInboxBody');if(!body)return;
     body.innerHTML='<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">Loading…</div>';
     try{
-      const r=await fetch('/api/bug_report/list');
-      const d=await r.json();
+      const r=await fetch('/api/bug_report/list');const d=await r.json();
       if(!d.ok){body.innerHTML=`<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">${d.error||'Error'}</div>`;return;}
       const rpts=d.reports||[];
       if(!rpts.length){body.innerHTML='<div style="padding:24px;text-align:center;font-size:13px;opacity:.5;">No bug reports yet 🎉</div>';return;}
       const sc={high:'#fca5a5',medium:'#fdba74',low:'#fde68a'};
       const ic={high:'🔴',medium:'🟠',low:'🟡'};
       const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-      body.innerHTML=rpts.map(rp=>{
-        const col=sc[rp.severity]||'#c4b5fd';
-        return `<div style="background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-left:3px solid ${col};border-radius:12px;padding:14px 16px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-            <span style="font-size:12px;font-weight:800;color:${col};">${ic[rp.severity]||'⚪'} ${(rp.severity||'').toUpperCase()}</span>
-            <span style="font-size:11px;opacity:.5;">${esc(rp.submitted_by)} · ${(rp.created_at||'').slice(0,16).replace('T',' ')}</span>
-            ${rp.resolved?'<span style="font-size:11px;color:#86efac;font-weight:700;">✅ Resolved</span>':
-              `<button onclick="markBugResolved('${rp.id}')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;">Mark resolved</button>`}
-          </div>
-          <div style="font-size:13px;line-height:1.6;">${esc(rp.description)}</div>
-          ${rp.steps?`<div style="font-size:12px;opacity:.55;margin-top:6px;white-space:pre-wrap;">${esc(rp.steps)}</div>`:''}
-        </div>`;
-      }).join('');
+      body.innerHTML=rpts.map(rp=>`<div style="background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-left:3px solid ${sc[rp.severity]||'#c4b5fd'};border-radius:12px;padding:14px 16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="font-size:12px;font-weight:800;color:${sc[rp.severity]||'#c4b5fd'};">${ic[rp.severity]||'⚪'} ${(rp.severity||'').toUpperCase()}</span>
+          <span style="font-size:11px;opacity:.5;">${esc(rp.submitted_by)} · ${(rp.created_at||'').slice(0,16).replace('T',' ')}</span>
+          ${rp.resolved?'<span style="font-size:11px;color:#86efac;font-weight:700;">✅ Resolved</span>':`<button onclick="markBugResolved('${rp.id}')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;">Mark resolved</button>`}
+        </div>
+        <div style="font-size:13px;line-height:1.6;">${esc(rp.description)}</div>
+        ${rp.steps?`<div style="font-size:12px;opacity:.55;margin-top:6px;white-space:pre-wrap;">${esc(rp.steps)}</div>`:''}
+      </div>`).join('');
     }catch(e){body.innerHTML='<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">Error loading.</div>';}
   };
   window.markBugResolved=async function(id){
     await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
-    loadBugInbox();
-    _checkAdminBadge();
+    loadBugInbox();_checkAdminBadge();
   };
-
   async function _checkAdminBadge(){
     try{
-      const r=await fetch('/api/bug_report/list');
-      const d=await r.json();
+      const r=await fetch('/api/bug_report/list');const d=await r.json();
       const btn=document.getElementById('bugInboxNavBtn');
       if(d.ok&&d.is_admin&&btn){
         btn.style.display='';
@@ -23864,6 +23858,25 @@ Be concise. Give step-by-step answers when asked how to do something.`;
   }
   setTimeout(_checkAdminBadge,2000);
 })();
+
+/* ═══ MOBILE NAV: Team/Tools/Settings → drawer ═══ */
+window.saToggleDrop=function(dropId){
+  if(window.innerWidth<=720){
+    const ov=document.getElementById('mobileDrawerOverlay');
+    if(ov){ov.classList.add('show');ov.setAttribute('aria-hidden','false');}
+    try{document.body.style.overflow='hidden';}catch(_){}
+    return;
+  }
+  const all=document.querySelectorAll('.saDrop');
+  const t=document.getElementById(dropId);
+  const open=t&&t.classList.contains('open');
+  all.forEach(d=>d.classList.remove('open'));
+  if(!open&&t)t.classList.add('open');
+};
+document.addEventListener('click',e=>{
+  if(window.innerWidth>720&&!e.target.closest('.saDropWrap'))
+    document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
+});
 </script>
 
 </body>
@@ -29818,11 +29831,9 @@ def api_scout_ask():
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": system}] + [
-                {"role": m.get("role", "user"), "content": m.get("content", "")}
-                for m in messages
+                {"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages
             ],
-            max_tokens=600,
-            temperature=0.35,
+            max_tokens=600, temperature=0.35,
         )
         return jsonify({"ok": True, "answer": (resp.choices[0].message.content or "").strip()})
     except Exception as e:
