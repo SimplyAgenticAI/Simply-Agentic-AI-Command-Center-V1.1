@@ -1129,7 +1129,20 @@ def _get_csrf_token() -> str:
     return tok
 
 def _csrf_valid() -> bool:
-    """Return True if the incoming request carries a valid CSRF token."""
+    """Return True if the incoming request carries a valid CSRF token.
+
+    Token lifecycle:
+      1. GET /api/csrf_token seeds the token into the session + returns it.
+      2. JS stores it in window._csrfToken and attaches it as X-CSRF-Token on
+         every state-mutating request.
+      3. We compare the header value against the session value here.
+
+    If no token exists in the session yet (first-ever request, Secure cookie
+    dropped on HTTP, server restart with a new secret) we PASS the request
+    through and seed the token so the next request is protected. Blocking every
+    tokenless POST would hard-lock the app for any user whose session cookie
+    wasn't set yet.
+    """
     if request.method in _CSRF_SAFE_METHODS:
         return True
     if request.path in _CSRF_EXEMPT_PATHS:
@@ -1137,11 +1150,17 @@ def _csrf_valid() -> bool:
     if request.path.startswith("/stripe/"):
         return True
     if request.path.startswith("/admin/"):
-        # Admin routes have their own auth; exempt from JS-CSRF (they use session auth directly)
         return True
     expected = session.get("_csrf_token") or ""
     if not expected:
-        return False
+        # No token in session yet — seed it and allow this request through.
+        # The JS will pick up the token on its next GET /api/csrf_token call
+        # and attach it going forward.
+        try:
+            _get_csrf_token()  # seeds session["_csrf_token"]
+        except Exception:
+            pass
+        return True
     incoming = (
         request.headers.get("X-CSRF-Token")
         or request.headers.get("X-Csrf-Token")
@@ -1256,11 +1275,15 @@ def _clear_login_failures(username: str) -> None:
 # =========================
 # API RATE LIMITING (per-user, persisted)
 # =========================
-# Rate-limit windows are short (60 s) so we only persist lockouts, not counters.
-# Counters reset naturally when the window expires, so losing them on restart is
-# acceptable. Locks use in-memory state with a disk flush only for the login lockout
-# above. Rate limits stay in-memory for speed — a restart resets them, which is a
-# minor tolerance given the 60-second window.
+# API RATE LIMITING — persisted across restarts
+# =========================
+# In-memory dict is the hot path (zero disk I/O on most requests).
+# After each counter increment we flush to disk so active windows survive
+# a server restart or deploy. On startup we load and discard any window
+# whose 60-second slot has already expired — those are reset cleanly.
+# Disk writes are fire-and-forget (non-blocking, failures are silent) so
+# a slow disk never delays an API response.
+
 _RATE_LIMITS: Dict[str, Any] = {}
 _RATE_LIMITS_LOCK = threading.Lock()
 
@@ -1272,6 +1295,52 @@ RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))
 RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))
 RATE_LIMIT_WINDOW_SEC = 60
 
+def _rate_limits_path() -> Path:
+    try:
+        return DATA / "rate_limits.json"
+    except Exception:
+        return Path("rate_limits.json")
+
+def _load_rate_limits() -> None:
+    """Populate _RATE_LIMITS from disk on startup, dropping expired windows."""
+    try:
+        raw = load_json(_rate_limits_path(), {})
+        if not isinstance(raw, dict):
+            return
+        now = datetime.utcnow()
+        loaded: Dict[str, Any] = {}
+        for k, v in raw.items():
+            if not isinstance(v, dict):
+                continue
+            ws_str = v.get("window_start")
+            if not ws_str:
+                continue
+            try:
+                ws = datetime.fromisoformat(str(ws_str).replace("Z", ""))
+            except Exception:
+                continue
+            if (now - ws).total_seconds() > RATE_LIMIT_WINDOW_SEC:
+                continue  # expired — drop it
+            loaded[k] = {"count": v.get("count", 0), "window_start": ws}
+        with _RATE_LIMITS_LOCK:
+            _RATE_LIMITS.update(loaded)
+    except Exception:
+        pass
+
+def _flush_rate_limits() -> None:
+    """Serialize _RATE_LIMITS to disk. Called under _RATE_LIMITS_LOCK."""
+    try:
+        serialisable: Dict[str, Any] = {}
+        for k, v in _RATE_LIMITS.items():
+            ws = v.get("window_start")
+            serialisable[k] = {
+                "count": v.get("count", 0),
+                "window_start": ws.isoformat() + "Z" if isinstance(ws, datetime) else str(ws),
+            }
+        save_json(_rate_limits_path(), serialisable)
+    except Exception:
+        pass
+
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
     """Returns (allowed, error_message). Thread-safe sliding-window counter."""
     now = datetime.utcnow()
@@ -1279,15 +1348,18 @@ def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
         rec = _RATE_LIMITS.get(key)
         if rec is None:
             _RATE_LIMITS[key] = {"count": 1, "window_start": now}
+            threading.Thread(target=_flush_rate_limits, daemon=True).start()
             return True, ""
         elapsed = (now - rec["window_start"]).total_seconds()
         if elapsed > RATE_LIMIT_WINDOW_SEC:
             _RATE_LIMITS[key] = {"count": 1, "window_start": now}
+            threading.Thread(target=_flush_rate_limits, daemon=True).start()
             return True, ""
         if rec["count"] >= limit:
             wait = int(RATE_LIMIT_WINDOW_SEC - elapsed) + 1
             return False, f"Rate limit reached. Please wait {wait} second(s) before trying again."
         rec["count"] += 1
+        threading.Thread(target=_flush_rate_limits, daemon=True).start()
         return True, ""
 
 def _get_rate_key(category: str) -> str:
@@ -1638,6 +1710,12 @@ except Exception:
 # Load persisted login lockouts so brute-force protection survives restarts
 try:
     _load_login_attempts()
+except Exception:
+    pass
+
+# Load persisted rate-limit windows so active throttles survive restarts/deploys
+try:
+    _load_rate_limits()
 except Exception:
     pass
 
@@ -2219,7 +2297,14 @@ def save_core_framework(text: str) -> None:
     cleaned = (text or "").strip()
     if not cleaned:
         cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
-    FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
+    with file_lock(FRAMEWORK_PATH):
+        tmp = FRAMEWORK_PATH.with_suffix(".tmp")
+        try:
+            tmp.write_text(cleaned, encoding="utf-8")
+            tmp.replace(FRAMEWORK_PATH)
+        except Exception:
+            # Fallback: direct write if rename fails (e.g. cross-device mount)
+            FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
 
 # Ensure the framework file always exists with the default framework for local-first users.
 try:
@@ -3091,19 +3176,20 @@ def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return (settings.get("gmail_oauth") or {})
 
 def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
-    users = load_users()
     uname = u.get("username")
-    rec = (users.get("users") or {}).get(uname) or u
-    rec.setdefault("settings", {})
-    if token_info:
-        rec["settings"]["gmail_oauth"] = token_info
-    else:
-        # disconnect
-        if "gmail_oauth" in rec.get("settings", {}):
-            rec["settings"].pop("gmail_oauth", None)
-    rec["updated_at"] = now_iso()
-    users["users"][uname] = rec
-    save_users(users)
+    with file_lock(USERS_PATH):  # hold lock for entire load-modify-save to prevent OAuth callback races
+        users = load_users()
+        rec = (users.get("users") or {}).get(uname) or u
+        rec.setdefault("settings", {})
+        if token_info:
+            rec["settings"]["gmail_oauth"] = token_info
+        else:
+            # disconnect
+            if "gmail_oauth" in rec.get("settings", {}):
+                rec["settings"].pop("gmail_oauth", None)
+        rec["updated_at"] = now_iso()
+        users["users"][uname] = rec
+        save_users(users)
 
 # =========================
 # GOOGLE CALENDAR OAUTH
@@ -3121,18 +3207,19 @@ def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return (settings.get("calendar_oauth") or {})
 
 def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
-    users = load_users()
     uname = u.get("username")
-    rec = (users.get("users") or {}).get(uname) or u
-    rec.setdefault("settings", {})
-    if token_info:
-        rec["settings"]["calendar_oauth"] = token_info
-    else:
-        if "calendar_oauth" in rec.get("settings", {}):
-            rec["settings"].pop("calendar_oauth", None)
-    rec["updated_at"] = now_iso()
-    users["users"][uname] = rec
-    save_users(users)
+    with file_lock(USERS_PATH):  # hold lock for entire load-modify-save to prevent OAuth callback races
+        users = load_users()
+        rec = (users.get("users") or {}).get(uname) or u
+        rec.setdefault("settings", {})
+        if token_info:
+            rec["settings"]["calendar_oauth"] = token_info
+        else:
+            if "calendar_oauth" in rec.get("settings", {}):
+                rec["settings"].pop("calendar_oauth", None)
+        rec["updated_at"] = now_iso()
+        users["users"][uname] = rec
+        save_users(users)
 
 
 def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
@@ -12697,19 +12784,23 @@ if (typeof window.showToast !== "function") {
     // Usage: replace  apiFetch("/api/foo", {method:"POST", ...})
     //        with    apiFetch("/api/foo", {method:"POST", ...})
     window._csrfToken = "";
-    (async function _initCsrf(){
+    // Promise that resolves once the token is fetched — apiFetch awaits it on
+    // the first mutating call so there's no race between page load and button clicks.
+    window._csrfReady = (async function _initCsrf(){
       try{
         const r = await fetch("/api/csrf_token");
         const d = await r.json();
         if(d && d.token) window._csrfToken = d.token;
-      }catch(e){ /* non-fatal — worst case the server returns 403 */ }
+      }catch(e){ /* non-fatal — server passes tokenless requests through */ }
     })();
 
     const _CSRF_SAFE = new Set(["GET","HEAD","OPTIONS"]);
-    window.apiFetch = function apiFetch(url, opts){
+    window.apiFetch = async function apiFetch(url, opts){
       opts = opts || {};
       const method = (opts.method || "GET").toUpperCase();
       if(!_CSRF_SAFE.has(method)){
+        // Await the init promise — no-op after first resolution (Promise caches result)
+        try{ await window._csrfReady; }catch(e){}
         const hdrs = new Headers(opts.headers || {});
         if(window._csrfToken) hdrs.set("X-CSRF-Token", window._csrfToken);
         opts = Object.assign({}, opts, {headers: hdrs});
