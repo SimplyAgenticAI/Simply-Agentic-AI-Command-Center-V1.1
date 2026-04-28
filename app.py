@@ -12354,7 +12354,7 @@ label         { font-size: 14px !important; }
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
     <div class="modalInner">
-      <div class="toolHint">Generate organized public lead lists from the web. Leave seed rows blank and Lead Lab will discover prospects from scratch.</div>
+      <div class="toolHint">Generate organised public lead lists from the web. Only real websites, phone numbers and emails found via live web search — no made-up data.</div>
       <div class="formGrid2">
         <div><label>Target niche</label><input id="leadLabNiche" placeholder="real estate agents" /></div>
         <div><label>Location</label><input id="leadLabLocation" placeholder="New Jersey" /></div>
@@ -12378,17 +12378,8 @@ label         { font-size: 14px !important; }
             <option value="any">Any public lead</option>
           </select>
         </div>
-        <div><label>Minimum score</label>
-          <select id="leadLabMinScore">
-            <option value="30">30</option><option value="40" selected>40</option>
-            <option value="50">50</option><option value="60">60</option>
-          </select>
-        </div>
       </div>
-      <label style="margin-top:14px;">Seed rows (optional)</label>
-      <textarea id="leadLabInput" style="height:180px;" placeholder="Jane Doe | Acme Realty | acmerealty.com | Broker&#10;Mike Ray | rayinvestments.com | Investor"></textarea>
       <div class="toolRunBar">
-        <button class="btn" id="leadLabSampleBtn">Sample</button>
         <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
       </div>
       <div class="tiny" id="leadLabStatus" style="margin-top:8px;text-align:center;"></div>
@@ -18152,7 +18143,7 @@ async function crmFetchTasks(){
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      if(st) st.innerText = 'Building lead list...';
+      if(st) st.innerText = 'Searching the web for real leads...';
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -18160,12 +18151,12 @@ async function crmFetchTasks(){
           body: JSON.stringify({
             niche: ($("leadLabNiche")?.value || '').trim(),
             location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: ($("leadLabInput")?.value || '').trim(),
+            source_text: '',
             specific_areas: ($("leadLabAreas")?.value || '').trim(),
             search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
             lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
             require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
-            min_score: parseInt(($("leadLabMinScore")?.value || '40').trim(), 10) || 40
+            min_score: 1
           })
         });
         const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -18177,23 +18168,10 @@ async function crmFetchTasks(){
         }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads${data.warning ? ' • ' + data.warning : ''}`;
+        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads from live web search${data.warning ? ' • ' + data.warning : ''}`;
       }catch(e){
         if(st) st.innerText = e.message || 'Lead build failed';
       }
-    }
-
-    function crmSampleLeadLab(){
-      const ta = $("leadLabInput");
-      if(!ta) return;
-      ta.value = [
-        'Jamie Cole | Garden State Realty | gardenstaterealty.com | Broker',
-        'Morgan Lee | BrightPath Investors | brightpathinvestors.com | Founder',
-        'Taylor Adams | Northshore Lending | northshorelending.com | Loan Officer'
-      ].join('\n');
-      if($("leadLabNiche")) $("leadLabNiche").value = 'real estate agents';
-      if($("leadLabLocation")) $("leadLabLocation").value = 'New Jersey';
-      if($("leadLabAreas")) $("leadLabAreas").value = 'Jersey City, Hoboken, Newark';
     }
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
@@ -18495,7 +18473,6 @@ window.crmPipelineOpenClient = function(clientId){
 
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
-      b('leadLabSampleBtn', crmSampleLeadLab);
       b('leadLabRunBtn', crmRunLeadLab);
       b('socialStudioRunBtn', ()=>crmRunGenerator('/api/crm/social_studio', {
         platform: ($("socialStudioPlatform")?.value || 'Facebook'),
@@ -27110,7 +27087,6 @@ def api_crm_lead_lab():
         payload = request.get_json(silent=True) or {}
         niche = (payload.get("niche") or "").strip()
         location = (payload.get("location") or "").strip()
-        source_text = (payload.get("source_text") or "").strip()
         specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
         search_mode = (payload.get("search_mode") or "balanced").strip().lower()
         require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
@@ -27118,41 +27094,24 @@ def api_crm_lead_lab():
             lead_count = int(payload.get("lead_count") or 25)
         except Exception:
             lead_count = 25
-        try:
-            min_score = int(payload.get("min_score") or 40)
-        except Exception:
-            min_score = 40
         lead_count = max(1, min(100, lead_count))
-        min_score = max(20, min(90, min_score))
-        if not niche and not location and not source_text and not specific_areas:
+
+        if not niche and not location and not specific_areas:
             return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
-        items: List[Dict[str, Any]] = []
-        existing_domains = set()
-        if source_text:
-            try:
-                parsed = _crm_parse_lead_source_rows(source_text) or []
-                seed_items = _crm_items_from_rows(parsed, niche, location) or []
-            except Exception:
-                seed_items = []
-            for item in (seed_items or []):
-                dom = item.get("domain") or ""
-                if dom:
-                    existing_domains.add(dom)
-            items.extend(seed_items or [])
+        # Discover leads from live web search only — no AI-generated/hallucinated contacts
+        discovered = _crm_discover_public_leads(
+            niche, location, lead_count, search_mode,
+            existing_domains=set(),
+            specific_areas=specific_areas,
+            require_contact=require_contact,
+            min_score=1   # score filter handled by contact filter, not arbitrary threshold
+        )
 
-        remaining = max(0, lead_count - len(items))
-        if remaining > 0:
-            discovered = _crm_discover_public_leads(
-                niche, location, remaining, search_mode, existing_domains=existing_domains,
-                specific_areas=specific_areas, require_contact=require_contact, min_score=min_score
-            )
-            items.extend(discovered or [])
-
-        # OpenAI-first top-off so the user still gets a complete list when scraping is thin.
+        # Deduplicate by domain/name
         final: List[Dict[str, Any]] = []
-        seen = set()
-        for item in items:
+        seen: set = set()
+        for item in discovered:
             dom = (item.get("domain") or "").strip().lower()
             key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
             if not key or key in seen:
@@ -27162,37 +27121,13 @@ def api_crm_lead_lab():
             if len(final) >= lead_count:
                 break
 
-        if len(final) < lead_count:
-            need = max(0, lead_count - len(final))
-            ai_queries = _crm_build_queries_v2(niche, location, lead_count, 'broad' if search_mode != 'broad' else search_mode, specific_areas=specific_areas)[:12]
-            for q in ai_queries:
-                if len(final) >= lead_count:
-                    break
-                try:
-                    rows = _crm_openai_web_search(q, niche, location, max_results=max(need * 2, 8))
-                except Exception as ai_err:
-                    append_log('crm_lead_lab_ai_query_error', {'error': str(ai_err), 'query': q, 'at': now_iso()})
-                    rows = []
-                for row in rows:
-                    item = _crm_make_lead_from_search_row(row, niche, location, q, min_score=max(35, min_score - 5))
-                    if not item:
-                        continue
-                    dom = (item.get('domain') or '').strip().lower()
-                    key = dom or ((item.get('website') or item.get('company') or item.get('name') or '').strip().lower())
-                    if not key or key in seen:
-                        continue
-                    seen.add(key)
-                    final.append(item)
-                    if len(final) >= lead_count:
-                        break
-
         warning = ""
         if not final:
-            warning = "No public leads were found for that exact search. Try Broad mode or add specific areas."
+            warning = "No public leads were found for that search. Try Broad mode, add specific areas, or broaden your niche."
         elif len(final) < lead_count:
-            warning = f"Built {len(final)} leads from public web signals for this search."
+            warning = f"Found {len(final)} verified leads from live web search."
 
-        # ── Award community points ──
+        # Award community points
         try:
             _uname = (u.get("username") if isinstance(u, dict) else None) or ""
             if _uname:
