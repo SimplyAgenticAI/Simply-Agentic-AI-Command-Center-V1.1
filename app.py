@@ -47,6 +47,8 @@ except Exception:
     google_build = None
     GoogleHttpError = Exception
 
+load_dotenv()
+
 # =========================
 # SELF-HOSTED ERROR TRACKER
 # =========================
@@ -95,7 +97,6 @@ def _capture_error(exc: Exception, context: str = "") -> None:
     except Exception:
         pass  # error logger must never crash the app
 
-load_dotenv()
 
 # =========================
 # API KEY ENCRYPTION (Fernet / symmetric AES-128-CBC)
