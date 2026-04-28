@@ -3073,46 +3073,51 @@ def _strip_motion_boilerplate(text: str) -> str:
 
 
 def _calendar_list_events(access_token: str, time_min: str, time_max: str, timezone: str, max_results: int = 250) -> List[Dict[str, Any]]:
-    import requests
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    params = {
-        "timeMin": time_min,
-        "timeMax": time_max,
-        "singleEvents": "true",
-        "orderBy": "startTime",
-        "maxResults": str(max_results),
-        "timeZone": timezone,
-    }
-    r = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=20)
-    data = r.json() if r.content else {}
-    if r.status_code >= 400:
-        raise Exception(f"Calendar API error: {data}")
-    items = data.get("items") or []
-    out: List[Dict[str, Any]] = []
-    for it in items:
-        start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
-        end = (it.get("end") or {}).get("dateTime") or (it.get("end") or {}).get("date") or ""
-        raw_attendees = it.get("attendees") or []
-        attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
-        raw_desc = it.get("description", "") or ""
-        # Detect Motion tasks BEFORE stripping boilerplate — Motion adds "task" patterns to description
-        is_motion_task = bool(re.search(
-            r"(this task was created by motion|task was (created|scheduled|managed) by motion)",
-            raw_desc, re.IGNORECASE
-        ))
-        out.append({
-            "id": it.get("id",""),
-            "summary": it.get("summary",""),
-            "start": start,
-            "end": end,
-            "htmlLink": it.get("htmlLink",""),
-            "hangoutLink": it.get("hangoutLink",""),
-            "recurringEventId": it.get("recurringEventId",""),
-            "description": _strip_motion_boilerplate(raw_desc),
-            "location": it.get("location",""),
-            "attendees": attendee_emails,
-            "is_motion_task": is_motion_task,
-        })
+    import requests as _req
+    headers = {"Authorization": f"Bearer {access_token}"}
+    base_params = {"timeMin": time_min, "timeMax": time_max, "singleEvents": "true", "orderBy": "startTime", "maxResults": str(max_results), "timeZone": timezone}
+
+    def _fetch(cal_id: str) -> list:
+        safe = _req.utils.quote(cal_id, safe="")
+        try:
+            r = _req.get(f"https://www.googleapis.com/calendar/v3/calendars/{safe}/events", headers=headers, params=base_params, timeout=20)
+            if r.status_code >= 400: return []
+            return (r.json() if r.content else {}).get("items") or []
+        except Exception: return []
+
+    def _parse(items: list) -> List[Dict[str, Any]]:
+        out = []
+        for it in items:
+            start = (it.get("start") or {}).get("dateTime") or (it.get("start") or {}).get("date") or ""
+            end   = (it.get("end")   or {}).get("dateTime") or (it.get("end")   or {}).get("date") or ""
+            raw_attendees = it.get("attendees") or []
+            attendee_emails = [a.get("email","") for a in raw_attendees if a.get("email") and a.get("self") is not True]
+            raw_desc = it.get("description", "") or ""
+            is_motion_task = bool(re.search(r"(this task was created by motion|task was (created|scheduled|managed) by motion)", raw_desc, re.IGNORECASE))
+            out.append({"id": it.get("id",""), "summary": it.get("summary",""), "start": start, "end": end, "htmlLink": it.get("htmlLink",""), "hangoutLink": it.get("hangoutLink",""), "recurringEventId": it.get("recurringEventId",""), "description": _strip_motion_boilerplate(raw_desc), "location": it.get("location",""), "attendees": attendee_emails, "is_motion_task": is_motion_task})
+        return out
+
+    # 1. Primary calendar
+    out = _parse(_fetch("primary"))
+    seen = {e["id"] for e in out if e["id"]}
+    # 2. Google Tasks calendar (tasks created via Google Tasks / Calendar task sidebar)
+    for ev in _parse(_fetch("tasks@group.v.calendar.google.com")):
+        if ev["id"] not in seen:
+            seen.add(ev["id"])
+            out.append(ev)
+    # 3. All other selected user calendars (Motion's calendar, shared calendars, etc.)
+    try:
+        cl_r = _req.get("https://www.googleapis.com/calendar/v3/users/me/calendarList", headers=headers, params={"fields": "items(id,summary,selected,accessRole)"}, timeout=15)
+        if cl_r.status_code == 200:
+            for cal_item in (cl_r.json() if cl_r.content else {}).get("items") or []:
+                cal_id = cal_item.get("id") or ""
+                if not cal_id or cal_id in ("primary", "tasks@group.v.calendar.google.com"): continue
+                if not cal_item.get("selected", True): continue
+                for ev in _parse(_fetch(cal_id)):
+                    if ev["id"] not in seen:
+                        seen.add(ev["id"])
+                        out.append(ev)
+    except Exception: pass
     return out
 
 
@@ -10523,52 +10528,21 @@ label         { font-size: 14px !important; }
 }
 
 /* ── MOBILE NAV ─────────────────────────────────────────────────────────────
-   position:sticky cannot be an overflow scroll container — browser ignores it.
-   Scroll lives on .saNavLeft (non-sticky child). .saNavBar stays overflow:visible.
-   Community removed from top nav on mobile — it's already in the bottom bar.
+   position:sticky cannot scroll — overflow goes on .saNavLeft (non-sticky child)
+   Community is already in bottom bar so hidden from top nav on mobile.
    ─────────────────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .topbarMain { display: none !important; }
-
-  .saNavBar {
-    overflow: visible !important;
-    flex-wrap: nowrap !important;
-    padding: 5px 0 5px 6px !important;
-    gap: 0 !important;
-  }
-
-  .saNavLeft {
-    display: flex !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    gap: 4px !important;
-    overflow-x: scroll !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    padding-right: 8px !important;
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
-  }
+  .saNavBar { overflow: visible !important; flex-wrap: nowrap !important; padding: 5px 0 5px 6px !important; gap: 0 !important; }
+  .saNavLeft { display: flex !important; flex-wrap: nowrap !important; align-items: center !important; gap: 4px !important; overflow-x: scroll !important; -webkit-overflow-scrolling: touch !important; scrollbar-width: none !important; padding-right: 8px !important; flex: 1 1 auto !important; min-width: 0 !important; }
   .saNavLeft::-webkit-scrollbar { display: none !important; }
-
   .saDropWrap { flex-shrink: 0 !important; }
-  .saNavBtn {
-    font-size: 12px !important;
-    padding: 6px 10px !important;
-    white-space: nowrap !important;
-    flex-shrink: 0 !important;
-    touch-action: manipulation !important;
-  }
-
-  /* Community is in the bottom bar — hide from top nav */
+  .saNavBtn { font-size: 12px !important; padding: 6px 10px !important; white-space: nowrap !important; flex-shrink: 0 !important; touch-action: manipulation !important; }
   #communityNavBtn { display: none !important; }
   .saNavCenter { display: none !important; }
   .saNavRight   { display: none !important; }
 }
-
-@media (max-width: 390px) {
-  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
-}
+@media (max-width: 390px) { .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; } }
 
 </style>
 </head>
@@ -10656,13 +10630,9 @@ label         { font-size: 14px !important; }
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
-        <!-- Scout AI help — always visible -->
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🤖 Scout</button>
-        <!-- Get Human Help — direct email, always visible -->
-        <a href="mailto:SimplyAgenticAI@gmail.com" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;text-decoration:none;">✉ Get Human Help</a>
-        <!-- Bug Report — visible to all users -->
-        <button id="reportBugNavBtn" onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
-        <!-- Bug Inbox — admin only, injected by JS with unread count badge -->
+        <a href="mailto:SimplyAgenticAI@gmail.com" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;font-weight:700;white-space:nowrap;text-decoration:none;">✉ Get Human Help</a>
+        <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
         <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
@@ -10671,7 +10641,7 @@ label         { font-size: 14px !important; }
     <!-- ===== END REDESIGNED NAV BAR ===== -->
   </div>
 
-  <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
+  <!-- ===== Mobile bottom bar + drawer ===== -->
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">☰ Menu</button>
     <button class="btn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
@@ -10686,7 +10656,6 @@ label         { font-size: 14px !important; }
         </div>
         <button class="btn btnMini" id="mobileCloseMenuBtn">Close</button>
       </div>
-
       <div class="mobileDrawerGrid">
         <button class="btn" data-click="frameworkBtn">Core framework</button>
         <button class="btn" data-click="promptLibraryBtn">📚 Prompt Library</button>
@@ -10705,13 +10674,11 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
-        <!-- Support row -->
-        <button class="btn" onclick="closeMobileDrawer();setTimeout(()=>openScoutPanel(),150);">🤖 Scout Help</button>
+        <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,150);">🤖 Scout Help</button>
         <a class="btn" href="mailto:SimplyAgenticAI@gmail.com" style="text-decoration:none;display:inline-block;text-align:center;">✉ Get Human Help</a>
-        <button class="btn" onclick="closeMobileDrawer();setTimeout(()=>openBugReportModal(),150);" style="color:#fca5a5;">🐛 Report Bug</button>
+        <button class="btn" onclick="closeMobileDrawer();setTimeout(openBugReportModal,150);" style="color:#fca5a5;">🐛 Report Bug</button>
         <a class="btn" href="/logout" style="text-decoration:none;display:inline-block;text-align:center;">Logout</a>
       </div>
-
       <div class="mobileDrawerFoot">
         <button class="btn" id="mobileScrollTopBtn">Top</button>
         <button class="btn btnPrimary" id="mobileCloseMenuBtn2">Done</button>
@@ -18088,6 +18055,9 @@ function wcalEventHtml(ev, extraStyle=''){
   const timeStr=startDate.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
   const _evRawTitle=(ev.summary||'Event');
   const title=(wcalCleanDescription(_evRawTitle)||_evRawTitle).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const evKey=ev.id||ev.summary||'';
+  const isDone=_evDone.has(evKey)||!!((cal.gcalMeta||{})[evKey]||{}).done;
+  const doneCls=isDone?' is-done':'';
   const meetLink=ev.hangoutLink||'';
   const meetBadge=meetLink?` <a class="wcal-meet-badge" href="${meetLink}" target="_blank" onclick="event.stopPropagation()" title="Join Google Meet">📹 Join</a>`:'';
   const zoomBadge=(ev&&ev.location&&ev.location.includes('zoom.us'))?(` <a class="wcal-meet-badge" href="${ev.location.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Join Zoom" style="background:rgba(45,140,255,.18);border-color:rgba(45,140,255,.55);">🔵 Join</a>`):'';
@@ -19799,20 +19769,34 @@ function wcalRenderDay(){
   const dt=ymd(d); const today=ymd(new Date());
   const label=document.getElementById('wcalRangeLabel');
   if(label) label.innerText=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
-  const evs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const timedEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&ev.start.includes('T'));
+  const allDayEvs=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
   const dayTasks=cal.tasks.filter(t=>t.date===dt);
-  let html='<div style="display:flex;width:100%;">';
+  let html='';
+  if(allDayEvs.length){
+    html+='<div style="display:flex;flex-wrap:wrap;gap:3px;padding:5px 8px;background:rgba(14,22,48,.85);border-bottom:1px solid rgba(42,58,106,.5);min-height:28px;">';
+    allDayEvs.forEach(ev=>{
+      const evKey=ev.id||ev.summary||'';
+      const isTask=(ev._gcalType||'task')==='task';
+      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
+      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
+      html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)">${isTask?'☑':'📅'} ${title}</div>`;
+    });
+    html+='</div>';
+  }
+  html+='<div style="display:flex;width:100%;">';
   html+='<div class="wcal-time-col">';
   for(let h=0;h<24;h++){
     const lbl=h===0?'':h<12?h+' AM':h===12?'12 PM':(h-12)+' PM';
     html+='<div class="wcal-time-label">'+lbl+'</div>';
   }
   html+='</div>';
-  html+='<div style="flex:1;position:relative;">';
+  html+='<div style="flex:1;position:relative;" data-date="'+dt+'">';
   for(let h=0;h<24;h++) html+='<div class="wcal-hour-line"><div class="wcal-half-line"></div></div>';
-  evs.forEach(ev=>{
-    if(ev._gcalType === 'task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
-    else { html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
+  timedEvs.forEach(ev=>{
+    if(ev._gcalType==='task'){ html+=wcalGcalTaskHtml(ev,'left:8px;right:8px;'); }
+    else{ html+=wcalEventHtml(ev,'left:8px;right:8px;'); }
   });
   dayTasks.forEach(t=>{ html+=wcalTaskHtml(t,'left:8px;right:8px;'); });
   if(dt===today) html+='<div id="wcalNowLine" class="wcal-now-line" style="top:'+wcalNowMinutes()+'px;left:0;right:0;"><div class="wcal-now-dot"></div></div>';
@@ -19820,12 +19804,9 @@ function wcalRenderDay(){
   grid.innerHTML=html;
   const wrap=document.getElementById('wcalGridWrap');
   if(wrap) setTimeout(()=>{ wrap.scrollTop=8*60; },50);
-  // Wire drag-and-drop for day view
   wcalDragWireGrid(grid);
-  // Apply overlap layout for day view
-  const dayCol=grid.querySelector('[data-date]')||grid.querySelector('div[style*="flex:1"]');
+  const dayCol=grid.querySelector('[data-date]');
   if(dayCol) wcalApplyOverlapLayout(dayCol);
-  // Double-click on day view grid area → popover
   const dayArea=grid.querySelector('[data-date]')||grid;
   dayArea.addEventListener('dblclick',function(e){
     if(e.target.closest('.wcal-event')) return;
@@ -23612,326 +23593,629 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </script>
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
-<!-- ═══════════════ SCOUT PANEL ═══════════════ -->
-<div id="scoutOverlay" style="display:none;position:fixed;inset:0;z-index:99980;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeScoutPanel()">
-  <div style="position:absolute;right:0;top:0;bottom:0;width:min(460px,100vw);background:rgba(10,14,30,.99);border-left:1px solid rgba(80,110,200,.4);display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.7);">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(42,58,106,.7);flex-shrink:0;background:rgba(18,28,60,.6);">
-      <div>
-        <div style="font-size:15px;font-weight:800;color:#c4b5fd;letter-spacing:.01em;">🤖 Scout</div>
-        <div style="font-size:11px;color:rgba(148,163,184,.7);margin-top:2px;">Built-in AI assistant · knows the whole system</div>
-      </div>
-      <button onclick="closeScoutPanel()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;">✕ Close</button>
+<!-- ═══════════════ COMMAND PALETTE (#7) ═══════════════ -->
+<div id="cmdPalette" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);align-items:flex-start;justify-content:center;padding-top:14vh;" onclick="if(event.target===this)closeCmdPalette()">
+  <div style="width:min(620px,94vw);background:rgba(12,17,38,.99);border:1px solid rgba(80,110,200,.5);border-radius:18px;overflow:hidden;box-shadow:0 32px 80px rgba(0,0,0,.8);">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(42,58,106,.6);">
+      <span style="font-size:17px;opacity:.6;">🔍</span>
+      <input id="cmdInput" placeholder="Search features, teammates, tools…" autocomplete="off" style="flex:1;background:transparent;border:none;outline:none;font-size:16px;color:#e2e8f0;font-family:inherit;" oninput="filterCmd(this.value)" onkeydown="cmdKey(event)"/>
+      <kbd style="background:rgba(42,58,106,.5);border:1px solid rgba(80,110,200,.35);border-radius:5px;padding:2px 7px;font-size:11px;color:#94a3b8;">ESC</kbd>
     </div>
-
-    <!-- Messages -->
-    <div id="scoutMsgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
-
-    <!-- Quick questions -->
-    <div style="padding:10px 14px 0;display:flex;flex-wrap:wrap;gap:6px;border-top:1px solid rgba(42,58,106,.4);" id="scoutQuickRow">
-      <button class="scoutQ" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
-      <button class="scoutQ" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
-      <button class="scoutQ" onclick="scoutAsk('How do I connect Google Calendar?')">Connect Calendar?</button>
-      <button class="scoutQ" onclick="scoutAsk('What can the CRM do?')">CRM features?</button>
-      <button class="scoutQ" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
-      <button class="scoutQ" onclick="scoutAsk('How does the Group Console work?')">Group Console?</button>
-    </div>
-
-    <!-- Input -->
-    <div style="padding:12px 14px 16px;display:flex;gap:8px;align-items:flex-end;">
-      <textarea id="scoutInput" rows="2" placeholder="Ask Scout anything about Simply Agentic AI…"
-        style="flex:1;background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;resize:none;font-family:inherit;line-height:1.5;outline:none;"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();scoutSend();}"></textarea>
-      <button onclick="scoutSend()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:1px solid rgba(124,58,237,.5);color:#fff;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0;touch-action:manipulation;">Send</button>
-    </div>
+    <div id="cmdList" style="max-height:min(52vh,420px);overflow-y:auto;padding:6px;"></div>
   </div>
 </div>
 
-<!-- ═══════════════ BUG REPORT MODAL ═══════════════ -->
-<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99981;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(520px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.06);">
-      <div>
-        <div style="font-size:15px;font-weight:800;color:#fca5a5;">🐛 Report a Bug</div>
-        <div style="font-size:11px;color:rgba(252,165,165,.6);margin-top:2px;">Your report goes directly to the team</div>
-      </div>
-      <button onclick="closeBugReportModal()" style="background:rgba(180,30,60,.25);border:1px solid rgba(239,68,68,.35);color:#fca5a5;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;">✕ Close</button>
-    </div>
-    <div style="padding:18px;display:flex;flex-direction:column;gap:12px;">
-      <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.08em;color:rgba(148,163,184,.7);display:block;margin-bottom:6px;">WHAT WENT WRONG? *</label>
-        <textarea id="bugDescInput" rows="4" placeholder="Describe what happened and what you expected…"
-          style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
-      </div>
-      <div>
-        <label style="font-size:11px;font-weight:700;letter-spacing:.08em;color:rgba(148,163,184,.7);display:block;margin-bottom:6px;">STEPS TO REPRODUCE <span style="opacity:.5;font-weight:400;">(optional)</span></label>
-        <textarea id="bugStepsInput" rows="2" placeholder="1. I tapped… 2. Then…"
-          style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:13px;resize:vertical;font-family:inherit;line-height:1.5;outline:none;"></textarea>
-      </div>
-      <select id="bugSeverityInput" style="background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none;">
-        <option value="low">🟡 Low — minor annoyance</option>
-        <option value="medium" selected>🟠 Medium — blocks something</option>
-        <option value="high">🔴 High — app is broken</option>
-      </select>
-      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.5),rgba(180,30,60,.4));border:1px solid rgba(239,68,68,.5);color:#fff;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.02em;touch-action:manipulation;">📤 Send Bug Report</button>
-      <div id="bugReportStatus" style="text-align:center;font-size:13px;display:none;padding:4px 0;"></div>
-    </div>
+<!-- ═══════════════ ONBOARDING PROGRESS BAR (#6) ═══════════════ -->
+<div id="saProgressBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:700;background:rgba(10,14,30,.97);border-top:1px solid rgba(42,58,106,.7);padding:8px 16px;backdrop-filter:blur(12px);align-items:center;gap:12px;">
+  <div style="font-size:12px;font-weight:700;color:#c4b5fd;white-space:nowrap;" id="saProgressLabel">Setup</div>
+  <div style="flex:1;height:6px;background:rgba(42,58,106,.6);border-radius:3px;overflow:hidden;">
+    <div id="saProgressFill" style="height:100%;background:linear-gradient(90deg,#7c3aed,#a78bfa);border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1);width:0%;"></div>
   </div>
-</div>
-
-<!-- ═══════════════ BUG INBOX (admin only) ═══════════════ -->
-<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99982;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(239,68,68,.3);border-radius:18px;width:min(780px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.2);background:rgba(239,68,68,.06);flex-shrink:0;">
-      <div>
-        <div style="font-size:15px;font-weight:800;color:#fca5a5;">🐛 Bug Reports Inbox</div>
-        <div style="font-size:11px;color:rgba(252,165,165,.6);margin-top:2px;">Admin view — all user-submitted reports</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:8px;padding:5px 11px;font-size:12px;cursor:pointer;font-weight:700;">+ Report Bug</button>
-        <button onclick="loadBugInbox()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:700;">↻ Refresh</button>
-        <button onclick="closeBugInboxModal()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-weight:600;">✕ Close</button>
-      </div>
-    </div>
-    <div id="bugInboxBody" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
-  </div>
+  <div style="font-size:12px;color:rgba(148,163,184,.7);" id="saProgressPct">0%</div>
+  <button onclick="if(typeof openOnboarding==='function')openOnboarding();else if(typeof window.onboardingOpen==='function')window.onboardingOpen();" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;border-radius:8px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">View Steps →</button>
+  <button onclick="document.getElementById('saProgressBar').style.display='none';" style="background:transparent;border:none;color:rgba(148,163,184,.45);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0;">×</button>
 </div>
 
 <style>
-/* Scout quick-question pills */
-.scoutQ{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);color:#c4b5fd;border-radius:20px;padding:5px 12px;font-size:12px;cursor:pointer;touch-action:manipulation;transition:background .12s,border-color .12s;white-space:nowrap;}
-.scoutQ:hover,.scoutQ:active{background:rgba(124,58,237,.32);border-color:rgba(124,58,237,.6);}
-/* Scout message bubbles */
-.sMsgUser{align-self:flex-end;max-width:85%;background:rgba(59,130,246,.14);border:1px solid rgba(59,130,246,.28);border-radius:14px 14px 4px 14px;padding:10px 13px;font-size:13px;line-height:1.6;color:#e2e8f0;}
-.sMsgScout{align-self:flex-start;max-width:90%;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.22);border-radius:4px 14px 14px 14px;padding:10px 13px;font-size:13px;line-height:1.6;color:#e2e8f0;}
-.sMsgThinking{opacity:.55;font-style:italic;}
+/* ══════════════════════════════════════════════════════════════════════════
+   SIMPLY AGENTIC AI — 10 VISUAL UPGRADES
+   All additive. No existing rules are overridden except by more specific
+   selectors or !important where needed to beat prior specificity.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. GLASSMORPHISM CARD REFRESH ────────────────────────────────────────── */
+/* Seat cards */
+.seat {
+  backdrop-filter: blur(12px) !important;
+  background: rgba(13,20,50,.82) !important;
+  border: 1px solid rgba(80,110,200,.28) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04) !important;
+  transition: border-color .2s, box-shadow .2s, transform .15s !important;
+}
+.seat:hover {
+  border-color: rgba(124,58,237,.55) !important;
+  box-shadow: 0 8px 32px rgba(124,58,237,.18), inset 0 1px 0 rgba(255,255,255,.06) !important;
+  transform: translateY(-1px) !important;
+}
+.seat.sel, .seat.active {
+  border-color: rgba(124,58,237,.75) !important;
+  box-shadow: 0 0 0 1px rgba(124,58,237,.28), 0 12px 36px rgba(124,58,237,.25), inset 0 1px 0 rgba(255,255,255,.08) !important;
+  background: rgba(20,12,52,.88) !important;
+}
+/* Operator console glass */
+.operator {
+  backdrop-filter: blur(16px) !important;
+  background: rgba(12,18,46,.92) !important;
+  border: 1px solid rgba(80,110,200,.32) !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+/* Group console glass */
+.groupCard, #groupConsole {
+  backdrop-filter: blur(12px) !important;
+  background: rgba(14,20,50,.88) !important;
+  border: 1px solid rgba(80,110,200,.25) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.04) !important;
+}
+/* Side card glass */
+.sideCard {
+  backdrop-filter: blur(14px) !important;
+  background: rgba(10,15,38,.85) !important;
+  border: 1px solid rgba(42,58,106,.55) !important;
+}
+
+/* ── 2. ANIMATED TYPING INDICATOR ─────────────────────────────────────────── */
+@keyframes saTypDot { 0%,80%,100%{transform:scale(0);opacity:.3} 40%{transform:scale(1);opacity:1} }
+.sa-typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(124,58,237,.12);
+  border: 1px solid rgba(124,58,237,.22);
+  border-radius: 20px;
+  margin-top: 4px;
+}
+.sa-typing-indicator span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #a78bfa;
+  display: inline-block;
+  animation: saTypDot 1.2s ease-in-out infinite;
+}
+.sa-typing-indicator span:nth-child(2) { animation-delay: .2s; }
+.sa-typing-indicator span:nth-child(3) { animation-delay: .4s; }
+
+/* ── 3. MESSAGE BUBBLE REDESIGN ───────────────────────────────────────────── */
+.thread { display: flex !important; flex-direction: column !important; gap: 8px !important; }
+.msg {
+  max-width: 88% !important;
+  border-radius: 18px !important;
+  padding: 11px 14px !important;
+  line-height: 1.55 !important;
+  font-size: 13px !important;
+  border: none !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,.2) !important;
+  word-break: break-word !important;
+}
+.msg.user {
+  align-self: flex-end !important;
+  background: linear-gradient(135deg, rgba(59,130,246,.28), rgba(37,99,235,.18)) !important;
+  border: 1px solid rgba(59,130,246,.35) !important;
+  border-radius: 18px 18px 4px 18px !important;
+  margin-left: 12% !important;
+}
+.msg.assistant {
+  align-self: flex-start !important;
+  background: linear-gradient(135deg, rgba(124,58,237,.16), rgba(109,40,217,.1)) !important;
+  border: 1px solid rgba(124,58,237,.28) !important;
+  border-radius: 4px 18px 18px 18px !important;
+  margin-right: 12% !important;
+}
+.msg .who {
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em !important;
+  margin-bottom: 5px !important;
+  opacity: .75 !important;
+}
+.msg.user .who { color: #93c5fd !important; }
+.msg.assistant .who { color: #c4b5fd !important; }
+
+/* ── 4. STATUS GLOW RINGS ─────────────────────────────────────────────────── */
+@keyframes saGlowPulse { 0%,100%{opacity:.7;transform:scale(1)} 50%{opacity:1;transform:scale(1.08)} }
+.av {
+  position: relative !important;
+  transition: box-shadow .3s !important;
+}
+/* Applied via JS based on status */
+.av.av-idle   { box-shadow: 0 0 0 2px rgba(148,163,184,.2) !important; }
+.av.av-active { box-shadow: 0 0 0 2px rgba(34,197,94,.6), 0 0 10px rgba(34,197,94,.3) !important; }
+.av.av-thinking {
+  box-shadow: 0 0 0 2px rgba(245,158,11,.7), 0 0 14px rgba(245,158,11,.35) !important;
+  animation: saGlowPulse 1.2s ease-in-out infinite !important;
+}
+.av.av-error { box-shadow: 0 0 0 2px rgba(239,68,68,.6), 0 0 10px rgba(239,68,68,.3) !important; }
+
+/* ── 5. DASHBOARD CHARTS ──────────────────────────────────────────────────── */
+/* Enhanced stat cards with gradient top border */
+.sa-stat-card {
+  background: linear-gradient(160deg, rgba(30,42,80,.85), rgba(18,26,58,.7)) !important;
+  border: 1px solid rgba(80,110,200,.3) !important;
+  border-top: 2px solid rgba(124,58,237,.6) !important;
+  border-radius: 12px !important;
+  padding: 16px 14px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25) !important;
+  transition: transform .15s, box-shadow .15s !important;
+}
+.sa-stat-card:hover { transform: translateY(-2px) !important; box-shadow: 0 8px 24px rgba(124,58,237,.18) !important; }
+.sa-stat-num { font-size: 30px !important; font-weight: 800 !important; background: linear-gradient(135deg,#c4b5fd,#818cf8) !important; -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; background-clip: text !important; }
+/* Sparkline bar chart */
+.sa-sparkbar { display: flex; align-items: flex-end; gap: 3px; height: 36px; margin-top: 6px; }
+.sa-sparkbar-col { flex: 1; background: rgba(124,58,237,.35); border-radius: 3px 3px 0 0; min-width: 4px; transition: background .2s; }
+.sa-sparkbar-col:hover { background: rgba(167,139,250,.7); }
+/* Pipeline funnel */
+.sa-funnel-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.sa-funnel-bar-wrap { flex: 1; height: 8px; background: rgba(42,58,106,.4); border-radius: 4px; overflow: hidden; }
+.sa-funnel-bar { height: 100%; border-radius: 4px; background: linear-gradient(90deg,#7c3aed,#a78bfa); transition: width .6s cubic-bezier(.4,0,.2,1); }
+/* Activity ring */
+.sa-ring-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.sa-ring-svg { flex-shrink: 0; }
+.sa-ring-svg circle { fill: none; stroke-width: 6; transition: stroke-dashoffset .6s cubic-bezier(.4,0,.2,1); }
+.sa-ring-track { stroke: rgba(42,58,106,.5); }
+.sa-ring-fill { stroke: url(#ringGrad); stroke-linecap: round; }
+
+/* ── 6. ONBOARDING PROGRESS BAR ───────────────────────────────────────────── */
+#saProgressBar { display: none; }
+@media (min-width: 721px) {
+  #saProgressBar { padding: 8px 20px; }
+}
+/* Mobile: hide progress bar (saves space) */
+@media (max-width: 720px) {
+  #saProgressBar { display: none !important; }
+}
+
+/* ── 7. COMMAND PALETTE ───────────────────────────────────────────────────── */
+#cmdPalette { transition: opacity .15s; }
+.cmd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .1s;
+  font-size: 13px;
+  color: rgba(226,232,240,.9);
+}
+.cmd-item:hover, .cmd-item.cmd-active {
+  background: rgba(124,58,237,.2);
+  color: #c4b5fd;
+}
+.cmd-item-icon { font-size: 16px; width: 28px; text-align: center; flex-shrink: 0; }
+.cmd-item-label { font-weight: 600; flex: 1; }
+.cmd-item-hint { font-size: 11px; opacity: .45; flex-shrink: 0; }
+.cmd-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: rgba(148,163,184,.5);
+  padding: 8px 12px 4px;
+}
+#cmdInput::placeholder { color: rgba(148,163,184,.5); }
+
+/* ── 8. SMOOTH TRANSITIONS ────────────────────────────────────────────────── */
+.modal, #overlay .modal { transition: opacity .18s cubic-bezier(.4,0,.2,1) !important; }
+/* Overlays fade in */
+[style*="display:flex"][style*="z-index:9999"],
+[style*="display: flex"][style*="z-index:9999"] { animation: saFadeIn .18s ease; }
+@keyframes saFadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+/* Seat hover lift already in #1 */
+/* Btn press */
+.btn, .saNavBtn, .saPinBtn {
+  transition: background .14s, border-color .14s, transform .1s, box-shadow .14s !important;
+}
+.btn:active, .saNavBtn:active { transform: scale(.97) !important; }
+/* Modal slide-down */
+@keyframes saSlideDown { from{opacity:0;transform:translateY(-16px)} to{opacity:1;transform:translateY(0)} }
+.modal > div:first-child, #dashboardModal > div:first-child {
+  animation: saSlideDown .22s cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ── 9. EMPTY STATES ──────────────────────────────────────────────────────── */
+.sa-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  text-align: center;
+  gap: 10px;
+  color: rgba(148,163,184,.7);
+}
+.sa-empty-icon { font-size: 38px; opacity: .7; margin-bottom: 4px; }
+.sa-empty-title { font-size: 14px; font-weight: 700; color: rgba(226,232,240,.65); }
+.sa-empty-sub { font-size: 12px; opacity: .55; line-height: 1.6; max-width: 280px; }
+.sa-empty-cta {
+  margin-top: 8px;
+  background: rgba(124,58,237,.25);
+  border: 1px solid rgba(124,58,237,.45);
+  color: #c4b5fd;
+  border-radius: 10px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+  touch-action: manipulation;
+}
+.sa-empty-cta:hover { background: rgba(124,58,237,.4); }
+
+/* ── 10. THEME SWITCHER ───────────────────────────────────────────────────── */
+/* Accent color CSS variables — toggled by data-theme attribute on :root */
+:root[data-accent="blue"]   { --pu:#2563eb;--pl:#60a5fa;--ac:#93c5fd; }
+:root[data-accent="green"]  { --pu:#16a34a;--pl:#4ade80;--ac:#86efac; }
+:root[data-accent="orange"] { --pu:#ea580c;--pl:#fb923c;--ac:#fdba74; }
+:root[data-accent="pink"]   { --pu:#db2777;--pl:#f472b6;--ac:#f9a8d4; }
+:root[data-accent="teal"]   { --pu:#0d9488;--pl:#2dd4bf;--ac:#5eead4; }
+/* Default purple already in :root */
+
+/* Theme switcher panel */
+#saThemePanel {
+  display: none;
+  position: fixed;
+  bottom: 56px;
+  right: 14px;
+  z-index: 9990;
+  background: rgba(12,17,40,.98);
+  border: 1px solid rgba(80,110,200,.4);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.6);
+  flex-direction: column;
+  gap: 8px;
+  min-width: 160px;
+}
+#saThemePanel.open { display: flex; }
+.sa-theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(226,232,240,.8);
+  transition: background .12s;
+}
+.sa-theme-swatch:hover { background: rgba(80,110,200,.15); }
+.sa-theme-swatch.active { background: rgba(80,110,200,.22); font-weight: 700; color: #e2e8f0; }
+.sa-swatch-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.sa-theme-btn {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 9989;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(12,17,40,.9);
+  border: 1px solid rgba(80,110,200,.4);
+  color: rgba(148,163,184,.8);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  transition: border-color .15s;
+  touch-action: manipulation;
+}
+.sa-theme-btn:hover { border-color: rgba(124,58,237,.6); }
+@media (max-width: 720px) {
+  .sa-theme-btn { bottom: 70px; } /* above mobile bar */
+  #saThemePanel { bottom: 112px; }
+}
+
 </style>
 
+<!-- Theme switcher button (bottom right) -->
+<button class="sa-theme-btn" id="saThemeBtn" onclick="toggleThemePanel()" title="Change accent color">🎨</button>
+<div id="saThemePanel">
+  <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:rgba(148,163,184,.5);margin-bottom:2px;">ACCENT COLOR</div>
+  <div class="sa-theme-swatch active" data-accent="purple" onclick="setAccent('purple')"><span class="sa-swatch-dot" style="background:#7c3aed;"></span>Purple (default)</div>
+  <div class="sa-theme-swatch" data-accent="blue" onclick="setAccent('blue')"><span class="sa-swatch-dot" style="background:#2563eb;"></span>Blue</div>
+  <div class="sa-theme-swatch" data-accent="green" onclick="setAccent('green')"><span class="sa-swatch-dot" style="background:#16a34a;"></span>Green</div>
+  <div class="sa-theme-swatch" data-accent="orange" onclick="setAccent('orange')"><span class="sa-swatch-dot" style="background:#ea580c;"></span>Orange</div>
+  <div class="sa-theme-swatch" data-accent="pink" onclick="setAccent('pink')"><span class="sa-swatch-dot" style="background:#db2777;"></span>Pink</div>
+  <div class="sa-theme-swatch" data-accent="teal" onclick="setAccent('teal')"><span class="sa-swatch-dot" style="background:#0d9488;"></span>Teal</div>
+</div>
+
 <script>
-/* ═══ closeMobileDrawer helper ═══ */
-window.closeMobileDrawer = function(){
-  const ov = document.getElementById('mobileDrawerOverlay');
-  if(ov){ ov.classList.remove('show'); ov.setAttribute('aria-hidden','true'); }
-  try{ document.body.style.overflow=''; }catch(_){}
-};
+/* ══════════════════════════════════════════════════════════════════════════
+   10 VISUAL UPGRADES — JS
+   ══════════════════════════════════════════════════════════════════════════ */
+(function saVisualUpgrades(){
 
-/* ═══ Mobile nav: Team/Tools/Settings → open drawer ═══ */
-window.saToggleDrop = function(dropId){
-  if(window.innerWidth <= 720){
-    const ov=document.getElementById('mobileDrawerOverlay');
-    if(ov){ ov.classList.add('show'); ov.setAttribute('aria-hidden','false'); }
-    try{ document.body.style.overflow='hidden'; }catch(_){}
-    return;
+  /* ── 2. ANIMATED TYPING INDICATOR ────────────────────────────────────────
+     Replace flat status text with dot animation while a teammate is generating */
+  function installTypingObserver(){
+    const seats = document.querySelectorAll('.seat');
+    seats.forEach(seat=>{
+      const statusEl = seat.querySelector('.ss,.seatStatus,.status');
+      if(!statusEl) return;
+      const av = seat.querySelector('.av');
+      const obs = new MutationObserver(()=>{
+        const txt = (statusEl.innerText||'').toLowerCase();
+        const isThinking = txt.includes('think') || txt.includes('generat') || txt.includes('writing') || txt.includes('stream');
+        // Glow ring
+        if(av){
+          av.classList.remove('av-idle','av-active','av-thinking','av-error');
+          if(isThinking) av.classList.add('av-thinking');
+          else if(txt.includes('idle')||txt==='' ) av.classList.add('av-idle');
+          else av.classList.add('av-active');
+        }
+        // Typing dots in thread
+        const thread = document.getElementById('thread_'+seat.dataset.name) || document.querySelector('.thread');
+        if(!thread) return;
+        const existing = thread.querySelector('.sa-typing-indicator');
+        if(isThinking && !existing){
+          const ind = document.createElement('div');
+          ind.className='sa-typing-indicator';
+          ind.innerHTML='<span></span><span></span><span></span>';
+          thread.appendChild(ind);
+          thread.scrollTop = thread.scrollHeight;
+        } else if(!isThinking && existing){
+          existing.remove();
+        }
+      });
+      obs.observe(statusEl,{childList:true,subtree:true,characterData:true});
+    });
   }
-  const all=document.querySelectorAll('.saDrop');
-  const t=document.getElementById(dropId);
-  const open=t&&t.classList.contains('open');
-  all.forEach(d=>d.classList.remove('open'));
-  if(!open&&t) t.classList.add('open');
-};
-document.addEventListener('click',e=>{
-  if(window.innerWidth>720&&!e.target.closest('.saDropWrap'))
-    document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
-});
+  setTimeout(installTypingObserver, 1200);
 
-/* ═══ SCOUT PANEL ═══ */
-(function(){
-  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI — an AI-powered business command center. You know every feature deeply.
+  /* ── 4. STATUS GLOW RINGS — initial pass ────────────────────────────────── */
+  function applyGlowRings(){
+    document.querySelectorAll('.seat').forEach(seat=>{
+      const av = seat.querySelector('.av');
+      if(!av) return;
+      const statusEl = seat.querySelector('.ss,.seatStatus,.status');
+      const txt = statusEl ? (statusEl.innerText||'').toLowerCase() : '';
+      av.classList.remove('av-idle','av-active','av-thinking','av-error');
+      if(txt.includes('think')||txt.includes('generat')) av.classList.add('av-thinking');
+      else av.classList.add('av-idle');
+    });
+  }
+  setTimeout(applyGlowRings,800);
+  setInterval(applyGlowRings, 3000);
 
-KEY FEATURES:
-• Round Table: AI teammates (CMO, CFO, CTO, etc.) with custom personas, memory & tools
-• Group Console: broadcast one prompt to all teammates simultaneously
-• Lead Lab: AI B2B lead gen — searches the web, scrapes real websites for emails/phones
-• CRM (Client Center): manage leads, contacts, pipeline stages
-• Calendar: syncs Google Calendar + Motion — shows all events, tasks, all-day items
-• Email Console: send/receive via Gmail OAuth integration
-• Community Hub: leaderboard, ideas board, announcements, XP points
-• Voice Mode: hands-free spoken conversation with teammates
-• Dashboard: analytics, performance metrics
-• Settings: connect Google Calendar/Gmail, set API keys, manage teammates
-• Scout (you): built-in help AI
-• Get Human Help: emails SimplyAgenticAI@gmail.com
-• Bug Report: submit issues directly to admin
-
-Be concise and practical. Give step-by-step instructions when asked how to do something. Never make up features that don't exist.`;
-
-  const hist=[];
-  let scoutOpened=false;
-
-  window.openScoutPanel=function(){
-    const o=document.getElementById('scoutOverlay');
-    if(o) o.style.display='flex';
-    if(!scoutOpened){
-      scoutOpened=true;
-      addMsg('scout',"👋 Hi! I'm Scout, your built-in assistant. I know everything about Simply Agentic AI — ask me anything, or tap a quick question below.");
-    }
-    setTimeout(()=>document.getElementById('scoutInput')&&document.getElementById('scoutInput').focus(),120);
-  };
-
-  window.closeScoutPanel=function(){
-    const o=document.getElementById('scoutOverlay');
-    if(o) o.style.display='none';
-  };
-
-  function addMsg(role,text){
-    const box=document.getElementById('scoutMsgs'); if(!box) return null;
-    const d=document.createElement('div');
-    d.className=role==='user'?'sMsgUser':'sMsgScout';
-    if(role==='thinking') d.classList.add('sMsgThinking');
-    d.innerText=text;
-    box.appendChild(d);
-    box.scrollTop=box.scrollHeight;
-    return d;
+  /* ── 5. ENHANCED DASHBOARD ───────────────────────────────────────────────
+     Patch saOpenDashboard to inject charts after the existing grid loads */
+  const _origDash = window.saOpenDashboard;
+  if(_origDash){
+    window.saOpenDashboard = async function(){
+      await _origDash.apply(this, arguments);
+      setTimeout(injectDashCharts, 120);
+    };
   }
 
-  window.scoutAsk=function(q){
-    const inp=document.getElementById('scoutInput');
-    if(inp) inp.value=q;
-    scoutSend();
-  };
+  function injectDashCharts(){
+    const body = document.getElementById('dashboardBody');
+    if(!body || body.querySelector('.sa-dash-charts')) return;
 
-  window.scoutSend=async function(){
-    const inp=document.getElementById('scoutInput');
-    const q=(inp&&inp.value||'').trim();
-    if(!q) return;
-    inp.value='';
-    // Hide quick questions after first send
-    const qr=document.getElementById('scoutQuickRow');
-    if(qr) qr.style.display='none';
-    addMsg('user',q);
-    hist.push({role:'user',content:q});
-    const th=addMsg('scout','🤔 Thinking…');
-    if(th) th.classList.add('sMsgThinking');
-    try{
-      const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
-      const d=await r.json();
-      if(th) th.remove();
-      const ans=d.answer||d.error||'Sorry, I had trouble with that.';
-      addMsg('scout',ans);
-      hist.push({role:'assistant',content:ans});
-    }catch(e){
-      if(th) th.remove();
-      addMsg('scout','❌ Network error — please try again.');
-    }
-  };
-})();
+    // Activity sparkline (synthetic from top teammates)
+    const topRows = body.querySelectorAll('.sa-dash-section:first-child .sa-dash-row');
+    const vals = Array.from(topRows).map(r=>{
+      const m = (r.querySelector('span:last-child')||{}).innerText||'0';
+      return parseInt(m)||0;
+    });
+    if(!vals.length) return;
 
-/* ═══ BUG REPORT ═══ */
-(function(){
-  window.openBugReportModal=function(){
-    const m=document.getElementById('bugReportModal');
-    if(m) m.style.display='flex';
-    const inp=document.getElementById('bugDescInput');
-    if(inp&&!inp.value){
-      const orient=window.innerWidth>window.innerHeight?'landscape':'portrait';
-      inp.placeholder=`Describe what happened and what you expected…\n\n(Auto-info: ${window.innerWidth}×${window.innerHeight} ${orient})`;
-    }
-  };
-  window.closeBugReportModal=function(){
-    const m=document.getElementById('bugReportModal');
-    if(m) m.style.display='none';
-    const s=document.getElementById('bugReportStatus');
-    if(s){s.style.display='none';s.innerText='';}
-  };
-  window.submitBugReport=async function(){
-    const desc=(document.getElementById('bugDescInput').value||'').trim();
-    const steps=(document.getElementById('bugStepsInput').value||'').trim();
-    const severity=document.getElementById('bugSeverityInput').value||'medium';
-    const status=document.getElementById('bugReportStatus');
-    const btn=document.getElementById('bugSubmitBtn');
-    if(!desc){status.style.display='block';status.style.color='#fca5a5';status.innerText='⚠️ Please describe the bug.';return;}
-    btn.disabled=true;btn.innerText='Sending…';
-    try{
-      const r=await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({description:desc,steps,severity,device:{
-          screenW:window.innerWidth,screenH:window.innerHeight,
-          orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',
-          ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()
-        }})});
-      const d=await r.json();
-      status.style.display='block';
-      if(d.ok){
-        status.style.color='#86efac';
-        status.innerText='✅ Report sent — thank you! The team has been notified.';
-        document.getElementById('bugDescInput').value='';
-        document.getElementById('bugStepsInput').value='';
-        setTimeout(closeBugReportModal,2200);
-      }else{
-        status.style.color='#fca5a5';
-        status.innerText='❌ '+(d.error||'Could not send.');
-      }
-    }catch(e){
-      status.style.display='block';status.style.color='#fca5a5';status.innerText='❌ Network error.';
-    }finally{
-      btn.disabled=false;btn.innerText='📤 Send Bug Report';
-    }
-  };
+    const maxV = Math.max(...vals,1);
+    const chartWrap = document.createElement('div');
+    chartWrap.className='sa-dash-charts';
+    chartWrap.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;';
 
-  /* ── Admin: Bug Inbox ── */
-  window.openBugInboxModal=function(){
-    const m=document.getElementById('bugInboxModal');
-    if(m){m.style.display='flex';loadBugInbox();}
-  };
-  window.closeBugInboxModal=function(){
-    const m=document.getElementById('bugInboxModal');
-    if(m) m.style.display='none';
-  };
-  window.loadBugInbox=async function(){
-    const body=document.getElementById('bugInboxBody');if(!body)return;
-    body.innerHTML='<div style="padding:30px;text-align:center;opacity:.5;font-size:13px;">Loading…</div>';
-    try{
-      const r=await fetch('/api/bug_report/list');
-      const d=await r.json();
-      if(!d.ok){body.innerHTML=`<div style="padding:30px;text-align:center;opacity:.5;font-size:13px;">${d.error||'Error'}</div>`;return;}
-      const reports=d.reports||[];
-      if(!reports.length){body.innerHTML='<div style="padding:30px;text-align:center;font-size:13px;opacity:.5;">No bug reports yet 🎉</div>';return;}
-      const sc={high:'#fca5a5',medium:'#fdba74',low:'#fde68a'};
-      const icons={high:'🔴',medium:'🟠',low:'🟡'};
-      body.innerHTML=reports.map(r=>{
-        const col=sc[r.severity]||'#c4b5fd';
-        const ic=icons[r.severity]||'⚪';
-        const ts=(r.created_at||'').slice(0,16).replace('T',' ');
-        const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        return `<div style="background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-left:3px solid ${col};border-radius:12px;padding:14px 16px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-            <span style="font-size:12px;font-weight:800;color:${col};">${ic} ${r.severity.toUpperCase()}</span>
-            <span style="font-size:11px;opacity:.5;">${esc(r.submitted_by)} · ${ts}</span>
-            ${r.resolved
-              ? '<span style="font-size:11px;color:#86efac;font-weight:700;">✅ Resolved</span>'
-              : `<button onclick="markBugResolved('${r.id}')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;">Mark resolved</button>`}
+    // Sparkline bars
+    const sparkHtml = `
+      <div style="background:rgba(20,28,60,.7);border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:rgba(148,163,184,.55);margin-bottom:10px;">TEAMMATE ACTIVITY</div>
+        <div class="sa-sparkbar">${vals.map(v=>`<div class="sa-sparkbar-col" style="height:${Math.max(8,Math.round((v/maxV)*32))}px" title="${v} actions"></div>`).join('')}</div>
+        <div style="font-size:11px;color:rgba(148,163,184,.5);margin-top:6px;">${vals.length} teammate${vals.length!==1?'s':''} active</div>
+      </div>`;
+
+    // Weekly task completion ring (mocked from available data)
+    const totalActions = parseInt((body.querySelector('.sa-stat-num')||{}).innerText||'0')||0;
+    const pct = Math.min(100, Math.round((totalActions / Math.max(totalActions*1.4,1))*100));
+    const r=26, c=32, circ=2*Math.PI*r;
+    const offset = circ - (pct/100)*circ;
+    const ringHtml = `
+      <div style="background:rgba(20,28,60,.7);border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:rgba(148,163,184,.55);margin-bottom:10px;">SYSTEM USAGE</div>
+        <div class="sa-ring-wrap">
+          <svg class="sa-ring-svg" width="${c*2}" height="${c*2}" viewBox="0 0 ${c*2} ${c*2}">
+            <defs><linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#a78bfa"/></linearGradient></defs>
+            <circle class="sa-ring-track" cx="${c}" cy="${c}" r="${r}" stroke-dasharray="${circ}" stroke-dashoffset="0"/>
+            <circle class="sa-ring-fill" cx="${c}" cy="${c}" r="${r}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}" transform="rotate(-90 ${c} ${c})"/>
+          </svg>
+          <div>
+            <div style="font-size:26px;font-weight:800;color:#c4b5fd;">${totalActions}</div>
+            <div style="font-size:11px;color:rgba(148,163,184,.55);margin-top:2px;">Total AI actions</div>
           </div>
-          <div style="font-size:13px;line-height:1.6;margin-bottom:${r.steps?'8px':'0'};">${esc(r.description)}</div>
-          ${r.steps?`<div style="font-size:12px;opacity:.55;white-space:pre-wrap;border-top:1px solid rgba(42,58,106,.4);padding-top:7px;">Steps: ${esc(r.steps)}</div>`:''}
-          <div style="font-size:11px;opacity:.35;margin-top:6px;">${esc((r.device||{}).orientation||'')} ${esc((r.device||{}).screenW||'')}×${esc((r.device||{}).screenH||'')} · ${esc(((r.device||{}).ua||'').slice(0,80))}</div>
-        </div>`;
-      }).join('');
-    }catch(e){body.innerHTML='<div style="padding:30px;text-align:center;opacity:.5;font-size:13px;">Error loading reports.</div>';}
-  };
-  window.markBugResolved=async function(id){
-    await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
-    loadBugInbox();
-    // Refresh badge
-    checkAdminBugBadge();
-  };
+        </div>
+      </div>`;
 
-  /* ── Admin badge check on load ── */
-  async function checkAdminBugBadge(){
+    chartWrap.innerHTML = sparkHtml + ringHtml;
+
+    // Insert after stat grid
+    const statGrid = body.querySelector('.sa-stat-grid');
+    if(statGrid && statGrid.nextSibling) body.insertBefore(chartWrap, statGrid.nextSibling);
+    else body.prepend(chartWrap);
+  }
+
+  /* ── 6. ONBOARDING PROGRESS BAR ─────────────────────────────────────────── */
+  async function loadProgressBar(){
     try{
-      const r=await fetch('/api/bug_report/list');
-      const d=await r.json();
-      const inboxBtn=document.getElementById('bugInboxNavBtn');
-      if(d.ok&&d.is_admin&&inboxBtn){
-        inboxBtn.style.display='';
-        const n=(d.reports||[]).filter(x=>!x.resolved).length;
-        inboxBtn.innerHTML=n
-          ?`🐛 Bugs <span style="background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 6px;font-weight:800;vertical-align:middle;">${n}</span>`
-          :'🐛 Bugs';
-      }
+      const r = await fetch('/api/onboarding/status');
+      const d = await r.json();
+      if(!d.ok || d.dismissed || d.all_done) return;
+      const pct = d.pct || 0;
+      const done = d.done_count||0;
+      const total = d.total||7;
+      const bar = document.getElementById('saProgressBar');
+      const fill = document.getElementById('saProgressFill');
+      const label = document.getElementById('saProgressLabel');
+      const pctEl = document.getElementById('saProgressPct');
+      if(!bar) return;
+      bar.style.display='flex';
+      if(fill) fill.style.width = pct+'%';
+      if(label) label.innerText = `Setup: ${done}/${total} steps`;
+      if(pctEl) pctEl.innerText = pct+'%';
+      // Push content up so bar doesn't overlap
+      document.body.style.paddingBottom = '48px';
     }catch(_){}
   }
-  setTimeout(checkAdminBugBadge, 1800);
+  setTimeout(loadProgressBar, 1500);
+
+  /* ── 7. COMMAND PALETTE ──────────────────────────────────────────────────── */
+  const CMD_ITEMS = [
+    {icon:'👥',label:'Team',hint:'Manage',fn:()=>{ const b=document.querySelector('[data-click="manageTeamBtn"],#manageTeamBtn'); if(b)b.click(); }},
+    {icon:'➕',label:'Add Teammate',hint:'',fn:()=>{ const b=document.querySelector('[data-click="createTeamBtn"],#createTeamBtn'); if(b)b.click(); }},
+    {icon:'⚙️',label:'Settings',hint:'',fn:()=>{ const b=document.querySelector('[data-click="settingsBtn"],#settingsBtn'); if(b)b.click(); }},
+    {icon:'📅',label:'Calendar',hint:'',fn:()=>{ const b=document.querySelector('[data-click="calendarBtn"],#calendarBtn'); if(b)b.click(); }},
+    {icon:'👥',label:'CRM / Client Center',hint:'',fn:()=>{ const b=document.querySelector('[data-click="crmBtn"],#crmBtn'); if(b)b.click(); }},
+    {icon:'🔬',label:'Lead Lab',hint:'',fn:()=>{ const b=document.querySelector('[data-click="leadLabBtn"],#leadLabBtn'); if(b)b.click(); }},
+    {icon:'📊',label:'Dashboard',hint:'',fn:()=>{ if(typeof saOpenDashboard==='function')saOpenDashboard(); }},
+    {icon:'🏆',label:'Community',hint:'',fn:()=>{ if(typeof openCommunityPanel==='function')openCommunityPanel(); }},
+    {icon:'📚',label:'Prompt Library',hint:'',fn:()=>{ const b=document.querySelector('[data-click="promptLibraryBtn"],#promptLibraryBtn'); if(b)b.click(); }},
+    {icon:'📧',label:'Email Console',hint:'',fn:()=>{ const b=document.querySelector('[data-click="emailConsoleBtn"],#emailConsoleBtn'); if(b)b.click(); }},
+    {icon:'🖼',label:'Image Library',hint:'',fn:()=>{ const b=document.querySelector('[data-click="imageLibBtn"],#imageLibBtn'); if(b)b.click(); }},
+    {icon:'📢',label:'Social Studio',hint:'',fn:()=>{ const b=document.querySelector('[data-click="socialStudioBtn"],#socialStudioBtn'); if(b)b.click(); }},
+    {icon:'🎁',label:'Offer Builder',hint:'',fn:()=>{ const b=document.querySelector('[data-click="offerBuilderBtn"],#offerBuilderBtn'); if(b)b.click(); }},
+    {icon:'🔬',label:'Knowledge Base (RAG)',hint:'',fn:()=>{ if(typeof saOpenRag==='function')saOpenRag(); }},
+    {icon:'🤖',label:'Scout Help',hint:'',fn:()=>{ if(typeof openScoutPanel==='function')openScoutPanel(); }},
+    {icon:'🐛',label:'Report a Bug',hint:'',fn:()=>{ if(typeof openBugReportModal==='function')openBugReportModal(); }},
+    {icon:'🚪',label:'Logout',hint:'',fn:()=>{ location.href='/logout'; }},
+  ];
+  let cmdActive = 0;
+  let cmdFiltered = [...CMD_ITEMS];
+
+  window.openCmdPalette = function(){
+    const p=document.getElementById('cmdPalette');
+    if(!p) return;
+    p.style.display='flex';
+    cmdActive=0;
+    renderCmd('');
+    const inp=document.getElementById('cmdInput');
+    if(inp){ inp.value=''; setTimeout(()=>inp.focus(),60); }
+  };
+  window.closeCmdPalette = function(){
+    const p=document.getElementById('cmdPalette');
+    if(p) p.style.display='none';
+  };
+  window.filterCmd = function(q){
+    cmdActive=0;
+    renderCmd(q);
+  };
+  window.cmdKey = function(e){
+    const items=document.querySelectorAll('.cmd-item');
+    if(e.key==='ArrowDown'){ e.preventDefault(); cmdActive=Math.min(cmdActive+1,items.length-1); highlightCmd(items); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); cmdActive=Math.max(cmdActive-1,0); highlightCmd(items); }
+    else if(e.key==='Enter'){ e.preventDefault(); const a=items[cmdActive]; if(a)a.click(); }
+    else if(e.key==='Escape'){ closeCmdPalette(); }
+  };
+  function highlightCmd(items){
+    items.forEach((it,i)=>it.classList.toggle('cmd-active',i===cmdActive));
+    if(items[cmdActive]) items[cmdActive].scrollIntoView({block:'nearest'});
+  }
+  function renderCmd(q){
+    const list=document.getElementById('cmdList'); if(!list) return;
+    const lq=(q||'').toLowerCase().trim();
+    cmdFiltered=CMD_ITEMS.filter(it=>!lq||it.label.toLowerCase().includes(lq)||(it.hint||'').toLowerCase().includes(lq));
+    if(!cmdFiltered.length){
+      list.innerHTML='<div class="sa-empty" style="padding:20px 0;"><div class="sa-empty-icon">🤷</div><div class="sa-empty-sub">No results for "'+_escCmd(q)+'"</div></div>';
+      return;
+    }
+    list.innerHTML=(lq?'':'<div class="cmd-section-label">FEATURES & TOOLS</div>')+
+      cmdFiltered.map((it,i)=>`<div class="cmd-item${i===cmdActive?' cmd-active':''}" onclick="cmdRun(${CMD_ITEMS.indexOf(it)})">
+        <span class="cmd-item-icon">${it.icon}</span>
+        <span class="cmd-item-label">${_escCmd(it.label)}</span>
+        ${it.hint?`<span class="cmd-item-hint">${_escCmd(it.hint)}</span>`:''}
+      </div>`).join('');
+  }
+  window.cmdRun=function(i){ const it=CMD_ITEMS[i]; if(it){closeCmdPalette();setTimeout(()=>{ try{it.fn();}catch(_){} },80);} };
+  function _escCmd(s){ const d=document.createElement('div');d.appendChild(document.createTextNode(String(s||'')));return d.innerHTML; }
+
+  // Keyboard shortcut: Cmd+K / Ctrl+K
+  document.addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key==='k'){
+      e.preventDefault();
+      const p=document.getElementById('cmdPalette');
+      if(p&&p.style.display==='flex') closeCmdPalette();
+      else openCmdPalette();
+    }
+    if(e.key==='Escape') closeCmdPalette();
+  });
+
+  /* ── 9. EMPTY STATES ────────────────────────────────────────────────────── */
+  function injectEmptyStates(){
+    // Thread: if empty and no messages
+    const thread=document.querySelector('.thread');
+    if(thread&&!thread.innerText.trim()&&!thread.querySelector('.msg')){
+      if(!thread.querySelector('.sa-empty')){
+        const em=document.createElement('div');
+        em.className='sa-empty';
+        em.style.cssText='height:100%;justify-content:center;';
+        em.innerHTML=`<div class="sa-empty-icon">💬</div>
+          <div class="sa-empty-title">No messages yet</div>
+          <div class="sa-empty-sub">Select a teammate and type your first message to get started.</div>`;
+        thread.appendChild(em);
+      }
+    }
+  }
+  setTimeout(injectEmptyStates,1600);
+
+  // Lead Lab results empty state
+  const origCrmRender=window.crmRenderLeadResults;
+  if(origCrmRender){
+    window.crmRenderLeadResults=function(items){
+      origCrmRender(items);
+      if(!items||!items.length){
+        const box=document.getElementById('leadLabResults');
+        if(box){
+          box.innerHTML=`<div class="sa-empty">
+            <div class="sa-empty-icon">🔬</div>
+            <div class="sa-empty-title">No leads found yet</div>
+            <div class="sa-empty-sub">Enter a niche and location above, then click Build lead list to search the web for real prospects.</div>
+            <button class="sa-empty-cta" onclick="document.getElementById('leadLabRunBtn')&&document.getElementById('leadLabRunBtn').click()">Build Lead List →</button>
+          </div>`;
+        }
+      }
+    };
+  }
+
+  /* ── 10. THEME SWITCHER ──────────────────────────────────────────────────── */
+  window.toggleThemePanel=function(){
+    const p=document.getElementById('saThemePanel');
+    if(!p) return;
+    p.classList.toggle('open');
+    if(p.classList.contains('open')){
+      setTimeout(()=>document.addEventListener('click',function close(e){
+        if(!p.contains(e.target)&&e.target.id!=='saThemeBtn'){p.classList.remove('open');document.removeEventListener('click',close);}
+      }),50);
+    }
+  };
+  window.setAccent=function(accent){
+    document.documentElement.setAttribute('data-accent',accent==='purple'?'':accent);
+    document.querySelectorAll('.sa-theme-swatch').forEach(s=>{
+      s.classList.toggle('active',s.dataset.accent===accent);
+    });
+    try{localStorage.setItem('sa_accent',accent);}catch(_){}
+  };
+  // Restore saved accent
+  try{
+    const saved=localStorage.getItem('sa_accent');
+    if(saved&&saved!=='purple') setAccent(saved);
+  }catch(_){}
+
 })();
 </script>
 
