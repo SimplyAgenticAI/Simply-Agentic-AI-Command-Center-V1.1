@@ -18143,7 +18143,22 @@ async function crmFetchTasks(){
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
-      if(st) st.innerText = 'Searching the web for real leads...';
+      const btn = $("leadLabRunBtn");
+      if(btn){ btn.disabled = true; btn.style.opacity = '0.6'; }
+      if(st) st.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 0;">
+          <div style="display:flex;gap:5px;align-items:center;">
+            <span style="width:8px;height:8px;border-radius:50%;background:#a78bfa;display:inline-block;animation:llPulse 1.2s ease-in-out infinite;"></span>
+            <span style="width:8px;height:8px;border-radius:50%;background:#a78bfa;display:inline-block;animation:llPulse 1.2s ease-in-out 0.2s infinite;"></span>
+            <span style="width:8px;height:8px;border-radius:50%;background:#a78bfa;display:inline-block;animation:llPulse 1.2s ease-in-out 0.4s infinite;"></span>
+          </div>
+          <span style="font-size:13px;color:#a78bfa;font-weight:500;letter-spacing:0.03em;" id="leadLabLoadingTxt">Scanning the web</span>
+        </div>
+        <style>@keyframes llPulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}</style>`;
+      // Cycle through status messages while loading
+      const msgs = ['Scanning the web','Finding businesses','Extracting contacts','Checking websites','Pulling emails & phones','Almost there'];
+      let mi = 0;
+      const ticker = setInterval(()=>{ mi=(mi+1)%msgs.length; const el=$('leadLabLoadingTxt'); if(el) el.textContent=msgs[mi]; }, 1800);
       try{
         const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
@@ -18159,6 +18174,7 @@ async function crmFetchTasks(){
             min_score: 1
           })
         });
+        clearInterval(ticker);
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         const raw = await res.text();
         let data = null;
@@ -18168,9 +18184,15 @@ async function crmFetchTasks(){
         }
         if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items || []);
-        if(st) st.innerText = `Ready • ${((data.items||[]).length)} leads from live web search${data.warning ? ' • ' + data.warning : ''}`;
+        const count = (data.items||[]).length;
+        const withEmail = (data.items||[]).filter(x=>x.email).length;
+        const withPhone = (data.items||[]).filter(x=>x.phone).length;
+        if(st) st.innerHTML = `<span style="color:#86efac;font-weight:500;">✓ ${count} leads found &nbsp;·&nbsp; ${withEmail} with email &nbsp;·&nbsp; ${withPhone} with phone</span>${data.warning ? '<br><span style="opacity:.6;font-size:12px;">'+data.warning+'</span>' : ''}`;
       }catch(e){
-        if(st) st.innerText = e.message || 'Lead build failed';
+        clearInterval(ticker);
+        if(st) st.innerHTML = `<span style="color:#fca5a5;">${e.message || 'Lead build failed'}</span>`;
+      }finally{
+        if(btn){ btn.disabled = false; btn.style.opacity = ''; }
       }
     }
 
@@ -26530,30 +26552,45 @@ def _crm_same_domain(url_a: str, url_b: str) -> bool:
     return bool(da and db and da == db)
 
 
-def _crm_find_contact_links(html: str, base_url: str) -> List[str]:
-    out = []
-    seen = set()
+def _crm_find_contact_links(html: str, base_url: str) -> Tuple[List[str], List[str]]:
+    """Return (page_links, mailto_emails) found in the HTML.
+    Page links: contact/about/team sub-pages worth scraping.
+    Mailto emails: email addresses found directly in href="mailto:..." attributes.
+    """
+    page_links: List[str] = []
+    mailto_emails: List[str] = []
+    seen_links: set = set()
+    seen_emails: set = set()
     if not html:
-        return out
+        return page_links, mailto_emails
     if BeautifulSoup is not None:
         try:
             soup = BeautifulSoup(html, "html.parser")
             for a in soup.find_all("a", href=True):
                 href = (a.get("href") or "").strip()
+                # Capture emails from mailto: links — most reliable source
+                if href.lower().startswith("mailto:"):
+                    email = href[7:].split("?")[0].strip().lower()
+                    if email and "@" in email and email not in seen_emails:
+                        # Basic validity check
+                        if re.match(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", email):
+                            seen_emails.add(email)
+                            mailto_emails.append(email)
+                    continue
+                if href.lower().startswith("tel:"):
+                    continue
                 label = " ".join([a.get_text(" ", strip=True), href]).lower()
-                if not any(k in label for k in ["contact", "about", "agent", "team", "staff", "bio"]):
+                if not any(k in label for k in ["contact", "about", "agent", "team", "staff", "bio", "reach", "connect", "email"]):
                     continue
                 full = urljoin(base_url, href)
-                if full.startswith("mailto:") or full.startswith("tel:"):
-                    continue
                 if not _crm_same_domain(full, base_url):
                     continue
-                if full not in seen:
-                    seen.add(full)
-                    out.append(full)
+                if full not in seen_links:
+                    seen_links.add(full)
+                    page_links.append(full)
         except Exception:
             pass
-    return out[:3]
+    return page_links[:4], mailto_emails
 
 
 def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> Dict[str, Any]:
@@ -26562,6 +26599,7 @@ def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> D
     visible_text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", html or "", flags=re.I | re.S)
     visible_text = re.sub(r"<[^>]+>", " ", visible_text)
     visible_text = re.sub(r"\s+", " ", visible_text).strip()
+    mailto_emails: List[str] = []
     if BeautifulSoup is not None and html:
         try:
             soup = BeautifulSoup(html, "html.parser")
@@ -26572,20 +26610,36 @@ def _crm_parse_page_signals(html: str, url: str, niche: str, location: str) -> D
                 if og and og.get("content"):
                     title = og.get("content").strip()
             headings = [x.get_text(" ", strip=True) for x in soup.find_all(["h1", "h2"], limit=8)]
+            # Extract emails from mailto: hrefs — most reliable method
+            for a in soup.find_all("a", href=True):
+                href = (a.get("href") or "").strip()
+                if href.lower().startswith("mailto:"):
+                    email = href[7:].split("?")[0].strip().lower()
+                    if email and "@" in email and re.match(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", email):
+                        if not any(x in email for x in ["example.com", ".png", ".jpg"]):
+                            mailto_emails.append(email)
         except Exception:
             pass
-    emails = _crm_extract_emails_from_text((html or "") + "\n" + visible_text)
+    # Also regex-scan raw HTML + visible text for any plaintext emails
+    regex_emails = _crm_extract_emails_from_text((html or "") + "\n" + visible_text)
+    # Merge: mailto hrefs first (most trustworthy), then regex finds
+    all_emails: List[str] = []
+    seen_e: set = set()
+    for e in (mailto_emails + regex_emails):
+        if e and e not in seen_e:
+            seen_e.add(e)
+            all_emails.append(e)
     phones = _crm_extract_phones_from_text((html or "") + "\n" + visible_text)
     company = _crm_guess_company(title or (headings[0] if headings else ""), url)
     person_name = _crm_best_person_name(([title] if title else []) + headings, company=company)
     text_l = (title + " " + " ".join(headings) + " " + visible_text[:5000]).lower()
-    niche_hit = bool(niche and all(tok in text_l for tok in [t for t in re.findall(r"[a-z0-9]+", niche.lower())[:2]])) or any(k in text_l for k in ["realtor", "real estate", "broker", "brokerage", "homes for sale", "properties"]) 
+    niche_hit = bool(niche and all(tok in text_l for tok in [t for t in re.findall(r"[a-z0-9]+", niche.lower())[:2]])) or any(k in text_l for k in ["realtor", "real estate", "broker", "brokerage", "homes for sale", "properties"])
     location_hit = bool(location and any(tok in text_l for tok in re.findall(r"[a-z0-9]+", location.lower())[:2]))
     return {
         "title": title,
         "headings": headings,
         "visible_text": visible_text,
-        "emails": emails,
+        "emails": all_emails,
         "phones": phones,
         "company": company,
         "name": person_name,
@@ -26733,11 +26787,20 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         emails.insert(0, hint_email)
     if hint_phone and hint_phone not in phones:
         phones.insert(0, hint_phone)
-    for link in _crm_find_contact_links(html, final_url):
+    # Scrape contact/about sub-pages and extract mailto: emails from them
+    contact_links, page_mailto_emails = _crm_find_contact_links(html, final_url)
+    for e in page_mailto_emails:
+        if e not in emails:
+            emails.insert(0, e)  # mailto: from main page = highest confidence
+    for link in contact_links:
         sub_html, _ = _crm_fetch_text_url(link)
         if not sub_html:
             continue
         sub = _crm_parse_page_signals(sub_html, link, niche, location)
+        _, sub_mailto = _crm_find_contact_links(sub_html, link)
+        for e in sub_mailto:
+            if e not in emails:
+                emails.append(e)
         for e in sub.get("emails") or []:
             if e not in emails:
                 emails.append(e)
@@ -26761,15 +26824,14 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
         "domain": domain,
         "website": website,
         "phone": phones[0] if phones else "",
-        "email": emails[0] if emails else (email_candidates[0].get("email","") if email_candidates else ""),
+        "email": emails[0] if emails else "",
         "niche_hit": bool(signals.get("niche_hit")),
         "location_hit": bool(signals.get("location_hit")),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
         "source_query": query,
     }
     candidate["score"] = _crm_score_candidate(candidate, niche, location)
-    if candidate["score"] < 40:
-        return None
+    # Never discard a lead that has a real email or phone — score filter removed
     return candidate
 
 
