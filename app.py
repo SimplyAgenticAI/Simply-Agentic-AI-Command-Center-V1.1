@@ -138,7 +138,7 @@ PLANS: Dict[str, Any] = {
             "3 custom AI teammates — build your bench",
             "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 2,500 contacts)",
-            "Email & SMS broadcast (up to 1,000 recipients)",
+            "Email broadcast (up to 1,000 recipients) + SMS via Twilio (your account)",
             "2 team seats — bring a partner",
             "Calendar, tasks & Gmail sync",
             "Price locked forever — never increases",
@@ -158,7 +158,7 @@ PLANS: Dict[str, Any] = {
             "All 7 built-in AI teammates (GPT-4o + Claude)",
             "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 500 contacts)",
-            "Email & SMS broadcast (up to 250 recipients)",
+            "Email broadcast (up to 250 recipients) + SMS via Twilio (your account)",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
         ],
@@ -177,7 +177,7 @@ PLANS: Dict[str, Any] = {
             "Everything in Solo Operator",
             "3 custom AI teammates — build your bench",
             "CRM + pipeline (up to 2,500 contacts)",
-            "Email & SMS broadcast (up to 1,000 recipients)",
+            "Email broadcast (up to 1,000 recipients) + SMS via Twilio (your account)",
             "3 team seats — run with a crew",
             "Advanced pipeline automation",
             "Priority support",
@@ -975,10 +975,10 @@ def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -
 def _stripe_verify_webhook(payload: bytes, sig_header: str) -> Tuple[bool, Dict[str, Any]]:
     """Verify Stripe-Signature header and return (ok, event_dict)."""
     if not STRIPE_WEBHOOK_SECRET:
-        try:
-            return True, json.loads(payload.decode("utf-8"))
-        except Exception:
-            return False, {}
+        # SECURITY: Never accept unverified webhook payloads.
+        # Set STRIPE_WEBHOOK_SECRET in your environment to enable webhook processing.
+        print("[SECURITY] Stripe webhook received but STRIPE_WEBHOOK_SECRET is not set — rejecting.", flush=True)
+        return False, {}
     try:
         parts: Dict[str, str] = {}
         for chunk in sig_header.split(","):
@@ -1360,9 +1360,62 @@ def _error_500(e):
     return page, 500
 
 
+# =========================
+# CSRF PROTECTION
+# =========================
+# All state-changing requests (POST/PUT/PATCH/DELETE) from authenticated sessions
+# must include a valid CSRF token via the X-CSRF-Token header.
+# The token is issued per-session via GET /api/csrf_token.
+# Stripe webhooks are explicitly exempt — they use HMAC signature verification instead.
+
+_CSRF_EXEMPT_PATHS = {
+    "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
+    "/api/register", "/api/me",
+}
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
+
+def _csrf_token_for_session() -> str:
+    """Return the CSRF token for the current session, creating one if absent."""
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_hex(32)
+        session["_csrf_token"] = token
+        session.modified = True
+    return token
+
+def _csrf_valid() -> bool:
+    """Return True if the incoming request carries a valid CSRF token."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return True
+    path = request.path
+    # Stripe webhook uses HMAC signature — exempt from session-based CSRF
+    if path.startswith("/stripe/"):
+        return True
+    for prefix in _CSRF_EXEMPT_PREFIXES:
+        if path.startswith(prefix):
+            return True
+    if path in _CSRF_EXEMPT_PATHS:
+        return True
+    expected = session.get("_csrf_token", "")
+    if not expected:
+        return False
+    incoming = (
+        request.headers.get("X-CSRF-Token")
+        or request.headers.get("X-Csrftoken")
+        or (request.get_json(silent=True) or {}).get("_csrf_token", "")
+        or request.form.get("_csrf_token", "")
+    )
+    return bool(incoming) and hmac.compare_digest(expected, incoming)
+
+@app.get("/api/csrf_token")
+def api_csrf_token():
+    """Issue (or return) the CSRF token for this session. Call before any POST."""
+    token = _csrf_token_for_session()
+    return jsonify({"ok": True, "csrf_token": token})
+
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -1375,9 +1428,15 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"}
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token", "/api/register"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
+
+    # CSRF check — runs for all authenticated POST/PUT/PATCH/DELETE requests
+    if not _csrf_valid():
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "Invalid or missing CSRF token. Refresh the page and try again."}), 403
+        return "Forbidden — invalid CSRF token", 403
 
     # Clear stale sessions so the login gate shows cleanly instead of half-auth states.
     if session.get("user") and not current_user():
@@ -1428,15 +1487,35 @@ def load_json(path: Path, default: Any) -> Any:
         return default
 
 
+# Per-path threading locks so concurrent threads don't race on the same file.
+_JSON_FILE_LOCKS: Dict[str, threading.Lock] = {}
+_JSON_FILE_LOCKS_LOCK = threading.Lock()
+
+def _json_file_lock(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _JSON_FILE_LOCKS_LOCK:
+        if key not in _JSON_FILE_LOCKS:
+            _JSON_FILE_LOCKS[key] = threading.Lock()
+        return _JSON_FILE_LOCKS[key]
+
 def save_json(path: Path, payload: Any) -> None:
-    # Atomic write: write to a temp file then rename so a crash mid-write never corrupts the target
-    try:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)
-    except Exception:
-        # Fallback to direct write if rename fails (e.g. cross-device)
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    """Thread-safe atomic JSON write.
+    Uses a per-path threading.Lock for in-process safety, then writes to a
+    .tmp file and renames — so a crash mid-write never corrupts the target.
+    """
+    lock = _json_file_lock(path)
+    with lock:
+        try:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except Exception:
+            # Fallback to direct write if rename fails (e.g. cross-device)
+            try:
+                path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
@@ -7827,8 +7906,127 @@ def _hash_token(token: str) -> str:
 def showcase_page():
     return SHOWCASE_HTML
 
-@app.get("/pricing")
-def pricing_page():
+# =========================
+# TERMS OF SERVICE & PRIVACY POLICY
+# =========================
+_LEGAL_PAGE_CSS = (
+    "body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;margin:0;padding:0;}"
+    ".wrap{max-width:780px;margin:0 auto;padding:48px 24px 80px;}"
+    "h1{font-size:28px;font-weight:700;color:#c4b5fd;margin:0 0 4px;}"
+    ".meta{font-size:13px;color:#94a3b8;margin:0 0 32px;}"
+    "h2{font-size:18px;font-weight:600;color:#e2e8f0;margin:32px 0 10px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:8px;}"
+    "p,li{font-size:15px;line-height:1.75;color:#cbd5e1;margin:0 0 12px;}"
+    "ul{padding-left:22px;margin:0 0 16px;}"
+    "a{color:#c4b5fd;}"
+    ".back{display:inline-block;margin:0 0 32px;color:#94a3b8;text-decoration:none;font-size:14px;border:1px solid rgba(255,255,255,.1);padding:8px 16px;border-radius:8px;}"
+    ".back:hover{background:rgba(255,255,255,.05);}"
+)
+
+@app.get("/terms")
+def terms_page():
+    app_name  = APP_TITLE.split(" v")[0]
+    from_email = SMTP_FROM_NAME or app_name
+    html = f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Terms of Service — {app_name}</title>
+<style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
+<a class="back" href="/">← Back</a>
+<h1>Terms of Service</h1>
+<p class="meta">Last updated: {datetime.utcnow().strftime("%B %d, %Y")} &nbsp;|&nbsp; <a href="/privacy">Privacy Policy</a></p>
+
+<p>By accessing or using {app_name} ("the Service"), you agree to be bound by these Terms of Service. If you disagree with any part of these terms, you may not access the Service.</p>
+
+<h2>1. Use of the Service</h2>
+<p>You must be at least 18 years old to use the Service. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You agree not to use the Service for any unlawful purpose or in violation of any third-party rights.</p>
+
+<h2>2. Subscriptions &amp; Billing</h2>
+<p>The Service offers paid subscription plans billed on a recurring basis. You authorize us to charge your payment method on file for the applicable fees. Subscriptions automatically renew unless cancelled before the renewal date. Free trials, where offered, convert to paid subscriptions at the end of the trial period unless cancelled.</p>
+<p>All fees are non-refundable except where required by law. If you believe a charge is in error, contact us within 30 days.</p>
+
+<h2>3. API Keys &amp; Third-Party Services</h2>
+<p>The Service integrates with third-party providers including OpenAI, Anthropic, Google, and Stripe. When you provide API keys or connect third-party accounts, you remain responsible for all usage and charges incurred through those services. We store credentials securely and use them solely to provide the features you have enabled.</p>
+
+<h2>4. Data &amp; Privacy</h2>
+<p>Your use of the Service is also governed by our <a href="/privacy">Privacy Policy</a>, which is incorporated into these Terms by reference.</p>
+
+<h2>5. Acceptable Use</h2>
+<p>You may not use the Service to: send unsolicited bulk email or spam; violate any applicable law or regulation; infringe the intellectual property rights of others; transmit malware or harmful code; or attempt to gain unauthorized access to any part of the Service or its infrastructure.</p>
+
+<h2>6. AI-Generated Content</h2>
+<p>The Service uses AI models to generate content on your behalf. You are solely responsible for reviewing, verifying, and taking responsibility for any content generated through the Service before using it. AI-generated content may be inaccurate, incomplete, or inappropriate for your specific use case.</p>
+
+<h2>7. Termination</h2>
+<p>We reserve the right to suspend or terminate your account at any time if you violate these Terms. Upon termination, your right to use the Service ceases immediately. You may request an export of your data before termination.</p>
+
+<h2>8. Disclaimers &amp; Limitation of Liability</h2>
+<p>The Service is provided "as is" without warranty of any kind. To the fullest extent permitted by law, we disclaim all warranties, express or implied. In no event shall we be liable for any indirect, incidental, special, or consequential damages arising out of your use of the Service.</p>
+
+<h2>9. Changes to Terms</h2>
+<p>We may update these Terms from time to time. We will notify you of material changes via email or an in-app notice. Continued use of the Service after changes constitutes acceptance of the updated Terms.</p>
+
+<h2>10. Contact</h2>
+<p>Questions about these Terms? Email us at: <a href="mailto:{SMTP_USER or 'support@example.com'}">{SMTP_USER or 'support@example.com'}</a></p>
+</div></body></html>"""
+    return html
+
+@app.get("/privacy")
+def privacy_page():
+    app_name  = APP_TITLE.split(" v")[0]
+    html = f"""<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Privacy Policy — {app_name}</title>
+<style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
+<a class="back" href="/">← Back</a>
+<h1>Privacy Policy</h1>
+<p class="meta">Last updated: {datetime.utcnow().strftime("%B %d, %Y")} &nbsp;|&nbsp; <a href="/terms">Terms of Service</a></p>
+
+<p>This Privacy Policy describes how {app_name} ("we", "us", "our") collects, uses, and protects your information when you use our Service.</p>
+
+<h2>1. Information We Collect</h2>
+<ul>
+<li><strong>Account information:</strong> username, email address, and hashed password when you register.</li>
+<li><strong>Billing information:</strong> payment is processed by Stripe. We store only your Stripe customer ID and subscription status — we never store raw card numbers.</li>
+<li><strong>API keys:</strong> if you provide third-party API keys (OpenAI, Anthropic), these are stored in your account settings and used exclusively to operate features you have enabled.</li>
+<li><strong>Connected accounts:</strong> if you connect Google (Gmail/Calendar), we store OAuth tokens to send emails and create calendar events on your behalf. We do not read or store the content of emails we do not send.</li>
+<li><strong>Usage data:</strong> AI conversation threads, CRM contacts, uploaded files, and other content you create within the Service.</li>
+</ul>
+
+<h2>2. How We Use Your Information</h2>
+<ul>
+<li>To provide, maintain, and improve the Service.</li>
+<li>To process payments and manage subscriptions.</li>
+<li>To send transactional emails (seat codes, password resets) through your configured email provider.</li>
+<li>To respond to support requests.</li>
+</ul>
+<p>We do not sell your personal data to third parties.</p>
+
+<h2>3. Data Storage &amp; Security</h2>
+<p>Your data is stored on servers located in the United States. We use industry-standard security practices including encrypted sessions, HTTPS-only transmission, and access controls. No system is perfectly secure; we encourage you to use a strong, unique password and keep your API keys confidential.</p>
+
+<h2>4. Data Retention &amp; Deletion</h2>
+<p>We retain your data for as long as your account is active. You may request deletion of your account and associated data at any time by contacting us. Backups may retain data for up to 30 days after deletion.</p>
+
+<h2>5. Your Rights</h2>
+<p>Depending on your location, you may have the right to: access the personal data we hold about you; request correction of inaccurate data; request deletion of your data; and object to or restrict certain processing. To exercise these rights, contact us at <a href="mailto:{SMTP_USER or 'support@example.com'}">{SMTP_USER or 'support@example.com'}</a>.</p>
+
+<h2>6. Cookies</h2>
+<p>We use a single session cookie to keep you logged in. This cookie is essential for the Service to function. We do not use third-party tracking or advertising cookies.</p>
+
+<h2>7. Third-Party Services</h2>
+<p>The Service integrates with OpenAI, Anthropic, Google, and Stripe. Each of these providers has their own privacy policy governing how they handle data passed to them. We recommend reviewing their policies.</p>
+
+<h2>8. Children's Privacy</h2>
+<p>The Service is not directed to individuals under 18. We do not knowingly collect personal data from children.</p>
+
+<h2>9. Changes to This Policy</h2>
+<p>We may update this Privacy Policy from time to time. We will notify you of material changes via email or an in-app notice.</p>
+
+<h2>10. Contact</h2>
+<p>Privacy questions or requests: <a href="mailto:{SMTP_USER or 'support@example.com'}">{SMTP_USER or 'support@example.com'}</a></p>
+</div></body></html>"""
+    return html
+
+
     stripe_on      = _stripe_ready()
     founder_remain = _founder_seats_remaining()
     founder_sold   = founder_remain <= 0
