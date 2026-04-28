@@ -10430,6 +10430,152 @@ label         { font-size: 14px !important; }
 #leadLabResults .diagCard { font-size: 14px !important; }
 #leadLabResults .tiny { font-size: 13px !important; }
 
+/* ===== PATCH v1.12: Mobile Landscape Group Console Fix + Portrait Nav Fix ===== */
+
+/* ── LANDSCAPE FIX ──────────────────────────────────────────────────────────
+   Root cause: .operator base CSS is position:absolute; left:50%; top:50%
+   The existing landscape block (flex-direction:row) sets order/flex/width on
+   .operator but never resets position, so the panel stays centered on top of
+   the teammate cards.  Force everything into normal document flow.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) and (orientation: landscape) {
+
+  /* tableWrap becomes a scrollable column — operator first, seats below */
+  .tableWrap {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    height: auto !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 6px 12px !important;
+    gap: 8px !important;
+    position: relative !important;
+    overflow: visible !important;
+  }
+
+  /* Pull operator OUT of absolute positioning so it flows at the top */
+  .operator {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    order: 0 !important;
+    flex: none !important;
+    border-radius: 14px !important;
+  }
+
+  /* Hide decorative round-table circle in landscape (same as portrait) */
+  .table {
+    display: none !important;
+  }
+
+  /* Seats: pull out of absolute positioning, stack as cards */
+  .seat {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: 58px !important;
+    margin: 0 !important;
+    padding: 10px 14px !important;
+    box-sizing: border-box !important;
+    border-radius: 12px !important;
+    background: rgba(14,22,48,.98) !important;
+    cursor: pointer !important;
+  }
+
+  /* Compact avatars/text in landscape to save vertical space */
+  .seat .seatAvatar {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+    flex-shrink: 0 !important;
+  }
+  .seat .seatName   { font-size: 14px !important; font-weight: 800 !important; }
+  .seat .seatRole   { font-size: 12px !important; }
+  .seat .seatStatus { font-size: 12px !important; margin-top: 2px !important; }
+
+  /* Keep active-seat highlight */
+  .seat.active {
+    border-color: rgba(124,58,237,.9) !important;
+    background: rgba(20,12,48,.98) !important;
+    box-shadow: 0 0 0 2px rgba(124,58,237,.4) !important;
+  }
+
+  /* Show team label so users know what they're looking at */
+  .mobileTeamLabel { display: block !important; }
+
+  /* Prompt textarea — a bit tighter in landscape */
+  .opText { min-height: 72px !important; }
+
+  /* Bottom padding above mobile action bar */
+  .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+}
+
+/* ── MOBILE NAV — DEFINITIVE FIX ────────────────────────────────────────────
+   position:sticky cannot scroll — overflow on sticky element is ignored.
+   Scroll goes on .saNavLeft (non-sticky child).
+   Community is in the bottom bar so hidden from top nav on mobile.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* Hide title row */
+  .topbarMain { display: none !important; }
+
+  /* Sticky frame — overflow MUST be visible for sticky + dropdown portals */
+  .saNavBar {
+    overflow: visible !important;
+    flex-wrap: nowrap !important;
+    padding: 5px 0 5px 6px !important;
+    gap: 0 !important;
+  }
+
+  /* Scroll container = saNavLeft, NOT the sticky saNavBar */
+  .saNavLeft {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 4px !important;
+    overflow-x: scroll !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    padding-right: 8px !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  .saNavLeft::-webkit-scrollbar { display: none !important; }
+  .saDropWrap { flex-shrink: 0 !important; }
+
+  /* Compact buttons */
+  .saNavBtn {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    touch-action: manipulation !important;
+  }
+
+  /* Community is in bottom bar — hide from top nav on mobile */
+  #communityNavBtn { display: none !important; }
+
+  /* Kill center + right entirely on mobile */
+  .saNavCenter { display: none !important; }
+  .saNavRight   { display: none !important; }
+}
+
+@media (max-width: 390px) {
+  .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; }
+}
+
 </style>
 </head>
 <body>
@@ -10512,11 +10658,12 @@ label         { font-size: 14px !important; }
         </div>
       </div>
 
-      <!-- Right: model tag + level badge + support + logout -->
+      <!-- Right: model tag + level badge + bug report + support + logout -->
       <div class="saNavRight" style="display:flex;align-items:center;gap:7px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
-        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Support</button>
+        <button id="bugReportNavBtn" onclick="openBugReportModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:none;">🐛 Bugs</button>
+        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🛟 Get Human Support</button>
         <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
@@ -10526,9 +10673,8 @@ label         { font-size: 14px !important; }
 
   <!-- ===== NEW: Mobile Vertical UI v2 (bottom bar + drawer) ===== -->
   <div class="mobileBar" id="mobileBar">
-    <button class="btn" id="mobileMenuBtn">Menu</button>
-    <button class="btn" id="mobileManageBtn">Team</button>
-    <button class="btn" id="mobileSettingsBtn">Settings</button>
+    <button class="btn" id="mobileMenuBtn">☰ Menu</button>
+    <button class="btn" id="mobileCommunityBtn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
   </div>
 
   <div class="mobileDrawerOverlay" id="mobileDrawerOverlay" aria-hidden="true">
@@ -23460,7 +23606,265 @@ if(typeof maybeAutoShowOnboarding === "function"){
   setTimeout(_cpLoadStats, 1500);
 })();
 </script>
-<!-- ===== END COMMUNITY HUB PANEL ===== -->
+<!-- ===== SCOUT SUPPORT PANEL ===== -->
+<div id="scoutPanel" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.75);backdrop-filter:blur(5px);align-items:flex-end;justify-content:flex-end;" onclick="if(event.target===this)closeScoutPanel()">
+  <div style="width:min(480px,100vw);height:100%;max-height:100%;background:rgba(10,14,30,.98);border-left:1px solid rgba(80,110,200,.4);display:flex;flex-direction:column;box-shadow:-16px 0 60px rgba(0,0,0,.6);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <div>
+        <div style="font-weight:800;font-size:15px;color:#c4b5fd;">🛟 Scout — Built-in Help</div>
+        <div style="font-size:11px;opacity:.6;margin-top:2px;">Knows everything about Simply Agentic AI</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <a href="mailto:SimplyAgenticAI@gmail.com" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;text-decoration:none;white-space:nowrap;">✉ Get Human Support</a>
+        <button onclick="closeScoutPanel()" style="background:rgba(80,80,120,.3);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕</button>
+      </div>
+    </div>
+    <div id="scoutMessages" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <div style="padding:12px 14px;border-top:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;" id="scoutQuickBtns">
+        <button class="scoutQ" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
+        <button class="scoutQ" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
+        <button class="scoutQ" onclick="scoutAsk('How do I connect Google Calendar?')">Connect Calendar?</button>
+        <button class="scoutQ" onclick="scoutAsk('What can the CRM do?')">CRM features?</button>
+        <button class="scoutQ" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <textarea id="scoutInput" rows="2" placeholder="Ask Scout anything about the system..." style="flex:1;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;resize:none;font-family:inherit;line-height:1.5;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();scoutSend();}"></textarea>
+        <button onclick="scoutSend()" style="background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(109,40,217,.7));border:1px solid rgba(124,58,237,.5);color:#fff;border-radius:10px;padding:9px 16px;font-size:14px;cursor:pointer;font-weight:700;flex-shrink:0;align-self:flex-end;">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BUG REPORT MODAL ===== -->
+<div id="bugReportModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugReportModal()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(520px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);">
+      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Report a Bug</span>
+      <button onclick="closeBugReportModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="padding:18px;display:flex;flex-direction:column;gap:11px;">
+      <div style="font-size:12px;opacity:.65;line-height:1.6;">Spotted something broken? Tell us and we'll fix it fast.</div>
+      <textarea id="bugDescInput" rows="4" placeholder="What happened? What did you expect? What device/browser?" style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
+      <textarea id="bugStepsInput" rows="2" placeholder="Steps to reproduce (optional)" style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:10px 12px;font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;"></textarea>
+      <select id="bugSeverityInput" style="background:rgba(0,0,0,.3);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:14px;font-family:inherit;">
+        <option value="low">🟡 Low — minor annoyance</option>
+        <option value="medium" selected>🟠 Medium — blocks something</option>
+        <option value="high">🔴 High — app unusable</option>
+      </select>
+      <button id="bugSubmitBtn" onclick="submitBugReport()" style="background:linear-gradient(135deg,rgba(239,68,68,.4),rgba(180,30,60,.3));border:1px solid rgba(239,68,68,.5);color:#fca5a5;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;">📤 Send Bug Report</button>
+      <div id="bugReportStatus" style="text-align:center;font-size:13px;display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== BUG INBOX MODAL (admin only) ===== -->
+<div id="bugInboxModal" style="display:none;position:fixed;inset:0;z-index:99992;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeBugInboxModal()">
+  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(239,68,68,.35);border-radius:18px;width:min(760px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(239,68,68,.25);flex-shrink:0;">
+      <span style="font-weight:700;font-size:15px;color:#fca5a5;">🐛 Bug Reports Inbox</span>
+      <div style="display:flex;gap:8px;">
+        <button onclick="loadBugInbox()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;">↻ Refresh</button>
+        <button onclick="closeBugInboxModal()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+      </div>
+    </div>
+    <div id="bugInboxBody" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="opacity:.5;font-size:13px;text-align:center;">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<style>
+.scoutQ{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.35);color:#c4b5fd;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;touch-action:manipulation;}
+.scoutQ:hover{background:rgba(124,58,237,.3);}
+.scoutMsg{padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.6;max-width:90%;}
+.scoutMsg.user{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);align-self:flex-end;color:#e2e8f0;}
+.scoutMsg.scout{background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);align-self:flex-start;color:#e2e8f0;}
+.scoutMsg.thinking{opacity:.6;font-style:italic;}
+</style>
+
+<script>
+/* ===== SCOUT PANEL ===== */
+(function(){
+  const SCOUT_SYSTEM = `You are Scout, the built-in help assistant for Simply Agentic AI. You know everything about the system.
+
+Simply Agentic AI is an AI-powered business command center with:
+- A round-table of AI teammates (CMO, CFO, CTO, etc.) each with custom personas, memory, and tools
+- Group Console: send one prompt to all teammates simultaneously
+- Lead Lab: AI-powered B2B lead generation that scrapes real websites for contacts
+- CRM: manage leads, contacts, pipeline
+- Calendar: syncs with Google Calendar and Motion, shows all events and tasks
+- Email Console: send/receive emails via Gmail integration
+- Community Hub: leaderboard, ideas board, announcements
+- Voice Mode: speak to teammates, hands-free
+- Dashboard: analytics and performance metrics
+- Settings: connect Google Calendar, Gmail, configure API keys, manage teammates
+- Bug Report: report issues directly to the admin
+
+Keep answers concise and practical. If asked how to do something, give step-by-step instructions.`;
+
+  const history = [];
+
+  window.openScoutPanel = function(){
+    const p = document.getElementById('scoutPanel');
+    if(p){ p.style.display='flex'; }
+    if(!history.length) scoutAddMsg('scout','👋 Hi! I\'m Scout, your built-in help assistant. I know everything about Simply Agentic AI — ask me anything! Or tap one of the quick questions below.');
+  };
+
+  window.closeScoutPanel = function(){
+    const p = document.getElementById('scoutPanel');
+    if(p) p.style.display='none';
+  };
+
+  function scoutAddMsg(role, text){
+    const box = document.getElementById('scoutMessages'); if(!box) return null;
+    const div = document.createElement('div');
+    div.className = 'scoutMsg ' + role;
+    div.innerText = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+    return div;
+  }
+
+  window.scoutAsk = function(q){
+    document.getElementById('scoutInput').value = q;
+    scoutSend();
+  };
+
+  window.scoutSend = async function(){
+    const inp = document.getElementById('scoutInput');
+    const q = (inp.value||'').trim();
+    if(!q) return;
+    inp.value = '';
+    scoutAddMsg('user', q);
+    history.push({role:'user', content: q});
+    const thinking = scoutAddMsg('scout','🤔 Thinking…');
+    if(thinking) thinking.classList.add('thinking');
+    try{
+      const resp = await fetch('/api/scout_ask', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: history, system: SCOUT_SYSTEM})
+      });
+      const d = await resp.json();
+      if(thinking) thinking.remove();
+      const answer = d.answer || d.error || 'Sorry, I had trouble answering that.';
+      scoutAddMsg('scout', answer);
+      history.push({role:'assistant', content: answer});
+    }catch(e){
+      if(thinking) thinking.remove();
+      scoutAddMsg('scout','❌ Network error — please try again.');
+    }
+  };
+})();
+
+/* ===== BUG REPORT ===== */
+(function(){
+  window.openBugReportModal = function(){
+    const m = document.getElementById('bugReportModal');
+    if(m) m.style.display='flex';
+    // Pre-fill device info hint
+    const inp = document.getElementById('bugDescInput');
+    if(inp && !inp.value) inp.placeholder = `What happened? Device: ${window.innerWidth}x${window.innerHeight} ${window.innerWidth>window.innerHeight?'landscape':'portrait'}`;
+  };
+  window.closeBugReportModal = function(){
+    const m = document.getElementById('bugReportModal');
+    if(m) m.style.display='none';
+    const s = document.getElementById('bugReportStatus');
+    if(s){ s.style.display='none'; s.innerText=''; }
+  };
+  window.submitBugReport = async function(){
+    const desc = (document.getElementById('bugDescInput').value||'').trim();
+    const steps = (document.getElementById('bugStepsInput').value||'').trim();
+    const severity = document.getElementById('bugSeverityInput').value||'medium';
+    const status = document.getElementById('bugReportStatus');
+    const btn = document.getElementById('bugSubmitBtn');
+    if(!desc){ status.style.display='block'; status.style.color='#fca5a5'; status.innerText='⚠️ Please describe the bug.'; return; }
+    btn.disabled=true; btn.innerText='Sending…';
+    try{
+      const r = await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
+      const d = await r.json();
+      status.style.display='block';
+      if(d.ok){ status.style.color='#86efac'; status.innerText='✅ Report sent — thank you!'; document.getElementById('bugDescInput').value=''; document.getElementById('bugStepsInput').value=''; setTimeout(closeBugReportModal,2000); }
+      else{ status.style.color='#fca5a5'; status.innerText='❌ '+(d.error||'Failed to send.'); }
+    }catch(e){ status.style.display='block'; status.style.color='#fca5a5'; status.innerText='❌ Network error.'; }
+    finally{ btn.disabled=false; btn.innerText='📤 Send Bug Report'; }
+  };
+
+  window.openBugInboxModal = function(){
+    const m = document.getElementById('bugInboxModal');
+    if(m){ m.style.display='flex'; loadBugInbox(); }
+  };
+  window.closeBugInboxModal = function(){
+    const m = document.getElementById('bugInboxModal');
+    if(m) m.style.display='none';
+  };
+  window.loadBugInbox = async function(){
+    const body = document.getElementById('bugInboxBody'); if(!body) return;
+    body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">Loading…</div>';
+    try{
+      const r = await fetch('/api/bug_report/list');
+      const d = await r.json();
+      if(!d.ok){ body.innerHTML=`<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">${d.error||'Error'}</div>`; return; }
+      const reports = d.reports||[];
+      if(!reports.length){ body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">No bug reports yet 🎉</div>'; return; }
+      const sc={'high':'#fca5a5','medium':'#fdba74','low':'#fde68a'};
+      body.innerHTML = reports.map(r=>{
+        const col=sc[r.severity]||'#c4b5fd';
+        return `<div style="background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.7);border-left:3px solid ${col};border-radius:10px;padding:12px 14px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="font-size:11px;font-weight:700;color:${col};text-transform:uppercase;">${r.severity} ${r.resolved?'✅':'🔴'}</span>
+            <span style="font-size:11px;opacity:.5;">${(r.submitted_by||'?')} · ${(r.created_at||'').slice(0,16).replace('T',' ')}</span>
+            ${r.resolved?'':'<button onclick="markBugResolved(\''+r.id+'\')" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;">Mark resolved</button>'}
+          </div>
+          <div style="font-size:13px;line-height:1.5;">${(r.description||'').replace(/</g,'&lt;')}</div>
+          ${r.steps?`<div style="font-size:12px;opacity:.6;margin-top:5px;white-space:pre-wrap;">${(r.steps||'').replace(/</g,'&lt;')}</div>`:''}
+          <div style="font-size:11px;opacity:.4;margin-top:5px;">${(r.device||{}).orientation||''} ${(r.device||{}).screenW||''}x${(r.device||{}).screenH||''}</div>
+        </div>`;
+      }).join('');
+    }catch(e){ body.innerHTML='<div style="opacity:.5;font-size:13px;text-align:center;padding:20px;">Error loading.</div>'; }
+  };
+  window.markBugResolved = async function(id){
+    await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
+    loadBugInbox();
+  };
+
+  // On load: show admin Bug button and load count
+  setTimeout(async function(){
+    try{
+      const r = await fetch('/api/bug_report/list');
+      const d = await r.json();
+      if(d.ok && d.is_admin){
+        const btn = document.getElementById('bugReportNavBtn');
+        if(btn){
+          btn.style.display='';
+          const unresolved=(d.reports||[]).filter(x=>!x.resolved).length;
+          btn.innerHTML='🐛 Bugs'+(unresolved?` <span style="background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;font-weight:800;">${unresolved}</span>`:'');
+          btn.onclick=()=>openBugInboxModal();
+        }
+      }
+    }catch(_){}
+  }, 2000);
+
+  // Mobile drawer: add bug report button
+  setTimeout(function(){
+    const grid = document.getElementById('mobileDrawerGrid');
+    if(!grid) return;
+    if(grid.querySelector('[data-bug-btn]')) return;
+    const btn = document.createElement('button');
+    btn.className='drawerBtn';
+    btn.setAttribute('data-bug-btn','1');
+    btn.innerHTML='🐛 Report Bug';
+    btn.onclick=()=>{
+      const ov=document.getElementById('mobileDrawerOverlay');
+      if(ov) ov.classList.remove('show');
+      openBugReportModal();
+    };
+    grid.appendChild(btn);
+  },1500);
+})();
+</script>
 
 </body>
 </html>
@@ -29396,6 +29800,99 @@ def api_community_pending_ideas():
     ideas   = _community_load_ideas()
     pending = [i for i in ideas if i.get("status") == "pending"]
     return jsonify({"ok": True, "ideas": pending})
+
+
+# ── Scout built-in help ──────────────────────────────────────────────────────
+@app.post("/api/scout_ask")
+def api_scout_ask():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload  = request.get_json(silent=True) or {}
+    messages = payload.get("messages") or []
+    system   = payload.get("system") or "You are Scout, a helpful assistant for Simply Agentic AI."
+    if not messages:
+        return jsonify({"ok": False, "error": "No messages"}), 400
+    try:
+        client = get_openai_client()
+        resp   = client.chat.completions.create(
+            model   = "gpt-4o-mini",
+            messages= [{"role": "system", "content": system}] + [
+                {"role": m.get("role","user"), "content": m.get("content","")}
+                for m in messages[-20:]          # keep context window reasonable
+            ],
+            max_tokens  = 600,
+            temperature = 0.4,
+        )
+        answer = (resp.choices[0].message.content or "").strip()
+        return jsonify({"ok": True, "answer": answer})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Bug Report system ─────────────────────────────────────────────────────────
+BUG_REPORTS_FILE = DATA / "bug_reports.json"
+
+def _load_bug_reports() -> list:
+    return load_json(BUG_REPORTS_FILE, [])
+
+def _save_bug_reports(reports: list) -> None:
+    save_json(BUG_REPORTS_FILE, reports)
+
+@app.post("/api/bug_report")
+def api_submit_bug_report():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p        = request.get_json(silent=True) or {}
+    desc     = (p.get("description") or "").strip()[:2000]
+    steps    = (p.get("steps") or "").strip()[:1000]
+    severity = (p.get("severity") or "medium").strip()
+    device   = p.get("device") or {}
+    if not desc:
+        return jsonify({"ok": False, "error": "Description required"}), 400
+    if severity not in ("low", "medium", "high"):
+        severity = "medium"
+    report = {
+        "id":           str(uuid.uuid4()),
+        "submitted_by": u.get("username", "unknown"),
+        "description":  desc,
+        "steps":        steps,
+        "severity":     severity,
+        "device":       device,
+        "resolved":     False,
+        "created_at":   now_iso(),
+    }
+    reports = _load_bug_reports()
+    reports.insert(0, report)
+    _save_bug_reports(reports[:500])
+    return jsonify({"ok": True, "id": report["id"]})
+
+@app.get("/api/bug_report/list")
+def api_list_bug_reports():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    is_admin = _is_admin_user(u)
+    reports  = _load_bug_reports()
+    if not is_admin:
+        reports = [r for r in reports if r.get("submitted_by") == u.get("username","")]
+    return jsonify({"ok": True, "is_admin": is_admin, "reports": reports})
+
+@app.post("/api/bug_report/<report_id>/resolve")
+def api_resolve_bug_report(report_id: str):
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    reports = _load_bug_reports()
+    for r in reports:
+        if r.get("id") == report_id:
+            r["resolved"]    = True
+            r["resolved_at"] = now_iso()
+            r["resolved_by"] = u.get("username", "admin")
+            _save_bug_reports(reports)
+            return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Not found"}), 404
 
 
 if __name__ == "__main__":
