@@ -222,9 +222,8 @@ def _load_founder_seats() -> Dict[str, Any]:
 
 def _save_founder_seats(data: Dict[str, Any]) -> None:
     try:
-        tmp = FOUNDER_SEATS_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp.replace(FOUNDER_SEATS_PATH)
+        with open(FOUNDER_SEATS_PATH, "w") as f:
+            json.dump(data, f)
     except Exception:
         pass
 
@@ -235,7 +234,7 @@ def _founder_seats_remaining() -> int:
 
 def _claim_founder_seat(username: str) -> bool:
     """Atomically claim one founder seat. Returns True if successful."""
-    with file_lock(FOUNDER_SEATS_PATH):
+    with threading.Lock():
         d = _load_founder_seats()
         if d.get("claimed", 0) >= FOUNDER_SEATS_MAX:
             return False
@@ -880,7 +879,7 @@ def _load_seats() -> Dict[str, Any]:
 
 def _save_seats(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
-    save_json(SEATS_PATH, data)  # atomic rename via save_json
+    SEATS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 def _ensure_seats_initialized() -> None:
     """Auto-generate seats on first run if none exist."""
@@ -918,15 +917,14 @@ def _is_valid_seat_code(code: str) -> Tuple[bool, str]:
 
 def _claim_seat_code(code: str, username: str) -> None:
     """Mark a seat code as used by the given username."""
-    with file_lock(SEATS_PATH):
-        data = _load_seats()
-        seats = data.get("seats", {})
-        if code in seats:
-            seats[code]["status"] = "used"
-            seats[code]["claimed_by"] = username
-            seats[code]["claimed_at"] = now_iso()
-            data["seats"] = seats
-            _save_seats(data)
+    data = _load_seats()
+    seats = data.get("seats", {})
+    if code in seats:
+        seats[code]["status"] = "used"
+        seats[code]["claimed_by"] = username
+        seats[code]["claimed_at"] = now_iso()
+        data["seats"] = seats
+        _save_seats(data)
 
 def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
     """First registered user is the admin."""
@@ -1100,142 +1098,14 @@ app.config["SESSION_COOKIE_SECURE"] = PUBLIC_BASE_URL.startswith("https://")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 # =========================
-# CSRF PROTECTION
+# LOGIN BRUTE-FORCE PROTECTION
 # =========================
-# Double-submit cookie pattern: a token is stored in the session and the client
-# must echo it back in X-CSRF-Token on every state-mutating request (POST/PUT/PATCH/DELETE).
-# GET/HEAD/OPTIONS are safe methods and are never checked.
-# Routes explicitly listed in _CSRF_EXEMPT are skipped (Stripe webhooks, OAuth callbacks).
-
-_CSRF_EXEMPT_PATHS = {
-    # Stripe webhook — verified by HMAC, no session
-    "/stripe/webhook",
-    # OAuth callbacks arrive from Google, not the browser JS
-    "/oauth/google/callback",
-    "/oauth/google/calendar/callback",
-    # Public auth endpoints
-    "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
-}
-
-_CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-
-def _get_csrf_token() -> str:
-    """Return (and lazily create) the per-session CSRF token."""
-    tok = session.get("_csrf_token")
-    if not tok:
-        tok = secrets.token_hex(32)
-        session["_csrf_token"] = tok
-        session.modified = True
-    return tok
-
-def _csrf_valid() -> bool:
-    """Return True if the incoming request carries a valid CSRF token.
-
-    Token lifecycle:
-      1. GET /api/csrf_token seeds the token into the session + returns it.
-      2. JS stores it in window._csrfToken and attaches it as X-CSRF-Token on
-         every state-mutating request.
-      3. We compare the header value against the session value here.
-
-    If no token exists in the session yet (first-ever request, Secure cookie
-    dropped on HTTP, server restart with a new secret) we PASS the request
-    through and seed the token so the next request is protected. Blocking every
-    tokenless POST would hard-lock the app for any user whose session cookie
-    wasn't set yet.
-    """
-    if request.method in _CSRF_SAFE_METHODS:
-        return True
-    if request.path in _CSRF_EXEMPT_PATHS:
-        return True
-    if request.path.startswith("/stripe/"):
-        return True
-    if request.path.startswith("/admin/"):
-        return True
-    expected = session.get("_csrf_token") or ""
-    if not expected:
-        # No token in session yet — seed it and allow this request through.
-        # The JS will pick up the token on its next GET /api/csrf_token call
-        # and attach it going forward.
-        try:
-            _get_csrf_token()  # seeds session["_csrf_token"]
-        except Exception:
-            pass
-        return True
-    incoming = (
-        request.headers.get("X-CSRF-Token")
-        or request.headers.get("X-Csrf-Token")
-        or (request.get_json(silent=True) or {}).get("_csrf_token", "")
-        or request.form.get("_csrf_token", "")
-    )
-    return hmac.compare_digest(expected, incoming)
-
-@app.get("/api/csrf_token")
-def api_csrf_token():
-    """Public GET endpoint — returns the current session CSRF token.
-    The JS layer calls this once on boot and caches the result for all subsequent POSTs.
-    No auth required: unauthenticated pages (login, register) also need CSRF protection.
-    """
-    return jsonify({"ok": True, "token": _get_csrf_token()})
-
-# =========================
-# LOGIN BRUTE-FORCE PROTECTION  (persisted across restarts)
-# =========================
-# In-memory dict is the fast path; a small JSON file on disk is the source of
-# truth so lockouts survive deploys, crashes, and platform restarts.
-# Serialisation: locked_until stored as ISO string; loaded back to datetime on read.
-
+# In-memory store: { ip_or_user -> {"count": int, "locked_until": datetime|None} }
+# Resets on server restart — intentional, keeps it simple and stateless.
 _LOGIN_ATTEMPTS: Dict[str, Any] = {}
-_LOGIN_ATTEMPTS_LOCK = threading.Lock()
+_LOGIN_ATTEMPTS_LOCK = __import__("threading").Lock()
 _MAX_LOGIN_ATTEMPTS = 5
 _LOCKOUT_MINUTES    = 15
-
-def _login_attempts_path() -> Path:
-    # DATA may not be defined yet at module level when this is called — use a
-    # lazy reference so it always resolves to the correct persistent directory.
-    try:
-        return DATA / "login_attempts.json"
-    except Exception:
-        return Path("login_attempts.json")
-
-def _load_login_attempts() -> None:
-    """Populate _LOGIN_ATTEMPTS from disk on startup. Expired entries are dropped."""
-    try:
-        raw = load_json(_login_attempts_path(), {})
-        if not isinstance(raw, dict):
-            return
-        now = datetime.utcnow()
-        loaded = {}
-        for k, v in raw.items():
-            if not isinstance(v, dict):
-                continue
-            lu = v.get("locked_until")
-            if lu:
-                try:
-                    lu_dt = datetime.fromisoformat(str(lu).replace("Z",""))
-                    if now >= lu_dt:
-                        continue  # expired — drop
-                    v["locked_until"] = lu_dt
-                except Exception:
-                    continue
-            loaded[k] = v
-        with _LOGIN_ATTEMPTS_LOCK:
-            _LOGIN_ATTEMPTS.update(loaded)
-    except Exception:
-        pass
-
-def _save_login_attempts() -> None:
-    """Flush _LOGIN_ATTEMPTS to disk. Runs under _LOGIN_ATTEMPTS_LOCK."""
-    try:
-        serialisable = {}
-        for k, v in _LOGIN_ATTEMPTS.items():
-            sv = dict(v)
-            lu = sv.get("locked_until")
-            if isinstance(lu, datetime):
-                sv["locked_until"] = lu.isoformat() + "Z"
-            serialisable[k] = sv
-        save_json(_login_attempts_path(), serialisable)
-    except Exception:
-        pass
 
 def _login_key(username: str) -> str:
     """Key by username so lockout is per-account, not per-IP (harder to spoof)."""
@@ -1258,88 +1128,34 @@ def _record_login_failure(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         rec = _LOGIN_ATTEMPTS.get(key) or {"count": 0, "locked_until": None}
+        # Reset if previous lockout has expired
         if rec.get("locked_until") and datetime.utcnow() >= rec["locked_until"]:
             rec = {"count": 0, "locked_until": None}
         rec["count"] = rec.get("count", 0) + 1
         if rec["count"] >= _MAX_LOGIN_ATTEMPTS:
             rec["locked_until"] = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
         _LOGIN_ATTEMPTS[key] = rec
-        _save_login_attempts()
 
 def _clear_login_failures(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         _LOGIN_ATTEMPTS.pop(key, None)
-        _save_login_attempts()
 
 # =========================
-# API RATE LIMITING (per-user, persisted)
+# API RATE LIMITING (per-user, in-memory)
 # =========================
-# API RATE LIMITING — persisted across restarts
-# =========================
-# In-memory dict is the hot path (zero disk I/O on most requests).
-# After each counter increment we flush to disk so active windows survive
-# a server restart or deploy. On startup we load and discard any window
-# whose 60-second slot has already expired — those are reset cleanly.
-# Disk writes are fire-and-forget (non-blocking, failures are silent) so
-# a slow disk never delays an API response.
-
-_RATE_LIMITS: Dict[str, Any] = {}
+# Prevents runaway usage / API cost abuse. Limits: calls per minute per user.
+# These are intentionally generous for normal use but catch bots/loops.
+_RATE_LIMITS: Dict[str, Any] = {}  # { key -> {"count": int, "window_start": datetime} }
 _RATE_LIMITS_LOCK = threading.Lock()
 
 # Limits per 60-second window, by endpoint category
-RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))
-RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))
-RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))
-RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))
-RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))
+RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))       # chat/followup per user/min
+RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))      # image gen per user/min
+RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))      # email sends per user/min
+RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))     # uploads per user/min
+RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))   # general API per user/min
 RATE_LIMIT_WINDOW_SEC = 60
-
-def _rate_limits_path() -> Path:
-    try:
-        return DATA / "rate_limits.json"
-    except Exception:
-        return Path("rate_limits.json")
-
-def _load_rate_limits() -> None:
-    """Populate _RATE_LIMITS from disk on startup, dropping expired windows."""
-    try:
-        raw = load_json(_rate_limits_path(), {})
-        if not isinstance(raw, dict):
-            return
-        now = datetime.utcnow()
-        loaded: Dict[str, Any] = {}
-        for k, v in raw.items():
-            if not isinstance(v, dict):
-                continue
-            ws_str = v.get("window_start")
-            if not ws_str:
-                continue
-            try:
-                ws = datetime.fromisoformat(str(ws_str).replace("Z", ""))
-            except Exception:
-                continue
-            if (now - ws).total_seconds() > RATE_LIMIT_WINDOW_SEC:
-                continue  # expired — drop it
-            loaded[k] = {"count": v.get("count", 0), "window_start": ws}
-        with _RATE_LIMITS_LOCK:
-            _RATE_LIMITS.update(loaded)
-    except Exception:
-        pass
-
-def _flush_rate_limits() -> None:
-    """Serialize _RATE_LIMITS to disk. Called under _RATE_LIMITS_LOCK."""
-    try:
-        serialisable: Dict[str, Any] = {}
-        for k, v in _RATE_LIMITS.items():
-            ws = v.get("window_start")
-            serialisable[k] = {
-                "count": v.get("count", 0),
-                "window_start": ws.isoformat() + "Z" if isinstance(ws, datetime) else str(ws),
-            }
-        save_json(_rate_limits_path(), serialisable)
-    except Exception:
-        pass
 
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
     """Returns (allowed, error_message). Thread-safe sliding-window counter."""
@@ -1348,18 +1164,16 @@ def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
         rec = _RATE_LIMITS.get(key)
         if rec is None:
             _RATE_LIMITS[key] = {"count": 1, "window_start": now}
-            threading.Thread(target=_flush_rate_limits, daemon=True).start()
             return True, ""
         elapsed = (now - rec["window_start"]).total_seconds()
         if elapsed > RATE_LIMIT_WINDOW_SEC:
+            # New window
             _RATE_LIMITS[key] = {"count": 1, "window_start": now}
-            threading.Thread(target=_flush_rate_limits, daemon=True).start()
             return True, ""
         if rec["count"] >= limit:
             wait = int(RATE_LIMIT_WINDOW_SEC - elapsed) + 1
             return False, f"Rate limit reached. Please wait {wait} second(s) before trying again."
         rec["count"] += 1
-        threading.Thread(target=_flush_rate_limits, daemon=True).start()
         return True, ""
 
 def _get_rate_key(category: str) -> str:
@@ -1391,9 +1205,8 @@ def load_users() -> Dict[str, Any]:
     return data
 
 def save_users(data: Dict[str, Any]) -> None:
-    with file_lock(USERS_PATH):
-        data["updated_at"] = now_iso()
-        save_json(USERS_PATH, data)
+    data["updated_at"] = now_iso()
+    save_json(USERS_PATH, data)
 
 def has_any_user() -> bool:
     data = load_users()
@@ -1501,15 +1314,11 @@ def _add_security_headers(response):
     response.headers["Permissions-Policy"]     = "geolocation=(), camera=(), microphone=(self)"
     if PUBLIC_BASE_URL.startswith("https://"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    # Content Security Policy
-    # unsafe-inline is required while JS lives in <script> blocks and inline handlers.
-    # strict-dynamic is added so injected scripts cannot chain-load further attacker
-    # scripts even if an XSS payload executes. Removing unsafe-inline entirely requires
-    # extracting all JS to external files — tracked as a future refactor.
-    _on_https = PUBLIC_BASE_URL.startswith("https://")
+    # Content Security Policy — tightened for production
+    # Allows: same-origin scripts/styles, CDN fonts, Stripe.js, inline styles needed by Flask templates
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' 'strict-dynamic' https://js.stripe.com https://accounts.google.com; "
+        "script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob: https:; "
@@ -1517,15 +1326,40 @@ def _add_security_headers(response):
         "frame-src https://js.stripe.com; "
         "object-src 'none'; "
         "base-uri 'self';"
-        + (" upgrade-insecure-requests;" if _on_https else "")
     )
     response.headers["Content-Security-Policy"] = csp
     return response
 
+@app.errorhandler(404)
+def _error_404(e):
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>404 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>404</h1><h2>Page not found</h2>"
+        f"<p>The page you're looking for doesn't exist or has moved.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 404
+
+@app.errorhandler(500)
+def _error_500(e):
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>500 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>500</h1><h2>Something went wrong</h2>"
+        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 500
+
+
 @app.before_request
 def _auth_guard():
-    # ── Public page routes — no auth, no CSRF needed ─────────────────────────
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase", "/health"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/pricing", "/showcase"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -1538,8 +1372,7 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    # ── Public API routes — no CSRF check ────────────────────────────────────
-    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token"}
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
 
@@ -1603,53 +1436,6 @@ def save_json(path: Path, payload: Any) -> None:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-# =========================
-# PER-FILE WRITE LOCKING
-# =========================
-# Prevents lost-update races when multiple concurrent requests load -> modify -> save
-# the same JSON file. One RLock per resolved file path, created lazily and shared
-# across all threads for the lifetime of the process.
-#
-# Usage:
-#   with file_lock(USERS_PATH):
-#       data = load_users()
-#       data["users"][uname]["foo"] = "bar"
-#       save_users(data)
-#
-# RLock (re-entrant) means the same thread can acquire the lock twice without
-# deadlocking -- important for functions that call each other.
-
-import contextlib as _contextlib
-from collections import defaultdict as _defaultdict
-
-_FILE_LOCKS: Dict[str, threading.RLock] = {}
-_FILE_LOCKS_META = threading.Lock()
-
-def _get_file_lock(path) -> threading.RLock:
-    """Return the shared RLock for the given path, creating it if needed."""
-    key = str(Path(path).resolve())
-    lock = _FILE_LOCKS.get(key)
-    if lock is not None:
-        return lock
-    with _FILE_LOCKS_META:
-        if key not in _FILE_LOCKS:
-            _FILE_LOCKS[key] = threading.RLock()
-        return _FILE_LOCKS[key]
-
-@_contextlib.contextmanager
-def file_lock(path):
-    """Acquire the per-path RLock for the duration of the block."""
-    lock = _get_file_lock(path)
-    lock.acquire()
-    try:
-        yield
-    finally:
-        lock.release()
-# =========================
-# END PER-FILE WRITE LOCKING
-# =========================
-
-
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
@@ -1700,18 +1486,6 @@ try:
 except Exception:
     pass
 
-# Load persisted login lockouts so brute-force protection survives restarts
-try:
-    _load_login_attempts()
-except Exception:
-    pass
-
-# Load persisted rate-limit windows so active throttles survive restarts/deploys
-try:
-    _load_rate_limits()
-except Exception:
-    pass
-
 # =========================
 # TASK LOG (APPEND-ONLY)
 # =========================
@@ -1747,11 +1521,10 @@ def _load_clients(username: str) -> Dict[str, Any]:
 
 def _save_clients(username: str, data: Dict[str, Any]) -> None:
     path = _clients_path_for_user(username)
-    with file_lock(path):
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 def _get_active_client(username: str) -> Dict[str, Any]:
     data = _load_clients(username)
@@ -2290,14 +2063,7 @@ def save_core_framework(text: str) -> None:
     cleaned = (text or "").strip()
     if not cleaned:
         cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
-    with file_lock(FRAMEWORK_PATH):
-        tmp = FRAMEWORK_PATH.with_suffix(".tmp")
-        try:
-            tmp.write_text(cleaned, encoding="utf-8")
-            tmp.replace(FRAMEWORK_PATH)
-        except Exception:
-            # Fallback: direct write if rename fails (e.g. cross-device mount)
-            FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
+    FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
 
 # Ensure the framework file always exists with the default framework for local-first users.
 try:
@@ -2601,9 +2367,8 @@ def save_registry(reg: Dict[str, Any], username: str = "") -> None:
     """Save per-user teammate registry."""
     uname = username or _get_session_username()
     path  = _user_registry_path(uname)
-    with file_lock(path):
-        reg["updated_at"] = now_iso()
-        save_json(path, reg)
+    reg["updated_at"] = now_iso()
+    save_json(path, reg)
 
 
 def install_full_team(username: str = "") -> Dict[str, Any]:
@@ -3169,20 +2934,19 @@ def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return (settings.get("gmail_oauth") or {})
 
 def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
+    users = load_users()
     uname = u.get("username")
-    with file_lock(USERS_PATH):  # hold lock for entire load-modify-save to prevent OAuth callback races
-        users = load_users()
-        rec = (users.get("users") or {}).get(uname) or u
-        rec.setdefault("settings", {})
-        if token_info:
-            rec["settings"]["gmail_oauth"] = token_info
-        else:
-            # disconnect
-            if "gmail_oauth" in rec.get("settings", {}):
-                rec["settings"].pop("gmail_oauth", None)
-        rec["updated_at"] = now_iso()
-        users["users"][uname] = rec
-        save_users(users)
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    if token_info:
+        rec["settings"]["gmail_oauth"] = token_info
+    else:
+        # disconnect
+        if "gmail_oauth" in rec.get("settings", {}):
+            rec["settings"].pop("gmail_oauth", None)
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
 
 # =========================
 # GOOGLE CALENDAR OAUTH
@@ -3200,19 +2964,18 @@ def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return (settings.get("calendar_oauth") or {})
 
 def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
+    users = load_users()
     uname = u.get("username")
-    with file_lock(USERS_PATH):  # hold lock for entire load-modify-save to prevent OAuth callback races
-        users = load_users()
-        rec = (users.get("users") or {}).get(uname) or u
-        rec.setdefault("settings", {})
-        if token_info:
-            rec["settings"]["calendar_oauth"] = token_info
-        else:
-            if "calendar_oauth" in rec.get("settings", {}):
-                rec["settings"].pop("calendar_oauth", None)
-        rec["updated_at"] = now_iso()
-        users["users"][uname] = rec
-        save_users(users)
+    rec = (users.get("users") or {}).get(uname) or u
+    rec.setdefault("settings", {})
+    if token_info:
+        rec["settings"]["calendar_oauth"] = token_info
+    else:
+        if "calendar_oauth" in rec.get("settings", {}):
+            rec["settings"].pop("calendar_oauth", None)
+    rec["updated_at"] = now_iso()
+    users["users"][uname] = rec
+    save_users(users)
 
 
 def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
@@ -6359,8 +6122,7 @@ def _load_cal_tasks(username: str) -> List[Dict[str, Any]]:
 
 def _save_cal_tasks(username: str, tasks: List[Dict[str, Any]]) -> None:
     p = _cal_tasks_path(username)
-    with file_lock(p):
-        save_json(p, tasks)
+    p.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
 
 @app.get("/api/cal/tasks")
 def api_cal_tasks_get():
@@ -8046,8 +7808,7 @@ def _hash_token(token: str) -> str:
 
 @app.get("/showcase")
 def showcase_page():
-    # Substitute APP_TITLE so the nav bar version never goes stale
-    return SHOWCASE_HTML.replace("Simply Agentic AI v1.11", APP_TITLE, 1)
+    return SHOWCASE_HTML
 
 @app.get("/pricing")
 def pricing_page():
@@ -8385,9 +8146,6 @@ def setup_post():
     data["users"][username] = _new_user(username=username, password=password, email=email)
     save_users(data)
 
-    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
-    session.clear()  # Prevent session fixation
-    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -8424,9 +8182,6 @@ def login_post():
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
-    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
-    session.clear()  # Prevent session fixation
-    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
@@ -8542,9 +8297,6 @@ def register_post():
         except Exception:
             pass
 
-    _csrf_tok = session.get("_csrf_token")  # preserve across session fixation clear
-    session.clear()  # Prevent session fixation
-    if _csrf_tok: session["_csrf_token"] = _csrf_tok
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -8904,7 +8656,7 @@ def reset_password_post():
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
-    if not th or not hmac.compare_digest(_hash_token(token), th):
+    if not th or _hash_token(token) != th:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token.", token=None, ok=None)
 
     # Token expires after 1 hour
@@ -12774,20 +12526,6 @@ if (typeof window.showToast !== "function") {
 
     const $ = (id) => document.getElementById(id);
 
-    // =========================
-    // CSRF-AWARE FETCH HELPER
-    // =========================
-    // Drop-in replacement for apiFetch() on all state-mutating calls.
-    // Fetches the CSRF token once on boot, then auto-attaches X-CSRF-Token
-    // to every POST/PUT/PATCH/DELETE. GET calls pass straight through.
-    // Usage: replace  apiFetch("/api/foo", {method:"POST", ...})
-    //        with    apiFetch("/api/foo", {method:"POST", ...})
-    // apiFetch: transparent alias for fetch() — preserved for call-site compatibility.
-    window.apiFetch = function apiFetch(url, opts){ return fetch(url, opts); };
-    // =========================
-    // END CSRF HELPER
-    // =========================
-
     function escapeHtml(str){
       const s = (str === null || str === undefined) ? '' : String(str);
       return s
@@ -13489,7 +13227,7 @@ window.showModal = function showModal(title, body, imgUrl){
       }
 
       try{
-        const res = await apiFetch('/api/followup', {
+        const res = await fetch('/api/followup', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({name: teammate, message: prompt})
@@ -13555,7 +13293,7 @@ window.showModal = function showModal(title, body, imgUrl){
           title: (($("sessionObjectiveInput")||{}).value || '').trim(),
           context: (($("sessionObjectiveContext")||{}).value || '').trim()
         };
-        const res = await apiFetch('/api/os/session_objective', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await fetch('/api/os/session_objective', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         if(st) st.innerText = 'Saved';
@@ -13607,7 +13345,7 @@ window.showModal = function showModal(title, body, imgUrl){
         notes: ($("opm_notes")?.value || '').trim()
       };
       try{
-        const res = await apiFetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
         // Keep global cache fresh for email sign-off replacement
@@ -13682,7 +13420,7 @@ window.showModal = function showModal(title, body, imgUrl){
         tts_voice: ($("editTtsVoice") ? $("editTtsVoice").value : "") || "alloy",
       };
 
-      const res = await apiFetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
+      const res = await fetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify(payload)
@@ -14269,7 +14007,7 @@ function makeSeat(defn, idx){
           keepBtn.innerText = "Approve current";
           keepBtn.onclick = async ()=>{
             try{
-              const r = await apiFetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/approve_current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/approve_current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
               const d = await r.json();
               if(!d.ok) throw new Error(d.error || 'Could not approve image');
               lastImageState = d.image_state || lastImageState || {};
@@ -14349,10 +14087,10 @@ function makeSeat(defn, idx){
           useBtn.innerText = "Use for revisions";
           useBtn.onclick = async ()=>{
             try{
-              const imgs = await apiFetch('/api/images').then(r=>r.json());
+              const imgs = await fetch('/api/images').then(r=>r.json());
               const match = (imgs.images || []).find(x => x.url === url);
               if(!match || !match.id) throw new Error('Could not find this image in the library');
-              const r = await apiFetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
+              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
               const d = await r.json();
               if(!d.ok) throw new Error(d.error || 'Could not set current image');
               lastImageState = d.image_state || {};
@@ -14460,7 +14198,7 @@ function makeSeat(defn, idx){
           goals: $("op_goals").value,
           notes: $("op_notes").value
         };
-        const res = await apiFetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
@@ -14478,7 +14216,7 @@ function makeSeat(defn, idx){
           goals: $("op_goals").value,
           notes: $("op_notes").value
         };
-        const res = await apiFetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+        const res = await fetch("/api/operator_profile", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(data.ok){
           showToast("Saved Operator Profile");
@@ -14625,7 +14363,7 @@ function makeSeat(defn, idx){
       const fd = new FormData();
       fd.append("file", file);
 
-      const res = await apiFetch("/api/upload", {
+      const res = await fetch("/api/upload", {
         method: "POST",
         body: fd
       });
@@ -15102,7 +14840,7 @@ function makeSeat(defn, idx){
       try{ setSeatLive(seat,"thinking"); }catch(_){}
       try{ setOpStatus("Sending…"); }catch(_){}
       try{
-        const res=await apiFetch("/api/followup",{
+        const res=await fetch("/api/followup",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
           body:JSON.stringify({name:seat, message:msg,
@@ -15141,7 +14879,7 @@ function makeSeat(defn, idx){
       const outputs={},drafts={},images={};
       for(const n of order){
         try{
-          const res=await apiFetch("/api/followup",{
+          const res=await fetch("/api/followup",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({name:n, message:msg,
@@ -15388,7 +15126,7 @@ function makeSeat(defn, idx){
         updateTablePulseFromStatuses();
 
         try{
-          const res = await apiFetch("/api/convene", {
+          const res = await fetch("/api/convene", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn})
@@ -15435,7 +15173,7 @@ function makeSeat(defn, idx){
         try{
           const controller = new AbortController();
           const t = setTimeout(() => controller.abort(), 120000); // 120s safety
-          const res = await apiFetch("/api/followup", {
+          const res = await fetch("/api/followup", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
             body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
@@ -15577,7 +15315,7 @@ async function pollImageJob(jobId, seatName){
 
       async function _savePinned(){
         try{
-          await apiFetch('/api/user/pinned_features',{
+          await fetch('/api/user/pinned_features',{
             method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({pinned_features: _pinned})
           });
@@ -15725,7 +15463,7 @@ async function pollImageJob(jobId, seatName){
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
 
-      const res = await apiFetch("/api/followup", {
+      const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
@@ -15776,7 +15514,7 @@ async function pollImageJob(jobId, seatName){
         hideModal();
         await new Promise(r=>setTimeout(r,150));
       }
-      const res = await apiFetch("/api/install/full", {method:"POST"});
+      const res = await fetch("/api/install/full", {method:"POST"});
       const data = await res.json();
       if(!data.ok){
         showModal("Error", data.error || "Install failed");
@@ -15801,7 +15539,7 @@ async function pollImageJob(jobId, seatName){
       var title = prompt('Name this playbook:', titleHint || 'Round Table Playbook');
       if(!title) return;
       try{
-        var res = await apiFetch('/api/playbooks/save', {
+        var res = await fetch('/api/playbooks/save', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ title: title.trim(), content: text.trim() })
         });
@@ -15845,7 +15583,7 @@ async function pollImageJob(jobId, seatName){
 
       showModal("Running " + pass + "...", "Thinking...");
       try{
-        const res = await apiFetch("/api/passes/run", {
+        const res = await fetch("/api/passes/run", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify({pass, text, seat})
@@ -15900,7 +15638,7 @@ $("draftWithSelected").onclick = async () => {
         "```\n\n" +
         `Existing fields:\nTo: ${toAddr || "[empty]"}\nSubject: ${subj || "[empty]"}\nBody: ${body ? "[present]" : "[empty]"}\n`;
 
-      const res = await apiFetch("/api/followup", {
+      const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({name: selectedSeat, message: prompt})
@@ -15939,7 +15677,7 @@ $("draftWithSelected").onclick = async () => {
       );
       if(!ok) return;
 
-      const res = await apiFetch("/api/send_email", {
+      const res = await fetch("/api/send_email", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
@@ -15979,7 +15717,7 @@ $("draftWithSelected").onclick = async () => {
 To: ${toPhone || "[empty]"}
 Body: ${body ? "[present]" : "[empty]"}
 `;
-      const res = await apiFetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
+      const res = await fetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
       const data = await res.json();
       if(!data.ok){ showModal('Error', data.error || 'Draft failed'); return; }
       const draft = {to: toPhone, body: (data.response || '').trim()};
@@ -15997,7 +15735,7 @@ Body: ${body ? "[present]" : "[empty]"}
       const fromLabel = $("smsFrom").value || '';
       const ok = confirm('Approve and send this text now?\n\nFrom: ' + fromLabel + '\nTo: ' + toPhone);
       if(!ok) return;
-      const res = await apiFetch('/api/send_sms', {
+      const res = await fetch('/api/send_sms', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({to: toPhone, body, from_teammate: lastSmsDraftBy || selectedSeat || ''})
@@ -16111,7 +15849,7 @@ Body: ${body ? "[present]" : "[empty]"}
 
     $("saveManage").onclick = async () => {
       $("manageStatus").innerText = "Saving...";
-      const res = await apiFetch("/api/active_order", {
+      const res = await fetch("/api/active_order", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({active_order: manageDraftActive})
@@ -16145,7 +15883,7 @@ Body: ${body ? "[present]" : "[empty]"}
         will_not_do: $("newWillNotDo").value || "",
       };
 
-      const res = await apiFetch("/api/teammate/create", {
+      const res = await fetch("/api/teammate/create", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify(payload)
@@ -16335,7 +16073,7 @@ Challenge weak assumptions. Surface risks.`;
       }
 
       // 4. Track usage fire-and-forget
-      try{ await apiFetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
+      try{ await fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
 
       showToast("✅ " + (p.title||"Prompt") + " loaded — edit if needed, then send");
     };
@@ -16368,7 +16106,7 @@ Challenge weak assumptions. Surface risks.`;
       if(e) e.stopPropagation();
       if(!confirm("Delete this custom prompt?")) return;
       try{
-        const res  = await apiFetch("/api/prompts/"+encodeURIComponent(id),{method:"DELETE"});
+        const res  = await fetch("/api/prompts/"+encodeURIComponent(id),{method:"DELETE"});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||"Delete failed");
         showToast("Prompt deleted");
@@ -16395,7 +16133,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!tm||!title||!prompt){ if(status) status.innerText="Teammate, title, and prompt are required."; return; }
         if(status) status.innerText = "Saving…";
         try{
-          const res  = await apiFetch("/api/prompts",{
+          const res  = await fetch("/api/prompts",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body: JSON.stringify({teammate:tm,title,category,prompt})
@@ -16625,7 +16363,7 @@ Challenge weak assumptions. Surface risks.`;
     async function removeTeamMember(username){
       if(!confirm("Remove " + username + " from your team? They will lose access.")) return;
       try{
-        const r = await apiFetch("/api/team/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
+        const r = await fetch("/api/team/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
         const d = await r.json();
         if(d.ok){ showToast("Removed " + username); loadTeamData(); }
         else showToast(d.error || "Failed","err");
@@ -16634,7 +16372,7 @@ Challenge weak assumptions. Surface risks.`;
 
     async function revokeInvite(token){
       try{
-        const r = await apiFetch("/api/team/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})});
+        const r = await fetch("/api/team/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})});
         const d = await r.json();
         if(d.ok){ showToast("Invite revoked"); loadTeamData(); }
         else showToast(d.error || "Failed","err");
@@ -16652,7 +16390,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!email){ if(statusEl) statusEl.textContent = "Enter an email address."; return; }
         if(statusEl){ statusEl.style.color = "#94a3b8"; statusEl.textContent = "Sending invite..."; }
         try{
-          const r = await apiFetch("/api/team/invite/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+          const r = await fetch("/api/team/invite/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
           const d = await r.json();
           if(d.ok){
             if(statusEl){ statusEl.style.color = "#86efac"; statusEl.textContent = d.message; }
@@ -16761,7 +16499,7 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Importing...';
       try{
         const txt = await file.text();
-        const res = await apiFetch('/api/crm/clients/import_csv', {
+        const res = await fetch('/api/crm/clients/import_csv', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({csv_text: txt, filename: file.name || 'prospects.csv'})
@@ -16890,7 +16628,7 @@ Challenge weak assumptions. Surface risks.`;
       if(!id) return;
       if(!confirm('Delete this client?')) return;
       try{
-        const res = await apiFetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
+        const res = await fetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchClients();
@@ -16957,7 +16695,7 @@ Challenge weak assumptions. Surface risks.`;
       if(st) st.innerText = 'Saving...';
       const stages = ($("crmStagesText").value||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
       try{
-        const res = await apiFetch('/api/crm/pipeline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stages})});
+        const res = await fetch('/api/crm/pipeline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stages})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText = 'Saved';
@@ -16997,7 +16735,7 @@ Challenge weak assumptions. Surface risks.`;
       if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
 
       try{
-        const res = await apiFetch('/api/crm/broadcast/email', {
+        const res = await fetch('/api/crm/broadcast/email', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload)
@@ -17049,7 +16787,7 @@ async function crmBroadcastSMS(dry_run=false){
   if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
 
   try{
-    const res = await apiFetch('/api/crm/broadcast/sms', {
+    const res = await fetch('/api/crm/broadcast/sms', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
@@ -17100,7 +16838,7 @@ async function settingsSaveSmsSettings(){
     twilio_token: ($("twilioToken") ? $("twilioToken").value : "").trim(),
   };
   try{
-    const res = await apiFetch("/api/settings/sms", {
+    const res = await fetch("/api/settings/sms", {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
@@ -17122,7 +16860,7 @@ async function settingsTestSms(){
     body: ($("twilioTestBody") ? $("twilioTestBody").value : "").trim() || "Test SMS from Simply Agentic"
   };
   try{
-    const res = await apiFetch("/api/settings/sms/test", {
+    const res = await fetch("/api/settings/sms/test", {
       method:"POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify(payload)
@@ -17166,7 +16904,7 @@ async function crmSaveSmsSettings(){
     twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value : "")
   };
   try{
-    const res = await apiFetch("/api/crm/settings/sms", {
+    const res = await fetch("/api/crm/settings/sms", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify(payload)
@@ -17193,7 +16931,7 @@ async function crmTestSmsSettings(){
     return;
   }
   try{
-    const res = await apiFetch("/api/crm/settings/sms/test", {
+    const res = await fetch("/api/crm/settings/sms/test", {
       method:"POST",
       headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({to, body})
@@ -17280,7 +17018,7 @@ async function crmFetchTasks(){
       try{
         let url='/api/crm/tasks';
         if(crmEditingTaskId) url='/api/crm/tasks/' + encodeURIComponent(crmEditingTaskId);
-        const res = await apiFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText='Saved';
@@ -17299,7 +17037,7 @@ async function crmFetchTasks(){
       const t = (crmCache.tasks||[]).find(x=>x.id===id);
       if(!t) return;
       try{
-        const res = await apiFetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !t.done})});
+        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: !t.done})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'toggle failed');
         await crmFetchTasks();
@@ -17311,7 +17049,7 @@ async function crmFetchTasks(){
       if(!id) return;
       if(!confirm('Delete this task?')) return;
       try{
-        const res = await apiFetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'DELETE'});
+        const res = await fetch('/api/crm/tasks/' + encodeURIComponent(id), {method:'DELETE'});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'delete failed');
         await crmFetchTasks();
@@ -17358,7 +17096,7 @@ async function crmFetchTasks(){
       const raw = ($("crmSeqSteps").value||'').trim();
       try{
         const steps = raw ? JSON.parse(raw) : [];
-        const res = await apiFetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
+        const res = await fetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText='Saved';
@@ -17389,7 +17127,7 @@ async function crmFetchTasks(){
       const client_id = ($("crmEnrollClient").value||'').trim();
       const sequence_id = ($("crmEnrollSeq").value||'').trim();
       try{
-        const res = await apiFetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
+        const res = await fetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'enroll failed');
         if(st) st.innerText='Enrolled';
@@ -17408,7 +17146,7 @@ async function crmFetchTasks(){
         description: ($("crmCalDesc").value||'').trim(),
       };
       try{
-        const res = await apiFetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const res = await fetch('/api/crm/calendar/create_event', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'calendar failed');
         if(st) st.innerText = 'Created';
@@ -17593,7 +17331,7 @@ async function crmFetchTasks(){
           const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
           const top = item.email || '';
           try{
-            const res = await apiFetch('/api/crm/clients', {
+            const res = await fetch('/api/crm/clients', {
               method:'POST',
               headers:{'Content-Type':'application/json'},
               body: JSON.stringify({
@@ -17622,7 +17360,7 @@ async function crmFetchTasks(){
       const st = $("leadLabStatus");
       if(st) st.innerText = 'Building lead list...';
       try{
-        const res = await apiFetch('/api/crm/lead_lab', {
+        const res = await fetch('/api/crm/lead_lab', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
@@ -17669,7 +17407,7 @@ async function crmFetchTasks(){
       if(st) st.innerText = 'Generating...';
       if(box) box.innerHTML = '';
       try{
-        const res = await apiFetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
+        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Generation failed');
         const output = data.output || '';
@@ -17798,7 +17536,7 @@ async function crmFetchTasks(){
             const client = (crmCache.clients||[]).find(x=>x.id===clientId);
             if(!client) return;
             const payload = {...client, pipeline_stage: stage};
-            const res = await apiFetch('/api/crm/clients/' + encodeURIComponent(clientId), {
+            const res = await fetch('/api/crm/clients/' + encodeURIComponent(clientId), {
               method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
             });
             const data = await res.json();
@@ -17831,7 +17569,7 @@ async function crmFetchTasks(){
     on_complete_teammate: '',
   };
   try{
-    const res = await apiFetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const res = await fetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error||'Failed');
     showToast('Task added: ' + defaultTitle);
@@ -17904,7 +17642,7 @@ window.crmPipelineOpenClient = function(clientId){
       showToast('⚡ Drafting outreach for ' + (c.name||'client') + '…');
 
       try{
-        const res = await apiFetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
+        const res = await fetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({channel})
@@ -18021,7 +17759,7 @@ window.crmPipelineOpenClient = function(clientId){
       window.wcalDeletePlaybook = async function(pbId, btn){
         if(!confirm('Delete this playbook?')) return;
         try{
-          const res = await apiFetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pbId})});
+          const res = await fetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pbId})});
           const data = await res.json();
           if(data.ok){ btn.closest('[data-pbcard]').remove(); showToast('Playbook deleted'); }
           else throw new Error(data.error||'Delete failed');
@@ -18480,7 +18218,7 @@ window.wcalToggleTask = async function(e, taskId){
   try{
     const body = { done: newDone };
     if(isRecurring && instanceDate) body.instance_date = instanceDate;
-    await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
 
     // Update in-memory done_dates on all instances of this task
     if(isRecurring && instanceDate){
@@ -18629,7 +18367,7 @@ async function wcalOfferDraftFromCircle(taskId, task){
   });
   // Log note to CRM if provided and contact email is known
   if(wantDraft.note && (task.on_complete_client_email||'').trim()){
-    apiFetch('/api/crm/log_note', {
+    fetch('/api/crm/log_note', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ email: task.on_complete_client_email, note: wantDraft.note, task_title: task.title||'' })
     }).then(function(r){ return r.json(); }).then(function(d){ if(d.ok) showToast('Note logged to CRM'); }).catch(function(){});
@@ -18696,7 +18434,7 @@ async function wcalFireCompleteAction(taskId, task){
   showToast('⚡ Drafting email as ' + (voice==='operator'?'you':teammate) + '…');
   try{
     // Pass on_complete fields inline so this works for both local tasks AND Google Calendar events
-    const res = await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
+    const res = await fetch('/api/cal/tasks/'+encodeURIComponent(taskId)+'/complete_action',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -18789,7 +18527,7 @@ window.wcalShowDraftSendModal = function(draft, drafterName){
     if(!to||!subject||!body){ st.style.color='#f87171'; st.innerText='Please fill in all fields.'; return; }
     btn.disabled=true; btn.innerText='Sending...'; st.innerText='';
     try{
-      var res = await apiFetch('/api/send_email',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to:to, subject:subject, body:body, from_teammate: drafterName||''}) });
+      var res = await fetch('/api/send_email',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({to:to, subject:subject, body:body, from_teammate: drafterName||''}) });
       var data = await res.json();
       if(data.ok){ st.style.color='#6ee7b7'; st.innerText='Sent!'; showToast('Email sent to '+to); setTimeout(close,1600); }
       else throw new Error(data.error||'Send failed');
@@ -18929,7 +18667,7 @@ function wcalShowTaskDetail(task){
 window.wcalToggleGcalItemType = async function(evId, currentType){
   const newType = currentType === 'task' ? 'event' : 'task';
   try{
-    const res = await apiFetch('/api/calendar/event_type_toggle',{
+    const res = await fetch('/api/calendar/event_type_toggle',{
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({event_id: evId, gcal_item_type: newType})
     });
@@ -19216,7 +18954,7 @@ window.wcalDetToggleEvDone = async function(evId){
     on_complete_client_email: (document.getElementById('detEvAutoEmail')?.value||meta.on_complete_client_email||'').trim(),
   };
   try{
-    const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19268,7 +19006,7 @@ window.wcalDetToggleDone = async function(){
       priority: document.getElementById('detPriority')?.value || 'high',
     };
     try{
-      const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await res.json();
       if(!d.ok) throw new Error(d.error||'Failed');
       if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19322,7 +19060,7 @@ window.wcalDetToggleDone = async function(){
 
 async function wcalToggleTaskById(id,done){
   try{
-    await apiFetch('/api/cal/tasks/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})});
+    await fetch('/api/cal/tasks/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done})});
     const t=cal.tasks.find(x=>x.id===id); if(t){ t.done=done; t.completed_at=done?new Date().toISOString():null; }
     wcalRefresh(); wcalRenderUpcoming();
     showToast(done?'✓ Task complete':'Task marked todo');
@@ -19360,7 +19098,7 @@ window.wcalDetSaveTask = async function(taskId){
     on_complete_client_email:(document.getElementById('detAutoEmail')?.value||'').trim(),
   };
   try{
-    const res=await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
     // Re-fetch and re-expand so recurring changes show immediately
     await wcalFetchTasks(); wcalRefresh(); wcalRenderUpcoming();
@@ -19377,7 +19115,7 @@ window.wcalDetSaveTask = async function(taskId){
       const today=new Date().toISOString().slice(0,10);
       const matched=(crmCache.clients||[]).find(c=>(c.email||'').toLowerCase()===clientEmail.toLowerCase());
       if(matched && matched.id){
-        apiFetch('/api/crm/clients/'+encodeURIComponent(matched.id),{
+        fetch('/api/crm/clients/'+encodeURIComponent(matched.id),{
           method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({...matched, last_contact:today})
         }).then(r=>r.json()).then(d=>{
@@ -19393,7 +19131,7 @@ window.wcalDetSaveTask = async function(taskId){
 window.wcalDetDeleteTask = async function(taskId){
   if(!confirm('Delete this task?')) return;
   try{
-    await apiFetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
+    await fetch('/api/cal/tasks/'+encodeURIComponent(taskId),{method:'DELETE'});
     cal.tasks=cal.tasks.filter(t=>t.id!==taskId);
     if(cal._rawTasks) cal._rawTasks=cal._rawTasks.filter(t=>t.id!==taskId);
     document.getElementById('wcalDetail')?.classList.remove('open');
@@ -19422,7 +19160,7 @@ window.wcalDetSaveGcalTaskMeta = async function(evId){
     done: !!((cal.gcalMeta||{})[evId]||{}).done,
   };
   try{
-    const res=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const res=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await res.json();
     if(!d.ok) throw new Error(d.error||'Failed');
     if(!cal.gcalMeta) cal.gcalMeta={};
@@ -19526,7 +19264,7 @@ window.wcalDetGcalTaskPriorityChange = function(val){
         _ctxPendingAction=false; _ctxEl=null;
         if(!confirm('Remove this task?')) return;
         try{
-          const res = await apiFetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
+          const res = await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{method:'DELETE'});
           const d = await res.json();
           if(d && d.ok !== false){
             cal.tasks = cal.tasks.filter(t=>t.id!==tid);
@@ -19547,7 +19285,7 @@ window.wcalDetGcalTaskPriorityChange = function(val){
         const itemLabel = 'task';
         if(!confirm('Remove "' + (ev.summary||'this '+itemLabel) + '" from your calendar?')) return;
         try{
-          const res = await apiFetch('/api/calendar/delete_event', {
+          const res = await fetch('/api/calendar/delete_event', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({event_id: ev.id || eid})
@@ -19624,7 +19362,7 @@ window.wcalDetSaveEvent = async function(encodedId){
         recurring: document.getElementById('detRecurring')?.value||'none',
         recur_days: _wcalGetActiveDays('detDayPicker'),
       };
-      const mr=await apiFetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
+      const mr=await fetch('/api/calendar/event_meta',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(metaPayload)});
       const md=await mr.json();
       if(md&&md.ok){ if(!cal.gcalMeta) cal.gcalMeta={}; cal.gcalMeta[evId]=md.meta; }
     }catch(e){}
@@ -19636,7 +19374,7 @@ window.wcalDetSaveEvent = async function(encodedId){
     const endDt=new Date(dateVal+'T'+(endVal||'10:00')+':00');
     const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
     try{
-      const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await res.json();
       if(!d.ok) throw new Error(d.error||'Failed');
       if(st) st.innerText='Saved ✓';
@@ -19842,7 +19580,7 @@ const wcalDrag={
         } else {
           payload={date:targetDate, start:newStart};
         }
-        const res=await apiFetch('/api/cal/tasks/'+encodeURIComponent(tid),{
+        const res=await fetch('/api/cal/tasks/'+encodeURIComponent(tid),{
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify(payload)
         });
@@ -19875,7 +19613,7 @@ const wcalDrag={
       if(hasAttendees) resend=confirm('This event has '+ev.attendees.length+' attendee(s). Resend invite?');
       try{
         if(!ev.id) throw new Error('No event ID — refresh and try again');
-        const res=await apiFetch('/api/calendar/move_event',{
+        const res=await fetch('/api/calendar/move_event',{
           method:'POST', headers:{'Content-Type':'application/json'},
           body:JSON.stringify({event_id:ev.id, start:newStartDt.toISOString(), end:newEndDt.toISOString(), timezone:cal.tz, resend})
         });
@@ -20298,7 +20036,7 @@ async function wcalAddEvent(){
   const startDt=new Date(date+'T'+start+':00');
   const endDt=new Date(startDt.getTime()+dur*60000);
   try{
-    const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet,location:zoomUrl})});
+    const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,attendees,use_meet:useMeet,location:zoomUrl})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
     if(st) st.innerText='✓ Created';
     document.getElementById('wcalAddTitle').value='';
@@ -20329,7 +20067,7 @@ async function wcalAddTask(){
   if(!title){ if(st) st.innerText='Title required'; return; }
   if(!date){  if(st) st.innerText='Date required'; return; }
   try{
-    const res=await apiFetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring,recur_days})});
+    const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,date,start,duration:dur,priority,recurring,recur_days})});
     const data=await res.json(); if(!data.ok) throw new Error(data.error||'Failed');
     // Re-expand so recurring instances appear immediately across all dates
     const base=cal.tasks.filter(t=>!t._isRecurInstance);
@@ -20541,7 +20279,7 @@ async function wcalPopCreate(){
     const endDt=new Date(startDt.getTime()+dur*60000);
     if(st) st.innerText='Creating…';
     try{
-      const res=await apiFetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},
+      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
       cal.events[_wcalPopDate]=cal.events[_wcalPopDate]||[];
@@ -20554,7 +20292,7 @@ async function wcalPopCreate(){
     const recurring=document.getElementById('wcalPopRecurring')?.value||'none';
     const recur_days=_wcalGetActiveDays('wcalPopDayPicker');
     try{
-      const res=await apiFetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+      const res=await fetch('/api/cal/tasks',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({title,date:_wcalPopDate,start:time,duration:dur,priority,recurring,recur_days})});
       const d=await res.json(); if(!d.ok) throw new Error(d.error||'Failed');
       // Re-expand so recurring instances appear immediately across all dates
@@ -20721,7 +20459,7 @@ async function showImageLibraryModal(){
         const seat = selectedSeat || "";
         if(!seat || seat === "Operator"){ showModal("Select a teammate first", "Choose a teammate, then click Use."); return; }
         try{
-          const rr = await apiFetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
+          const rr = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
           const dd = await rr.json();
           if(!dd.ok) throw new Error(dd.error || 'Could not set current image');
           lastImageState = dd.image_state || {};
@@ -20798,7 +20536,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
           const payload = {};
           if(oKey) payload.openai_key  = oKey;
           if(cKey) payload.claude_key  = cKey;
-          const res  = await apiFetch("/api/user/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          const res  = await fetch("/api/user/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
           const data = await res.json();
           if(data.ok){
             if(st){ st.textContent = "✅ Keys saved!"; st.style.color = "#6ee7b7"; }
@@ -20866,7 +20604,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         }
       };
       try{
-        const res = await apiFetch("/api/user/settings", {
+        const res = await fetch("/api/user/settings", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
           body: JSON.stringify(payload)
@@ -20912,7 +20650,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
       if(!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
       if(statusEl) statusEl.innerText = "Deleting…";
       try{
-        const res = await apiFetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
+        const res = await fetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
         const d   = await res.json();
         if(!d.ok){ if(statusEl) statusEl.innerText = d.error || "Delete failed"; return; }
         if(nameInput) nameInput.value = "";
@@ -20953,11 +20691,11 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // ── end Save & Exit handlers ────────────────────────────────────
 
     if($('gmailDisconnectBtn')) $('gmailDisconnectBtn').onclick = async () => {
-      try{ await apiFetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
+      try{ await fetch('/api/gmail/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
     };
     if($('calendarDisconnectBtn')) $('calendarDisconnectBtn').onclick = async () => {
-      try{ await apiFetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
+      try{ await fetch('/api/calendar/disconnect', {method:'POST'}); }catch(e){}
       try{ await refreshGoogleStatuses(); }catch(e){}
     };
 
@@ -21043,7 +20781,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
 $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saving...";
       const fw = $("frameworkText").value || "";
-      const res = await apiFetch("/api/framework", {
+      const res = await fetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({framework: fw})
@@ -21064,7 +20802,7 @@ $("saveFramework").onclick = async () => {
       if(!ok) return;
       $("frameworkText").value = "";
       $("frameworkStatus").innerText = "Resetting...";
-      const res = await apiFetch("/api/framework", {
+      const res = await fetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({framework: ""})
@@ -21187,7 +20925,7 @@ async function loadClients(){
 }
 
 async function setActiveClient(cid){
-  await apiFetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
+  await fetch("/api/clients/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({client_id: cid})});
   ClientStore.active_id = cid || "";
   const active = ClientStore.list.find(c => c.id === ClientStore.active_id) || null;
   _fillClientForm(active);
@@ -21203,7 +20941,7 @@ async function createNewClient(){
     notes: ($("clientNotes").value || "").trim(),
     last_summary: ($("clientSummary").value || "").trim(),
   };
-  const res = await apiFetch("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const res = await fetch("/api/clients", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   const data = await res.json();
   if(!data.ok) return;
   await loadClients();
@@ -21227,7 +20965,7 @@ async function saveCurrentClient(){
     notes: ($("clientNotes").value || "").trim(),
     last_summary: ($("clientSummary").value || "").trim(),
   };
-  const res = await apiFetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  const res = await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   const data = await res.json();
   if(!data.ok) return;
   await loadClients();
@@ -21237,7 +20975,7 @@ async function saveCurrentClient(){
 async function deleteCurrentClient(){
   const cid = ClientStore.active_id;
   if(!cid) return;
-  await apiFetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"DELETE"});
+  await fetch(`/api/clients/${encodeURIComponent(cid)}`, {method:"DELETE"});
   await loadClients();
   $("activeClientSelect").value = ClientStore.active_id || "";
 }
@@ -22016,7 +21754,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
             sel.onchange = async () => {
               try{
                 const newStage = sel.value;
-                const res = await apiFetch("/api/crm/clients/"+encodeURIComponent(c.id), {
+                const res = await fetch("/api/crm/clients/"+encodeURIComponent(c.id), {
                   method:"POST",
                   headers:{"Content-Type":"application/json"},
                   body: JSON.stringify({pipeline_stage:newStage})
@@ -22154,7 +21892,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     suppressAutoOpen = false;
     saveOnbHidden(false);
     try{
-      await apiFetch("/api/onboarding/dismiss", {
+      await fetch("/api/onboarding/dismiss", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({dismissed:false})
@@ -22294,7 +22032,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
   async function dismissOnboarding(){
     saveOnbHidden(true);
-    try{ await apiFetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
+    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
     const panel = onb$("onboardingPanel");
     if(panel) panel.style.display = "none";
   }
@@ -22353,7 +22091,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
           if(btn){
             btn.click();
           }else{
-            const r = await apiFetch("/api/install/full", {method:"POST"});
+            const r = await fetch("/api/install/full", {method:"POST"});
             const d = await r.json();
             if(d && d.ok){ if(typeof showToast === "function") showToast("Installed full team"); }
             else{ if(typeof showToast === "function") showToast("Install failed"); }
@@ -22962,7 +22700,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(!seat){ if(typeof showToast==="function") showToast("Select a teammate first","error"); return; }
       const label = prompt("Name this snapshot (optional):", now_short()) || "";
       try{
-        const r = await apiFetch("/api/thread/"+encodeURIComponent(seat)+"/snapshot",{
+        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/snapshot",{
           method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({label})
         });
         const d = await r.json();
@@ -22979,7 +22717,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const seat = window.selectedSeat; if(!seat) return;
       if(!confirm("Restore this snapshot? Current conversation will be replaced.")){ this.value=""; return; }
       try{
-        const r = await apiFetch("/api/thread/"+encodeURIComponent(seat)+"/restore/"+encodeURIComponent(bid),{method:"POST"});
+        const r = await fetch("/api/thread/"+encodeURIComponent(seat)+"/restore/"+encodeURIComponent(bid),{method:"POST"});
         const d = await r.json();
         if(!d.ok){ if(typeof showToast==="function") showToast(d.error||"Restore failed","error"); return; }
         if(typeof showToast==="function") showToast("Restored: "+d.label+" ("+d.msg_count+" msgs)");
@@ -23037,7 +22775,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     const st=document.getElementById("shareStatus");
     if(st) st.innerText="Creating link…";
     try{
-      const r=await apiFetch("/api/share",{method:"POST",headers:{"Content-Type":"application/json"},
+      const r=await fetch("/api/share",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({teammate:seat,title:"Conversation with "+seat})});
       const d=await r.json();
       if(!d.ok){ if(st) st.innerText=d.error||"Failed"; return; }
@@ -23058,11 +22796,11 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(st) st.innerText="Uploading…";
     try{
       const fd=new FormData(); fd.append("file",file);
-      const up=await apiFetch("/api/upload",{method:"POST",body:fd});
+      const up=await fetch("/api/upload",{method:"POST",body:fd});
       const upd=await up.json();
       if(!upd.ok){ if(st) st.innerText=upd.error||"Upload failed"; return; }
       if(st) st.innerText="Indexing (10–30 seconds)…";
-      const ix=await apiFetch("/api/rag/index",{method:"POST",headers:{"Content-Type":"application/json"},
+      const ix=await fetch("/api/rag/index",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({file_id:upd.file.id,label:file.name})});
       const ixd=await ix.json();
       if(!ixd.ok){ if(st) st.innerText=ixd.error||"Indexing failed"; return; }
@@ -23091,7 +22829,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window.saDeleteRagDoc = async function saDeleteRagDoc(doc_id){
     if(!confirm("Remove this document from the knowledge base?")) return;
     try{
-      const r=await apiFetch("/api/rag/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_id})});
+      const r=await fetch("/api/rag/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({doc_id})});
       const d=await r.json();
       if(typeof showToast==="function") showToast(d.ok?"Removed":d.error||"Error");
       await saLoadRagDocs();
@@ -23154,7 +22892,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     const clrBtn = document.getElementById("clearSharedMemoryBtn");
     if(clrBtn) clrBtn.addEventListener("click", async function(){
       try{
-        await apiFetch("/api/os/shared_memory/clear", {method:"POST"});
+        await fetch("/api/os/shared_memory/clear", {method:"POST"});
         const card = document.getElementById("sharedMemoryCard");
         if(card) card.style.display = "none";
         if(typeof showToast==="function") showToast("Shared memory cleared");
@@ -23341,7 +23079,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     try{
       // Fetch audio from OpenAI via our server
-      var resp = await apiFetch("/api/tts", {
+      var resp = await fetch("/api/tts", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({text: text.slice(0,2000), voice: voice || "alloy"})
@@ -23501,7 +23239,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     let fullText = "";
 
     try{
-      const response = await apiFetch("/api/followup/stream",{
+      const response = await fetch("/api/followup/stream",{
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({name:seat, message:msg, file_ids:dmFileIds, lighting_mode:lightingOn})
       });
@@ -23796,7 +23534,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   }
 
   window.cpVote = function(id){
-    apiFetch('/api/community/ideas/'+encodeURIComponent(id)+'/vote',{method:'POST',headers:{'Content-Type':'application/json'}})
+    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/vote',{method:'POST',headers:{'Content-Type':'application/json'}})
       .then(function(r){return r.json();}).then(function(d){if(d.ok){_cpLoadIdeas();_cp.lb=null;}}).catch(function(){});
   };
 
@@ -23806,7 +23544,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     var st=document.getElementById('ideaStatus');
     if(!t){if(st)st.innerText='Please add a title.';return;}
     if(st)st.innerText='Submitting...';
-    apiFetch('/api/community/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})})
+    fetch('/api/community/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,body:b})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){
           if(st)st.innerText='✅ Submitted! It will appear after review. +20 points!';
@@ -23897,7 +23635,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
   }
 
   window.cpMod = function(id, status){
-    apiFetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
+    fetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){var el=document.getElementById('mc-'+id);if(el)el.remove();_cpLoadStats();_cp.lb=null;}
       }).catch(function(){});
@@ -24042,7 +23780,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     _sm('user',q);hist.push({role:'user',content:q});
     const th=_sm('scout','🤔 Thinking…');if(th)th.style.opacity='.5';
     try{
-      const r=await apiFetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
+      const r=await fetch('/api/scout_ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:hist.slice(-20),system:SYSTEM})});
       const d=await r.json();if(th)th.remove();
       const ans=d.answer||d.error||'Sorry, had trouble with that.';
       _sm('scout',ans);hist.push({role:'assistant',content:ans});
@@ -24070,7 +23808,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     if(!desc){status.style.display='block';status.style.color='#fca5a5';status.innerText='⚠️ Please describe the bug.';return;}
     btn.disabled=true;btn.innerText='Sending…';
     try{
-      const r=await apiFetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
+      const r=await fetch('/api/bug_report',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({description:desc,steps,severity,device:{screenW:window.innerWidth,screenH:window.innerHeight,orientation:window.innerWidth>window.innerHeight?'landscape':'portrait',ua:navigator.userAgent.slice(0,300),url:location.pathname,ts:new Date().toISOString()}})});
       const d=await r.json();
       status.style.display='block';
@@ -24104,7 +23842,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     }catch(e){body.innerHTML='<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">Error loading.</div>';}
   };
   window.markBugResolved=async function(id){
-    await apiFetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
+    await fetch('/api/bug_report/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
     loadBugInbox();_checkAdminBadge();
   };
   async function _checkAdminBadge(){
@@ -25633,8 +25371,7 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile = dict(profile or {})
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
-    with file_lock(path):
-        save_json(path, profile)
+    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # =========================
@@ -26875,15 +26612,7 @@ def _handle_404(e):
             return jsonify({"ok": False, "error": "Endpoint not found"}), 404
     except Exception:
         pass
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>404 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'><h1>404</h1><h2>Page not found</h2>"
-        f"<p>The page you're looking for doesn't exist or has moved.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 404
+    return "<h1>404 Not Found</h1>", 404
 
 @app.errorhandler(500)
 def _handle_500(e):
@@ -26892,15 +26621,7 @@ def _handle_500(e):
             return jsonify({"ok": False, "error": "Internal server error"}), 500
     except Exception:
         pass
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>500 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'><h1>500</h1><h2>Something went wrong</h2>"
-        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 500
+    return "<h1>500 Internal Server Error</h1>", 500
 
 
 
@@ -29399,8 +29120,11 @@ def _load_team_invites() -> Dict[str, Any]:
     return {}
 
 def _save_team_invites(data: Dict[str, Any]) -> None:
-    with file_lock(TEAM_INVITES_PATH):
-        save_json(TEAM_INVITES_PATH, data)
+    try:
+        with open(TEAM_INVITES_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
 
 def _create_team_invite(owner_username: str, invitee_email: str) -> Tuple[bool, str, str]:
     """Create a team invite token. Returns (ok, token_or_error, msg)."""
@@ -30177,40 +29901,6 @@ def api_resolve_bug(report_id: str):
             _save_bugs(bugs)
             return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Not found"}), 404
-
-
-
-# =========================
-# HEALTH CHECK
-# =========================
-# Lightweight endpoint for uptime monitors (Render, UptimeRobot, etc.)
-# Returns 200 + basic app state. No auth required, no sensitive data exposed.
-
-@app.get("/health")
-def health_check():
-    healthy = True
-    detail: Dict[str, Any] = {"status": "ok", "app": APP_TITLE}
-
-    # Check data dir is writable
-    try:
-        probe = DATA / ".health_probe"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
-        detail["data_dir"] = "writable"
-    except Exception as e:
-        detail["data_dir"] = f"error: {e}"
-        healthy = False
-
-    # Check users file is readable
-    try:
-        u = load_users()
-        detail["users"] = len(u.get("users") or {})
-    except Exception as e:
-        detail["users"] = f"error: {e}"
-        healthy = False
-
-    detail["status"] = "ok" if healthy else "degraded"
-    return jsonify(detail), (200 if healthy else 503)
 
 
 if __name__ == "__main__":
