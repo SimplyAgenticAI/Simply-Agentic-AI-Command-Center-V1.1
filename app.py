@@ -604,14 +604,29 @@ limiter = Limiter(
 # =========================
 # CSRF PROTECTION (additive — fix #2)
 # =========================
-# WTF_CSRF_CHECK_DEFAULT = False means CSRF is opt-in per route via @csrf.protect.
+# WTF_CSRF_CHECK_DEFAULT = False — no global enforcement.
+# We manually call _require_csrf() at the top of each form handler instead.
 # This keeps all /api/* JSON endpoints and /stripe/webhook completely untouched.
-# Only the 5 HTML form routes below get the @csrf.protect decorator added.
 app.config["WTF_CSRF_SECRET_KEY"]    = app.secret_key
-app.config["WTF_CSRF_CHECK_DEFAULT"] = False   # opt-in, not global
+app.config["WTF_CSRF_CHECK_DEFAULT"] = False   # opt-in only
 app.config["WTF_CSRF_TIME_LIMIT"]    = 3600    # token valid for 1 hour
 csrf = CSRFProtect(app)
-# csrf_token() is now available as a Jinja2 global in all render_template_string calls
+# CSRFProtect registers csrf_token() as a Jinja2 global used in all 5 form templates.
+
+from flask_wtf.csrf import validate_csrf, ValidationError as CSRFValidationError
+
+def _require_csrf():
+    """
+    Validate the CSRF token submitted with a form POST.
+    Returns None on success, or a human-readable error string on failure.
+    Call this at the top of each protected form handler.
+    """
+    token = request.form.get("csrf_token", "")
+    try:
+        validate_csrf(token)
+        return None
+    except CSRFValidationError:
+        return "Security token missing or expired — please refresh the page and try again."
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
@@ -8212,8 +8227,10 @@ def setup():
 
 @app.post("/setup")
 @limiter.limit("5 per minute")
-@csrf.protect
 def setup_post():
+    _csrf_err = _require_csrf()
+    if _csrf_err:
+        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=_csrf_err), 400
     if has_any_user():
         return redirect(url_for("login"))
     username = _clean_username(request.form.get("username", ""))
@@ -8247,8 +8264,10 @@ def login():
 
 @app.post("/login")
 @limiter.limit("5 per minute")
-@csrf.protect
 def login_post():
+    _csrf_err = _require_csrf()
+    if _csrf_err:
+        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=_csrf_err, allow_setup=(not has_any_user()), allow_signup=_signup_enabled()), 400
     username = _clean_username(request.form.get("username", ""))
     password = (request.form.get("password") or "").strip()
     remember = (request.form.get("remember") or "").strip()
@@ -8345,8 +8364,10 @@ def register_get():
 
 @app.post("/register")
 @limiter.limit("5 per minute")
-@csrf.protect
 def register_post():
+    _csrf_err = _require_csrf()
+    if _csrf_err:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_csrf_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name=""), 400
     if not _signup_enabled():
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
     username = _clean_username(request.form.get("username",""))
@@ -8683,8 +8704,10 @@ def reset():
 
 @app.post("/reset")
 @limiter.limit("5 per minute")
-@csrf.protect
 def reset_post():
+    _csrf_err = _require_csrf()
+    if _csrf_err:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_csrf_err, token=None, ok=None), 400
     username = _clean_username(request.form.get("username", ""))
     data = load_users()
     u = (data.get("users") or {}).get(username)
@@ -8735,8 +8758,10 @@ def reset_post():
 
 @app.post("/reset_password")
 @limiter.limit("5 per minute")
-@csrf.protect
 def reset_password_post():
+    _csrf_err = _require_csrf()
+    if _csrf_err:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_csrf_err, token=None, ok=None), 400
     username = _clean_username(request.form.get("username", ""))
     token = (request.form.get("token") or "").strip()
     new_password = (request.form.get("new_password") or "").strip()
