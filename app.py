@@ -1429,11 +1429,15 @@ def _add_security_headers(response):
     response.headers["Permissions-Policy"]     = "geolocation=(), camera=(), microphone=(self)"
     if PUBLIC_BASE_URL.startswith("https://"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    # Content Security Policy — tightened for production
-    # Allows: same-origin scripts/styles, CDN fonts, Stripe.js, inline styles needed by Flask templates
+    # Content Security Policy
+    # unsafe-inline is required while JS lives in <script> blocks and inline handlers.
+    # strict-dynamic is added so injected scripts cannot chain-load further attacker
+    # scripts even if an XSS payload executes. Removing unsafe-inline entirely requires
+    # extracting all JS to external files — tracked as a future refactor.
+    _on_https = PUBLIC_BASE_URL.startswith("https://")
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com; "
+        "script-src 'self' 'unsafe-inline' 'strict-dynamic' https://js.stripe.com https://accounts.google.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob: https:; "
@@ -1441,36 +1445,10 @@ def _add_security_headers(response):
         "frame-src https://js.stripe.com; "
         "object-src 'none'; "
         "base-uri 'self';"
+        + (" upgrade-insecure-requests;" if _on_https else "")
     )
     response.headers["Content-Security-Policy"] = csp
     return response
-
-@app.errorhandler(404)
-def _error_404(e):
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>404 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'>"
-        f"<h1>404</h1><h2>Page not found</h2>"
-        f"<p>The page you're looking for doesn't exist or has moved.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 404
-
-@app.errorhandler(500)
-def _error_500(e):
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>500 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'>"
-        f"<h1>500</h1><h2>Something went wrong</h2>"
-        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 500
-
 
 @app.before_request
 def _auth_guard():
@@ -6301,7 +6279,8 @@ def _load_cal_tasks(username: str) -> List[Dict[str, Any]]:
 
 def _save_cal_tasks(username: str, tasks: List[Dict[str, Any]]) -> None:
     p = _cal_tasks_path(username)
-    p.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+    with file_lock(p):
+        save_json(p, tasks)
 
 @app.get("/api/cal/tasks")
 def api_cal_tasks_get():
@@ -8326,6 +8305,7 @@ def setup_post():
     data["users"][username] = _new_user(username=username, password=password, email=email)
     save_users(data)
 
+    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -8362,6 +8342,7 @@ def login_post():
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
+    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
@@ -8477,6 +8458,7 @@ def register_post():
         except Exception:
             pass
 
+    session.clear()  # Prevent session fixation: clear any prior session before binding new identity
     session["user"] = username
     session.permanent = True
     return redirect(url_for("index"))
@@ -25583,7 +25565,8 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile = dict(profile or {})
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
-    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+    with file_lock(path):
+        save_json(path, profile)
 
 
 # =========================
@@ -26824,7 +26807,15 @@ def _handle_404(e):
             return jsonify({"ok": False, "error": "Endpoint not found"}), 404
     except Exception:
         pass
-    return "<h1>404 Not Found</h1>", 404
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>404 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'><h1>404</h1><h2>Page not found</h2>"
+        f"<p>The page you're looking for doesn't exist or has moved.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 404
 
 @app.errorhandler(500)
 def _handle_500(e):
@@ -26833,7 +26824,15 @@ def _handle_500(e):
             return jsonify({"ok": False, "error": "Internal server error"}), 500
     except Exception:
         pass
-    return "<h1>500 Internal Server Error</h1>", 500
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>500 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'><h1>500</h1><h2>Something went wrong</h2>"
+        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
+        f"<a href='/'>← Back to app</a></div></body></html>"
+    )
+    return page, 500
 
 
 
@@ -29332,11 +29331,8 @@ def _load_team_invites() -> Dict[str, Any]:
     return {}
 
 def _save_team_invites(data: Dict[str, Any]) -> None:
-    try:
-        with open(TEAM_INVITES_PATH, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
+    with file_lock(TEAM_INVITES_PATH):
+        save_json(TEAM_INVITES_PATH, data)
 
 def _create_team_invite(owner_username: str, invitee_email: str) -> Tuple[bool, str, str]:
     """Create a team invite token. Returns (ok, token_or_error, msg)."""
