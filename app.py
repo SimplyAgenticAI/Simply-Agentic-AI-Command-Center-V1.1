@@ -26331,10 +26331,8 @@ def _crm_response_text(resp: Any) -> str:
 
 
 def _crm_openai_web_search(query: str, niche: str, location: str, max_results: int = 12) -> List[Dict[str, Any]]:
-    """Use OpenAI web search to find likely prospect businesses.
-
-    Returns lightweight candidate rows that are later validated against public pages.
-    This is additive: if the user's key or model does not support web search, we quietly fall back.
+    """Use OpenAI with the web_search tool to find real businesses.
+    Falls back silently if the model/account doesn't support web search.
     """
     query = (query or '').strip()
     if not query:
@@ -26344,36 +26342,43 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
     except Exception:
         return []
 
-    model = os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini')
     system = (
-        'You are a precise B2B lead researcher. Use web search. Find real businesses that match the request. '
-        'Return ONLY a JSON array. Each item must be an object with keys: '
+        'You are a B2B lead researcher with web search. '
+        'Search for real businesses matching the request. '
+        'Return ONLY a JSON array. Each object must have: '
         'name, company, website, phone, email, notes. '
-        'Only include likely real prospects, not search engines, portals, directories, marketplaces, social networks, review sites, or aggregators. '
-        'Prefer official business websites. If email or phone is unknown, use an empty string. '
-        f'Return at most {max(1, min(25, int(max_results or 12)))} items.'
+        'Only include real businesses with actual websites. '
+        'Never invent contact details — only include email/phone if genuinely found. '
+        f'Return at most {max(1, min(20, int(max_results or 12)))} items.'
     )
     user = (
-        f'Niche: {niche or "businesses"}\n'
-        f'Location: {location or "target area"}\n'
+        f'Find real {niche or "businesses"} in {location or "the target area"}.\n'
         f'Search query: {query}\n'
-        'Requirements: prioritize official websites and businesses clearly serving the niche and location. '
-        'Do not invent contact details. Return JSON only.'
+        'Use web search to find official business websites. '
+        'Extract any email addresses or phone numbers you actually find on the pages. '
+        'Return JSON only, no explanation.'
     )
 
+    # Try with web search tool first (gpt-4o supports this)
     try:
         resp = client.chat.completions.create(
-            model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
-            messages=[
-                {'role': 'system', 'content': system},
-                {'role': 'user', 'content': user},
-            ],
+            model='gpt-4o',
+            messages=[{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
+            tools=[{"type": "web_search_preview"}],
             temperature=0.1,
             timeout=45,
         )
     except Exception:
-        # Older SDKs / unsupported accounts should not break Lead Lab.
-        return []
+        # Fall back to gpt-4o-mini without web search tool
+        try:
+            resp = client.chat.completions.create(
+                model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
+                messages=[{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
+                temperature=0.1,
+                timeout=45,
+            )
+        except Exception:
+            return []
 
     txt = _crm_response_text(resp)
     raw = _crm_extract_json_block(txt)
@@ -26396,6 +26401,8 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
         website = (row.get('website') or row.get('url') or '').strip()
         phone = _crm_clean_phone(row.get('phone') or '')
         email = (row.get('email') or '').strip().lower()
+        if email and not re.match(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", email):
+            email = ''  # reject malformed emails
         domain = _crm_extract_domain(urlparse(website).netloc or website)
         if not domain or _crm_is_blocked_domain(domain):
             continue
@@ -26416,6 +26423,7 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
         if len(out) >= max_results:
             break
     return out
+
 
 _CRM_SEARCH_BLOCKED_DOMAINS = {
     "duckduckgo.com", "google.com", "bing.com", "yahoo.com", "search.brave.com",
@@ -26531,10 +26539,10 @@ def _crm_guess_company(title: str, domain: str) -> str:
     return stem.title()
 
 
-def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
+def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         ctype = (r.headers.get("Content-Type") or "").lower()
         if r.status_code >= 400:
@@ -26544,6 +26552,45 @@ def _crm_fetch_text_url(url: str, timeout: int = 8) -> Tuple[str, str]:
         return r.text or "", r.url or url
     except Exception:
         return "", url
+
+
+def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, str]]:
+    """Try fetching common contact/about pages for a domain in parallel.
+    Returns list of (html, url) for pages that responded successfully.
+    """
+    base = f"https://{domain}"
+    candidates = [
+        base + "/contact",
+        base + "/contact-us",
+        base + "/about",
+        base + "/about-us",
+        base + "/team",
+        base + "/staff",
+        base + "/reach-us",
+        base,
+    ]
+    results: List[Tuple[str, str]] = []
+    def fetch_one(u: str) -> Tuple[str, str]:
+        try:
+            import requests
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+            r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            if r.status_code < 400 and ("text/html" in ctype or not ctype):
+                return r.text or "", r.url or u
+        except Exception:
+            pass
+        return "", u
+    try:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(fetch_one, u): u for u in candidates}
+            for fut in as_completed(futures, timeout=20):
+                html, final_url = fut.result(timeout=0)
+                if html:
+                    results.append((html, final_url))
+    except Exception:
+        pass
+    return results
 
 
 def _crm_same_domain(url_a: str, url_b: str) -> bool:
@@ -26685,8 +26732,8 @@ def _crm_score_candidate(candidate: Dict[str, Any], niche: str, location: str) -
 def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
-        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=18)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=20)
         html = r.text or ""
     except Exception:
         return []
@@ -26695,7 +26742,10 @@ def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     if BeautifulSoup is not None and html:
         try:
             soup = BeautifulSoup(html, "html.parser")
-            for a in soup.select("a.result__a"):
+            for result_div in soup.select("div.result, div.web-result"):
+                a = result_div.select_one("a.result__a")
+                if not a:
+                    continue
                 href = (a.get("href") or "").strip()
                 title = a.get_text(" ", strip=True)
                 if not href:
@@ -26713,9 +26763,36 @@ def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
                 if domain in seen:
                     continue
                 seen.add(domain)
-                out.append({"url": href, "title": title, "domain": domain})
+                snip_el = result_div.select_one(".result__snippet") or result_div.select_one("a.result__snippet")
+                snippet = snip_el.get_text(" ", strip=True) if snip_el else ""
+                row: Dict[str, str] = {"url": href, "title": title, "domain": domain, "snippet": snippet}
+                snippet_emails = _crm_extract_emails_from_text(snippet)
+                if snippet_emails:
+                    row["email_hint"] = snippet_emails[0]
+                out.append(row)
                 if len(out) >= max_results:
                     break
+            # Fallback: grab plain result links if structured divs not found
+            if not out:
+                for a in soup.select("a.result__a"):
+                    href = (a.get("href") or "").strip()
+                    title = a.get_text(" ", strip=True)
+                    if not href:
+                        continue
+                    href = unquote(href)
+                    if href.startswith("//"):
+                        href = "https:" + href
+                    if href.startswith("/") and "uddg=" in href:
+                        m2 = re.search(r"uddg=([^&]+)", href)
+                        if m2:
+                            href = unquote(m2.group(1))
+                    domain = _crm_extract_domain(urlparse(href).netloc or href)
+                    if not href.startswith("http") or _crm_is_blocked_domain(domain) or domain in seen:
+                        continue
+                    seen.add(domain)
+                    out.append({"url": href, "title": title, "domain": domain, "snippet": ""})
+                    if len(out) >= max_results:
+                        break
         except Exception:
             pass
     return out
@@ -26756,82 +26833,75 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     domain = result.get("domain") or _crm_extract_domain(urlparse(url).netloc or url)
     if not url or _crm_is_blocked_domain(domain):
         return None
-    html, final_url = _crm_fetch_text_url(url)
-    website = f"https://{_crm_extract_domain(urlparse(final_url or url).netloc or final_url or url)}" if (final_url or url) else (f"https://{domain}" if domain else "")
     hint_name = (result.get('name_hint') or '').strip()
     hint_company = (result.get('company_hint') or '').strip()
     hint_phone = _crm_clean_phone(result.get('phone_hint') or '')
     hint_email = (result.get('email_hint') or '').strip().lower()
 
-    if not html:
+    # Start with any email already found in search snippet — instant, no fetch needed
+    all_emails: List[str] = []
+    all_phones: List[str] = []
+    if hint_email:
+        all_emails.append(hint_email)
+    if hint_phone:
+        all_phones.append(hint_phone)
+
+    # Fetch homepage + common contact pages in parallel
+    page_results = _crm_fetch_contact_pages(domain, timeout=10)
+    if not page_results:
+        # Domain unreachable — build a fallback candidate from what we have
         candidate = _crm_fallback_candidate_from_result(result, niche, location, query)
-        if not candidate:
-            return None
-        if hint_name and (candidate.get('name') == candidate.get('company') or not candidate.get('name')):
-            candidate['name'] = hint_name
-        if hint_company:
-            candidate['company'] = hint_company
-        if hint_phone and not candidate.get('phone'):
-            candidate['phone'] = hint_phone
-        if hint_email and not candidate.get('email'):
-            candidate['email'] = hint_email
-        candidate['website'] = website or candidate.get('website') or ''
-        candidate['email_candidates'] = _crm_merge_email_candidates(([hint_email] if hint_email else []), candidate.get('name') or candidate.get('company') or '', domain)
-        candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
+        if candidate:
+            if hint_name and not candidate.get('name'):
+                candidate['name'] = hint_name
+            if hint_company:
+                candidate['company'] = hint_company
+            if hint_phone and not candidate.get('phone'):
+                candidate['phone'] = hint_phone
+            if hint_email and not candidate.get('email'):
+                candidate['email'] = hint_email
+            candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
-    signals = _crm_parse_page_signals(html, final_url, niche, location)
-    emails = list(signals.get("emails") or [])
-    phones = list(signals.get("phones") or [])
-    if hint_email and hint_email not in emails:
-        emails.insert(0, hint_email)
-    if hint_phone and hint_phone not in phones:
-        phones.insert(0, hint_phone)
-    # Scrape contact/about sub-pages and extract mailto: emails from them
-    contact_links, page_mailto_emails = _crm_find_contact_links(html, final_url)
-    for e in page_mailto_emails:
-        if e not in emails:
-            emails.insert(0, e)  # mailto: from main page = highest confidence
-    for link in contact_links:
-        sub_html, _ = _crm_fetch_text_url(link)
-        if not sub_html:
-            continue
-        sub = _crm_parse_page_signals(sub_html, link, niche, location)
-        _, sub_mailto = _crm_find_contact_links(sub_html, link)
-        for e in sub_mailto:
-            if e not in emails:
-                emails.append(e)
-        for e in sub.get("emails") or []:
-            if e not in emails:
-                emails.append(e)
-        for p in sub.get("phones") or []:
-            if p not in phones:
-                phones.append(p)
-        if not signals.get("name") and sub.get("name"):
-            signals["name"] = sub.get("name")
-        if not signals.get("company") and sub.get("company"):
-            signals["company"] = sub.get("company")
-        signals["niche_hit"] = signals.get("niche_hit") or sub.get("niche_hit")
-        signals["location_hit"] = signals.get("location_hit") or sub.get("location_hit")
-    name = signals.get("name") or hint_name or ""
-    company = signals.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
+    signals_agg: Dict[str, Any] = {"niche_hit": False, "location_hit": False, "name": "", "company": ""}
+    for html, final_url in page_results:
+        signals = _crm_parse_page_signals(html, final_url, niche, location)
+        # Collect emails — mailto: hrefs most reliable, then regex
+        _, page_mailto = _crm_find_contact_links(html, final_url)
+        for e in page_mailto:
+            if e not in all_emails:
+                all_emails.insert(0, e)  # mailto links = highest priority
+        for e in (signals.get("emails") or []):
+            if e not in all_emails:
+                all_emails.append(e)
+        for p in (signals.get("phones") or []):
+            if p not in all_phones:
+                all_phones.append(p)
+        if not signals_agg["name"] and signals.get("name"):
+            signals_agg["name"] = signals["name"]
+        if not signals_agg["company"] and signals.get("company"):
+            signals_agg["company"] = signals["company"]
+        signals_agg["niche_hit"] = signals_agg["niche_hit"] or bool(signals.get("niche_hit"))
+        signals_agg["location_hit"] = signals_agg["location_hit"] or bool(signals.get("location_hit"))
+
+    website = f"https://{domain}"
+    name = signals_agg.get("name") or hint_name or ""
+    company = signals_agg.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
-    email_candidates = _crm_merge_email_candidates(emails, name or company, domain)
     candidate = {
         "name": name or company,
         "company": company,
         "title": title,
         "domain": domain,
         "website": website,
-        "phone": phones[0] if phones else "",
-        "email": emails[0] if emails else "",
-        "niche_hit": bool(signals.get("niche_hit")),
-        "location_hit": bool(signals.get("location_hit")),
+        "phone": all_phones[0] if all_phones else "",
+        "email": all_emails[0] if all_emails else "",
+        "niche_hit": bool(signals_agg.get("niche_hit")),
+        "location_hit": bool(signals_agg.get("location_hit")),
         "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
         "source_query": query,
     }
     candidate["score"] = _crm_score_candidate(candidate, niche, location)
-    # Never discard a lead that has a real email or phone — score filter removed
     return candidate
 
 
@@ -26867,9 +26937,9 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
         import requests
         from urllib.parse import quote_plus
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; SimplyAgenticLeadLab/1.0; +https://example.com)"}
-        url = "https://www.bing.com/search?q=" + quote_plus(query)
-        r = requests.get(url, headers=headers, timeout=18)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+        url = "https://www.bing.com/search?q=" + quote_plus(query) + "&count=20"
+        r = requests.get(url, headers=headers, timeout=20)
         html = r.text or ""
     except Exception:
         return []
@@ -26884,13 +26954,18 @@ def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
                 continue
             href = (a.get("href") or "").strip()
             title = a.get_text(" ", strip=True)
-            snippet_el = li.select_one(".b_caption p") or li.select_one("p")
+            snippet_el = (li.select_one(".b_caption p") or li.select_one(".b_snippet")
+                          or li.select_one("p") or li.select_one(".b_algoSlug"))
             snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
             domain = _crm_extract_domain(urlparse(href).netloc or href)
             if not href.startswith("http") or not domain or _crm_is_blocked_domain(domain) or domain in seen:
                 continue
             seen.add(domain)
-            out.append({"url": href, "title": title, "domain": domain, "snippet": snippet})
+            row: Dict[str, str] = {"url": href, "title": title, "domain": domain, "snippet": snippet}
+            snippet_emails = _crm_extract_emails_from_text(snippet)
+            if snippet_emails:
+                row["email_hint"] = snippet_emails[0]
+            out.append(row)
             if len(out) >= max_results:
                 break
     except Exception:
@@ -26951,7 +27026,6 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
     if loc_key in _CRM_STATE_CITY_MAP:
         extra = _CRM_STATE_CITY_MAP[loc_key]
         locations.extend(extra[:4] if mode == "precision" else extra[:10] if mode == "balanced" else extra[:16])
-    # de-dupe while preserving order
     deduped, seen = [], set()
     for loc in locations:
         lk = loc.lower()
@@ -26959,12 +27033,19 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
             seen.add(lk); deduped.append(loc)
     locations = deduped or [location]
     realtorish = bool(re.search(r"real estate|realtor|broker", niche, flags=re.I))
+    # Standard discovery queries
     templates = [
         '{niche} in {loc}',
         '{loc} {niche}',
-        '{niche} {loc} contact',
+        '{niche} {loc} contact email',
         '{loc} {niche} office',
         '{loc} {niche} team',
+    ]
+    # Email-targeted queries — surfaces pages with emails in search snippets
+    email_templates = [
+        '{niche} {loc} "@" email contact',
+        '{niche} {loc} "email us" OR "contact us" OR "reach us"',
+        '{loc} {niche} site:*.com email',
     ]
     if realtorish:
         templates.extend([
@@ -26972,18 +27053,25 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
             '{loc} real estate agent',
             '{loc} real estate broker',
             '{loc} realty group',
-            '{loc} homes real estate',
         ])
+        email_templates.append('{loc} realtor agent email contact "@"')
     queries, seen_q = [], set()
+    # Interleave standard and email-targeted queries so email hits come early
+    all_templates = []
+    for i in range(max(len(templates), len(email_templates))):
+        if i < len(templates):
+            all_templates.append(templates[i])
+        if i < len(email_templates):
+            all_templates.append(email_templates[i])
     for loc in locations:
-        for tpl in templates:
+        for tpl in all_templates:
             q = re.sub(r"\s+", " ", tpl.format(niche=niche, loc=loc)).strip()
             key = q.lower()
             if key in seen_q:
                 continue
             seen_q.add(key)
             queries.append(q)
-    max_q = 10 if mode == "precision" else (18 if mode == "balanced" else 28)
+    max_q = 10 if mode == "precision" else (22 if mode == "balanced" else 32)
     return queries[:max_q]
 
 
