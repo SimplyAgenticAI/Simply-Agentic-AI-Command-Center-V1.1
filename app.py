@@ -222,8 +222,9 @@ def _load_founder_seats() -> Dict[str, Any]:
 
 def _save_founder_seats(data: Dict[str, Any]) -> None:
     try:
-        with open(FOUNDER_SEATS_PATH, "w") as f:
-            json.dump(data, f)
+        tmp = FOUNDER_SEATS_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(FOUNDER_SEATS_PATH)
     except Exception:
         pass
 
@@ -234,7 +235,7 @@ def _founder_seats_remaining() -> int:
 
 def _claim_founder_seat(username: str) -> bool:
     """Atomically claim one founder seat. Returns True if successful."""
-    with threading.Lock():
+    with file_lock(FOUNDER_SEATS_PATH):
         d = _load_founder_seats()
         if d.get("claimed", 0) >= FOUNDER_SEATS_MAX:
             return False
@@ -879,7 +880,7 @@ def _load_seats() -> Dict[str, Any]:
 
 def _save_seats(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
-    SEATS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    save_json(SEATS_PATH, data)  # atomic rename via save_json
 
 def _ensure_seats_initialized() -> None:
     """Auto-generate seats on first run if none exist."""
@@ -917,14 +918,15 @@ def _is_valid_seat_code(code: str) -> Tuple[bool, str]:
 
 def _claim_seat_code(code: str, username: str) -> None:
     """Mark a seat code as used by the given username."""
-    data = _load_seats()
-    seats = data.get("seats", {})
-    if code in seats:
-        seats[code]["status"] = "used"
-        seats[code]["claimed_by"] = username
-        seats[code]["claimed_at"] = now_iso()
-        data["seats"] = seats
-        _save_seats(data)
+    with file_lock(SEATS_PATH):
+        data = _load_seats()
+        seats = data.get("seats", {})
+        if code in seats:
+            seats[code]["status"] = "used"
+            seats[code]["claimed_by"] = username
+            seats[code]["claimed_at"] = now_iso()
+            data["seats"] = seats
+            _save_seats(data)
 
 def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
     """First registered user is the admin."""
@@ -1157,14 +1159,64 @@ def api_csrf_token():
     return jsonify({"ok": True, "token": _get_csrf_token()})
 
 # =========================
-# LOGIN BRUTE-FORCE PROTECTION
+# LOGIN BRUTE-FORCE PROTECTION  (persisted across restarts)
 # =========================
-# In-memory store: { ip_or_user -> {"count": int, "locked_until": datetime|None} }
-# Resets on server restart — intentional, keeps it simple and stateless.
+# In-memory dict is the fast path; a small JSON file on disk is the source of
+# truth so lockouts survive deploys, crashes, and platform restarts.
+# Serialisation: locked_until stored as ISO string; loaded back to datetime on read.
+
 _LOGIN_ATTEMPTS: Dict[str, Any] = {}
-_LOGIN_ATTEMPTS_LOCK = __import__("threading").Lock()
+_LOGIN_ATTEMPTS_LOCK = threading.Lock()
 _MAX_LOGIN_ATTEMPTS = 5
 _LOCKOUT_MINUTES    = 15
+
+def _login_attempts_path() -> Path:
+    # DATA may not be defined yet at module level when this is called — use a
+    # lazy reference so it always resolves to the correct persistent directory.
+    try:
+        return DATA / "login_attempts.json"
+    except Exception:
+        return Path("login_attempts.json")
+
+def _load_login_attempts() -> None:
+    """Populate _LOGIN_ATTEMPTS from disk on startup. Expired entries are dropped."""
+    try:
+        raw = load_json(_login_attempts_path(), {})
+        if not isinstance(raw, dict):
+            return
+        now = datetime.utcnow()
+        loaded = {}
+        for k, v in raw.items():
+            if not isinstance(v, dict):
+                continue
+            lu = v.get("locked_until")
+            if lu:
+                try:
+                    lu_dt = datetime.fromisoformat(str(lu).replace("Z",""))
+                    if now >= lu_dt:
+                        continue  # expired — drop
+                    v["locked_until"] = lu_dt
+                except Exception:
+                    continue
+            loaded[k] = v
+        with _LOGIN_ATTEMPTS_LOCK:
+            _LOGIN_ATTEMPTS.update(loaded)
+    except Exception:
+        pass
+
+def _save_login_attempts() -> None:
+    """Flush _LOGIN_ATTEMPTS to disk. Runs under _LOGIN_ATTEMPTS_LOCK."""
+    try:
+        serialisable = {}
+        for k, v in _LOGIN_ATTEMPTS.items():
+            sv = dict(v)
+            lu = sv.get("locked_until")
+            if isinstance(lu, datetime):
+                sv["locked_until"] = lu.isoformat() + "Z"
+            serialisable[k] = sv
+        save_json(_login_attempts_path(), serialisable)
+    except Exception:
+        pass
 
 def _login_key(username: str) -> str:
     """Key by username so lockout is per-account, not per-IP (harder to spoof)."""
@@ -1187,33 +1239,37 @@ def _record_login_failure(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         rec = _LOGIN_ATTEMPTS.get(key) or {"count": 0, "locked_until": None}
-        # Reset if previous lockout has expired
         if rec.get("locked_until") and datetime.utcnow() >= rec["locked_until"]:
             rec = {"count": 0, "locked_until": None}
         rec["count"] = rec.get("count", 0) + 1
         if rec["count"] >= _MAX_LOGIN_ATTEMPTS:
             rec["locked_until"] = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
         _LOGIN_ATTEMPTS[key] = rec
+        _save_login_attempts()
 
 def _clear_login_failures(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         _LOGIN_ATTEMPTS.pop(key, None)
+        _save_login_attempts()
 
 # =========================
-# API RATE LIMITING (per-user, in-memory)
+# API RATE LIMITING (per-user, persisted)
 # =========================
-# Prevents runaway usage / API cost abuse. Limits: calls per minute per user.
-# These are intentionally generous for normal use but catch bots/loops.
-_RATE_LIMITS: Dict[str, Any] = {}  # { key -> {"count": int, "window_start": datetime} }
+# Rate-limit windows are short (60 s) so we only persist lockouts, not counters.
+# Counters reset naturally when the window expires, so losing them on restart is
+# acceptable. Locks use in-memory state with a disk flush only for the login lockout
+# above. Rate limits stay in-memory for speed — a restart resets them, which is a
+# minor tolerance given the 60-second window.
+_RATE_LIMITS: Dict[str, Any] = {}
 _RATE_LIMITS_LOCK = threading.Lock()
 
 # Limits per 60-second window, by endpoint category
-RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))       # chat/followup per user/min
-RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))      # image gen per user/min
-RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))      # email sends per user/min
-RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))     # uploads per user/min
-RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))   # general API per user/min
+RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))
+RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))
+RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))
+RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))
+RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))
 RATE_LIMIT_WINDOW_SEC = 60
 
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
@@ -1226,7 +1282,6 @@ def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
             return True, ""
         elapsed = (now - rec["window_start"]).total_seconds()
         if elapsed > RATE_LIMIT_WINDOW_SEC:
-            # New window
             _RATE_LIMITS[key] = {"count": 1, "window_start": now}
             return True, ""
         if rec["count"] >= limit:
@@ -1264,8 +1319,9 @@ def load_users() -> Dict[str, Any]:
     return data
 
 def save_users(data: Dict[str, Any]) -> None:
-    data["updated_at"] = now_iso()
-    save_json(USERS_PATH, data)
+    with file_lock(USERS_PATH):
+        data["updated_at"] = now_iso()
+        save_json(USERS_PATH, data)
 
 def has_any_user() -> bool:
     data = load_users()
@@ -1504,6 +1560,53 @@ def save_json(path: Path, payload: Any) -> None:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+# =========================
+# PER-FILE WRITE LOCKING
+# =========================
+# Prevents lost-update races when multiple concurrent requests load -> modify -> save
+# the same JSON file. One RLock per resolved file path, created lazily and shared
+# across all threads for the lifetime of the process.
+#
+# Usage:
+#   with file_lock(USERS_PATH):
+#       data = load_users()
+#       data["users"][uname]["foo"] = "bar"
+#       save_users(data)
+#
+# RLock (re-entrant) means the same thread can acquire the lock twice without
+# deadlocking -- important for functions that call each other.
+
+import contextlib as _contextlib
+from collections import defaultdict as _defaultdict
+
+_FILE_LOCKS: Dict[str, threading.RLock] = {}
+_FILE_LOCKS_META = threading.Lock()
+
+def _get_file_lock(path) -> threading.RLock:
+    """Return the shared RLock for the given path, creating it if needed."""
+    key = str(Path(path).resolve())
+    lock = _FILE_LOCKS.get(key)
+    if lock is not None:
+        return lock
+    with _FILE_LOCKS_META:
+        if key not in _FILE_LOCKS:
+            _FILE_LOCKS[key] = threading.RLock()
+        return _FILE_LOCKS[key]
+
+@_contextlib.contextmanager
+def file_lock(path):
+    """Acquire the per-path RLock for the duration of the block."""
+    lock = _get_file_lock(path)
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
+# =========================
+# END PER-FILE WRITE LOCKING
+# =========================
+
+
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
@@ -1554,6 +1657,12 @@ try:
 except Exception:
     pass
 
+# Load persisted login lockouts so brute-force protection survives restarts
+try:
+    _load_login_attempts()
+except Exception:
+    pass
+
 # =========================
 # TASK LOG (APPEND-ONLY)
 # =========================
@@ -1589,10 +1698,11 @@ def _load_clients(username: str) -> Dict[str, Any]:
 
 def _save_clients(username: str, data: Dict[str, Any]) -> None:
     path = _clients_path_for_user(username)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    with file_lock(path):
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
 
 def _get_active_client(username: str) -> Dict[str, Any]:
     data = _load_clients(username)
@@ -2435,8 +2545,9 @@ def save_registry(reg: Dict[str, Any], username: str = "") -> None:
     """Save per-user teammate registry."""
     uname = username or _get_session_username()
     path  = _user_registry_path(uname)
-    reg["updated_at"] = now_iso()
-    save_json(path, reg)
+    with file_lock(path):
+        reg["updated_at"] = now_iso()
+        save_json(path, reg)
 
 
 def install_full_team(username: str = "") -> Dict[str, Any]:
