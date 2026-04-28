@@ -17,8 +17,6 @@ from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from openai import OpenAI
 from email.mime.text import MIMEText
@@ -587,28 +585,6 @@ def _resolve_model_for_user(defn, u=None):
     return MODEL
 
 app = Flask(__name__)
-
-# =========================
-# RATE LIMITING (additive — fix #1)
-# =========================
-# Uses in-memory storage by default. Works fine for single-worker deploys.
-# Upgrade to storage_uri="redis://..." if you move to multi-worker later.
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["300 per hour"],
-    storage_uri="memory://",
-)
-
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    """Return a clean JSON 429 instead of an HTML error page."""
-    retry = getattr(e, "description", None)
-    return jsonify({
-        "ok": False,
-        "error": "Too many requests — please slow down and try again shortly.",
-        "retry_after": str(retry) if retry else None,
-    }), 429
 
 # -----------------------------
 # Uploads static serving (additive)
@@ -5265,7 +5241,6 @@ def api_image_job_status(job_id: str):
 
 
 @app.post("/api/convene")
-@limiter.limit("60 per minute")
 def api_convene():
     try:
         data = request.get_json(force=True) or {}
@@ -5430,7 +5405,6 @@ def _api_convene_impl(data):
 
 
 @app.post("/api/followup")
-@limiter.limit("60 per minute")
 def api_followup():
     try:
         data = request.get_json(force=True) or {}
@@ -5610,7 +5584,6 @@ def api_teammate_image_state(name: str):
     return jsonify({"ok": True, "image_state": load_image_state(name, uname)})
 
 @app.post("/api/teammates/<name>/current_image")
-@limiter.limit("20 per minute")
 def api_teammate_set_current_image(name: str):
     reg = load_registry(_get_session_username())
     installed = reg["installed"]
@@ -8171,7 +8144,6 @@ def setup():
     return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=None)
 
 @app.post("/setup")
-@limiter.limit("5 per minute")
 def setup_post():
     if has_any_user():
         return redirect(url_for("login"))
@@ -8205,7 +8177,6 @@ def login():
     return resp
 
 @app.post("/login")
-@limiter.limit("10 per minute")
 def login_post():
     username = _clean_username(request.form.get("username", ""))
     password = (request.form.get("password") or "").strip()
@@ -8302,7 +8273,6 @@ def register_get():
     return resp
 
 @app.post("/register")
-@limiter.limit("5 per minute")
 def register_post():
     if not _signup_enabled():
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
@@ -8639,7 +8609,6 @@ def reset():
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=None)
 
 @app.post("/reset")
-@limiter.limit("5 per minute")
 def reset_post():
     username = _clean_username(request.form.get("username", ""))
     data = load_users()
@@ -8690,7 +8659,6 @@ def reset_post():
             token=token, ok="No email on file. Copy your reset token below (shown once):")
 
 @app.post("/reset_password")
-@limiter.limit("5 per minute")
 def reset_password_post():
     username = _clean_username(request.form.get("username", ""))
     token = (request.form.get("token") or "").strip()
@@ -29862,7 +29830,6 @@ def api_community_pending_ideas():
 
 # ── Scout ─────────────────────────────────────────────────────────────────
 @app.post("/api/scout_ask")
-@limiter.limit("30 per minute")
 def api_scout_ask():
     u = current_user()
     if not u:
