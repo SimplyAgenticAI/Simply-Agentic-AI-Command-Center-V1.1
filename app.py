@@ -23536,7 +23536,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
 
 <!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; left:calc(50% + 290px); top:96px; right:auto; bottom:auto; z-index:9999; width:340px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 24px); min-width:280px; min-height:230px; resize:both; overflow:hidden; display:none;">
+<div id="onboardingPanel" style="position:fixed; right:12px; top:96px; left:auto; bottom:auto; z-index:9999; width:320px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 120px); min-width:260px; min-height:230px; resize:both; overflow:hidden; display:none;">
   <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden; display:flex; flex-direction:column; height:100%;">
     <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
       <div style="display:flex; gap:10px; align-items:center;">
@@ -23654,8 +23654,9 @@ if(typeof maybeAutoShowOnboarding === "function"){
           try{
             const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
             const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-            const width = Math.min(340, Math.max(280, panel.offsetWidth || 340));
-            const x = Math.max(12, Math.min(vw - width - 12, Math.round(vw * 0.64)));
+            const width = Math.min(320, Math.max(260, panel.offsetWidth || 320));
+            // Anchor to the RIGHT side — away from the round table in the centre
+            const x = Math.max(12, vw - width - 12);
             const y = 96;
             setPanelPos(x, y);
           }catch(_){}
@@ -24931,45 +24932,112 @@ if(typeof maybeAutoShowOnboarding === "function"){
     return tipW <= userW;
   }
 
-  // ── DOM: create the tooltip element ───────────────────────
+  // ── DOM: create the tooltip element (left-side panel, draggable) ───
+  const _TIP_WIDTH = 272;
+  let _tipDrag = {active:false, dx:0, dy:0};
+  // Restore saved position from session
+  let _tipSavedLeft = null, _tipSavedTop = null;
+  try {
+    const _sp = JSON.parse(sessionStorage.getItem("sa_tip_pos") || "null");
+    if (_sp) { _tipSavedLeft = _sp.left; _tipSavedTop = _sp.top; }
+  } catch(e) {}
+
   function _buildTipEl() {
     const el = document.createElement("div");
     el.id = "saTipPopup";
     el.style.cssText = [
-      "position:fixed;z-index:99999;max-width:280px;",
+      "position:fixed;z-index:9800;width:" + _TIP_WIDTH + "px;",
       "background:linear-gradient(135deg,rgba(19,28,59,.97),rgba(10,15,38,.98));",
-      "border:1px solid rgba(124,58,237,.55);border-radius:12px;",
-      "padding:12px 14px 10px;box-shadow:0 8px 32px rgba(0,0,0,.45),0 0 0 1px rgba(124,58,237,.15);",
+      "border:1px solid rgba(124,58,237,.55);border-radius:14px;",
+      "padding:0;box-shadow:0 8px 32px rgba(0,0,0,.55),0 0 0 1px rgba(124,58,237,.15);",
       "font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;color:#e2e8f0;",
-      "opacity:0;transform:translateY(6px);transition:opacity .22s ease,transform .22s ease;",
-      "pointer-events:auto;"
+      "opacity:0;transition:opacity .22s ease;",
+      "pointer-events:auto;cursor:default;"
     ].join("");
 
     el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-        <div id="saTipText" style="flex:1;"></div>
-        <button id="saTipClose" title="Dismiss" style="background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;margin-top:-1px;">&#x2715;</button>
+      <div id="saTipDragHandle" style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px 7px;cursor:grab;user-select:none;border-bottom:1px solid rgba(255,255,255,.07);">
+        <span style="font-size:11px;font-weight:600;color:rgba(196,181,253,.7);letter-spacing:.5px;text-transform:uppercase;">Tip</span>
+        <button id="saTipClose" title="Dismiss" style="background:none;border:none;color:#64748b;font-size:15px;cursor:pointer;padding:0 2px;line-height:1;">&#x2715;</button>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;">
-        <button id="saTipDismissAll" style="background:none;border:none;color:#475569;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">Turn off tips</button>
-        <button id="saTipNext" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;font-size:11px;border-radius:6px;padding:3px 10px;cursor:pointer;">Got it</button>
+      <div style="padding:11px 13px 8px;">
+        <div id="saTipText" style="color:#e2e8f0;line-height:1.55;"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;justify-content:space-between;align-items:center;">
+          <button id="saTipDismissAll" style="background:none;border:none;color:#475569;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">Turn off tips</button>
+          <button id="saTipNext" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;font-size:11px;border-radius:6px;padding:4px 12px;cursor:pointer;font-weight:500;">Got it</button>
+        </div>
       </div>`;
 
     document.body.appendChild(el);
+
+    // Set default left-side position (open space to the left of the round table)
+    function _defaultTipPos() {
+      const vw = window.innerWidth;
+      const leftSpace = Math.max(0, (vw / 2) - 340); // space left of table center
+      const left = leftSpace > _TIP_WIDTH + 20
+        ? Math.max(10, Math.round(leftSpace / 2 - _TIP_WIDTH / 2))  // centered in left space
+        : 10;  // fallback: stick to left edge
+      return { left, top: Math.round(window.innerHeight * 0.38) };
+    }
+
+    function _applyTipPos(left, top) {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const h = el.offsetHeight || 140;
+      left = Math.max(6, Math.min(left, vw - _TIP_WIDTH - 6));
+      top  = Math.max(6, Math.min(top,  vh - h - 6));
+      el.style.left = left + "px";
+      el.style.top  = top  + "px";
+    }
+
+    // Apply saved or default position
+    const initPos = (_tipSavedLeft !== null)
+      ? { left: _tipSavedLeft, top: _tipSavedTop }
+      : _defaultTipPos();
+    requestAnimationFrame(() => _applyTipPos(initPos.left, initPos.top));
+
+    // ── Drag the tooltip ────────────────────────────────────
+    const handle = el.querySelector("#saTipDragHandle");
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      _tipDrag.active = true;
+      handle.style.cursor = "grabbing";
+      const rect = el.getBoundingClientRect();
+      _tipDrag.dx = e.clientX - rect.left;
+      _tipDrag.dy = e.clientY - rect.top;
+      try { handle.setPointerCapture(e.pointerId); } catch(_e) {}
+    });
+    handle.addEventListener("pointermove", (e) => {
+      if (!_tipDrag.active) return;
+      const newLeft = e.clientX - _tipDrag.dx;
+      const newTop  = e.clientY - _tipDrag.dy;
+      _applyTipPos(newLeft, newTop);
+    });
+    const _endTipDrag = (e) => {
+      if (!_tipDrag.active) return;
+      _tipDrag.active = false;
+      handle.style.cursor = "grab";
+      // Save position for this session
+      try {
+        _tipSavedLeft = parseFloat(el.style.left);
+        _tipSavedTop  = parseFloat(el.style.top);
+        sessionStorage.setItem("sa_tip_pos", JSON.stringify({left: _tipSavedLeft, top: _tipSavedTop}));
+      } catch(_e) {}
+      try { handle.releasePointerCapture(e.pointerId); } catch(_e) {}
+    };
+    handle.addEventListener("pointerup",     _endTipDrag);
+    handle.addEventListener("pointercancel", _endTipDrag);
 
     el.querySelector("#saTipClose").onclick   = () => _hideTip(true);
     el.querySelector("#saTipNext").onclick    = () => _hideTip(true);
     el.querySelector("#saTipDismissAll").onclick = () => {
       window._saTooltipLevel = "off";
       localStorage.setItem("sa_tooltip_level", "off");
-      // Persist to server settings
       fetch("/api/user/settings", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({tooltip_level: "off"})
       }).catch(() => {});
       _hideTip(false);
-      // Update the settings UI if open
       try { _activateTooltipBtn("off"); document.getElementById("tooltipLevel").value = "off"; } catch(e) {}
       if (typeof showToast === "function") showToast("Tips turned off — re-enable anytime in Settings");
     };
@@ -24977,34 +25045,17 @@ if(typeof maybeAutoShowOnboarding === "function"){
     return el;
   }
 
-  // ── Position the tooltip near a target element ─────────────
+  // ── Position: no longer near target — panel is always left-side ─
+  // (kept as a no-op for compatibility, position set on build)
   function _positionTip(el, target, position) {
-    const tr = target.getBoundingClientRect();
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const tw = el.offsetWidth || 280, th = el.offsetHeight || 100;
-    const gap = 10;
-    let top, left;
-
-    if (position === "bottom") {
-      top  = tr.bottom + gap;
-      left = tr.left + tr.width / 2 - tw / 2;
-    } else if (position === "top") {
-      top  = tr.top - th - gap;
-      left = tr.left + tr.width / 2 - tw / 2;
-    } else if (position === "left") {
-      top  = tr.top + tr.height / 2 - th / 2;
-      left = tr.left - tw - gap;
-    } else {
-      top  = tr.top + tr.height / 2 - th / 2;
-      left = tr.right + gap;
+    // Tooltip lives in the left open space — don't reposition per-target
+    // Only re-clamp to viewport if window resized
+    if (_tipSavedLeft !== null) {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const h = el.offsetHeight || 140;
+      el.style.left = Math.max(6, Math.min(_tipSavedLeft, vw - _TIP_WIDTH - 6)) + "px";
+      el.style.top  = Math.max(6, Math.min(_tipSavedTop,  vh - h - 6)) + "px";
     }
-
-    // Clamp to viewport
-    left = Math.max(8, Math.min(left, vw - tw - 8));
-    top  = Math.max(8, Math.min(top,  vh - th - 8));
-
-    el.style.top  = top  + "px";
-    el.style.left = left + "px";
   }
 
   // ── Show a tip ────────────────────────────────────────────
@@ -25017,29 +25068,25 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     _tipEl.querySelector("#saTipText").textContent = tip.text;
     _tipEl.style.opacity = "0";
-    _tipEl.style.transform = "translateY(6px)";
     _tipEl.style.display = "block";
 
-    // Position after paint
     requestAnimationFrame(() => {
       _positionTip(_tipEl, anchorEl, tip.position);
       requestAnimationFrame(() => {
         _tipEl.style.opacity = "1";
-        _tipEl.style.transform = "translateY(0)";
       });
     });
 
     _currentTip = tip.id;
 
-    // Auto-hide after 7s for hover tips, 10s for delay tips
+    // Auto-hide: 10s for hover tips, 12s for delay tips
     clearTimeout(_hideTimer);
-    _hideTimer = setTimeout(() => _hideTip(false), tip.trigger === "delay" ? 10000 : 7000);
+    _hideTimer = setTimeout(() => _hideTip(false), tip.trigger === "delay" ? 12000 : 10000);
   }
 
   function _hideTip(dismiss) {
     if (!_tipEl) return;
     _tipEl.style.opacity = "0";
-    _tipEl.style.transform = "translateY(6px)";
     setTimeout(() => { if (_tipEl) _tipEl.style.display = "none"; }, 230);
     if (dismiss && _currentTip) {
       _dismissed.add(_currentTip);
