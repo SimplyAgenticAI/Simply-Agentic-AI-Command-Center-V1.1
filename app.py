@@ -5282,6 +5282,7 @@ def api_set_user_settings():
         allowed_theme_keys = {
             "table_color", "table_glow_opacity",
             "task_glow_color", "event_color",
+            "seat_glow_color", "nav_style",
             "font_family", "font_size",
             "arena_bg_color", "accent_color",
         }
@@ -12083,6 +12084,7 @@ label         { font-size: 14px !important; }
           <div class="saDrop" id="saSettingsDrop">
             <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
+            <button class="saDropItem" id="customizeBtn">🎨 Customize</button>
             <button class="saDropItem" id="teamBtn">👥 My Team</button>
             <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
@@ -12506,93 +12508,6 @@ label         { font-size: 14px !important; }
                       <input type="hidden" id="tooltipLevel" value="medium" />
                       <div class="tiny" id="tooltipLevelDesc" style="margin-top:8px;min-height:16px;opacity:.65;"></div>
 
-                    <!-- CUSTOMIZATION -->
-                    <div style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;margin-top:4px;">
-                      <label style="margin:0 0 10px;display:block;">Customization</label>
-
-                      <!-- Round table color -->
-                      <div style="margin-bottom:14px;">
-                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Round table color</div>
-                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                          <div id="tableColorSwatches" style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <div class="color-swatch" data-target="table_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;transition:border-color .15s;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#2563eb" title="Blue" style="width:24px;height:24px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#059669" title="Green" style="width:24px;height:24px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#dc2626" title="Red" style="width:24px;height:24px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#d97706" title="Amber" style="width:24px;height:24px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#0891b2" title="Cyan" style="width:24px;height:24px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;"></div>
-                            <div class="color-swatch" data-target="table_color" data-value="#db2777" title="Pink" style="width:24px;height:24px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;"></div>
-                            <input type="color" id="tableColorCustom" value="#7c3aed" title="Custom color"
-                              style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
-                              oninput="_applyThemePref('table_color',this.value)">
-                          </div>
-                        </div>
-                        <div style="margin-top:8px;">
-                          <div class="tiny" style="opacity:.7;margin-bottom:4px;">Table glow intensity</div>
-                          <input type="range" id="tableGlowSlider" min="0" max="100" value="22" step="1"
-                            style="width:100%" oninput="_applyThemePref('table_glow_opacity',this.value);document.getElementById('tableGlowVal').textContent=this.value+'%'">
-                          <span class="tiny" id="tableGlowVal" style="opacity:.6">22%</span>
-                        </div>
-                      </div>
-
-                      <!-- Calendar task glow color -->
-                      <div style="margin-bottom:14px;">
-                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Calendar task glow</div>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                          <div class="color-swatch" data-target="task_glow_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="task_glow_color" data-value="#f59e0b" title="Amber" style="width:24px;height:24px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="task_glow_color" data-value="#10b981" title="Emerald" style="width:24px;height:24px;border-radius:50%;background:#10b981;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="task_glow_color" data-value="#ef4444" title="Red" style="width:24px;height:24px;border-radius:50%;background:#ef4444;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="task_glow_color" data-value="#06b6d4" title="Cyan" style="width:24px;height:24px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent;"></div>
-                          <input type="color" id="taskGlowCustom" value="#7c3aed" title="Custom color"
-                            style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
-                            oninput="_applyThemePref('task_glow_color',this.value)">
-                        </div>
-                      </div>
-
-                      <!-- Accent color -->
-                      <div style="margin-bottom:14px;">
-                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">UI accent color</div>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                          <div class="color-swatch" data-target="accent_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#2563eb" title="Blue" style="width:24px;height:24px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#059669" title="Green" style="width:24px;height:24px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#dc2626" title="Red" style="width:24px;height:24px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;"></div>
-                          <input type="color" id="accentColorCustom" value="#7c3aed" title="Custom color"
-                            style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
-                            oninput="_applyThemePref('accent_color',this.value)">
-                        </div>
-                      </div>
-
-                      <!-- Font family -->
-                      <div style="margin-bottom:14px;">
-                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Font style</div>
-                        <select id="fontFamilySelect" style="width:100%;font-size:13px;" onchange="_applyThemePref('font_family',this.value)">
-                          <option value="">Default (system sans-serif)</option>
-                          <option value="'Inter',sans-serif">Inter — clean & modern</option>
-                          <option value="'Georgia',serif">Georgia — editorial serif</option>
-                          <option value="'Courier New',monospace">Courier New — monospace</option>
-                          <option value="'Trebuchet MS',sans-serif">Trebuchet — rounded sans</option>
-                          <option value="'Palatino Linotype',serif">Palatino — classic serif</option>
-                        </select>
-                      </div>
-
-                      <!-- Font size -->
-                      <div style="margin-bottom:6px;">
-                        <div class="tiny" style="opacity:.7;margin-bottom:4px;">Font size</div>
-                        <input type="range" id="fontSizeSlider" min="12" max="20" value="14" step="1"
-                          style="width:100%" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px'">
-                        <div style="display:flex;justify-content:space-between;">
-                          <span class="tiny" style="opacity:.5">Small</span>
-                          <span class="tiny" id="fontSizeVal" style="opacity:.7">14px</span>
-                          <span class="tiny" style="opacity:.5">Large</span>
-                        </div>
-                      </div>
-
-                      <!-- Reset button -->
-                      <button type="button" onclick="_resetTheme()" class="btn" style="font-size:11px;padding:4px 12px;margin-top:8px;opacity:.7;">Reset to defaults</button>
-                    </div>
-                    </div>
                   </div>
 
                 </div><!-- end formGrid2 -->
@@ -12618,6 +12533,140 @@ label         { font-size: 14px !important; }
                 </div>
               </div>
 
+
+              <div class="modalForm" id="customizeForm" style="display:none;">
+                <div class="modalInner">
+                  <div class="tiny" style="margin-bottom:16px;text-align:center;opacity:.7;">
+                    Changes apply instantly. Save to keep them across sessions.
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+
+                    <!-- LEFT COL -->
+                    <div style="display:flex;flex-direction:column;gap:18px;">
+
+                      <!-- Round table color -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Round table color</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="table_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="table_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="tableColorCustom" value="#7c3aed" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('table_color',this.value)">
+                        </div>
+                        <div style="margin-top:10px;">
+                          <div class="tiny" style="opacity:.6;margin-bottom:4px;">Glow intensity</div>
+                          <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="range" id="tableGlowSlider" min="0" max="100" value="22" step="1"
+                              style="flex:1" oninput="_applyThemePref('table_glow_opacity',this.value);document.getElementById('tableGlowVal').textContent=this.value+'%'">
+                            <span class="tiny" id="tableGlowVal" style="opacity:.6;min-width:30px;">22%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Seat card glow -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Teammate seat glow</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#f59e0b" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#ef4444" title="Red" style="width:26px;height:26px;border-radius:50%;background:#ef4444;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="seat_glow_color" data-value="#06b6d4" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="seatGlowCustom" value="#7c3aed" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('seat_glow_color',this.value)">
+                        </div>
+                      </div>
+
+                      <!-- Calendar task glow -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Calendar task glow</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#f59e0b" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#10b981" title="Emerald" style="width:26px;height:26px;border-radius:50%;background:#10b981;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#ef4444" title="Red" style="width:26px;height:26px;border-radius:50%;background:#ef4444;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#06b6d4" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="taskGlowCustom" value="#7c3aed" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('task_glow_color',this.value)">
+                        </div>
+                      </div>
+
+                    </div><!-- end left col -->
+
+                    <!-- RIGHT COL -->
+                    <div style="display:flex;flex-direction:column;gap:18px;">
+
+                      <!-- Accent color -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">UI accent color</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="accent_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="accentColorCustom" value="#7c3aed" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('accent_color',this.value)">
+                        </div>
+                      </div>
+
+                      <!-- Font style -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Font style</label>
+                        <select id="fontFamilySelect" style="width:100%;font-size:13px;" onchange="_applyThemePref('font_family',this.value)">
+                          <option value="">Default (system sans-serif)</option>
+                          <option value="'Inter',sans-serif">Inter — clean &amp; modern</option>
+                          <option value="'Georgia',serif">Georgia — editorial serif</option>
+                          <option value="'Courier New',monospace">Courier New — monospace</option>
+                          <option value="'Trebuchet MS',sans-serif">Trebuchet — rounded sans</option>
+                          <option value="'Palatino Linotype',serif">Palatino — classic serif</option>
+                        </select>
+                      </div>
+
+                      <!-- Font size -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Font size</label>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <span class="tiny" style="opacity:.5">A</span>
+                          <input type="range" id="fontSizeSlider" min="12" max="20" value="14" step="1"
+                            style="flex:1" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px'">
+                          <span class="tiny" style="opacity:.5;font-size:17px;">A</span>
+                          <span class="tiny" id="fontSizeVal" style="opacity:.7;min-width:28px;">14px</span>
+                        </div>
+                      </div>
+
+                      <!-- Nav bar style -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Nav bar style</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                          <button type="button" class="nav-style-btn btn" data-value="default" style="font-size:11px;padding:4px 12px;">Default</button>
+                          <button type="button" class="nav-style-btn btn" data-value="compact" style="font-size:11px;padding:4px 12px;">Compact</button>
+                          <button type="button" class="nav-style-btn btn" data-value="minimal" style="font-size:11px;padding:4px 12px;">Minimal</button>
+                        </div>
+                      </div>
+
+                    </div><!-- end right col -->
+                  </div><!-- end grid -->
+
+                  <div class="actions" style="justify-content:space-between;margin-top:20px;padding-top:14px;border-top:0.5px solid rgba(255,255,255,.08);">
+                    <button class="btn" type="button" onclick="_resetTheme()" style="color:#f87171;border-color:rgba(248,113,113,.3);">↺ Reset to defaults</button>
+                    <div style="display:flex;gap:8px;">
+                      <button class="btn" id="cancelCustomize">Cancel</button>
+                      <button class="btn btnPrimary" id="saveCustomize">Save</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div class="modalForm" id="teamForm" style="display:none;">
                 <div class="modalInner">
                   <div style="text-align:center;margin-bottom:18px;">
@@ -14344,6 +14393,7 @@ function applyModalPos(){
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
       if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
+      if($("customizeForm")) $("customizeForm").style.display = "none";
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
@@ -22208,7 +22258,7 @@ function wcalWireButtons(){
 window.showCalendarModal=function showCalendarModal(){
   showModal();
   if(typeof hideAllModalForms==='function') hideAllModalForms();
-  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','teamForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','teamForm','customizeForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
   if(calForm) calForm.style.display='flex';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
@@ -22477,6 +22527,55 @@ $("settingsBtn").onclick = () => showSettingsModal();
         $("settingsStatus").innerText = "Save failed";
       }
     };
+
+
+    // ── Customize modal ───────────────────────────────────────────
+    function showCustomizeModal() {
+      showModal();
+      try { ensureModalMinSize(780, 600); } catch(e) {}
+      hideAllModalForms();
+      if ($("modalBody")) $("modalBody").style.display = "none";
+      if ($("customizeForm")) $("customizeForm").style.display = "block";
+      if ($("modalTitle")) $("modalTitle").innerText = "🎨 Customize";
+      // Load current theme into UI
+      try {
+        const theme = window._saThemePrefs || {};
+        window._loadThemeIntoUI(theme);
+      } catch(e) {}
+      // Wire nav style buttons
+      document.querySelectorAll(".nav-style-btn").forEach(btn => {
+        btn.addEventListener("click", function() {
+          document.querySelectorAll(".nav-style-btn").forEach(b => {
+            b.style.borderColor = ""; b.style.background = ""; b.style.color = "";
+          });
+          this.style.borderColor = "rgba(124,58,237,.6)";
+          this.style.background  = "rgba(124,58,237,.2)";
+          this.style.color       = "#c4b5fd";
+          _applyThemePref("nav_style", this.dataset.value);
+        });
+      });
+    }
+
+    // Wire customize button in dropdown
+    if ($("customizeBtn")) $("customizeBtn").onclick = () => { saCloseDrop("saSettingsDrop"); showCustomizeModal(); };
+
+    // Wire Save button in customize modal
+    if ($("saveCustomize")) $("saveCustomize").onclick = async () => {
+      try {
+        const res = await fetch("/api/user/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ theme: window._saThemePrefs || {} })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          if (typeof showToast === "function") showToast("✓ Theme saved");
+        }
+      } catch(e) {}
+    };
+
+    // Wire Cancel button
+    if ($("cancelCustomize")) $("cancelCustomize").onclick = () => hideModal();
 
     // Google connect buttons (open OAuth flow)
     if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
@@ -23767,28 +23866,35 @@ if(typeof maybeAutoShowOnboarding === "function"){
             const width = Math.min(300, Math.max(260, panel.offsetWidth || 300));
             // Place in open space to the RIGHT of the tableWrap seat cards,
             // but clear of the DM side panel. Measure tableWrap at runtime.
+            // Place in the RIGHT open space between the seat cards and the DM side panel
+            // From the screenshot: x~975px on a 1512px wide viewport (DM panel at ~1215px)
             let x, y = 96;
             try {
-              const tw = document.getElementById("tableWrap") || document.querySelector(".tableWrap");
+              const tw  = document.getElementById("tableWrap") || document.querySelector(".tableWrap");
               const side = document.querySelector(".side");
-              if (tw) {
+              if (tw && side) {
                 const tr = tw.getBoundingClientRect();
-                // Right of seats = tr.right. DM panel starts at side.getBoundingClientRect().left
-                const rightEdge = side ? side.getBoundingClientRect().left : vw;
-                const openSpace = rightEdge - tr.right;  // gap between seats and DM panel
+                const sr = side.getBoundingClientRect();
+                // Open space = between right edge of tableWrap and left edge of side panel
+                const gapStart = tr.right;
+                const gapEnd   = sr.left;
+                const openSpace = gapEnd - gapStart;
                 if (openSpace >= width + 16) {
-                  // Fits cleanly in the right open space
-                  x = Math.round(tr.right + (openSpace - width) / 2);
+                  x = Math.round(gapStart + (openSpace - width) / 2);
                 } else {
-                  // Not enough room — place just inside the right margin, above DM panel
-                  x = Math.max(12, rightEdge - width - 12);
+                  x = Math.max(12, gapEnd - width - 8);
                 }
+              } else if (tw) {
+                const tr = tw.getBoundingClientRect();
+                x = Math.round(tr.right + 16);
               } else {
-                x = Math.max(12, vw - width - 520 - 12); // fallback: right of assumed DM panel
+                x = Math.max(12, vw - width - 520 - 12);
               }
             } catch(_e) {
               x = Math.max(12, vw - width - 520 - 12);
             }
+            // Vertical: align with upper-mid seat cards (~38% down)
+            y = Math.round(vh * 0.38);
             x = Math.max(12, Math.min(x, vw - width - 12));
             setPanelPos(x, y);
           }catch(_){}
@@ -25104,22 +25210,24 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     // Set default left-side position (open space to the left of the round table)
     function _defaultTipPos() {
-      // Position in the open space to the LEFT of the tableWrap seat cards
-      // Mirror of the onboarding panel which sits on the right
+      // Sits in the LEFT open space, vertically centred next to the seat cards
+      // From the screenshot: x~80px, y~370px on a 1512px wide viewport
       try {
         const tw = document.getElementById("tableWrap") || document.querySelector(".tableWrap");
         if (tw) {
           const tr = tw.getBoundingClientRect();
-          const leftSpace = tr.left; // pixels from viewport left edge to table left edge
-          if (leftSpace >= _TIP_WIDTH + 20) {
-            // Fits cleanly in left open space — centre it there
+          const leftSpace = tr.left; // gap between left viewport edge and table left edge
+          if (leftSpace >= _TIP_WIDTH + 16) {
+            // Centre horizontally in the left gap
             const left = Math.max(8, Math.round((leftSpace - _TIP_WIDTH) / 2));
-            return { left, top: Math.round(window.innerHeight * 0.38) };
+            // Vertically: align with the upper-mid seat cards (~40% down)
+            const top  = Math.round(window.innerHeight * 0.40);
+            return { left, top };
           }
         }
       } catch(_e) {}
-      // Fallback: left edge with small margin
-      return { left: 10, top: Math.round(window.innerHeight * 0.38) };
+      // Fallback: fixed left position
+      return { left: 12, top: Math.round(window.innerHeight * 0.40) };
     }
 
     function _applyTipPos(left, top) {
@@ -25373,14 +25481,27 @@ if(typeof maybeAutoShowOnboarding === "function"){
       `;
     }
 
+    if (p.seat_glow_color) {
+      const c = p.seat_glow_color;
+      css += `
+        .seat:hover { border-color: ${_rgba(c, 0.75)} !important; box-shadow: 0 0 20px ${_rgba(c, 0.28)} !important; }
+        .seat.active { border-color: ${_rgba(c, 0.85)} !important; box-shadow: 0 0 28px ${_rgba(c, 0.38)}, 0 0 8px ${_rgba(c, 0.2)} inset !important; }
+      `;
+    }
+
     if (p.accent_color) {
       const c = p.accent_color;
       css += `
         .btnPrimary { background: ${c} !important; border-color: ${c} !important; }
-        .seat.active, .seat:hover { border-color: ${_rgba(c, 0.7)} !important; box-shadow: 0 0 18px ${_rgba(c, 0.22)} !important; }
         #streamToggleBtn.sa-stream-on { border-color: ${_rgba(c, 0.6)} !important; color: ${c} !important; }
         .saObjectivePill { border-color: ${_rgba(c, 0.4)} !important; }
       `;
+    }
+
+    if (p.nav_style === "compact") {
+      css += `.saNavBar { padding: 4px 12px !important; } .saNavBtn { padding: 4px 8px !important; font-size: 12px !important; }`;
+    } else if (p.nav_style === "minimal") {
+      css += `.saNavBar { background: rgba(7,9,26,.6) !important; border-bottom-color: rgba(255,255,255,.04) !important; } .saNavBtn { background: transparent !important; border-color: transparent !important; }`;
     }
 
     if (p.font_family) {
@@ -25418,12 +25539,17 @@ if(typeof maybeAutoShowOnboarding === "function"){
     el.textContent = "";
     // Reset UI controls
     try {
-      document.getElementById("tableGlowSlider").value = "22";
-      document.getElementById("tableGlowVal").textContent = "22%";
-      document.getElementById("fontSizeSlider").value = "14";
-      document.getElementById("fontSizeVal").textContent = "14px";
-      document.getElementById("fontFamilySelect").value = "";
+      try { document.getElementById("tableGlowSlider").value = "22"; } catch(e) {}
+      try { document.getElementById("tableGlowVal").textContent = "22%"; } catch(e) {}
+      try { document.getElementById("fontSizeSlider").value = "14"; } catch(e) {}
+      try { document.getElementById("fontSizeVal").textContent = "14px"; } catch(e) {}
+      try { document.getElementById("fontFamilySelect").value = ""; } catch(e) {}
+      try { document.getElementById("seatGlowCustom").value = "#7c3aed"; } catch(e) {}
       document.querySelectorAll(".color-swatch").forEach(s => s.style.borderColor = "transparent");
+      // Reset nav style buttons
+      document.querySelectorAll(".nav-style-btn").forEach(b => {
+        b.style.borderColor = ""; b.style.background = "";
+      });
     } catch(e) {}
     // Save reset to server
     fetch("/api/user/settings", {
@@ -25452,6 +25578,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
         document.getElementById("taskGlowCustom").value = theme.task_glow_color;
         document.querySelectorAll(".color-swatch[data-target='task_glow_color']").forEach(s => {
           s.style.borderColor = s.dataset.value === theme.task_glow_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.seat_glow_color) {
+        try { document.getElementById("seatGlowCustom").value = theme.seat_glow_color; } catch(e) {}
+        document.querySelectorAll(".color-swatch[data-target='seat_glow_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.seat_glow_color ? "#fff" : "transparent";
         });
       }
       if (theme.accent_color) {
