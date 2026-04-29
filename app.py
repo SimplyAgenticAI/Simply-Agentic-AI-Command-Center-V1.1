@@ -13953,56 +13953,41 @@ label         { font-size: 14px !important; }
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console (All Teammates)</div>
-                <div class="t2">Send one prompt to everyone at the table.</div>
+                <div class="t1">Group Console</div>
+                <div class="t2">Broadcast to all teammates at once.</div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;gap:6px;align-items:center;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-
-                <!-- MODE dropdown -->
-                <div style="position:relative;" id="gcModeWrap">
-                  <button class="btn btnMini" id="gcModeBtn" onclick="gcToggleDrop('gcModeDrop')" style="display:flex;align-items:center;gap:4px;">
-                    &#9881; Mode <span style="font-size:9px;opacity:.6;">&#9660;</span>
-                  </button>
-                  <div id="gcModeDrop" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:rgba(13,19,45,.97);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:6px;min-width:155px;z-index:9999;box-shadow:0 8px 28px rgba(0,0,0,.5);">
-                    <div class="tiny" style="opacity:.5;padding:2px 6px 6px;font-size:10px;">Console options</div>
-                    <button class="btn btnMini gcDropItem" id="lightingModeBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#9889; Lighting mode</button>
-                    <button class="btn btnMini gcDropItem" id="talkGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#128266; Speak</button>
-                    <button class="btn btnMini gcDropItem" id="alwaysListenGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#127897; Voice mode</button>
-                    <button class="btn btnMini gcDropItem" id="screenGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#128421; Share screen</button>
-                    <div style="border-top:0.5px solid rgba(255,255,255,.07);margin:4px 0;"></div>
-                    <input type="file" id="groupFiles" multiple style="display:none" />
-                    <button class="btn btnMini gcDropItem" id="pickGroupFiles" style="width:100%;text-align:left;">&#128206; Upload files</button>
-                  </div>
-                </div>
-
-                <!-- ANALYZE dropdown -->
-                <div style="position:relative;" id="gcAnalyzeWrap">
-                  <button class="btn btnMini" id="gcAnalyzeBtn" onclick="gcToggleDrop('gcAnalyzeDrop')" style="display:flex;align-items:center;gap:4px;">
-                    &#128269; Analyze <span style="font-size:9px;opacity:.6;">&#9660;</span>
-                  </button>
-                  <div id="gcAnalyzeDrop" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:rgba(13,19,45,.97);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:6px;min-width:155px;z-index:9999;box-shadow:0 8px 28px rgba(0,0,0,.5);">
-                    <div class="tiny" style="opacity:.5;padding:2px 6px 6px;font-size:10px;">Runs on latest replies</div>
-                    <button class="btn btnMini gcDropItem passBtn" id="passGroupRisk" title="Risk Assessment" style="width:100%;text-align:left;margin-bottom:3px;">&#128269; Risk</button>
-                    <button class="btn btnMini gcDropItem passBtn" id="passGroupScale" title="Scalability" style="width:100%;text-align:left;margin-bottom:3px;">&#128200; Scale</button>
-                    <button class="btn btnMini gcDropItem passBtn" id="passGroupConstr" title="Constraints" style="width:100%;text-align:left;margin-bottom:3px;">&#129513; Constraints</button>
-                    <button class="btn btnMini gcDropItem passBtn" id="passGroupOpt" title="Optimize" style="width:100%;text-align:left;">&#9889; Optimize</button>
-                  </div>
-                </div>
-
-                <button class="btn btnPrimary" id="conveneAll">Send to all</button>
+                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads and start fresh" style="color:#f87171;border-color:rgba(248,113,113,.25);">&#128465; New session</button>
+                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;">Send to all</button>
               </div>
             </div>
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
-            <!-- passRow kept for JS compatibility -->
-            <div class="passRow" id="groupPassRow" style="display:none;">
-              <div class="tiny" id="uploadHint" style="display:none;"></div>
+            <!-- Composer toolbar -->
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:5px 0;border-top:1px solid rgba(42,58,106,.35);flex-wrap:wrap;">
+              <input type="file" id="groupFiles" multiple style="display:none" />
+              <button class="btn btnMini" id="pickGroupFiles" title="Attach files" style="padding:4px 8px;">&#128206; Files</button>
+              <button class="btn btnMini" id="screenGroupBtn" title="Share screen / screenshot" style="padding:4px 8px;">&#128421; Screen</button>
+              <button class="btn btnMini" id="talkGroupBtn" title="Read replies aloud (TTS)" style="padding:4px 8px;">&#128266; Speak</button>
+              <button class="btn btnMini" id="alwaysListenGroupBtn" title="Voice mode" style="padding:4px 8px;">&#127897; Voice</button>
+              <button class="btn btnMini" id="lightingModeBtn" title="Lighting mode" style="padding:4px 8px;">&#9889; Lighting</button>
+              <div id="groupAttachList" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
             </div>
-            <div id="groupAttachList" class="pillRow"></div>
 
-            <div class="opRow">
+            <!-- Analysis row -->
+            <div style="display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap;">
+              <span class="tiny" style="opacity:.5;margin-right:2px;">Run on replies:</span>
+              <button class="btn btnMini passBtn" id="passGroupRisk" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#128269; Risk</button>
+              <button class="btn btnMini passBtn" id="passGroupScale" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#128200; Scale</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#129513; Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupOpt" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#9889; Optimize</button>
+            </div>
+
+            <div class="passRow" id="groupPassRow" style="display:none;"><div class="tiny" id="uploadHint" style="display:none;"></div></div>
+
+            <div class="opRow" style="margin-top:6px;">
               <div class="tiny" id="opStatus">Ready</div>
               <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
             </div>
@@ -30583,6 +30568,28 @@ ADD_UI_POLISH_V8 = r'''
   });
 })();
 
+
+
+    // New Session: clear all teammate threads and start fresh
+    (function() {
+      var btn = document.getElementById("gcClearAllBtn");
+      if (!btn) return;
+      btn.addEventListener("click", async function() {
+        if (!confirm("Clear all teammate threads and start a new session?")) return;
+        btn.disabled = true; btn.innerHTML = "Clearing...";
+        try {
+          var installed = (typeof state !== "undefined" && state && state.installed)
+            ? Object.keys(state.installed) : [];
+          for (var i = 0; i < installed.length; i++) {
+            try { await fetch("/api/thread/" + encodeURIComponent(installed[i]) + "/clear", {method:"POST"}); } catch(e) {}
+          }
+          var clr = document.getElementById("clearGroup"); if (clr) clr.click();
+          try { if (typeof loadState === "function") await loadState(); } catch(e) {}
+          if (typeof showToast === "function") showToast("New session started — all threads cleared");
+        } catch(e) {}
+        btn.disabled = false; btn.innerHTML = "&#128465; New session";
+      });
+    })();
 
 </script>
 '''
