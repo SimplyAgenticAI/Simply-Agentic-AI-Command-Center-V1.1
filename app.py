@@ -3773,6 +3773,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "goal": defn.get("goal", ""),
     }
 
+    url_rules = (
+        "WEB URL CAPABILITY\n"
+        "When the user shares a URL or website link, the system automatically fetches and provides "
+        "the page content for you to analyze. You CAN read and analyze website content. "
+        "Do NOT say you cannot access URLs or external links. "
+        "The content will be provided in the message prefixed with [URL CONTENT from ...]\n"
+    )
+
     image_rules = (
         "IMAGE GENERATION CAPABILITY\n"
         "You CAN generate images. When the user asks for an image, graphic, logo, poster, "
@@ -3909,6 +3917,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
         "No em dashes.\n\n"
+        f"{url_rules}\n"
         f"{image_rules}\n"
         f"{email_rules}\n"
         f"{lighting_block}"
@@ -4022,6 +4031,66 @@ def _is_retryable_llm_error(e: Exception) -> bool:
     """Return True for transient errors worth retrying (503, timeout, connection)."""
     s = str(e).lower()
     return any(x in s for x in ["connection", "timeout", "network", "503", "502", "service unavailable"])
+
+
+# =========================
+# URL CONTENT FETCHER (for teammates)
+# =========================
+import urllib.request as _urllib_req
+import urllib.error as _urllib_err
+
+def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
+    """Fetch and extract text content from a URL. Returns (text, error)."""
+    try:
+        url = url.strip()
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        req = _urllib_req.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; SimplyAgentic/1.0)",
+            "Accept": "text/html,application/xhtml+xml,*/*",
+        })
+        with _urllib_req.urlopen(req, timeout=12) as resp:
+            raw = resp.read(200_000)
+            content_type = resp.headers.get("Content-Type", "")
+        # Decode
+        charset = "utf-8"
+        if "charset=" in content_type:
+            charset = content_type.split("charset=")[-1].split(";")[0].strip() or "utf-8"
+        html = raw.decode(charset, errors="replace")
+        # Strip tags if BeautifulSoup available, else basic strip
+        text = ""
+        if BeautifulSoup:
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script","style","nav","footer","header","aside","noscript"]):
+                tag.decompose()
+            text = soup.get_text(separator=" ", strip=True)
+        else:
+            import re as _re
+            text = _re.sub(r"<[^>]+>", " ", html)
+            text = _re.sub(r"\s+", " ", text).strip()
+        # Truncate
+        if len(text) > max_chars:
+            text = text[:max_chars] + f"\n\n[Content truncated at {max_chars} chars]"
+        return text, ""
+    except Exception as e:
+        return "", f"Could not fetch URL: {e}"
+
+def _inject_url_content(message: str) -> str:
+    """Detect URLs in message, fetch their content, and prepend to message."""
+    import re as _re
+    url_pattern = _re.compile(r"https?://\S+|www\.\S+", _re.IGNORECASE)
+    urls = url_pattern.findall(message)
+    if not urls:
+        return message
+    injected = []
+    for url in urls[:2]:  # max 2 URLs per message
+        text, err = _fetch_url_content(url)
+        if text:
+            injected.append(f"[URL CONTENT from {url}]:\n{text}\n[END URL CONTENT]")
+    if injected:
+        return "\n\n".join(injected) + "\n\n" + message
+    return message
+
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
     """Routes to Claude or OpenAI based on model name.
@@ -6082,6 +6151,11 @@ def _api_followup_impl(data):
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
 
     msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
+    # Inject URL content if the message contains links
+    try:
+        msg2 = _inject_url_content(msg2)
+    except Exception:
+        pass
     user_content = _build_user_content(msg2, vision_images)
 
     defn = installed[name]
@@ -12066,6 +12140,8 @@ label         { font-size: 14px !important; }
             <span>Tools</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saToolsDrop">
+            <button class="saDropItem" id="notepadBtn">&#128221; AI Notepad</button>
+            <button class="saDropItem" id="siteAnalyzerBtn">&#127760; Site Analyzer</button>
             <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
             <button class="saDropItem" id="crmBtn">CRM</button>
             <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
@@ -13953,45 +14029,42 @@ label         { font-size: 14px !important; }
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console</div>
-                <div class="t2">Broadcast to all teammates at once.</div>
+                <div class="t1">Group Console (All Teammates)</div>
+                <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
-              <div style="display:flex;gap:6px;align-items:center;">
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads and start fresh" style="color:#f87171;border-color:rgba(248,113,113,.25);">&#128465; New session</button>
-                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;">Send to all</button>
+                <button class="btn btnMini" id="talkGroupBtn">&#128266; Speak</button>
+                <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
+                <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
+                <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
+                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f87171;border-color:rgba(248,113,113,.25);">New session</button>
+                <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
-            <!-- Composer toolbar -->
-            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:5px 0;border-top:1px solid rgba(42,58,106,.35);flex-wrap:wrap;">
+            <div class="passRow" id="groupPassRow">
+              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">&#128269; Risk</button>
+              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
+              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
+              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
+              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+            </div>
+
+            <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
-              <button class="btn btnMini" id="pickGroupFiles" title="Attach files" style="padding:4px 8px;">&#128206; Files</button>
-              <button class="btn btnMini" id="screenGroupBtn" title="Share screen / screenshot" style="padding:4px 8px;">&#128421; Screen</button>
-              <button class="btn btnMini" id="talkGroupBtn" title="Read replies aloud (TTS)" style="padding:4px 8px;">&#128266; Speak</button>
-              <button class="btn btnMini" id="alwaysListenGroupBtn" title="Voice mode" style="padding:4px 8px;">&#127897; Voice</button>
-              <button class="btn btnMini" id="lightingModeBtn" title="Lighting mode" style="padding:4px 8px;">&#9889; Lighting</button>
-              <div id="groupAttachList" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+              <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
+              <div class="tiny" id="uploadHint">Attach files or use Share screen to capture a screenshot.</div>
             </div>
+            <div id="groupAttachList" class="pillRow"></div>
 
-            <!-- Analysis row -->
-            <div style="display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap;">
-              <span class="tiny" style="opacity:.5;margin-right:2px;">Run on replies:</span>
-              <button class="btn btnMini passBtn" id="passGroupRisk" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#128269; Risk</button>
-              <button class="btn btnMini passBtn" id="passGroupScale" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#128200; Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#129513; Constraints</button>
-              <button class="btn btnMini passBtn" id="passGroupOpt" style="border-radius:999px;padding:3px 10px;font-size:11px;">&#9889; Optimize</button>
-            </div>
-
-            <div class="passRow" id="groupPassRow" style="display:none;"><div class="tiny" id="uploadHint" style="display:none;"></div></div>
-
-            <div class="opRow" style="margin-top:6px;">
+            <div class="opRow">
               <div class="tiny" id="opStatus">Ready</div>
               <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
             </div>
-            <div class="tiny" id="micStatusGroup" style="margin-top:4px;">Mic: idle</div>
+            <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
 
         </div>
@@ -25571,6 +25644,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
     try {
       try { document.getElementById("tableGlowSlider").value = "22"; } catch(e) {}
       try { document.getElementById("tableGlowVal").textContent = "22%"; } catch(e) {}
+      // Also clear the style override so native CSS glow is restored
+      try { var so = document.getElementById("sa-theme-overrides"); if (so) so.textContent = ""; } catch(e) {}
       try { document.getElementById("fontSizeSlider").value = "14"; } catch(e) {}
       try { document.getElementById("fontSizeVal").textContent = "14px"; } catch(e) {}
       try { document.getElementById("fontFamilySelect").value = ""; } catch(e) {}
@@ -31905,6 +31980,143 @@ def api_share_view(token: str):
 
 # ── OPERATOR DASHBOARD ────────────────────────────────────────────────────────
 
+
+# =========================
+# AI NOTEPAD
+# =========================
+def _notepad_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return DATA / f"notepad_{safe}.json"
+
+def _load_notes(username: str) -> list:
+    try:
+        p = _notepad_path(username)
+        if p.exists():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, list) else []
+    except Exception:
+        pass
+    return []
+
+def _save_notes(username: str, notes: list) -> None:
+    try:
+        p = _notepad_path(username)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(notes, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
+
+
+# =========================
+# WEBSITE / LANDING PAGE ANALYZER
+# =========================
+@app.post("/api/analyze/website")
+def api_analyze_website():
+    """Fetch a URL and run a 1-100 scoring analysis on it."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url: return jsonify({"ok": False, "error": "URL required"}), 400
+
+    content, err = _fetch_url_content(url, max_chars=10000)
+    if err or not content:
+        return jsonify({"ok": False, "error": err or "Could not fetch page content"}), 400
+
+    system = (
+        "You are an expert conversion rate optimizer, UX designer, and digital marketing strategist. "
+        "Analyze the provided website content and return a structured JSON analysis. "
+        "Respond ONLY with valid JSON, no markdown, no explanation outside the JSON."
+    )
+    prompt = f"""Analyze this website content from {url} and return JSON in exactly this format:
+{{
+  "score": <integer 1-100>,
+  "grade": "<A/B/C/D/F>",
+  "summary": "<2 sentence overall verdict>",
+  "strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
+  "weaknesses": ["<weakness 1>", "<weakness 2>", "<weakness 3>"],
+  "quick_wins": [
+    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
+    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
+    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}}
+  ],
+  "categories": {{
+    "clarity": <1-10>,
+    "design": <1-10>,
+    "copy": <1-10>,
+    "cta": <1-10>,
+    "trust": <1-10>,
+    "mobile": <1-10>,
+    "speed_signals": <1-10>,
+    "seo": <1-10>
+  }}
+}}
+
+Website content:
+{content[:6000]}"""
+
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        return jsonify({"ok": True, "url": url, "analysis": result})
+    except json.JSONDecodeError:
+        return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
+@app.get("/api/notepad")
+def api_notepad_get():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "notes": _load_notes(uname)})
+
+@app.post("/api/notepad")
+def api_notepad_save():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    data = request.get_json(silent=True) or {}
+    notes = data.get("notes", [])
+    if not isinstance(notes, list): notes = []
+    _save_notes(uname, notes[:200])
+    return jsonify({"ok": True})
+
+@app.post("/api/notepad/ai")
+def api_notepad_ai():
+    """Run an AI action on a note."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "improve").strip()
+    content = (data.get("content") or "").strip()
+    if not content: return jsonify({"ok": False, "error": "No content"}), 400
+    prompts = {
+        "improve":  f"Improve and polish this note. Keep the meaning, make it clearer and more professional:\n\n{content}",
+        "expand":   f"Expand this note with more detail, examples, or context:\n\n{content}",
+        "summarize":f"Summarize this note into 3-5 bullet points:\n\n{content}",
+        "action":   f"Extract clear action items from this note as a numbered list:\n\n{content}",
+        "rewrite":  f"Rewrite this note in a more compelling, persuasive way:\n\n{content}",
+    }
+    prompt = prompts.get(action, prompts["improve"])
+    try:
+        result = call_llm(
+            "You are a precise writing assistant. Respond only with the improved content, no preamble or explanation.",
+            [{"role": "user", "content": prompt}],
+            temperature=0.5
+        )
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
 @app.get("/api/usage/summary")
 def api_usage_summary():
     """Return token usage summary for the current user."""
@@ -33143,6 +33355,228 @@ input:focus{{border-color:rgba(124,58,237,.7);box-shadow:0 0 0 3px rgba(124,58,2
   <div class='brand'>{app_title}</div>
   {body}
 </div>
+
+<!-- ═══ AI NOTEPAD PANEL ═══ -->
+<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;display:none;flex-direction:column;overflow:hidden;">
+  <div id="notepadDrag" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:grab;border-bottom:1px solid rgba(42,58,106,.5);user-select:none;flex-shrink:0;">
+    <div style="font-weight:700;font-size:15px;">&#128221; AI Notepad</div>
+    <button onclick="document.getElementById('notepadPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
+  </div>
+  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+    <!-- Note list -->
+    <div style="width:200px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:10px;display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn btnPrimary" onclick="npNewNote()" style="flex:1;font-size:12px;padding:5px;">+ New</button>
+      </div>
+      <div id="npNoteList" style="flex:1;overflow-y:auto;padding:0 8px 8px;"></div>
+    </div>
+    <!-- Editor -->
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:8px 12px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
+        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:14px;font-weight:600;outline:none;" />
+      </div>
+      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.65;padding:12px;resize:none;outline:none;min-height:200px;" placeholder="Start writing... or paste a URL and ask a teammate to analyze it."></textarea>
+      <!-- AI toolbar -->
+      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
+        <span style="font-size:11px;opacity:.5;">AI:</span>
+        <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
+        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
+        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
+        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
+        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
+          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="npStatus" style="font-size:11px;padding:4px 16px 8px;color:#64748b;flex-shrink:0;"></div>
+</div>
+
+<!-- ═══ WEBSITE ANALYZER PANEL ═══ -->
+<div id="siteAnalyzerPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(800px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
+    <div style="font-weight:700;font-size:15px;">&#127760; Website Analyzer</div>
+    <button onclick="document.getElementById('siteAnalyzerPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
+  </div>
+  <div style="padding:14px 16px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;display:flex;gap:8px;">
+    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:13px;" />
+    <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;">Analyze &#128269;</button>
+  </div>
+  <div id="saResults" style="flex:1;overflow-y:auto;padding:16px;">
+    <div style="text-align:center;color:#475569;padding:40px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis.</div>
+  </div>
+</div>
+
+<script>
+// ── AI NOTEPAD ────────────────────────────────────────────────
+var _npNotes = [], _npCurrent = null;
+
+function npOpen() {
+  var p = document.getElementById('notepadPanel');
+  p.style.display = 'flex';
+  npLoad();
+  // Simple drag
+  var drag = {active:false, dx:0, dy:0};
+  var handle = document.getElementById('notepadDrag');
+  handle.addEventListener('pointerdown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    drag.active = true; handle.style.cursor = 'grabbing';
+    var r = p.getBoundingClientRect();
+    drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top;
+    p.style.transform = 'none';
+    p.style.left = r.left + 'px'; p.style.top = r.top + 'px';
+    try { handle.setPointerCapture(e.pointerId); } catch(x) {}
+  });
+  handle.addEventListener('pointermove', function(e) {
+    if (!drag.active) return;
+    p.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
+    p.style.top  = Math.max(0, e.clientY - drag.dy) + 'px';
+  });
+  handle.addEventListener('pointerup', function(e) { drag.active = false; handle.style.cursor = 'grab'; });
+}
+
+async function npLoad() {
+  try {
+    var r = await fetch('/api/notepad');
+    var d = await r.json();
+    if (d.ok) { _npNotes = d.notes || []; npRenderList(); }
+  } catch(e) {}
+}
+
+function npRenderList() {
+  var el = document.getElementById('npNoteList');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!_npNotes.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#475569;padding:8px;">No notes yet.</div>';
+    return;
+  }
+  _npNotes.forEach(function(n, i) {
+    var d = document.createElement('div');
+    d.style.cssText = 'padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;';
+    d.textContent = n.title || 'Untitled';
+    if (_npCurrent === i) { d.style.background = 'rgba(124,58,237,.22)'; d.style.borderColor = 'rgba(124,58,237,.4)'; }
+    else { d.style.color = '#94a3b8'; }
+    d.onclick = function() { npSelect(i); };
+    el.appendChild(d);
+  });
+}
+
+function npSelect(i) {
+  _npCurrent = i;
+  var n = _npNotes[i];
+  document.getElementById('npTitle').value = n.title || '';
+  document.getElementById('npContent').value = n.content || '';
+  npRenderList();
+}
+
+function npNewNote() {
+  _npNotes.unshift({id: Date.now(), title: '', content: '', updated: new Date().toISOString()});
+  _npCurrent = 0;
+  npRenderList();
+  npSelect(0);
+  document.getElementById('npTitle').focus();
+}
+
+async function npSave() {
+  if (_npCurrent === null) { npNewNote(); return; }
+  _npNotes[_npCurrent].title   = document.getElementById('npTitle').value || 'Untitled';
+  _npNotes[_npCurrent].content = document.getElementById('npContent').value || '';
+  _npNotes[_npCurrent].updated = new Date().toISOString();
+  try {
+    await fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
+    document.getElementById('npStatus').textContent = 'Saved ✓';
+    setTimeout(function() { document.getElementById('npStatus').textContent = ''; }, 2000);
+  } catch(e) {}
+  npRenderList();
+}
+
+function npDelete() {
+  if (_npCurrent === null) return;
+  if (!confirm('Delete this note?')) return;
+  _npNotes.splice(_npCurrent, 1);
+  _npCurrent = _npNotes.length ? 0 : null;
+  if (_npCurrent !== null) npSelect(0); else { document.getElementById('npTitle').value = ''; document.getElementById('npContent').value = ''; }
+  npRenderList();
+  fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
+}
+
+async function npAI(action) {
+  var content = document.getElementById('npContent').value.trim();
+  if (!content) { alert('Write something first.'); return; }
+  var st = document.getElementById('npStatus');
+  st.textContent = 'AI working...';
+  try {
+    var r = await fetch('/api/notepad/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:action, content:content})});
+    var d = await r.json();
+    if (d.ok) {
+      document.getElementById('npContent').value = d.result;
+      st.textContent = 'Done ✓';
+    } else {
+      st.textContent = d.error || 'Error';
+    }
+  } catch(e) { st.textContent = 'Error'; }
+  setTimeout(function() { st.textContent = ''; }, 3000);
+}
+
+// ── WEBSITE ANALYZER ─────────────────────────────────────────
+function saOpen() {
+  var p = document.getElementById('siteAnalyzerPanel');
+  p.style.display = 'flex';
+}
+
+async function runSiteAnalysis() {
+  var url = document.getElementById('saUrl').value.trim();
+  if (!url) { alert('Enter a URL first.'); return; }
+  var btn = document.getElementById('saAnalyzeBtn');
+  var res = document.getElementById('saResults');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+  res.innerHTML = '<div style="text-align:center;padding:40px 0;color:#94a3b8;">Fetching and analyzing ' + url + '...</div>';
+
+  try {
+    var r = await fetch('/api/analyze/website', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
+    var d = await r.json();
+    if (!d.ok) { res.innerHTML = '<div style="color:#f87171;padding:20px;">' + (d.error||'Analysis failed') + '</div>'; return; }
+    var a = d.analysis;
+    var scoreColor = a.score >= 80 ? '#22c55e' : a.score >= 60 ? '#f59e0b' : '#ef4444';
+    var cats = a.categories || {};
+    var catHTML = Object.entries(cats).map(function(e) {
+      var bar = Math.round(e[1]*10);
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><div style="width:100px;font-size:11px;color:#94a3b8;text-transform:capitalize;">' + e[0].replace(/_/g,' ') + '</div><div style="flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;"><div style="width:' + bar + '%;height:100%;background:' + scoreColor + ';border-radius:3px;"></div></div><div style="font-size:11px;color:#94a3b8;min-width:20px;">' + e[1] + '</div></div>';
+    }).join('');
+    var qwHTML = (a.quick_wins||[]).map(function(q) {
+      var ic = q.impact==='High'?'#22c55e':q.impact==='Medium'?'#f59e0b':'#94a3b8';
+      return '<div style="padding:8px 10px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;border-left:3px solid '+ic+'"><div style="font-size:13px;color:#e2e8f0;margin-bottom:3px;">'+q.action+'</div><div style="font-size:11px;color:#64748b;">Impact: <span style="color:'+ic+'">'+q.impact+'</span> &nbsp;|&nbsp; Effort: '+q.effort+'</div></div>';
+    }).join('');
+    res.innerHTML = '<div style="display:grid;grid-template-columns:140px 1fr;gap:20px;">'
+      + '<div style="text-align:center;padding:16px 0;">'
+      + '<div style="font-size:56px;font-weight:800;color:'+scoreColor+';">'+a.score+'</div>'
+      + '<div style="font-size:24px;font-weight:700;color:'+scoreColor+';">'+a.grade+'</div>'
+      + '<div style="font-size:11px;color:#64748b;margin-top:4px;">Overall score</div>'
+      + '</div>'
+      + '<div><div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:12px;">'+a.summary+'</div>'
+      + catHTML + '</div></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">'
+      + '<div><div style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;">&#10003; Strengths</div>'+(a.strengths||[]).map(function(s){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+s+'</div>';}).join('')+'</div>'
+      + '<div><div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;">&#9888; Weaknesses</div>'+(a.weaknesses||[]).map(function(w){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+w+'</div>';}).join('')+'</div>'
+      + '</div>'
+      + '<div style="margin-top:16px;"><div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">&#9889; Quick wins (by priority)</div>'+qwHTML+'</div>';
+  } catch(e) {
+    res.innerHTML = '<div style="color:#f87171;padding:20px;">Error: ' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Analyze \uD83D\uDD0D';
+}
+
+// Wire buttons
+document.addEventListener('DOMContentLoaded', function() {
+  var nb = document.getElementById('notepadBtn');
+  var sa = document.getElementById('siteAnalyzerBtn');
+  if (nb) nb.addEventListener('click', function() { npOpen(); });
+  if (sa) sa.addEventListener('click', function() { saOpen(); });
+});
+</script>
 </body></html>"""
 
 @app.get("/team/join/<token>")
