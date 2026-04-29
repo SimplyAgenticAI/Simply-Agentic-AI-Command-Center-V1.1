@@ -1422,6 +1422,7 @@ def _new_user(username: str, password: str, email: str = "", is_admin: bool = Fa
         "tos_accepted_at": now_iso(),
         "settings": {
             "openai_key": "",
+            "tooltip_level": "medium",  # new users get tips by default
             "smtp": {
                 "host": "",
                 "port": 587,
@@ -5217,7 +5218,8 @@ def api_get_user_settings():
             "global_default_model": (settings.get("global_default_model") or "").strip(),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
             "smtp": safe_smtp,
-            "tooltip_level": (settings.get("tooltip_level") or "medium")  # off | low | medium | high
+            "tooltip_level": (settings.get("tooltip_level") or "medium"),  # off | low | medium | high
+            "theme": (settings.get("theme") or {})  # ui customisation prefs
         }
     })
 
@@ -5272,6 +5274,20 @@ def api_set_user_settings():
     tooltip_level = (data.get("tooltip_level") or "").strip().lower()
     if tooltip_level in ("off", "low", "medium", "high"):
         rec["settings"]["tooltip_level"] = tooltip_level
+
+    # UI theme / customisation
+    theme_in = data.get("theme")
+    if isinstance(theme_in, dict):
+        rec["settings"].setdefault("theme", {})
+        allowed_theme_keys = {
+            "table_color", "table_glow_opacity",
+            "task_glow_color", "event_color",
+            "font_family", "font_size",
+            "arena_bg_color", "accent_color",
+        }
+        for k, v in theme_in.items():
+            if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80:
+                rec["settings"]["theme"][k] = v.strip()
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -12489,6 +12505,93 @@ label         { font-size: 14px !important; }
                       </div>
                       <input type="hidden" id="tooltipLevel" value="medium" />
                       <div class="tiny" id="tooltipLevelDesc" style="margin-top:8px;min-height:16px;opacity:.65;"></div>
+
+                    <!-- CUSTOMIZATION -->
+                    <div style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;margin-top:4px;">
+                      <label style="margin:0 0 10px;display:block;">Customization</label>
+
+                      <!-- Round table color -->
+                      <div style="margin-bottom:14px;">
+                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Round table color</div>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                          <div id="tableColorSwatches" style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <div class="color-swatch" data-target="table_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;transition:border-color .15s;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#2563eb" title="Blue" style="width:24px;height:24px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#059669" title="Green" style="width:24px;height:24px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#dc2626" title="Red" style="width:24px;height:24px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#d97706" title="Amber" style="width:24px;height:24px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#0891b2" title="Cyan" style="width:24px;height:24px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;"></div>
+                            <div class="color-swatch" data-target="table_color" data-value="#db2777" title="Pink" style="width:24px;height:24px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;"></div>
+                            <input type="color" id="tableColorCustom" value="#7c3aed" title="Custom color"
+                              style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
+                              oninput="_applyThemePref('table_color',this.value)">
+                          </div>
+                        </div>
+                        <div style="margin-top:8px;">
+                          <div class="tiny" style="opacity:.7;margin-bottom:4px;">Table glow intensity</div>
+                          <input type="range" id="tableGlowSlider" min="0" max="100" value="22" step="1"
+                            style="width:100%" oninput="_applyThemePref('table_glow_opacity',this.value);document.getElementById('tableGlowVal').textContent=this.value+'%'">
+                          <span class="tiny" id="tableGlowVal" style="opacity:.6">22%</span>
+                        </div>
+                      </div>
+
+                      <!-- Calendar task glow color -->
+                      <div style="margin-bottom:14px;">
+                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Calendar task glow</div>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#f59e0b" title="Amber" style="width:24px;height:24px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#10b981" title="Emerald" style="width:24px;height:24px;border-radius:50%;background:#10b981;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#ef4444" title="Red" style="width:24px;height:24px;border-radius:50%;background:#ef4444;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="task_glow_color" data-value="#06b6d4" title="Cyan" style="width:24px;height:24px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent;"></div>
+                          <input type="color" id="taskGlowCustom" value="#7c3aed" title="Custom color"
+                            style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('task_glow_color',this.value)">
+                        </div>
+                      </div>
+
+                      <!-- Accent color -->
+                      <div style="margin-bottom:14px;">
+                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">UI accent color</div>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                          <div class="color-swatch" data-target="accent_color" data-value="#7c3aed" title="Purple (default)" style="width:24px;height:24px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#2563eb" title="Blue" style="width:24px;height:24px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#059669" title="Green" style="width:24px;height:24px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#dc2626" title="Red" style="width:24px;height:24px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;"></div>
+                          <input type="color" id="accentColorCustom" value="#7c3aed" title="Custom color"
+                            style="width:24px;height:24px;border-radius:50%;border:none;padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('accent_color',this.value)">
+                        </div>
+                      </div>
+
+                      <!-- Font family -->
+                      <div style="margin-bottom:14px;">
+                        <div class="tiny" style="opacity:.7;margin-bottom:6px;">Font style</div>
+                        <select id="fontFamilySelect" style="width:100%;font-size:13px;" onchange="_applyThemePref('font_family',this.value)">
+                          <option value="">Default (system sans-serif)</option>
+                          <option value="'Inter',sans-serif">Inter — clean & modern</option>
+                          <option value="'Georgia',serif">Georgia — editorial serif</option>
+                          <option value="'Courier New',monospace">Courier New — monospace</option>
+                          <option value="'Trebuchet MS',sans-serif">Trebuchet — rounded sans</option>
+                          <option value="'Palatino Linotype',serif">Palatino — classic serif</option>
+                        </select>
+                      </div>
+
+                      <!-- Font size -->
+                      <div style="margin-bottom:6px;">
+                        <div class="tiny" style="opacity:.7;margin-bottom:4px;">Font size</div>
+                        <input type="range" id="fontSizeSlider" min="12" max="20" value="14" step="1"
+                          style="width:100%" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px'">
+                        <div style="display:flex;justify-content:space-between;">
+                          <span class="tiny" style="opacity:.5">Small</span>
+                          <span class="tiny" id="fontSizeVal" style="opacity:.7">14px</span>
+                          <span class="tiny" style="opacity:.5">Large</span>
+                        </div>
+                      </div>
+
+                      <!-- Reset button -->
+                      <button type="button" onclick="_resetTheme()" class="btn" style="font-size:11px;padding:4px 12px;margin-top:8px;opacity:.7;">Reset to defaults</button>
+                    </div>
                     </div>
                   </div>
 
@@ -17839,6 +17942,12 @@ Challenge weak assumptions. Surface risks.`;
           _activateTooltipBtn(lvl);
           window._saTooltipLevel = lvl;
         } catch(e) {}
+        // Load and apply theme
+        try {
+          const theme = s.theme || {};
+          window._applyTheme(theme);
+          window._loadThemeIntoUI(theme);
+        } catch(e) {}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
       }
@@ -22332,6 +22441,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         claude_key: claudeKeyVal,
         global_default_model: globalModel,
         tooltip_level: ($("tooltipLevel") ? $("tooltipLevel").value : "medium"),
+        theme: (window._saThemePrefs || {}),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -23536,7 +23646,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
 
 <!-- Guided Onboarding Panel (additive) -->
-<div id="onboardingPanel" style="position:fixed; right:12px; top:96px; left:auto; bottom:auto; z-index:9999; width:320px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 120px); min-width:260px; min-height:230px; resize:both; overflow:hidden; display:none;">
+<div id="onboardingPanel" style="position:fixed; left:-9999px; top:96px; right:auto; bottom:auto; z-index:9999; width:300px; max-width:calc(100vw - 24px); height:360px; max-height:calc(100vh - 120px); min-width:260px; min-height:230px; resize:both; overflow:hidden; display:none;">
   <div id="onbCard" style="background:rgba(20,24,34,0.96); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,0.45); overflow:hidden; display:flex; flex-direction:column; height:100%;">
     <div id="onbHeader" style="padding:12px 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; cursor:grab; user-select:none;">
       <div style="display:flex; gap:10px; align-items:center;">
@@ -23654,10 +23764,32 @@ if(typeof maybeAutoShowOnboarding === "function"){
           try{
             const vw = window.innerWidth || document.documentElement.clientWidth || 1200;
             const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-            const width = Math.min(320, Math.max(260, panel.offsetWidth || 320));
-            // Anchor to the RIGHT side — away from the round table in the centre
-            const x = Math.max(12, vw - width - 12);
-            const y = 96;
+            const width = Math.min(300, Math.max(260, panel.offsetWidth || 300));
+            // Place in open space to the RIGHT of the tableWrap seat cards,
+            // but clear of the DM side panel. Measure tableWrap at runtime.
+            let x, y = 96;
+            try {
+              const tw = document.getElementById("tableWrap") || document.querySelector(".tableWrap");
+              const side = document.querySelector(".side");
+              if (tw) {
+                const tr = tw.getBoundingClientRect();
+                // Right of seats = tr.right. DM panel starts at side.getBoundingClientRect().left
+                const rightEdge = side ? side.getBoundingClientRect().left : vw;
+                const openSpace = rightEdge - tr.right;  // gap between seats and DM panel
+                if (openSpace >= width + 16) {
+                  // Fits cleanly in the right open space
+                  x = Math.round(tr.right + (openSpace - width) / 2);
+                } else {
+                  // Not enough room — place just inside the right margin, above DM panel
+                  x = Math.max(12, rightEdge - width - 12);
+                }
+              } else {
+                x = Math.max(12, vw - width - 520 - 12); // fallback: right of assumed DM panel
+              }
+            } catch(_e) {
+              x = Math.max(12, vw - width - 520 - 12);
+            }
+            x = Math.max(12, Math.min(x, vw - width - 12));
             setPanelPos(x, y);
           }catch(_){}
         }
@@ -24972,12 +25104,22 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     // Set default left-side position (open space to the left of the round table)
     function _defaultTipPos() {
-      const vw = window.innerWidth;
-      const leftSpace = Math.max(0, (vw / 2) - 340); // space left of table center
-      const left = leftSpace > _TIP_WIDTH + 20
-        ? Math.max(10, Math.round(leftSpace / 2 - _TIP_WIDTH / 2))  // centered in left space
-        : 10;  // fallback: stick to left edge
-      return { left, top: Math.round(window.innerHeight * 0.38) };
+      // Position in the open space to the LEFT of the tableWrap seat cards
+      // Mirror of the onboarding panel which sits on the right
+      try {
+        const tw = document.getElementById("tableWrap") || document.querySelector(".tableWrap");
+        if (tw) {
+          const tr = tw.getBoundingClientRect();
+          const leftSpace = tr.left; // pixels from viewport left edge to table left edge
+          if (leftSpace >= _TIP_WIDTH + 20) {
+            // Fits cleanly in left open space — centre it there
+            const left = Math.max(8, Math.round((leftSpace - _TIP_WIDTH) / 2));
+            return { left, top: Math.round(window.innerHeight * 0.38) };
+          }
+        }
+      } catch(_e) {}
+      // Fallback: left edge with small margin
+      return { left: 10, top: Math.round(window.innerHeight * 0.38) };
     }
 
     function _applyTipPos(left, top) {
@@ -25146,6 +25288,215 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window._saTooltipLevel = window._saTooltipLevel || localStorage.getItem("sa_tooltip_level") || "medium";
 
 })();
+
+  // ── Apply saved theme on boot (before user opens settings) ──
+  (function applyThemeOnBoot() {
+    try {
+      fetch("/api/user/settings").then(r => r.json()).then(d => {
+        const theme = (d.settings || {}).theme || {};
+        if (Object.keys(theme).length > 0 && typeof window._applyTheme === "function") {
+          window._applyTheme(theme);
+        }
+      }).catch(() => {});
+    } catch(e) {}
+  })();
+
+
+
+// ════════════════════════════════════════════════════════════════
+// SIMPLY AGENTIC THEME ENGINE
+// Applies user's customization prefs as live CSS custom properties
+// Persisted to user settings on save, applied on load from settings
+// ════════════════════════════════════════════════════════════════
+(function initThemeEngine() {
+
+  // ── CSS variable injector ─────────────────────────────────
+  let _styleEl = null;
+  function _getStyleEl() {
+    if (!_styleEl) {
+      _styleEl = document.createElement("style");
+      _styleEl.id = "sa-theme-overrides";
+      document.head.appendChild(_styleEl);
+    }
+    return _styleEl;
+  }
+
+  // ── Hex → rgba helper ────────────────────────────────────
+  function _hexToRgb(hex) {
+    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) } : null;
+  }
+  function _rgba(hex, alpha) {
+    const c = _hexToRgb(hex);
+    return c ? `rgba(${c.r},${c.g},${c.b},${alpha})` : hex;
+  }
+
+  // ── Apply a single theme pref live ───────────────────────
+  window._applyThemePref = function(key, value) {
+    if (!value) return;
+    const el = _getStyleEl();
+    const prefs = window._saThemePrefs = window._saThemePrefs || {};
+    prefs[key] = value;
+
+    let css = "";
+
+    // Build full CSS from all current prefs
+    const p = prefs;
+
+    if (p.table_color) {
+      const c = p.table_color;
+      const glow = parseFloat(p.table_glow_opacity || "22") / 100;
+      css += `
+        .table {
+          background: radial-gradient(circle at 50% 50%, ${_rgba(c, 0.22)}, rgba(11,16,36,.88) 52%, rgba(7,10,20,.96) 76%) !important;
+          border: 1px solid ${_rgba(c, 0.45)} !important;
+          box-shadow: 0 0 0 1px rgba(17,24,39,.35) inset, 0 0 70px ${_rgba(c, glow)} !important;
+        }
+        .table:before { border-color: ${_rgba(c, 0.35)} !important; }
+        .runes { border-color: ${_rgba(c, 0.18)} !important; box-shadow: 0 0 40px ${_rgba(c, 0.1)} inset !important; }
+        .rt-arena::before { border-color: ${_rgba(c, 0.28)} !important; background: radial-gradient(ellipse, ${_rgba(c, 0.12)}, transparent 70%) !important; }
+      `;
+    }
+
+    if (p.table_glow_opacity && p.table_color) {
+      const glow = parseFloat(p.table_glow_opacity) / 100;
+      css += `.table { box-shadow: 0 0 0 1px rgba(17,24,39,.35) inset, 0 0 70px ${_rgba(p.table_color, glow)} !important; }`;
+    }
+
+    if (p.task_glow_color) {
+      const c = p.task_glow_color;
+      css += `
+        .wcal-event[data-etype="task"] { background: ${_rgba(c, 0.18)} !important; border-left-color: ${_rgba(c, 0.7)} !important; }
+        @keyframes prioGlowHigh { 0%,100%{box-shadow:0 0 5px ${_rgba(c,0.15)},0 2px 14px ${_rgba(c,0.18)}} 50%{box-shadow:0 0 14px ${_rgba(c,0.42)},0 4px 22px ${_rgba(c,0.28)}} }
+        @keyframes prioGlowMed  { 0%,100%{box-shadow:0 0 4px ${_rgba(c,0.10)},0 2px 10px ${_rgba(c,0.12)}} 50%{box-shadow:0 0 10px ${_rgba(c,0.28)},0 3px 16px ${_rgba(c,0.18)}} }
+        @keyframes prioGlowLow  { 0%,100%{box-shadow:0 0 3px ${_rgba(c,0.08)},0 2px 8px  ${_rgba(c,0.10)}} 50%{box-shadow:0 0 8px  ${_rgba(c,0.20)},0 3px 12px ${_rgba(c,0.14)}} }
+      `;
+    }
+
+    if (p.accent_color) {
+      const c = p.accent_color;
+      css += `
+        .btnPrimary { background: ${c} !important; border-color: ${c} !important; }
+        .seat.active, .seat:hover { border-color: ${_rgba(c, 0.7)} !important; box-shadow: 0 0 18px ${_rgba(c, 0.22)} !important; }
+        #streamToggleBtn.sa-stream-on { border-color: ${_rgba(c, 0.6)} !important; color: ${c} !important; }
+        .saObjectivePill { border-color: ${_rgba(c, 0.4)} !important; }
+      `;
+    }
+
+    if (p.font_family) {
+      css += `body, .sn, .sd, .dmMsg, #dmInput, .tiny, .modalForm { font-family: ${p.font_family} !important; }`;
+    }
+
+    if (p.font_size) {
+      const sz = parseInt(p.font_size) || 14;
+      css += `
+        body { font-size: ${sz}px !important; }
+        .sn { font-size: ${Math.max(10, sz-2)}px !important; }
+        .sd { font-size: ${Math.max(9, sz-3)}px !important; }
+        .tiny { font-size: ${Math.max(9, sz-3)}px !important; }
+        #dmInput { font-size: ${sz}px !important; }
+        .dmMsg { font-size: ${sz}px !important; }
+      `;
+    }
+
+    el.textContent = css;
+  };
+
+  // ── Apply full theme object ───────────────────────────────
+  window._applyTheme = function(themeObj) {
+    if (!themeObj || typeof themeObj !== "object") return;
+    window._saThemePrefs = Object.assign({}, themeObj);
+    // Trigger a full re-render by applying any key
+    const anyKey = Object.keys(themeObj)[0];
+    if (anyKey) window._applyThemePref(anyKey, themeObj[anyKey]);
+  };
+
+  // ── Reset all theme prefs ────────────────────────────────
+  window._resetTheme = function() {
+    window._saThemePrefs = {};
+    const el = _getStyleEl();
+    el.textContent = "";
+    // Reset UI controls
+    try {
+      document.getElementById("tableGlowSlider").value = "22";
+      document.getElementById("tableGlowVal").textContent = "22%";
+      document.getElementById("fontSizeSlider").value = "14";
+      document.getElementById("fontSizeVal").textContent = "14px";
+      document.getElementById("fontFamilySelect").value = "";
+      document.querySelectorAll(".color-swatch").forEach(s => s.style.borderColor = "transparent");
+    } catch(e) {}
+    // Save reset to server
+    fetch("/api/user/settings", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({theme: {}})
+    }).catch(() => {});
+    if (typeof showToast === "function") showToast("Theme reset to defaults");
+  };
+
+  // ── Load theme into settings UI controls ─────────────────
+  window._loadThemeIntoUI = function(theme) {
+    if (!theme || typeof theme !== "object") return;
+    try {
+      if (theme.table_color) {
+        document.getElementById("tableColorCustom").value = theme.table_color;
+        document.querySelectorAll(".color-swatch[data-target='table_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.table_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.table_glow_opacity) {
+        document.getElementById("tableGlowSlider").value = theme.table_glow_opacity;
+        document.getElementById("tableGlowVal").textContent = theme.table_glow_opacity + "%";
+      }
+      if (theme.task_glow_color) {
+        document.getElementById("taskGlowCustom").value = theme.task_glow_color;
+        document.querySelectorAll(".color-swatch[data-target='task_glow_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.task_glow_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.accent_color) {
+        document.getElementById("accentColorCustom").value = theme.accent_color;
+        document.querySelectorAll(".color-swatch[data-target='accent_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.accent_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.font_family) {
+        document.getElementById("fontFamilySelect").value = theme.font_family;
+      }
+      if (theme.font_size) {
+        const sz = parseInt(theme.font_size) || 14;
+        document.getElementById("fontSizeSlider").value = sz;
+        document.getElementById("fontSizeVal").textContent = sz + "px";
+      }
+    } catch(e) {}
+  };
+
+  // ── Wire swatch clicks ────────────────────────────────────
+  document.addEventListener("click", function(e) {
+    const swatch = e.target.closest(".color-swatch");
+    if (!swatch) return;
+    const target = swatch.dataset.target;
+    const value  = swatch.dataset.value;
+    if (!target || !value) return;
+    // Highlight this swatch
+    document.querySelectorAll(`.color-swatch[data-target="${target}"]`).forEach(s => {
+      s.style.borderColor = "transparent";
+    });
+    swatch.style.borderColor = "#fff";
+    _applyThemePref(target, value);
+    // Sync the custom color picker
+    try {
+      const picker = document.getElementById(
+        target === "table_color"    ? "tableColorCustom" :
+        target === "task_glow_color" ? "taskGlowCustom" :
+        target === "accent_color"   ? "accentColorCustom" : ""
+      );
+      if (picker) picker.value = value;
+    } catch(_e) {}
+  });
+
+})();
+
 
 // ── Settings panel: tooltip level button logic ────────────────
 const _TOOLTIP_DESCS = {
