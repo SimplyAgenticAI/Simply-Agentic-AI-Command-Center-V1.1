@@ -22558,7 +22558,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
     }
 
     // Wire customize button in dropdown
-    if ($("customizeBtn")) $("customizeBtn").onclick = () => { saCloseDrop("saSettingsDrop"); showCustomizeModal(); };
+    if ($("customizeBtn")) $("customizeBtn").onclick = () => { showCustomizeModal(); };
 
     // Wire Save button in customize modal
     if ($("saveCustomize")) $("saveCustomize").onclick = async () => {
