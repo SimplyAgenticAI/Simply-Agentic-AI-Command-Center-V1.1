@@ -8710,16 +8710,11 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
           </div>
         </div>
         <div class='cd-wrap'>
-          <div class='cd-lbl'>Time remaining at this price</div>
-          <div class='cd-row'>
-            <div class='cd-unit'><div class='cd-num' id='cdD'>{founder_timer["days"]:02d}</div><div class='cd-sub'>days</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdH'>{founder_timer["hours"]:02d}</div><div class='cd-sub'>hrs</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdM'>{founder_timer["minutes"]:02d}</div><div class='cd-sub'>min</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdS'>{founder_timer["seconds"]:02d}</div><div class='cd-sub'>sec</div></div>
+          <div class='cd-lbl'>Founder pricing availability</div>
+          <div style='margin-top:10px;font-size:15px;font-weight:700;color:var(--gold);letter-spacing:.5px;'>
+            {"&#127525; Only " + str(founder_remain) + " spots left — claim yours before they're gone." if founder_remain <= 20 else "&#128293; Limited founder seats — price locked forever once claimed."}
           </div>
+          <div style='margin-top:6px;font-size:12px;color:rgba(247,211,106,.65);'>First {FOUNDER_SEATS_MAX} customers only &nbsp;&#183;&nbsp; Never increases</div>
         </div>
       </div>
     </div>
@@ -8770,7 +8765,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
     if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
   }}
   setInterval(function(){{
-    if(secs<=0){{location.reload();return;}}
+    if(secs<=0) return;  // freeze at zero — no reload
     secs--;
     flip('cdD',Math.floor(secs/86400));
     flip('cdH',Math.floor((secs%86400)/3600));
@@ -9196,7 +9191,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
     if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
   }}
   setInterval(function(){{
-    if(secs<=0){{location.reload();return;}}
+    if(secs<=0) return;  // freeze at zero — no page reload
     secs--;
     flip('cdD',Math.floor(secs/86400));
     flip('cdH',Math.floor((secs%86400)/3600));
