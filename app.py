@@ -341,27 +341,19 @@ def _claim_founder_seat(username: str) -> bool:
         return True
 
 def _founder_weekly_timer() -> Dict[str, Any]:
-    """
-    Rolling 7-day countdown anchored to FOUNDER_TIMER_EPOCH.
-    Resets silently every 7 days — users just see a perpetual urgency timer.
-    """
-    try:
-        epoch = datetime.strptime(FOUNDER_TIMER_EPOCH, "%Y-%m-%d")
-    except Exception:
-        epoch = datetime(2024, 1, 1)
-    now        = datetime.utcnow()
-    cycle_secs = 7 * 24 * 3600
-    elapsed    = int((now - epoch).total_seconds()) % cycle_secs
-    secs       = cycle_secs - elapsed          # seconds left in this 7-day window
-    days, rem  = divmod(secs, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, seconds = divmod(rem, 60)
+    """Returns honest seat availability data instead of a fake timer.
+    Kept for API compatibility — callers receive remaining + claimed counts."""
+    remaining = _founder_seats_remaining()
+    claimed   = FOUNDER_SEATS_MAX - remaining
     return {
-        "total_seconds": secs,
-        "days":    days,
-        "hours":   hours,
-        "minutes": minutes,
-        "seconds": seconds,
+        "total_seconds": 0,      # deprecated — no longer a timer
+        "days":    0,
+        "hours":   0,
+        "minutes": 0,
+        "seconds": 0,
+        "seats_remaining": remaining,
+        "seats_claimed":   claimed,
+        "seats_total":     FOUNDER_SEATS_MAX,
     }
 
 
@@ -696,11 +688,15 @@ def serve_upload(relpath):
             return abort(400)
         if not fp.exists():
             return abort(404)
-        # Ownership check: if file is in upload index and has an owner, enforce it
+        # Ownership check: deny-by-default if file is not in index (unless admin).
         file_id = fp.stem.split("_")[0] if "_" in fp.stem else ""
         if file_id:
             rec = get_upload_record(file_id)
-            if rec:
+            if rec is None:
+                # File exists on disk but has no index entry — deny non-admins
+                if not _is_admin_user(u):
+                    return abort(403)
+            else:
                 owner = (rec.get("owner") or "").strip()
                 uname = (u.get("username") if isinstance(u, dict) else None) or ""
                 if owner and owner != uname and not _is_admin_user(u):
@@ -1055,6 +1051,12 @@ try:
 except Exception:
     pass
 
+# Load persisted login lockouts (survives restarts)
+try:
+    _load_login_attempts()
+except Exception:
+    pass
+
 # =========================
 # STARTUP MIGRATION: Fix saved teammate job titles
 
@@ -1207,12 +1209,39 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 # =========================
 # LOGIN BRUTE-FORCE PROTECTION
 # =========================
-# In-memory store: { ip_or_user -> {"count": int, "locked_until": datetime|None} }
-# Resets on server restart — intentional, keeps it simple and stateless.
+# In-memory store: { username_key -> {"count": int, "locked_until": iso_str|None} }
+# Persisted to DATA/login_attempts.json so lockouts survive server restarts.
 _LOGIN_ATTEMPTS: Dict[str, Any] = {}
 _LOGIN_ATTEMPTS_LOCK = __import__("threading").Lock()
 _MAX_LOGIN_ATTEMPTS = 5
 _LOCKOUT_MINUTES    = 15
+
+def _login_attempts_path() -> "Path":
+    try:
+        return DATA / "login_attempts.json"
+    except Exception:
+        return Path("login_attempts.json")
+
+def _load_login_attempts() -> None:
+    """Load persisted lockouts at startup (best-effort)."""
+    try:
+        p = _login_attempts_path()
+        if p.exists():
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                _LOGIN_ATTEMPTS.update(raw)
+    except Exception:
+        pass
+
+def _persist_login_attempts() -> None:
+    """Atomically write lockout state to disk. Must be called inside _LOGIN_ATTEMPTS_LOCK."""
+    try:
+        p = _login_attempts_path()
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_LOGIN_ATTEMPTS), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
 
 def _login_key(username: str) -> str:
     """Key by username so lockout is per-account, not per-IP (harder to spoof)."""
@@ -1225,10 +1254,15 @@ def _check_login_allowed(username: str) -> Tuple[bool, str]:
         rec = _LOGIN_ATTEMPTS.get(key)
         if not rec:
             return True, ""
-        locked_until = rec.get("locked_until")
-        if locked_until and datetime.utcnow() < locked_until:
-            remaining = int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1
-            return False, f"Too many failed attempts. Account locked for {remaining} more minute(s). Try again later."
+        locked_until_str = rec.get("locked_until")
+        if locked_until_str:
+            try:
+                locked_until = datetime.fromisoformat(str(locked_until_str).replace("Z", ""))
+                if datetime.utcnow() < locked_until:
+                    remaining = int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+                    return False, f"Too many failed attempts. Account locked for {remaining} more minute(s). Try again later."
+            except Exception:
+                pass
         return True, ""
 
 def _record_login_failure(username: str) -> None:
@@ -1236,17 +1270,24 @@ def _record_login_failure(username: str) -> None:
     with _LOGIN_ATTEMPTS_LOCK:
         rec = _LOGIN_ATTEMPTS.get(key) or {"count": 0, "locked_until": None}
         # Reset if previous lockout has expired
-        if rec.get("locked_until") and datetime.utcnow() >= rec["locked_until"]:
-            rec = {"count": 0, "locked_until": None}
+        locked_str = rec.get("locked_until")
+        if locked_str:
+            try:
+                if datetime.utcnow() >= datetime.fromisoformat(str(locked_str).replace("Z", "")):
+                    rec = {"count": 0, "locked_until": None}
+            except Exception:
+                rec = {"count": 0, "locked_until": None}
         rec["count"] = rec.get("count", 0) + 1
         if rec["count"] >= _MAX_LOGIN_ATTEMPTS:
-            rec["locked_until"] = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
+            rec["locked_until"] = (datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)).isoformat() + "Z"
         _LOGIN_ATTEMPTS[key] = rec
+        _persist_login_attempts()
 
 def _clear_login_failures(username: str) -> None:
     key = _login_key(username)
     with _LOGIN_ATTEMPTS_LOCK:
         _LOGIN_ATTEMPTS.pop(key, None)
+        _persist_login_attempts()
 
 # =========================
 # API RATE LIMITING (per-user, in-memory)
@@ -1337,6 +1378,15 @@ def _find_user_by_login(identifier: str) -> Optional[Dict[str, Any]]:
     if clean in users:
         return users[clean]
     return None
+
+
+def _validate_password_strength(password: str) -> Tuple[bool, str]:
+    """Returns (ok, error_message). Enforces minimum password requirements."""
+    if not password or len(password) < 8:
+        return False, "Password must be at least 8 characters."
+    if not any(c.isdigit() or not c.isalpha() for c in password):
+        return False, "Password must contain at least one number or special character."
+    return True, ""
 
 def _new_user(username: str, password: str, email: str = "", is_admin: bool = False) -> Dict[str, Any]:
     return {
@@ -1896,13 +1946,17 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "operator_profile", "title": "Complete Your Operator Profile"},
-    {"key": "preferred_ai", "title": "Connect AI (OpenAI or Claude)"},
-    {"key": "full_team", "title": "Install the Full Team"},
-    {"key": "session_goal", "title": "Set a Session Goal"},
-    {"key": "email_connected", "title": "Connect Email"},
-    {"key": "calendar_connected", "title": "Connect Calendar"},
-    {"key": "first_prompt", "title": "Send Your First Message"},
+    {"key": "operator_profile",  "title": "Complete Your Operator Profile"},
+    {"key": "preferred_ai",      "title": "Connect AI (OpenAI or Claude)"},
+    {"key": "full_team",         "title": "Install the Full Team"},
+    {"key": "session_goal",      "title": "Set a Session Goal"},
+    {"key": "email_connected",   "title": "Connect Email"},
+    {"key": "calendar_connected","title": "Connect Calendar"},
+    {"key": "first_prompt",      "title": "Send Your First Message"},
+    {"key": "rag_indexed",       "title": "Index Your First Document (Knowledge Base)"},
+    {"key": "crm_contact",       "title": "Add Your First CRM Contact"},
+    {"key": "webhook_created",   "title": "Set Up a Webhook (Automation)"},
+    {"key": "action_stack",      "title": "Create an Action Stack"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -2163,14 +2217,23 @@ def _append_run_log(run: Dict[str, Any], event: str, data: Dict[str, Any]) -> No
     run.setdefault("log", [])
     run["log"].append({"ts": now_iso(), "event": event, "data": data})
 
+def _user_now_local(username: str) -> datetime:
+    """Return current datetime in the user's configured timezone (UTC fallback)."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz_str = (_load_operator_profile(username) or {}).get("timezone") or "UTC"
+        return datetime.now(ZoneInfo(tz_str)).replace(tzinfo=None)
+    except Exception:
+        return datetime.utcnow()
+
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
         return
-    now_local = datetime.now()
     for user_dir in ACTION_STACK_SCHEDULES_DIR.iterdir():
         if not user_dir.is_dir():
             continue
         u = user_dir.name
+        now_local = _user_now_local(u)
         schedules = _load_schedules(u)
         if not schedules:
             continue
@@ -2318,7 +2381,34 @@ def save_core_framework(text: str) -> None:
     cleaned = (text or "").strip()
     if not cleaned:
         cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
-    FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
+    # Snapshot the current version to history before overwriting (keep last 10)
+    try:
+        _fw_hist_path = DATA / "core_framework_history.json"
+        _fw_lock = _json_file_lock(_fw_hist_path)
+        with _fw_lock:
+            try:
+                _hist = json.loads(_fw_hist_path.read_text(encoding="utf-8")) if _fw_hist_path.exists() else []
+                if not isinstance(_hist, list):
+                    _hist = []
+            except Exception:
+                _hist = []
+            if FRAMEWORK_PATH.exists():
+                _prev = FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()
+                if _prev:
+                    _hist.insert(0, {"ts": now_iso(), "text": _prev})
+                    _hist = _hist[:10]
+            _tmp = _fw_hist_path.with_suffix(".tmp")
+            _tmp.write_text(json.dumps(_hist, indent=2), encoding="utf-8")
+            _tmp.replace(_fw_hist_path)
+    except Exception:
+        pass
+    # Atomic write for the framework itself
+    try:
+        _tmp2 = FRAMEWORK_PATH.with_suffix(".tmp")
+        _tmp2.write_text(cleaned, encoding="utf-8")
+        _tmp2.replace(FRAMEWORK_PATH)
+    except Exception:
+        FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
 
 # Ensure the framework file always exists with the default framework for local-first users.
 try:
@@ -2589,12 +2679,27 @@ def load_registry(username: str = "") -> Dict[str, Any]:
 
     installed = reg.get("installed") or {}
 
-    # Always inject all built-ins — they can never be missing
+    # Always inject all built-ins — they can never be missing.
+    # If a built-in is already installed but its version doesn't match PREBUILT_LOCKED,
+    # merge the canonical definition while preserving custom user fields (preferred_model, last_used_at).
+    _PRESERVE_USER_FIELDS = {"preferred_model", "last_used_at", "custom_notes"}
     for name in DEFAULT_ORDER:
+        canonical = PREBUILT_LOCKED[name]
         if name not in installed:
-            installed[name] = PREBUILT_LOCKED[name]
+            installed[name] = dict(canonical)
             if name not in reg["installed_order"]:
                 reg["installed_order"].append(name)
+        else:
+            existing = installed[name]
+            existing_ver = (existing.get("version") or "")
+            canonical_ver = (canonical.get("version") or "")
+            if existing_ver != canonical_ver:
+                # Merge: take all canonical fields, restore user-specific ones
+                merged = dict(canonical)
+                for uf in _PRESERVE_USER_FIELDS:
+                    if uf in existing:
+                        merged[uf] = existing[uf]
+                installed[name] = merged
 
     reg["installed"] = installed
 
@@ -2660,27 +2765,52 @@ def load_thread(teammate_name: str, username: str = "") -> List[Dict[str, str]]:
     return load_json(thread_path(teammate_name, username), [])
 
 
+def _summarize_thread_segment(msgs: List[Dict[str, Any]]) -> str:
+    """Compress a list of thread messages into a <=200 word summary using the LLM.
+    Falls back to a keyword extract if the LLM call fails."""
+    try:
+        flat = []
+        for m in msgs:
+            role = (m.get("role") or "").strip()
+            content = str(m.get("content") or "").strip()
+            if content and role in ("user", "assistant"):
+                flat.append(f"{role.upper()}: {content[:300]}")
+        combined = "\n".join(flat[:20])
+        if not combined:
+            return "earlier conversation"
+        summary = call_llm(
+            "You are a conversation summarizer. Summarize the following conversation excerpt in 150 words or fewer. "
+            "Preserve all key decisions, facts, names, and action items. Be dense and factual. No preamble.",
+            [{"role": "user", "content": combined}],
+            temperature=0.2,
+        )
+        return summary.strip() or "earlier conversation"
+    except Exception:
+        # Fallback: extract user message snippets without an API call
+        topics = []
+        for m in msgs:
+            if (m.get("role") or "") == "user":
+                snippet = str(m.get("content") or "")[:100].replace("\n", " ").strip()
+                if snippet:
+                    topics.append(snippet)
+        return "; ".join(topics[:5]) if topics else "earlier conversation"
+
+
 def _truncate_thread_with_note(thread: List[Dict[str, Any]], max_messages: int = 14) -> List[Dict[str, Any]]:
-    """[UPGRADE 3] Instead of silently dropping old messages, prepend a brief context note
-    so the AI knows earlier conversation existed. Keeps max_messages most recent turns."""
+    """Keep max_messages most-recent turns. Dropped context is summarized via LLM
+    and pinned as a system-style note so the AI retains the thread's history."""
     if len(thread) <= max_messages:
         return thread
     dropped = thread[:-max_messages]
     kept    = thread[-max_messages:]
-    # Build a compact topic summary from the dropped messages (no API call — pure text)
-    topics: List[str] = []
-    for m in dropped:
-        role    = (m.get("role") or "").strip()
-        content = str(m.get("content") or "").strip()
-        if role == "user" and content:
-            snippet = content[:120].replace("\n", " ")
-            topics.append(snippet)
-    topic_str = "; ".join(topics[:6]) if topics else "earlier exchanges"
+    summary = _summarize_thread_segment(dropped)
     note = (
-        f"[Context note: {len(dropped)} earlier message(s) in this conversation were trimmed for length. "
-        f"Topics covered included: {topic_str}]"
+        f"[Earlier conversation summary ({len(dropped)} messages trimmed): {summary}]"
     )
-    return [{"role": "user", "content": note}, {"role": "assistant", "content": "Understood — I'll keep that prior context in mind."}] + kept
+    return [
+        {"role": "user",      "content": note},
+        {"role": "assistant", "content": "Understood — I have that earlier context and will keep it in mind."},
+    ] + kept
 
 
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = "") -> None:
@@ -3550,6 +3680,46 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
 # PROMPTS + LLM
 # =========================
 
+
+# =========================
+# SYSTEM PROMPT CONTEXT CACHE (5-second TTL per user)
+# =========================
+# teammate_system_prompt() calls _load_operator_profile, _os_load, _get_active_client
+# on every single LLM request — file I/O on the hot path. Cache with a short TTL.
+_SYS_CTX_CACHE: Dict[str, Any] = {}
+_SYS_CTX_LOCK  = threading.Lock()
+_SYS_CTX_TTL   = 5  # seconds
+
+def _get_cached_sys_context(username: str) -> Dict[str, Any]:
+    """Return cached operator/session context, refreshing if stale."""
+    now = datetime.utcnow().timestamp()
+    with _SYS_CTX_LOCK:
+        hit = _SYS_CTX_CACHE.get(username)
+        if hit and (now - hit["ts"]) < _SYS_CTX_TTL:
+            return hit["data"]
+    # Build fresh
+    try:
+        op = _load_operator_profile(username) or {}
+    except Exception:
+        op = {}
+    try:
+        osd = _os_load(username)
+    except Exception:
+        osd = {}
+    try:
+        client_rec = _get_active_client(username) or {}
+    except Exception:
+        client_rec = {}
+    data = {"op": op, "osd": osd, "client": client_rec}
+    with _SYS_CTX_LOCK:
+        _SYS_CTX_CACHE[username] = {"ts": now, "data": data}
+    return data
+
+def _invalidate_sys_ctx_cache(username: str) -> None:
+    """Call after profile/settings updates so next request sees fresh data."""
+    with _SYS_CTX_LOCK:
+        _SYS_CTX_CACHE.pop(username, None)
+
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                            rag_context: str = "") -> str:
     role_block = {
@@ -3601,13 +3771,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "- No em dashes.\n"
     )
 
-    # Operator profile (shared business context)
+    # Operator profile (shared business context) — use cached values
     try:
         _op_user = _get_session_username()
     except Exception:
         _op_user = "anon"
 
-    _op = _load_operator_profile(_op_user or "anon")
+    _ctx = _get_cached_sys_context(_op_user or "anon")
+    _op = _ctx.get("op") or {}
     operator_block = (
         "\n\nOPERATOR PROFILE (shared context)\n"
         f"Operator: {_op.get('display_name','Operator')}\n"
@@ -3618,10 +3789,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"Notes: {(_op.get('notes','') or '').strip()}\n"
     )
 
-    # Active client (memory profiles) if available
+    # Active client (memory profiles) — use cached values
     client_block = ""
     try:
-        _active = _get_active_client(_op_user or "anon") or {}
+        _active = _ctx.get("client") or {}
         if isinstance(_active, dict) and _active:
             _overdue_note = ""
             try:
@@ -3642,10 +3813,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         client_block = ""
 
-    # Session objective — what the operator is trying to accomplish this session
+    # Session objective — use cached OS data
     session_objective_block = ""
     try:
-        osd = _os_load(_op_user or "anon")
+        osd = _ctx.get("osd") or {}
         sess_obj = osd.get("session_objective") or {}
         sess_title = (sess_obj.get("title") or "").strip()
         sess_context = (sess_obj.get("context") or "").strip()
@@ -3661,10 +3832,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         session_objective_block = ""
 
-    # Shared team memory — facts extracted from recent group convenes
+    # Shared team memory — use cached OS data
     shared_memory_block = ""
     try:
-        osd = _os_load(_op_user or "anon")
+        osd = _ctx.get("osd") or {}
         smem = osd.get("shared_team_memory") or {}
         facts = smem.get("facts") or []
         decisions = smem.get("decisions") or []
@@ -3729,22 +3900,88 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
-    """
-    Returns (http_status, user_message)
-    """
+    """Returns (http_status, friendly_user_message). Never exposes raw tracebacks."""
     s = (str(e) or "").lower()
-    raw = str(e) or "Unknown error"
     if "incorrect api key" in s or "invalid api key" in s or "authentication" in s or ("401" in s and "api" in s):
-        return 401, f"Invalid OpenAI API key: {raw}"
+        return 401, "Your OpenAI API key appears to be invalid. Go to Settings and double-check it."
     if "quota" in s or "insufficient_quota" in s or "exceeded your current quota" in s or "billing" in s:
-        return 402, f"OpenAI quota/billing issue: {raw}"
+        return 402, "Your OpenAI account has hit its usage limit or a billing issue. Check your OpenAI dashboard."
     if "model" in s and ("not found" in s or "does not exist" in s):
-        return 400, f"Model not found: {raw}"
+        model_hint = ""
+        try:
+            import re as _re
+            m = _re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
+            if m:
+                model_hint = f" (model: {m.group(1)})"
+        except Exception:
+            pass
+        return 400, f"The AI model{model_hint} was not found. Update the teammate's model in Settings."
     if "rate limit" in s or "429" in s:
-        return 429, f"Rate limit: {raw}"
-    if "connection" in s or "timeout" in s or "network" in s:
-        return 503, f"Network error reaching OpenAI: {raw}"
-    return 500, f"OpenAI error: {raw}"
+        return 429, "OpenAI rate limit hit — please wait a moment and try again."
+    if "connection" in s or "timeout" in s or "network" in s or "503" in s:
+        return 503, "Could not reach the AI service — check your internet connection and try again."
+    if "context_length" in s or "maximum context" in s or "too many tokens" in s:
+        return 400, "Your conversation is too long. Clear the thread and start a new one."
+    if "content_policy" in s or "content filter" in s or "safety" in s:
+        return 400, "The AI declined this request due to content policy. Try rephrasing."
+    return 500, "An unexpected error occurred with the AI service. Please try again."
+
+
+# =========================
+# TOKEN USAGE TRACKING (per-user, per-call)
+# =========================
+_USAGE_LOCK = threading.Lock()
+
+def _usage_log_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return LOGS_DIR / f"usage_{safe}.json"
+
+def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens: int, teammate: str = "") -> None:
+    """Append a token usage record for the user. Best-effort, never raises."""
+    try:
+        path = _usage_log_path(username or "anon")
+        entry = {
+            "ts": now_iso(),
+            "model": model,
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "total_tokens": int(input_tokens or 0) + int(output_tokens or 0),
+            "teammate": teammate or "",
+        }
+        with _USAGE_LOCK:
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+                if not isinstance(existing, list):
+                    existing = []
+            except Exception:
+                existing = []
+            existing.append(entry)
+            # Keep last 5000 entries
+            if len(existing) > 5000:
+                existing = existing[-5000:]
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(existing), encoding="utf-8")
+            tmp.replace(path)
+    except Exception:
+        pass
+
+def _read_token_usage(username: str, limit: int = 500) -> list:
+    try:
+        path = _usage_log_path(username or "anon")
+        if not path.exists():
+            return []
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        return data[-limit:]
+    except Exception:
+        return []
+
+
+def _is_retryable_llm_error(e: Exception) -> bool:
+    """Return True for transient errors worth retrying (503, timeout, connection)."""
+    s = str(e).lower()
+    return any(x in s for x in ["connection", "timeout", "network", "503", "502", "service unavailable"])
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
     """Routes to Claude or OpenAI based on model name.
@@ -3782,20 +4019,45 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             messages=clean,
             temperature=temperature,
         )
+        try:
+            _cu = resp.usage
+            if _cu:
+                _uname = ""
+                try:
+                    _uname = _get_session_username()
+                except Exception:
+                    pass
+                _log_token_usage(_uname, use_model, _cu.input_tokens or 0, _cu.output_tokens or 0)
+        except Exception:
+            pass
         return (resp.content[0].text or "").strip()
 
     # ── OpenAI path ───────────────────────────────────────────────
     client = get_openai_client()
     sys_msg = [{"role": "system", "content": system}]
-    try:
+    _last_exc = None
+    for _attempt in range(2):
+      try:
         resp = client.chat.completions.create(
             model=use_model,
             messages=sys_msg + messages,
             temperature=temperature,
             timeout=timeout,
         )
+        try:
+            _u = resp.usage
+            if _u:
+                _uname = ""
+                try:
+                    _uname = _get_session_username()
+                except Exception:
+                    pass
+                _log_token_usage(_uname, use_model, _u.prompt_tokens or 0, _u.completion_tokens or 0)
+        except Exception:
+            pass
         return (resp.choices[0].message.content or "").strip()
-    except Exception as e:
+      except Exception as e:
+        _last_exc = e
         err = str(e).lower()
         if any(x in err for x in ["image", "vision", "invalid_image", "content"]):
             try:
@@ -3808,7 +4070,11 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 return (resp2.choices[0].message.content or "").strip()
             except Exception as e2:
                 raise e2
+        if _attempt == 0 and _is_retryable_llm_error(e):
+            import time as _time; _time.sleep(2)
+            continue
         raise e
+    raise _last_exc
 
 # =========================
 # IMAGE GENERATION (additive)
@@ -5872,9 +6138,11 @@ def _api_followup_impl(data):
     except Exception:
         pass
 
-    # Extract shared memory from DM conversations too (non-blocking)
+    # Extract shared memory from DM conversations — only when content is substantial
+    # (avoids firing an extra LLM call for short/trivial exchanges)
     try:
-        _extract_shared_memory_async(uname, msg, {name: text})
+        if len(msg) > 120 and len(text) > 200:
+            _extract_shared_memory_async(uname, msg, {name: text})
     except Exception:
         pass
 
@@ -5889,7 +6157,20 @@ def api_thread(name: str):
     installed = reg["installed"]
     if name not in installed:
         return jsonify({"ok": False, "error": "Teammate not installed"}), 400
-    return jsonify({"ok": True, "thread": load_thread(name, uname), "image_state": load_image_state(name, uname)})
+    thread = load_thread(name, uname)
+    # Include branch count so the UI can show a "checkpoints" indicator
+    try:
+        branches = _load_branches(name)
+        branch_count = len((branches.get("branches") or {}))
+    except Exception:
+        branch_count = 0
+    return jsonify({
+        "ok": True,
+        "thread": thread,
+        "image_state": load_image_state(name, uname),
+        "branch_count": branch_count,
+        "has_branches": branch_count > 0,
+    })
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
@@ -8750,8 +9031,9 @@ def register_post():
 
     if not username or len(username) < 3:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
-    if len(pw) < 8:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+    _pw_ok, _pw_err = _validate_password_strength(pw)
+    if not _pw_ok:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     if pw != pw2:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     if not request.form.get("tos_accepted"):
@@ -9462,6 +9744,11 @@ def api_operator_profile_set():
         if k in payload:
             prof[k] = (payload.get(k) or "")
     _save_operator_profile(uname, prof)
+    # Invalidate sys-ctx cache so next LLM call sees the updated profile
+    try:
+        _invalidate_sys_ctx_cache(uname)
+    except Exception:
+        pass
     # onboarding_operator_profile: mark Operator Profile step when profile is saved with any meaningful content
     try:
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
@@ -14861,6 +15148,7 @@ function makeSeat(defn, idx){
         selectedSeat = name;
         window.selectedSeat = name;  // keep window in sync
         markActiveSeat();
+        _autoSetStreamForTeammate(name);  // auto-enable stream for Claude model teammates
         const el = document.querySelector('.seat[data-name="' + _cssEscape(name) + '"]');
         if(!el) return;
         // Restart CSS animation
@@ -24074,11 +24362,70 @@ if(typeof maybeAutoShowOnboarding === "function"){
 (function(){
   // ── state ──
   let streamMode = localStorage.getItem("sa_stream_mode") !== "off";
+
+  // Auto-enable streaming for Claude model teammates (they benefit most from token streaming)
+  function _autoSetStreamForTeammate(name) {
+    try {
+      const tm = _tm(name);
+      const model = (tm.preferred_model || "").toLowerCase();
+      const isClaudeModel = model.startsWith("claude");
+      if (isClaudeModel && !streamMode) {
+        streamMode = true;
+        localStorage.setItem("sa_stream_mode", "on");
+        const btn = document.getElementById("streamToggleBtn");
+        if (btn) { btn.classList.add("sa-stream-on"); btn.title = "Streaming ON (auto-enabled for Claude)"; }
+      }
+    } catch(e) {}
+  }
   let _currentTtsAudio = null;
 
   // ── helpers ──
   function _esc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
   function _tm(name){ try{ const r=window._saStateCache; return ((r&&r.installed)||{})[name]||{}; }catch(e){ return{}; } }
+
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // Cmd+Enter (Mac) / Ctrl+Enter (Win): send message in active DM
+  // Cmd/Ctrl+1-7: switch seat
+  // Cmd/Ctrl+K: open prompt library
+  (function initKeyboardShortcuts() {
+    document.addEventListener("keydown", function(e) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      // Cmd+Enter — send DM message
+      if (e.key === "Enter" && !e.shiftKey) {
+        const dmTA = document.getElementById("dmInput");
+        if (dmTA && document.activeElement === dmTA) {
+          e.preventDefault();
+          const sendBtn = document.getElementById("dmSendBtn");
+          if (sendBtn && !sendBtn.disabled) sendBtn.click();
+          return;
+        }
+      }
+
+      // Cmd+1-7 — switch to seat by number
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 7) {
+        try {
+          const seats = document.querySelectorAll(".seat[data-name]");
+          const seat = seats[n - 1];
+          if (seat) { e.preventDefault(); seat.click(); }
+        } catch(_e) {}
+        return;
+      }
+
+      // Cmd+K — open prompt library
+      if (e.key === "k" || e.key === "K") {
+        try {
+          const plBtn = document.getElementById("promptLibBtn") ||
+                        document.querySelector("[data-action=\'promptLib\']");
+          if (plBtn) { e.preventDefault(); plBtn.click(); }
+        } catch(_e) {}
+        return;
+      }
+    });
+  })();
 
   // ── wire stream toggle button ──
   function initStreamToggle(){
@@ -25207,6 +25554,11 @@ def api_clients_set_active():
         return jsonify({"ok": False, "error": "Client not found"}), 404
     data["active_client_id"] = cid
     _save_clients(username, data)
+    # Invalidate sys-ctx cache so next LLM call picks up the new active client
+    try:
+        _invalidate_sys_ctx_cache(username)
+    except Exception:
+        pass
     return jsonify({"ok": True, "active_client_id": cid})
 
 @app.route("/api/clients", methods=["POST"])
@@ -25804,6 +26156,7 @@ def api_crm_clients_create():
         return jsonify({"ok": False, "error": f"Storage error: {_save_err}"}), 500
     try:
         _award_points(uname, "Added a CRM contact", 5)
+        _mark_onboarding_step(uname, "crm_contact", True)
     except Exception:
         pass
     return jsonify({"ok": True, "client": client})
@@ -25837,10 +26190,21 @@ def api_crm_clients_update(client_id: str):
         c["custom_fields"] = payload.get("custom_fields") or {}
     c["updated_at"] = now_iso()
     c = _crm_enrich_client_record(c)
-    c = _crm_apply_pipeline_rules(uname, c)
     clients[client_id] = c
     crm["clients"] = clients
     _crm_save(uname, crm)
+    # Apply pipeline rules in background (they may invoke LLM — don't block the response)
+    def _bg_rules():
+        try:
+            crm2 = _crm_load(uname)
+            clients2 = crm2.get("clients") or {}
+            if client_id in clients2:
+                clients2[client_id] = _crm_apply_pipeline_rules(uname, clients2[client_id])
+                crm2["clients"] = clients2
+                _crm_save(uname, crm2)
+        except Exception:
+            pass
+    threading.Thread(target=_bg_rules, daemon=True).start()
     return jsonify({"ok": True, "client": c})
 
 @app.delete("/api/crm/clients/<client_id>")
@@ -26139,7 +26503,12 @@ def api_crm_broadcast_email():
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
-        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+        # Filter matching contacts — exclude unsubscribed ones
+        recipients = [
+            c for c in clients
+            if _crm_client_matches_filter(c, filt)
+            and not c.get("email_unsubscribed")
+        ]
 
         # Plan-based broadcast recipient limit
         plan_key  = _get_user_plan(uname)
@@ -26167,6 +26536,14 @@ def api_crm_broadcast_email():
 
             ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
             body = _safe_render(body_t, ctx)
+            # Append CAN-SPAM / GDPR compliant unsubscribe link
+            try:
+                _unsub_tok = _unsub_token(uname, to_addr)
+                _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
+                _unsub_url = f"{_unsub_base}/unsubscribe/{_unsub_tok}"
+                body = _add_unsub_footer(body, _unsub_url)
+            except Exception:
+                pass
 
             ok, provider, err = _crm_send_email_to(
                 u, to_addr, subject, body,
@@ -26554,6 +26931,7 @@ def _load_operator_profile(username: str) -> Dict[str, Any]:
             "audience": "",
             "goals": "",
             "notes": "",
+            "timezone": "UTC",
             "updated_at": ""
         }
     try:
@@ -26578,7 +26956,13 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     profile = dict(profile or {})
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
-    path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        # Fallback to direct write if rename fails (e.g. cross-device)
+        path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # =========================
@@ -28117,6 +28501,48 @@ def _handle_500(e):
     return "<h1>500 Internal Server Error</h1>", 500
 
 
+
+# =========================
+# ADMIN AUDIT TRAIL
+# =========================
+_ADMIN_AUDIT_LOCK = threading.Lock()
+
+def _admin_audit_path() -> Path:
+    try:
+        return DATA / "admin_audit.json"
+    except Exception:
+        return Path("admin_audit.json")
+
+def _admin_audit(admin_username: str, action: str, target: str = "", metadata: Optional[Dict[str, Any]] = None) -> None:
+    """Append an admin action to the audit log. Best-effort, never raises."""
+    try:
+        entry = {
+            "ts":       now_iso(),
+            "admin":    admin_username or "unknown",
+            "action":   action,
+            "target":   target or "",
+            "meta":     metadata or {},
+        }
+        try:
+            entry["ip"] = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+        except Exception:
+            pass
+        path = _admin_audit_path()
+        with _ADMIN_AUDIT_LOCK:
+            try:
+                log = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+                if not isinstance(log, list):
+                    log = []
+            except Exception:
+                log = []
+            log.append(entry)
+            log = log[-2000:]  # keep last 2000 entries
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(log, indent=2), encoding="utf-8")
+            tmp.replace(path)
+    except Exception:
+        pass
+
 @app.get("/admin/errors")
 def admin_error_log():
     """Admin-only: view the self-hosted error log."""
@@ -28168,13 +28594,16 @@ def admin_error_log_clear():
         return redirect(url_for("login"))
     try:
         _error_log_path().write_text("[]", encoding="utf-8")
+        uname = (u.get("username") if isinstance(u, dict) else None) or "admin"
+        _admin_audit(uname, "clear_error_log")
     except Exception:
         pass
     return redirect(url_for("admin_error_log"))
 
 @app.get("/api/admin/errors")
 def api_admin_errors():
-    """JSON version of the error log for programmatic access."""
+    """JSON version of the error log. Tracebacks are stripped for security — use the
+    admin UI (/admin/errors) to view full details with proper access control."""
     u = current_user()
     if not u or not _is_admin_user(u):
         return jsonify({"ok": False, "error": "Admin only"}), 403
@@ -28182,7 +28611,20 @@ def api_admin_errors():
         log = json.loads(_error_log_path().read_text(encoding="utf-8")) if _error_log_path().exists() else []
     except Exception:
         log = []
-    return jsonify({"ok": True, "count": len(log), "errors": log})
+    # Sanitize: remove traceback and internal path details from API response
+    safe_log = []
+    for entry in log:
+        safe_log.append({
+            "id":      entry.get("id", ""),
+            "at":      entry.get("at", ""),
+            "context": entry.get("context", ""),
+            "type":    entry.get("type", ""),
+            "message": entry.get("message", "")[:200],  # truncate long messages
+            "path":    entry.get("path", ""),
+            "method":  entry.get("method", ""),
+            # traceback intentionally omitted from API response
+        })
+    return jsonify({"ok": True, "count": len(safe_log), "errors": safe_log})
 
 
 
@@ -29732,6 +30174,10 @@ def api_rag_index():
         "filename": rec.get("filename", ""), "chunks": len(chunks), "indexed_at": now_iso(),
     }
     _rag_save_meta(uname, meta)
+    try:
+        _mark_onboarding_step(uname, "rag_indexed", True)
+    except Exception:
+        pass
     return jsonify({"ok": True, "doc_id": doc_id, "chunks": len(chunks)})
 
 
@@ -29770,7 +30216,19 @@ def api_rag_delete():
     return jsonify({"ok": True})
 
 
-def _rag_retrieve(username: str, query: str, top_k: int = 4) -> str:
+def _rag_dynamic_top_k(query: str) -> int:
+    """Scale top_k based on query complexity. Short queries need fewer chunks."""
+    q_len = len(query.split())
+    if q_len <= 8:
+        return 2   # simple / short question
+    if q_len <= 20:
+        return 4   # medium
+    return 6       # complex / long query
+
+_RAG_MIN_SCORE = 0.30  # skip chunks below this cosine similarity threshold
+
+def _rag_retrieve(username: str, query: str, top_k: int = 0) -> str:
+    """Retrieve relevant knowledge base chunks. top_k=0 means auto-select based on query length."""
     idx_path = _rag_index_path(username)
     if not idx_path.exists():
         return ""
@@ -29786,11 +30244,14 @@ def _rag_retrieve(username: str, query: str, top_k: int = 4) -> str:
         q_vec = _embed_texts([query], get_openai_client())[0]
     except Exception:
         return ""
-    scored = sorted([(r, _cosine_sim(q_vec, r["vec"])) for r in rows if r.get("vec")],
-                    key=lambda x: x[1], reverse=True)
-    top = [r for r, s in scored[:top_k] if s > 0.25]
+    k = top_k if top_k > 0 else _rag_dynamic_top_k(query)
+    scored = sorted(
+        [(r, _cosine_sim(q_vec, r["vec"])) for r in rows if r.get("vec")],
+        key=lambda x: x[1], reverse=True,
+    )
+    top = [r for r, s in scored[:k] if s >= _RAG_MIN_SCORE]
     if not top:
-        return ""
+        return ""  # nothing above confidence threshold — don't inject noise
     parts = [f"[doc:{r.get('doc_id','')[:8]} chunk:{r.get('chunk_idx',0)}]\n{r['text']}" for r in top]
     return "\nKNOWLEDGE BASE (retrieved — use if relevant to the question):\n" + "\n\n".join(parts) + "\n"
 
@@ -29994,12 +30455,57 @@ def api_share_view(token: str):
 
 # ── OPERATOR DASHBOARD ────────────────────────────────────────────────────────
 
+@app.get("/api/usage/summary")
+def api_usage_summary():
+    """Return token usage summary for the current user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    entries = _read_token_usage(uname, limit=5000)
+    if not entries:
+        return jsonify({"ok": True, "summary": {"total_input": 0, "total_output": 0, "total_calls": 0, "by_model": {}, "by_teammate": {}, "recent": []}})
+    total_in  = sum(int(e.get("input_tokens", 0))  for e in entries)
+    total_out = sum(int(e.get("output_tokens", 0)) for e in entries)
+    by_model: dict = {}
+    by_tm: dict = {}
+    for e in entries:
+        m = e.get("model") or "unknown"
+        by_model[m] = by_model.get(m, 0) + int(e.get("total_tokens", 0))
+        tm = e.get("teammate") or "unknown"
+        by_tm[tm] = by_tm.get(tm, 0) + int(e.get("total_tokens", 0))
+    recent = entries[-20:][::-1]
+    return jsonify({"ok": True, "summary": {
+        "total_input":   total_in,
+        "total_output":  total_out,
+        "total_tokens":  total_in + total_out,
+        "total_calls":   len(entries),
+        "by_model":      dict(sorted(by_model.items(), key=lambda x: x[1], reverse=True)),
+        "by_teammate":   dict(sorted(by_tm.items(), key=lambda x: x[1], reverse=True)[:10]),
+        "recent":        recent,
+    }})
+
+_DASHBOARD_CACHE: Dict[str, Any] = {}
+_DASHBOARD_CACHE_LOCK = threading.Lock()
+_DASHBOARD_CACHE_TTL  = 30  # seconds
+
+def _invalidate_dashboard_cache(username: str) -> None:
+    """Clear cached dashboard stats for a user (call after data-mutating operations)."""
+    with _DASHBOARD_CACHE_LOCK:
+        _DASHBOARD_CACHE.pop(username, None)
+
 @app.get("/api/dashboard")
 def api_dashboard():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    # Return cached stats if fresh (avoids re-reading 200 task log entries on every poll)
+    _now_ts = datetime.utcnow().timestamp()
+    with _DASHBOARD_CACHE_LOCK:
+        _hit = _DASHBOARD_CACHE.get(uname)
+        if _hit and (_now_ts - _hit["ts"]) < _DASHBOARD_CACHE_TTL:
+            return jsonify(_hit["payload"])
     stats: Dict[str, Any] = {}
 
     entries       = read_task_log(limit=200)
@@ -30077,7 +30583,10 @@ def api_dashboard():
     except Exception:
         stats["webhooks"] = {"total": 0, "total_triggers": 0}
 
-    return jsonify({"ok": True, "stats": stats, "generated_at": now_iso()})
+    _payload = {"ok": True, "stats": stats, "generated_at": now_iso()}
+    with _DASHBOARD_CACHE_LOCK:
+        _DASHBOARD_CACHE[uname] = {"ts": datetime.utcnow().timestamp(), "payload": _payload}
+    return jsonify(_payload)
 
 
 # =============================================================================
@@ -30460,6 +30969,10 @@ def api_webhooks_create():
 
     base = PUBLIC_BASE_URL or request.host_url.rstrip("/")
     url  = f"{base}/webhook/{token}"
+    try:
+        _mark_onboarding_step(uname, "webhook_created", True)
+    except Exception:
+        pass
     return jsonify({"ok": True, "webhook": wh, "url": url})
 
 
@@ -30501,6 +31014,17 @@ def api_webhook_receive(token: str):
     stack       = (stacks_data.get("stacks") or {}).get(stack_name)
     if not stack:
         return jsonify({"ok": False, "error": "Stack not found"}), 404
+
+    # Replay protection: reject requests with X-Timestamp > 5 min old
+    _wh_ts_header = request.headers.get("X-Timestamp") or ""
+    if _wh_ts_header:
+        try:
+            _wh_ts = float(_wh_ts_header)
+            _age = abs(datetime.utcnow().timestamp() - _wh_ts)
+            if _age > 300:
+                return jsonify({"ok": False, "error": "Webhook timestamp too old — possible replay attack."}), 400
+        except Exception:
+            pass  # If header is malformed, allow through (not all callers send it)
 
     # Accept an optional input payload from the caller
     try:
@@ -30598,53 +31122,84 @@ def api_followup_stream():
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
     oai_client      = get_openai_client()
+    _use_claude     = _is_claude_model(preferred_model)
 
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
 
+    def _persist_stream_result(parts: list) -> tuple:
+        """Save thread, extract draft, log. Returns (complete_text, draft)."""
+        complete_text = "".join(parts)
+        new_thread = pre_thread + [
+            {"role": "user",      "content": msg2},
+            {"role": "assistant", "content": complete_text},
+        ]
+        save_thread(name, new_thread, uname)
+        draft = extract_email_draft(complete_text)
+        try:
+            append_task_log(
+                "teammate_followup_stream",
+                {"name": name, "message": msg,
+                 "model": preferred_model,
+                 "response_preview": complete_text[:400]},
+                teammate=name, status="success"
+            )
+            _mark_onboarding_step(uname, "first_prompt", True)
+        except Exception:
+            pass
+        return complete_text, draft
+
     def generate():
         parts = []
         try:
-            stream = oai_client.chat.completions.create(
-                model=preferred_model,
-                messages=[{"role": "system", "content": sys_prompt}]
-                         + list(thread)
-                         + [{"role": "user", "content": user_content}],
-                temperature=0.65,
-                stream=True,
-                timeout=90,
-            )
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                token = getattr(chunk.choices[0].delta, "content", None) or ""
-                if token:
-                    parts.append(token)
-                    yield "data: " + json.dumps({"token": token}) + "\n\n"
+            # ── Claude streaming path ─────────────────────────────────────────
+            if _use_claude:
+                claude_client = _get_claude_client_for_user(current_user())
+                if claude_client is None:
+                    yield "data: " + json.dumps({"error": "No Anthropic API key saved. Go to Settings and add your Anthropic key (sk-ant-...)."}) + "\n\n"
+                    return
+                # Claude needs text-only thread (no image_url blocks)
+                def _text_only_msgs(msgs):
+                    out = []
+                    for m in msgs:
+                        c = m.get("content", "")
+                        if isinstance(c, list):
+                            c = " ".join(p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text").strip()
+                        out.append({"role": m.get("role", "user"), "content": str(c)})
+                    return out
+                clean_thread = _text_only_msgs(list(thread))
+                clean_content = msg2 if isinstance(user_content, list) else str(user_content)
+                with claude_client.messages.stream(
+                    model=preferred_model,
+                    max_tokens=4096,
+                    system=sys_prompt,
+                    messages=clean_thread + [{"role": "user", "content": clean_content}],
+                ) as stream:
+                    for token in stream.text_stream:
+                        if token:
+                            parts.append(token)
+                            yield "data: " + json.dumps({"token": token}) + "\n\n"
 
-            complete_text = "".join(parts)
-
-            # Persist thread
-            new_thread = pre_thread + [
-                {"role": "user",      "content": msg2},
-                {"role": "assistant", "content": complete_text},
-            ]
-            save_thread(name, new_thread, uname)
-
-            draft = extract_email_draft(complete_text)
-
-            try:
-                append_task_log(
-                    "teammate_followup_stream",
-                    {"name": name, "message": msg,
-                     "model": preferred_model,
-                     "response_preview": complete_text[:400]},
-                    teammate=name, status="success"
+            # ── OpenAI streaming path ─────────────────────────────────────────
+            else:
+                stream = oai_client.chat.completions.create(
+                    model=preferred_model,
+                    messages=[{"role": "system", "content": sys_prompt}]
+                             + list(thread)
+                             + [{"role": "user", "content": user_content}],
+                    temperature=0.65,
+                    stream=True,
+                    timeout=90,
                 )
-                _mark_onboarding_step(uname, "first_prompt", True)
-            except Exception:
-                pass
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    token = getattr(chunk.choices[0].delta, "content", None) or ""
+                    if token:
+                        parts.append(token)
+                        yield "data: " + json.dumps({"token": token}) + "\n\n"
 
+            _, draft = _persist_stream_result(parts)
             yield "data: " + json.dumps({
                 "done":            True,
                 "email_draft":     draft,
@@ -30778,6 +31333,43 @@ def _list_pending_invites(owner_username: str) -> List[Dict[str, Any]]:
             result.append({"token": tok, "email": inv.get("email", ""), "created_at": inv.get("created_at", "")})
     return result
 
+
+# =========================
+# EMAIL UNSUBSCRIBE COMPLIANCE (CAN-SPAM / GDPR)
+# =========================
+def _unsub_token(username: str, contact_email: str) -> str:
+    """Generate a signed unsubscribe token (HMAC-SHA256, URL-safe)."""
+    secret = app.secret_key or "fallback"
+    msg = f"{username}:{contact_email}".encode("utf-8")
+    sig = hmac.new(str(secret).encode("utf-8"), msg, hashlib.sha256).hexdigest()[:32]
+    payload = base64.urlsafe_b64encode(f"{username}|{contact_email}|{sig}".encode()).decode()
+    return payload
+
+def _verify_unsub_token(token: str) -> tuple:
+    """Verify and decode an unsubscribe token. Returns (username, email) or (None, None)."""
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = decoded.split("|")
+        if len(parts) != 3:
+            return None, None
+        username, email, sig = parts
+        expected = _unsub_token(username, email)
+        decoded2 = base64.urlsafe_b64decode(expected.encode()).decode()
+        if decoded2.split("|")[2] != sig:
+            return None, None
+        return username, email
+    except Exception:
+        return None, None
+
+def _add_unsub_footer(body: str, unsub_url: str) -> str:
+    """Append a CAN-SPAM compliant unsubscribe footer to an email body."""
+    footer = (
+        f"\n\n---\n"
+        f"You received this email because you are a contact in our system. "
+        f"To unsubscribe, visit: {unsub_url}\n"
+    )
+    return body + footer
+
 def _send_team_invite_email(owner_username: str, invitee_email: str, token: str) -> Tuple[bool, str]:
     """Send the invite email using owner's SMTP settings or server SMTP."""
     base = (PUBLIC_BASE_URL or "").rstrip("/")
@@ -30821,6 +31413,38 @@ If you have any questions, contact the person who sent this invite.
 
 
 # ── Team Seats API ───────────────────────────────────────────────────────────
+
+
+@app.get("/unsubscribe/<token>")
+def unsubscribe_page(token: str):
+    """One-click unsubscribe. Validates the signed token and marks the contact."""
+    username, email = _verify_unsub_token(token)
+    if not username or not email:
+        return "<h2 style='font-family:sans-serif;padding:2rem'>Invalid or expired unsubscribe link.</h2>", 400
+    try:
+        crm = _crm_load(username)
+        clients = crm.get("clients") or {}
+        found = False
+        for cid, c in clients.items():
+            if isinstance(c, dict) and (c.get("email") or "").strip().lower() == email.lower():
+                c["email_unsubscribed"] = True
+                c["unsubscribed_at"] = now_iso()
+                c["updated_at"] = now_iso()
+                clients[cid] = c
+                found = True
+        if found:
+            crm["clients"] = clients
+            _crm_save(username, crm)
+    except Exception:
+        pass
+    return """<!doctype html><html><head><meta charset=utf-8>
+<title>Unsubscribed</title>
+<style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f9f9f9}
+.box{text-align:center;padding:2rem;background:#fff;border-radius:12px;border:1px solid #e5e5e5;max-width:400px}</style>
+</head><body><div class="box">
+<h2 style="margin:0 0 .5rem">You've been unsubscribed</h2>
+<p style="color:#666;margin:0">You will no longer receive broadcast emails from this account.</p>
+</div></body></html>"""
 
 @app.get("/api/team")
 def api_team_get():
@@ -31188,15 +31812,30 @@ def _community_save_points(data: dict) -> None:
     save_json(COMMUNITY_POINTS_FILE, data)
 
 def _award_points(username: str, event: str, amount: int) -> int:
-    """Award points to a user. Returns new total. Fire-and-forget safe."""
+    """Award points to a user. Returns new total. Fire-and-forget safe.
+    Chat events are capped at 10 per day to prevent leaderboard inflation."""
     try:
         if not username or amount <= 0:
             return 0
         data = _community_load_points()
         week = _community_week_key()
+        today = datetime.utcnow().strftime("%Y-%m-%d")
         if username not in data:
-            data[username] = {"total": 0, "weeks": {}, "history": []}
+            data[username] = {"total": 0, "weeks": {}, "history": [], "daily_chat": {}}
         u = data[username]
+
+        # Diminishing returns: chat events capped at 10 awards per day
+        _is_chat_event = "Chat" in event or "chat" in event
+        if _is_chat_event:
+            daily = u.setdefault("daily_chat", {})
+            today_count = daily.get(today, 0)
+            if today_count >= 10:
+                return u.get("total", 0)  # cap reached — no points for today
+            daily[today] = today_count + 1
+            # Prune old days (keep last 7)
+            u["daily_chat"] = {d: v for d, v in daily.items()
+                               if d >= (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")}
+
         u["total"] = u.get("total", 0) + amount
         u.setdefault("weeks", {})[week] = u["weeks"].get(week, 0) + amount
         hist = u.setdefault("history", [])
