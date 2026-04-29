@@ -5216,7 +5216,8 @@ def api_get_user_settings():
             "claude_key_hint":      claude_hint,
             "global_default_model": (settings.get("global_default_model") or "").strip(),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
-            "smtp": safe_smtp
+            "smtp": safe_smtp,
+            "tooltip_level": (settings.get("tooltip_level") or "medium")  # off | low | medium | high
         }
     })
 
@@ -5266,6 +5267,11 @@ def api_set_user_settings():
         rec["settings"]["claude_key"] = _encrypt_field(claude_key)
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
+
+    # Tooltip level — always save when present (including "off")
+    tooltip_level = (data.get("tooltip_level") or "").strip().lower()
+    if tooltip_level in ("off", "low", "medium", "high"):
+        rec["settings"]["tooltip_level"] = tooltip_level
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
@@ -12458,6 +12464,32 @@ label         { font-size: 14px !important; }
                       </div>
                       <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
                     </details>
+
+                    <!-- TOOLTIP HELP LEVEL -->
+                    <div style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;margin-top:4px;">
+                      <label style="margin:0 0 6px;display:block;">Tooltip help level</label>
+                      <div class="tiny" style="opacity:.7;margin-bottom:10px;">Controls how many tips and hints appear as you use the app. New users start on Medium.</div>
+                      <div id="tooltipLevelBtns" style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button type="button" class="tooltip-level-btn" data-level="off"
+                          style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#94a3b8;font-size:12px;cursor:pointer;transition:all .15s;min-width:60px;">
+                          Off
+                        </button>
+                        <button type="button" class="tooltip-level-btn" data-level="low"
+                          style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#94a3b8;font-size:12px;cursor:pointer;transition:all .15s;min-width:60px;">
+                          Low
+                        </button>
+                        <button type="button" class="tooltip-level-btn active-tooltip-btn" data-level="medium"
+                          style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid rgba(124,58,237,.6);background:rgba(124,58,237,.2);color:#c4b5fd;font-size:12px;cursor:pointer;transition:all .15s;min-width:60px;">
+                          Medium
+                        </button>
+                        <button type="button" class="tooltip-level-btn" data-level="high"
+                          style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#94a3b8;font-size:12px;cursor:pointer;transition:all .15s;min-width:60px;">
+                          High
+                        </button>
+                      </div>
+                      <input type="hidden" id="tooltipLevel" value="medium" />
+                      <div class="tiny" id="tooltipLevelDesc" style="margin-top:8px;min-height:16px;opacity:.65;"></div>
+                    </div>
                   </div>
 
                 </div><!-- end formGrid2 -->
@@ -17800,6 +17832,13 @@ Challenge weak assumptions. Surface risks.`;
         $("smtpFromName").value = smtp.from_name || "";
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
+        // Load tooltip level
+        try {
+          const lvl = s.tooltip_level || "medium";
+          $("tooltipLevel").value = lvl;
+          _activateTooltipBtn(lvl);
+          window._saTooltipLevel = lvl;
+        } catch(e) {}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
       }
@@ -22292,6 +22331,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         openai_key: keyVal,
         claude_key: claudeKeyVal,
         global_default_model: globalModel,
+        tooltip_level: ($("tooltipLevel") ? $("tooltipLevel").value : "medium"),
         smtp: {
           host: ($("smtpHost").value || "").trim(),
           port: parseInt(($("smtpPort").value || "587").trim(), 10),
@@ -22312,6 +22352,16 @@ $("settingsBtn").onclick = () => showSettingsModal();
           return;
         }
         $("settingsStatus").innerText = "Saved";
+          // Sync tooltip level to global state immediately after save
+          try {
+            const newLevel = ($("tooltipLevel") ? $("tooltipLevel").value : "medium") || "medium";
+            window._saTooltipLevel = newLevel;
+            localStorage.setItem("sa_tooltip_level", newLevel);
+            if (typeof showToast === "function") {
+              const lvlLabel = {off:"Tips off",low:"Tips: Low",medium:"Tips: Medium",high:"Tips: High"}[newLevel];
+              if (lvlLabel) showToast("✓ " + lvlLabel);
+            }
+          } catch(e) {}
           try{ await afterSettingsSaved(); }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Save failed";
@@ -24732,6 +24782,362 @@ if(typeof maybeAutoShowOnboarding === "function"){
   // ── helpers ──
   function _esc(s){ const d=document.createElement("div"); d.innerText=String(s||""); return d.innerHTML; }
   function _tm(name){ try{ const r=window._saStateCache; return ((r&&r.installed)||{})[name]||{}; }catch(e){ return{}; } }
+
+
+
+// ════════════════════════════════════════════════════════════════
+// SIMPLY AGENTIC TOOLTIP SYSTEM
+// Levels: off | low | medium | high
+// New users default to "medium". Persisted in user settings.
+// ════════════════════════════════════════════════════════════════
+(function initTooltipSystem() {
+
+  // ── Level → numeric threshold ─────────────────────────────
+  const LEVEL_WEIGHT = { off: 0, low: 1, medium: 2, high: 3 };
+
+  // ── Tip definitions ───────────────────────────────────────
+  // Each tip: { id, target (CSS selector), text, level (min level to show),
+  //             position ('top'|'bottom'|'left'|'right'), trigger ('load'|'hover'|'delay') }
+  const TIPS = [
+    // HIGH priority tips — shown on all levels ≥ low
+    {
+      id: "tip_send_message",
+      target: "#dmSendBtn",
+      text: "Send a message to your selected teammate. You can also press Cmd+Enter (Mac) or Ctrl+Enter (Windows).",
+      level: "low", position: "top", trigger: "hover"
+    },
+    {
+      id: "tip_stream_toggle",
+      target: "#streamToggleBtn",
+      text: "⚡ Stream mode — watch your teammate's response arrive token by token instead of waiting for the full reply. Recommended for Claude models.",
+      level: "low", position: "top", trigger: "hover"
+    },
+    {
+      id: "tip_seat_click",
+      target: ".seat",
+      text: "Click any seat to open a private conversation with that teammate. Use Cmd+1-7 to switch seats by keyboard.",
+      level: "low", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_settings",
+      target: "#settingsBtn",
+      text: "Connect your OpenAI or Anthropic API key here. You bring your own key — no markup, no throttling.",
+      level: "low", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_lighting_mode",
+      target: "#lightingModeBtn,button[title*='ighting']",
+      text: "⚡ Lighting mode — your teammate skips the questions and delivers exactly what you asked for, fast.",
+      level: "low", position: "top", trigger: "hover"
+    },
+    // MEDIUM priority tips — shown on medium and high
+    {
+      id: "tip_prompt_library",
+      target: "#promptLibraryBtn,#promptLibBtn",
+      text: "📚 Your prompt library — pre-built power prompts for every teammate. Build your own too.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_group_console",
+      target: ".gc,.gc-t",
+      text: "Group Console — type one prompt here and every teammate at the table responds. Great for brainstorms and risk checks.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_crm",
+      target: "#crmBtn,[data-click='crmBtn']",
+      text: "Client Center — your built-in CRM. Track contacts, manage your pipeline, and send email broadcasts.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_operator_profile",
+      target: "#operatorProfileBtn",
+      text: "Your operator profile is shared with every teammate automatically — the more detail you add, the smarter they get about your business.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_session_objective",
+      target: "#sessionObjectiveBtn,#sessionObjectivePill",
+      text: "Set a session objective and every teammate will actively help you make progress toward it in every response.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_rag",
+      target: "button[onclick*='rag'],button[data-click*='rag']",
+      text: "Knowledge Base — index your documents, SOPs, or brand guides and your teammates will reference them automatically.",
+      level: "medium", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_action_stacks",
+      target: "button[onclick*='stack'],button[data-click*='stack']",
+      text: "Action Stacks — build multi-step automation sequences for your teammates to run on a schedule or trigger.",
+      level: "medium", position: "top", trigger: "hover"
+    },
+    {
+      id: "tip_first_load",
+      target: ".arena",
+      text: "👋 Welcome to Simply Agentic! Click any seat around the table to start a conversation with that AI teammate. Try asking Alex about your marketing strategy.",
+      level: "medium", position: "top", trigger: "delay", delay: 1800
+    },
+    // HIGH only tips — power user detail
+    {
+      id: "tip_thread_branch",
+      target: "#dmInput",
+      text: "💡 Pro tip: use the thread snapshot feature (via /api/thread/Name/snapshot) to save checkpoints in your conversation and restore them later.",
+      level: "high", position: "top", trigger: "delay", delay: 8000
+    },
+    {
+      id: "tip_keyboard_shortcuts",
+      target: ".saNavRight,#modelTag",
+      text: "⌨️ Keyboard shortcuts: Cmd+Enter to send, Cmd+1-7 to switch seats, Cmd+K to open the prompt library.",
+      level: "high", position: "bottom", trigger: "delay", delay: 5000
+    },
+    {
+      id: "tip_tts",
+      target: "button[id*='tts'],button[title*='voice'],button[title*='TTS']",
+      text: "🔊 Voice mode — your teammate will read their response aloud using AI voice. Great for hands-free sessions.",
+      level: "high", position: "top", trigger: "hover"
+    },
+    {
+      id: "tip_dashboard",
+      target: "#dashboardNavBtn",
+      text: "📊 Your dashboard shows activity across all teammates, CRM stats, token usage, and automation run history.",
+      level: "high", position: "bottom", trigger: "hover"
+    },
+    {
+      id: "tip_community",
+      target: "#communityNavBtn",
+      text: "🏆 Community leaderboard — earn points by using the app, submitting feature ideas, and engaging with your team.",
+      level: "high", position: "bottom", trigger: "hover"
+    },
+  ];
+
+  // ── State ─────────────────────────────────────────────────
+  const _dismissed = new Set(JSON.parse(localStorage.getItem("sa_tips_dismissed") || "[]"));
+  let _currentTip = null;
+  let _tipEl = null;
+  let _hideTimer = null;
+
+  function _getLevel() {
+    return window._saTooltipLevel || localStorage.getItem("sa_tooltip_level") || "medium";
+  }
+
+  function _tipVisible(tip) {
+    const lvl = _getLevel();
+    if (lvl === "off") return false;
+    if (_dismissed.has(tip.id)) return false;
+    const userW = LEVEL_WEIGHT[lvl] || 2;
+    const tipW  = LEVEL_WEIGHT[tip.level] || 2;
+    return tipW <= userW;
+  }
+
+  // ── DOM: create the tooltip element ───────────────────────
+  function _buildTipEl() {
+    const el = document.createElement("div");
+    el.id = "saTipPopup";
+    el.style.cssText = [
+      "position:fixed;z-index:99999;max-width:280px;",
+      "background:linear-gradient(135deg,rgba(19,28,59,.97),rgba(10,15,38,.98));",
+      "border:1px solid rgba(124,58,237,.55);border-radius:12px;",
+      "padding:12px 14px 10px;box-shadow:0 8px 32px rgba(0,0,0,.45),0 0 0 1px rgba(124,58,237,.15);",
+      "font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;color:#e2e8f0;",
+      "opacity:0;transform:translateY(6px);transition:opacity .22s ease,transform .22s ease;",
+      "pointer-events:auto;"
+    ].join("");
+
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div id="saTipText" style="flex:1;"></div>
+        <button id="saTipClose" title="Dismiss" style="background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0;margin-top:-1px;">&#x2715;</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;">
+        <button id="saTipDismissAll" style="background:none;border:none;color:#475569;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;">Turn off tips</button>
+        <button id="saTipNext" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;font-size:11px;border-radius:6px;padding:3px 10px;cursor:pointer;">Got it</button>
+      </div>`;
+
+    document.body.appendChild(el);
+
+    el.querySelector("#saTipClose").onclick   = () => _hideTip(true);
+    el.querySelector("#saTipNext").onclick    = () => _hideTip(true);
+    el.querySelector("#saTipDismissAll").onclick = () => {
+      window._saTooltipLevel = "off";
+      localStorage.setItem("sa_tooltip_level", "off");
+      // Persist to server settings
+      fetch("/api/user/settings", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({tooltip_level: "off"})
+      }).catch(() => {});
+      _hideTip(false);
+      // Update the settings UI if open
+      try { _activateTooltipBtn("off"); document.getElementById("tooltipLevel").value = "off"; } catch(e) {}
+      if (typeof showToast === "function") showToast("Tips turned off — re-enable anytime in Settings");
+    };
+
+    return el;
+  }
+
+  // ── Position the tooltip near a target element ─────────────
+  function _positionTip(el, target, position) {
+    const tr = target.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const tw = el.offsetWidth || 280, th = el.offsetHeight || 100;
+    const gap = 10;
+    let top, left;
+
+    if (position === "bottom") {
+      top  = tr.bottom + gap;
+      left = tr.left + tr.width / 2 - tw / 2;
+    } else if (position === "top") {
+      top  = tr.top - th - gap;
+      left = tr.left + tr.width / 2 - tw / 2;
+    } else if (position === "left") {
+      top  = tr.top + tr.height / 2 - th / 2;
+      left = tr.left - tw - gap;
+    } else {
+      top  = tr.top + tr.height / 2 - th / 2;
+      left = tr.right + gap;
+    }
+
+    // Clamp to viewport
+    left = Math.max(8, Math.min(left, vw - tw - 8));
+    top  = Math.max(8, Math.min(top,  vh - th - 8));
+
+    el.style.top  = top  + "px";
+    el.style.left = left + "px";
+  }
+
+  // ── Show a tip ────────────────────────────────────────────
+  function _showTip(tip, anchorEl) {
+    if (_getLevel() === "off") return;
+    if (!_tipVisible(tip)) return;
+    if (_currentTip === tip.id) return;
+
+    if (!_tipEl) _tipEl = _buildTipEl();
+
+    _tipEl.querySelector("#saTipText").textContent = tip.text;
+    _tipEl.style.opacity = "0";
+    _tipEl.style.transform = "translateY(6px)";
+    _tipEl.style.display = "block";
+
+    // Position after paint
+    requestAnimationFrame(() => {
+      _positionTip(_tipEl, anchorEl, tip.position);
+      requestAnimationFrame(() => {
+        _tipEl.style.opacity = "1";
+        _tipEl.style.transform = "translateY(0)";
+      });
+    });
+
+    _currentTip = tip.id;
+
+    // Auto-hide after 7s for hover tips, 10s for delay tips
+    clearTimeout(_hideTimer);
+    _hideTimer = setTimeout(() => _hideTip(false), tip.trigger === "delay" ? 10000 : 7000);
+  }
+
+  function _hideTip(dismiss) {
+    if (!_tipEl) return;
+    _tipEl.style.opacity = "0";
+    _tipEl.style.transform = "translateY(6px)";
+    setTimeout(() => { if (_tipEl) _tipEl.style.display = "none"; }, 230);
+    if (dismiss && _currentTip) {
+      _dismissed.add(_currentTip);
+      localStorage.setItem("sa_tips_dismissed", JSON.stringify([..._dismissed]));
+    }
+    clearTimeout(_hideTimer);
+    _currentTip = null;
+  }
+
+  // ── Wire hover tips ───────────────────────────────────────
+  function _wireHoverTip(tip) {
+    const targets = document.querySelectorAll(tip.target);
+    targets.forEach(el => {
+      let hoverTimer;
+      el.addEventListener("mouseenter", () => {
+        hoverTimer = setTimeout(() => _showTip(tip, el), 600);
+      });
+      el.addEventListener("mouseleave", () => {
+        clearTimeout(hoverTimer);
+        if (_currentTip === tip.id) _hideTip(false);
+      });
+    });
+  }
+
+  // ── Wire delay tips ───────────────────────────────────────
+  function _wireDelayTip(tip) {
+    setTimeout(() => {
+      if (_getLevel() === "off" || !_tipVisible(tip)) return;
+      const anchor = document.querySelector(tip.target);
+      if (anchor) _showTip(tip, anchor);
+    }, tip.delay || 2000);
+  }
+
+  // ── Init all tips ─────────────────────────────────────────
+  function _initTips() {
+    if (_getLevel() === "off") return;
+    TIPS.forEach(tip => {
+      if (tip.trigger === "hover")  _wireHoverTip(tip);
+      if (tip.trigger === "delay")  _wireDelayTip(tip);
+    });
+  }
+
+  // Run after DOM settles
+  setTimeout(_initTips, 1200);
+
+  // Re-init tips if level changes (e.g. settings saved)
+  window._reinitTooltips = function() {
+    // Remove existing hover listeners by re-running init (safe — idempotent on dismissed set)
+    clearTimeout(_hideTimer);
+    _hideTip(false);
+    _dismissed.clear();
+    localStorage.removeItem("sa_tips_dismissed");
+    setTimeout(_initTips, 300);
+  };
+
+  // Expose globally for settings panel sync
+  window._saTooltipLevel = window._saTooltipLevel || localStorage.getItem("sa_tooltip_level") || "medium";
+
+})();
+
+// ── Settings panel: tooltip level button logic ────────────────
+const _TOOLTIP_DESCS = {
+  "off":    "No tips or hints will appear.",
+  "low":    "Only the most essential tips — send, switch seats, streaming mode.",
+  "medium": "Helpful tips throughout your session covering all main features. Recommended for new users.",
+  "high":   "All tips including power-user shortcuts, pro features, and time-saving tricks.",
+};
+
+function _activateTooltipBtn(level) {
+  document.querySelectorAll(".tooltip-level-btn").forEach(btn => {
+    const isActive = btn.dataset.level === level;
+    btn.style.border    = isActive ? "1px solid rgba(124,58,237,.6)" : "1px solid rgba(255,255,255,.12)";
+    btn.style.background = isActive ? "rgba(124,58,237,.2)" : "rgba(255,255,255,.04)";
+    btn.style.color     = isActive ? "#c4b5fd" : "#94a3b8";
+  });
+  const descEl = document.getElementById("tooltipLevelDesc");
+  if (descEl) descEl.textContent = _TOOLTIP_DESCS[level] || "";
+  const hiddenEl = document.getElementById("tooltipLevel");
+  if (hiddenEl) hiddenEl.value = level;
+  // Sync to global state immediately (no need to save first)
+  window._saTooltipLevel = level;
+  localStorage.setItem("sa_tooltip_level", level);
+}
+
+// Wire the level buttons once DOM is ready
+document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".tooltip-level-btn").forEach(btn => {
+    btn.addEventListener("click", function() {
+      _activateTooltipBtn(this.dataset.level);
+    });
+  });
+});
+// Also wire after any dynamic render (settings modal opens after load)
+document.addEventListener("click", function(e) {
+  if (e.target && e.target.classList.contains("tooltip-level-btn")) {
+    _activateTooltipBtn(e.target.dataset.level);
+  }
+});
 
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
