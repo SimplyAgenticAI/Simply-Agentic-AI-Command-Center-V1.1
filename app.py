@@ -20575,24 +20575,52 @@ function wcalDragWireGrid(grid){
 
 // ── Overlap layout: assign column positions to overlapping tasks/events ──
 function wcalLayoutOverlaps(items){
-  // items: [{top, height, el_style_setter}] — sorted by top
-  // Returns items with {left, width} as percentage strings
+  // Assign _col and _totalCols per item.
+  // KEY FIX: only events that actually overlap each other share column width.
+  // Events that don't overlap anything keep full width (_totalCols=1).
   if(!items.length) return items;
   items.sort((a,b)=>a.top-b.top);
-  const cols=[];  // cols[i] = end-time of last item in column i
-  items.forEach(item=>{
-    let placed=false;
-    for(let c=0;c<cols.length;c++){
-      if(item.top>=cols[c]){
-        item._col=c; item._colCount=cols.length;
-        cols[c]=item.top+item.height;
-        placed=true; break;
-      }
+  const n=items.length;
+  // Reset
+  items.forEach(item=>{ item._col=0; item._totalCols=1; });
+  // Build overlap adjacency matrix
+  const overlaps=(a,b)=>a.top<b.top+b.height && b.top<a.top+a.height;
+  const adj=items.map(()=>[]);
+  for(let i=0;i<n;i++)
+    for(let j=i+1;j<n;j++)
+      if(overlaps(items[i],items[j])){ adj[i].push(j); adj[j].push(i); }
+  // Find connected clusters (groups of mutually-reachable overlapping events)
+  const visited=new Array(n).fill(false);
+  for(let i=0;i<n;i++){
+    if(visited[i]) continue;
+    // BFS to collect cluster
+    const cluster=[];
+    const queue=[i];
+    while(queue.length){
+      const v=queue.shift();
+      if(visited[v]) continue;
+      visited[v]=true; cluster.push(v);
+      adj[v].forEach(u=>{ if(!visited[u]) queue.push(u); });
     }
-    if(!placed){ item._col=cols.length; cols.push(item.top+item.height); }
-  });
-  const total=cols.length;
-  items.forEach(item=>{ item._totalCols=total; });
+    if(cluster.length===1){
+      // No overlaps — full width, nothing to change
+      continue;
+    }
+    // Greedy column assignment within this cluster only
+    const members=cluster.map(i=>items[i]).sort((a,b)=>a.top-b.top);
+    const colEnds=[]; // colEnds[c] = bottom Y of last event placed in column c
+    members.forEach(item=>{
+      let placed=false;
+      for(let c=0;c<colEnds.length;c++){
+        if(item.top>=colEnds[c]-0.5){
+          item._col=c; colEnds[c]=item.top+item.height; placed=true; break;
+        }
+      }
+      if(!placed){ item._col=colEnds.length; colEnds.push(item.top+item.height); }
+    });
+    const total=colEnds.length;
+    members.forEach(item=>{ item._totalCols=total; });
+  }
   return items;
 }
 
@@ -20605,14 +20633,21 @@ function wcalApplyOverlapLayout(col){
     height:parseFloat(el.style.height)||28,
   }));
   wcalLayoutOverlaps(items);
-  const total=items.reduce((m,x)=>Math.max(m,x._totalCols||1),1);
-  if(total<=1) return;
   items.forEach(item=>{
-    const w=(100/total);
-    const l=(item._col||0)*w;
-    item.el.style.left=l+'%';
-    item.el.style.right=(100-(l+w))+'%';
-    item.el.style.width='auto';
+    const total=item._totalCols||1;
+    if(total<=1){
+      // Not overlapping anything — restore full width
+      item.el.style.left='0%';
+      item.el.style.right='0%';
+      item.el.style.width='calc(100% - 4px)';
+    } else {
+      // Part of an overlap cluster — share width only within the cluster
+      const w=100/total;
+      const l=(item._col||0)*w;
+      item.el.style.left=l+'%';
+      item.el.style.right=(100-(l+w))+'%';
+      item.el.style.width='auto';
+    }
   });
 }
 
