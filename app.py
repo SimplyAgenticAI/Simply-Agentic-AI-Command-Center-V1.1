@@ -8497,6 +8497,90 @@ def _hash_token(token: str) -> str:
         return ""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+
+@app.get("/pricing")
+def pricing_page():
+    """Public pricing page — renders from the PLANS dict so it's always in sync."""
+    founder_remaining = _founder_seats_remaining()
+    stripe_ready = _stripe_ready()
+
+    def plan_card(key, plan, highlight=False):
+        price     = plan.get("price", 0)
+        name      = plan.get("name", key.title())
+        badge     = plan.get("badge") or ""
+        tagline   = plan.get("tagline", "")
+        features  = plan.get("features") or []
+        price_id  = plan.get("price_id", "")
+        border    = "border:2px solid rgba(124,58,237,.6);" if highlight else "border:1px solid rgba(255,255,255,.08);"
+        badge_html = f'<div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;display:inline-block;margin-bottom:12px;">{badge}</div>' if badge else ""
+        feat_html = "".join(f'<li style="padding:5px 0;font-size:14px;color:#cbd5e1;border-bottom:1px solid rgba(255,255,255,.05);">&#10003; {f}</li>' for f in features)
+        btn_label = "Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
+        if stripe_ready and price_id:
+            btn = f'<a href="/register?plan={key}" style="display:block;width:100%;padding:13px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-top:auto;">{btn_label}</a>'
+        else:
+            btn = f'<a href="/register" style="display:block;width:100%;padding:13px;background:rgba(124,58,237,.3);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-top:auto;">{btn_label}</a>'
+        return f"""
+        <div style="background:rgba(255,255,255,.04);{border}border-radius:16px;padding:28px 24px;display:flex;flex-direction:column;gap:12px;">
+          {badge_html}
+          <div style="font-size:22px;font-weight:700;color:#e2e8f0;">{name}</div>
+          <div style="font-size:38px;font-weight:800;color:#c4b5fd;">${price}<span style="font-size:16px;font-weight:400;color:#94a3b8;">/mo</span></div>
+          <div style="font-size:13px;color:#94a3b8;line-height:1.5;">{tagline}</div>
+          <ul style="list-style:none;padding:0;margin:0;flex:1;">{feat_html}</ul>
+          {btn}
+        </div>"""
+
+    cards = ""
+    plan_order = ["founder", "starter", "growth", "pro"]
+    highlights = {"growth"}
+    for key in plan_order:
+        plan = PLANS.get(key)
+        if not plan:
+            continue
+        if key == "founder" and not plan.get("price_id"):
+            continue  # skip founder if not configured
+        cards += plan_card(key, plan, highlight=(key in highlights))
+
+    trial_banner = ""
+    if FREE_TRIAL_DAYS > 0:
+        trial_banner = f'<div style="text-align:center;margin-bottom:32px;"><span style="background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(79,70,229,.2));border:1px solid rgba(167,139,250,.3);border-radius:20px;padding:8px 24px;font-size:14px;color:#c4b5fd;font-weight:600;">&#127881; {FREE_TRIAL_DAYS}-day free trial on all plans — no credit card required to start</span></div>'
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plans &amp; Pricing — {APP_TITLE}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:system-ui,-apple-system,sans-serif;background:#0a0e1f;color:#e2e8f0;min-height:100vh}}
+.wrap{{max-width:1100px;margin:0 auto;padding:60px 24px 80px}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:40px}}
+.nav{{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid rgba(255,255,255,.07);max-width:1100px;margin:0 auto}}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" style="color:#c4b5fd;font-weight:700;font-size:18px;text-decoration:none;">{APP_TITLE}</a>
+  <div style="display:flex;gap:16px;align-items:center;">
+    <a href="/login" style="color:#94a3b8;font-size:14px;text-decoration:none;">Sign in</a>
+    <a href="/register" style="background:rgba(124,58,237,.3);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:7px 18px;font-size:14px;font-weight:600;text-decoration:none;">Get started</a>
+  </div>
+</nav>
+<div class="wrap">
+  <div style="text-align:center;margin-bottom:16px;">
+    <h1 style="font-size:42px;font-weight:800;background:linear-gradient(135deg,#c4b5fd,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px;">Simple, honest pricing</h1>
+    <p style="font-size:18px;color:#94a3b8;max-width:520px;margin:0 auto;">Bring your own API key. Pay once. Own your AI team.</p>
+  </div>
+  {trial_banner}
+  <div class="grid">{cards}</div>
+  <div style="text-align:center;margin-top:48px;color:#64748b;font-size:13px;">
+    <p>All plans include a {FREE_TRIAL_DAYS}-day free trial &nbsp;&#183;&nbsp; Cancel anytime &nbsp;&#183;&nbsp; Powered by your own OpenAI / Anthropic key</p>
+    <p style="margin-top:8px;"><a href="/login" style="color:#818cf8;">Already have an account? Sign in</a> &nbsp;&#183;&nbsp; <a href="/terms" style="color:#818cf8;">Terms</a> &nbsp;&#183;&nbsp; <a href="/privacy" style="color:#818cf8;">Privacy</a></p>
+  </div>
+</div>
+</body>
+</html>"""
+
 @app.get("/showcase")
 def showcase_page():
     return SHOWCASE_HTML
