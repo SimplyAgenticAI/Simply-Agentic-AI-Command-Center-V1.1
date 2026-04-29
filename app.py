@@ -12140,8 +12140,8 @@ label         { font-size: 14px !important; }
             <span>Tools</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saToolsDrop">
-            <button class="saDropItem" id="notepadBtn">&#128221; AI Notepad</button>
-            <button class="saDropItem" id="siteAnalyzerBtn">&#127760; Site Analyzer</button>
+            <button class="saDropItem" id="notepadBtn" onclick="if(typeof npOpen==='function')npOpen()">&#128221; Notepad</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" onclick="if(typeof saOpen==='function')saOpen()">&#127760; Site Analyzer</button>
             <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
             <button class="saDropItem" id="crmBtn">CRM</button>
             <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
@@ -33357,9 +33357,9 @@ input:focus{{border-color:rgba(124,58,237,.7);box-shadow:0 0 0 3px rgba(124,58,2
 </div>
 
 <!-- ═══ AI NOTEPAD PANEL ═══ -->
-<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;display:none;flex-direction:column;overflow:hidden;">
+<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
   <div id="notepadDrag" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:grab;border-bottom:1px solid rgba(42,58,106,.5);user-select:none;flex-shrink:0;">
-    <div style="font-weight:700;font-size:15px;">&#128221; AI Notepad</div>
+    <div style="font-weight:700;font-size:15px;">&#128221; Notepad</div>
     <button onclick="document.getElementById('notepadPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
   </div>
   <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
@@ -33569,13 +33569,7 @@ async function runSiteAnalysis() {
   btn.disabled = false; btn.textContent = 'Analyze \uD83D\uDD0D';
 }
 
-// Wire buttons
-document.addEventListener('DOMContentLoaded', function() {
-  var nb = document.getElementById('notepadBtn');
-  var sa = document.getElementById('siteAnalyzerBtn');
-  if (nb) nb.addEventListener('click', function() { npOpen(); });
-  if (sa) sa.addEventListener('click', function() { saOpen(); });
-});
+// Notepad + Analyzer buttons wired via onclick attributes
 </script>
 </body></html>"""
 
