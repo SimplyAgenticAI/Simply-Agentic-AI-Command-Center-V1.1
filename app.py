@@ -12532,6 +12532,7 @@ label         { font-size: 14px !important; }
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;text-align:center;"></div>
                 </div>
               </div>
+            </div>
 
 
               <div class="modalForm" id="customizeForm" style="display:none;">
