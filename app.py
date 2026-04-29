@@ -12354,7 +12354,7 @@ label         { font-size: 14px !important; }
   <!-- Lead Lab -->
   <div id="crmViewLeadLab" style="display:none;">
     <div class="modalInner">
-      <div class="toolHint">Generate organised public lead lists from the web. Only real websites, phone numbers and emails found via live web search — no made-up data.</div>
+      <div class="toolHint">Finds real businesses with verified contact details, social profiles, and qualification signals — all from live web search.</div>
       <div class="formGrid2">
         <div><label>Target niche</label><input id="leadLabNiche" placeholder="real estate agents" /></div>
         <div><label>Location</label><input id="leadLabLocation" placeholder="New Jersey" /></div>
@@ -12367,22 +12367,65 @@ label         { font-size: 14px !important; }
         <div><label>Search mode</label>
           <select id="leadLabMode">
             <option value="balanced" selected>Balanced</option>
-            <option value="broad">Broad</option><option value="precision">Precision</option>
+            <option value="broad">Broad</option>
+            <option value="precision">Precision</option>
           </select>
         </div>
         <div><label>Specific areas</label><input id="leadLabAreas" placeholder="Newark, Jersey City, Hoboken" /></div>
         <div><label>Contact filter</label>
           <select id="leadLabRequireContact">
             <option value="phone_or_email" selected>Phone or email preferred</option>
-            <option value="phone">Phone only</option><option value="email">Email only</option>
+            <option value="phone">Phone only</option>
+            <option value="email">Email only</option>
             <option value="any">Any public lead</option>
+          </select>
+        </div>
+        <div><label>Business type</label>
+          <select id="leadLabBizType">
+            <option value="any" selected>Any type</option>
+            <option value="solo">Solo / individual</option>
+            <option value="team">Small team</option>
+            <option value="agency">Agency / franchise</option>
+          </select>
+        </div>
+        <div><label>Social presence</label>
+          <select id="leadLabRequireSocial">
+            <option value="any" selected>Any</option>
+            <option value="linkedin">Must have LinkedIn</option>
+            <option value="any_social">Must have LinkedIn or Facebook</option>
+          </select>
+        </div>
+        <div><label>Google reviews</label>
+          <select id="leadLabRequireReviews">
+            <option value="false" selected>Not required</option>
+            <option value="true">Must have Google rating</option>
           </select>
         </div>
       </div>
       <div class="toolRunBar">
-        <button class="btn btnPrimary" id="leadLabRunBtn">Build lead list</button>
+        <button class="btn btnPrimary" id="leadLabRunBtn">Find leads</button>
       </div>
-      <div class="tiny" id="leadLabStatus" style="margin-top:8px;text-align:center;"></div>
+      <div id="leadLabStatus" style="margin-top:8px;text-align:center;"></div>
+    </div>
+    <!-- Sort/filter bar — shown after results load -->
+    <div id="leadLabFilterBar" style="display:none;padding:10px 16px;border-top:0.5px solid rgba(255,255,255,.08);display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:12px;color:#94a3b8;font-weight:500;">Sort by:</span>
+      <select id="leadLabSort" style="font-size:12px;padding:4px 8px;background:#1e293b;border:0.5px solid rgba(255,255,255,.12);border-radius:6px;color:#e2e8f0;">
+        <option value="score">Best match</option>
+        <option value="email">Has email first</option>
+        <option value="phone">Has phone first</option>
+        <option value="linkedin">Has LinkedIn first</option>
+        <option value="rating">Highest rated first</option>
+      </select>
+      <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-left:8px;">Show:</span>
+      <select id="leadLabShowFilter" style="font-size:12px;padding:4px 8px;background:#1e293b;border:0.5px solid rgba(255,255,255,.12);border-radius:6px;color:#e2e8f0;">
+        <option value="all">All leads</option>
+        <option value="email_only">Email confirmed</option>
+        <option value="phone_only">Phone confirmed</option>
+        <option value="linkedin_only">Has LinkedIn</option>
+        <option value="high_confidence">High confidence only</option>
+        <option value="active_only">Active online</option>
+      </select>
     </div>
     <div class="toolResults" id="leadLabResults"></div>
   </div>
@@ -18028,12 +18071,18 @@ async function crmFetchTasks(){
 
     window._lastLeadResults = window._lastLeadResults || [];
     window.crmExportLeadsCSV = function(){
-      var items = window._lastLeadResults || [];
+      var items = _leadLabItems.length ? _leadLabItems : (window._lastLeadResults || []);
       if(!items.length){ showToast('No leads to export'); return; }
-      var headers = ['Name','Company','Email','Phone','Website','Source'];
+      var headers = ['Name','Company','Title','Email','Email Confidence','Phone','Website','LinkedIn','Facebook','Google Rating','Reviews','Business Type','Activity','Score','Warm Reason','Source'];
       var rows = items.map(function(it){
-        return [it.name||'',it.company||'',it.email||'',it.phone||'',it.website||it.domain||'',it.source_query||'']
-          .map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(',');
+        return [
+          it.name||'', it.company||'', it.title||'',
+          it.email||'', it.confidence||'', it.phone||'',
+          it.website||it.domain||'', it.linkedin||'', it.facebook||'',
+          it.google_rating||'', it.review_count||'',
+          it.business_type||'', it.activity||'', it.score||'',
+          it.warm_reason||'', it.source_query||''
+        ].map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(',');
       });
       var csv = [headers.join(',')].concat(rows).join('\n');
       var a = document.createElement('a');
@@ -18043,108 +18092,170 @@ async function crmFetchTasks(){
       showToast('Exported ' + items.length + ' leads', 'success');
     };
 
-    function crmRenderLeadResults(items){
-      window._lastLeadResults = Array.isArray(items) ? items : [];
+    let _leadLabItems = [];
+
+    function _llBadge(text, color){
+      const colors = {
+        green:  'background:#14532d;color:#86efac;',
+        blue:   'background:#1e3a5f;color:#93c5fd;',
+        amber:  'background:#451a03;color:#fcd34d;',
+        red:    'background:#450a0a;color:#fca5a5;',
+        purple: 'background:#2e1065;color:#c4b5fd;',
+        gray:   'background:#1e293b;color:#94a3b8;',
+      };
+      return `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px;${colors[color]||colors.gray}">${escapeHtml(text)}</span>`;
+    }
+
+    function _llConfBadge(c){
+      if(c==='high')   return _llBadge('High confidence','green');
+      if(c==='medium') return _llBadge('Medium confidence','amber');
+      if(c==='low')    return _llBadge('Low confidence','red');
+      return '';
+    }
+
+    function _llActivityBadge(a){
+      if(a==='active')   return _llBadge('Active online','green');
+      if(a==='dormant')  return _llBadge('Dormant','red');
+      return '';
+    }
+
+    function _llBizBadge(b){
+      if(b==='solo')   return _llBadge('Solo','blue');
+      if(b==='team')   return _llBadge('Team','purple');
+      if(b==='agency') return _llBadge('Agency','gray');
+      return '';
+    }
+
+    function _llSocialIcons(item){
+      let html = '';
+      if(item.linkedin) html += `<a href="${escapeHtml(item.linkedin)}" target="_blank" rel="noopener" title="LinkedIn" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:13px;font-weight:700;text-decoration:none;">in</a>`;
+      if(item.facebook) html += `<a href="${escapeHtml(item.facebook)}" target="_blank" rel="noopener" title="Facebook" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e2a45;color:#60a5fa;font-size:12px;font-weight:700;text-decoration:none;">f</a>`;
+      if(item.website)  html += `<a href="${escapeHtml(item.website)}" target="_blank" rel="noopener" title="Website" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e293b;color:#94a3b8;font-size:11px;font-weight:700;text-decoration:none;">www</a>`;
+      return html ? `<div style="display:flex;gap:5px;margin-top:8px;">${html}</div>` : '';
+    }
+
+    function _llRenderCards(items){
       const box = $("leadLabResults");
       if(!box) return;
-      if(!Array.isArray(items) || !items.length){
-        box.innerHTML = '<div class="tiny" style="opacity:.8;">No leads yet.</div>';
+      if(!items.length){
+        box.innerHTML = '<div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">No leads match the current filter.</div>';
         return;
       }
-      const exportBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
-        + '<button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (' + items.length + ')</button></div>';
+      const exportBar = `<div style="display:flex;justify-content:flex-end;padding:8px 0 4px;">
+        <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (${items.length})</button></div>`;
       box.innerHTML = exportBar + items.map((item, idx)=>{
-        // Only show confirmed real email addresses — skip AI-guessed email_candidates
-        const topEmail = item.email || '';
-        const topPhone = item.phone || '';
-        const site = item.website || item.domain || '';
-        const sourceQuery = item.source_query || '';
-        return `<div class="diagCard" style="padding:14px; margin-bottom:12px; font-size:14px;">
-          <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:flex-start;">
-            <div style="flex:1; min-width:0;">
-              <div style="font-weight:800; font-size:16px; margin-bottom:4px;">${escapeHtml(item.name || item.company || '(no name)')}</div>
-              <div style="font-size:14px; opacity:.9; margin-top:2px;">${escapeHtml(item.company || '')}${item.title ? ' &bull; ' + escapeHtml(item.title) : ''}</div>
-              <div style="margin-top:6px;">${site ? `<a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#c4b5fd; font-size:13px; font-weight:600; text-decoration:none; word-break:break-all;">${escapeHtml(site)}</a>` : ''}</div>
-              <div style="font-size:14px; margin-top:6px; color:#e2e8f0;">${topPhone ? '📞 ' + escapeHtml(topPhone) : '<span style="opacity:.45;">No phone found</span>'}</div>
-              <div style="font-size:14px; margin-top:4px; color:#e2e8f0;">${topEmail ? '✉ ' + escapeHtml(topEmail) : '<span style="opacity:.45;">No confirmed email</span>'}</div>
-              ${sourceQuery ? `<div style="font-size:12px; opacity:.55; margin-top:6px;">Source: ${escapeHtml(sourceQuery)}</div>` : ''}
+        const email = item.email || '';
+        const phone = item.phone || '';
+        const rating = item.google_rating ? `${item.google_rating}★${item.review_count?' ('+item.review_count+')':''}` : '';
+        const badges = [
+          _llConfBadge(item.confidence||''),
+          _llBizBadge(item.business_type||''),
+          _llActivityBadge(item.activity||''),
+          rating ? _llBadge(rating,'amber') : '',
+        ].filter(Boolean).join(' ');
+        return `<div class="diagCard" style="padding:16px;margin-bottom:10px;" data-ll-idx="${idx}">
+          <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;">
+            <div>
+              <div style="font-weight:500;font-size:15px;margin-bottom:2px;">${escapeHtml(item.name||item.company||'(no name)')}</div>
+              <div style="font-size:13px;color:#94a3b8;margin-bottom:6px;">${escapeHtml(item.company||'')}${item.title&&item.title!=='Contact'?' · '+escapeHtml(item.title):''}</div>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">${badges}</div>
+              ${item.warm_reason?`<div style="font-size:12px;color:#a78bfa;margin-bottom:8px;line-height:1.5;">&#9889; ${escapeHtml(item.warm_reason)}</div>`:''}
+              <div style="font-size:13px;color:#e2e8f0;line-height:2;">
+                ${email?`<div>✉ <a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;">${escapeHtml(email)}</a></div>`:'<div style="opacity:.4;">No email found</div>'}
+                ${phone?`<div>📞 ${escapeHtml(phone)}</div>`:'<div style="opacity:.4;">No phone found</div>'}
+              </div>
+              ${_llSocialIcons(item)}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:90px;">
+              <div style="font-size:22px;font-weight:500;color:${(item.score||0)>=70?'#86efac':(item.score||0)>=50?'#fcd34d':'#94a3b8'};">${item.score||'—'}</div>
+              <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.05em;">score</div>
             </div>
           </div>
-          <div class="actions" style="justify-content:flex-end; margin-top:12px; flex-wrap:wrap; gap:6px;">
-            ${topEmail ? `<button class="btn btnMini" data-lead-copy-email="${idx}">📋 Copy email</button>` : ''}
-            ${topPhone ? `<button class="btn btnMini" data-lead-copy-phone="${idx}">📋 Copy phone</button>` : ''}
-            ${topEmail ? `<button class="btn btnMini" data-lead-email="${idx}">✉ Email</button>` : ''}
-            ${topPhone ? `<button class="btn btnMini" data-lead-sms="${idx}">💬 Text</button>` : ''}
-            <button class="btn btnPrimary btnMini" data-lead-add="${idx}">+ Add to CRM</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;border-top:0.5px solid rgba(255,255,255,.06);padding-top:10px;">
+            ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
+            ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}">📋 Copy phone</button>`:''}
+            ${email?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
+            ${phone?`<button class="btn btnMini" data-ll-sms="${idx}">💬 Text</button>`:''}
+            <button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>
           </div>
         </div>`;
       }).join('');
-      box.querySelectorAll('[data-lead-copy-email]').forEach(btn=>{
-        btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy-email'))] || {};
-          const email = item.email || "";
-          if(!email) return showToast('No email found');
-          try{ await navigator.clipboard.writeText(email); showToast('Email copied'); }catch(e){}
+
+      // Wire up all action buttons
+      box.querySelectorAll('[data-ll-copy-email]').forEach(btn=>{
+        btn.onclick=async()=>{
+          const it=_leadLabItems[+btn.dataset.llCopyEmail]||{};
+          if(!it.email) return showToast('No email found');
+          try{ await navigator.clipboard.writeText(it.email); showToast('Email copied'); }catch(e){}
         };
       });
-      box.querySelectorAll('[data-lead-copy-phone]').forEach(btn=>{
-        btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-copy-phone'))] || {};
-          const phone = item.phone || '';
-          if(!phone) return showToast('No phone found');
-          try{ await navigator.clipboard.writeText(phone); showToast('Phone copied'); }catch(e){}
+      box.querySelectorAll('[data-ll-copy-phone]').forEach(btn=>{
+        btn.onclick=async()=>{
+          const it=_leadLabItems[+btn.dataset.llCopyPhone]||{};
+          if(!it.phone) return showToast('No phone found');
+          try{ await navigator.clipboard.writeText(it.phone); showToast('Phone copied'); }catch(e){}
         };
       });
-      box.querySelectorAll('[data-lead-email]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-email'))] || {};
-          const email = item.email || "";
-          if(!email) return showToast('No email found');
-          openLeadHandoff('email', item);
-        };
+      box.querySelectorAll('[data-ll-email]').forEach(btn=>{
+        btn.onclick=()=>{ const it=_leadLabItems[+btn.dataset.llEmail]||{}; if(it.email) openLeadHandoff('email',it); };
       });
-      box.querySelectorAll('[data-lead-sms]').forEach(btn=>{
-        btn.onclick = ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-sms'))] || {};
-          const phone = item.phone || '';
-          if(!phone) return showToast('No phone found');
-          openLeadHandoff('sms', item);
-        };
+      box.querySelectorAll('[data-ll-sms]').forEach(btn=>{
+        btn.onclick=()=>{ const it=_leadLabItems[+btn.dataset.llSms]||{}; if(it.phone) openLeadHandoff('sms',it); };
       });
-      box.querySelectorAll('[data-lead-add]').forEach(btn=>{
-        btn.onclick = async ()=>{
-          const item = items[Number(btn.getAttribute('data-lead-add'))] || {};
-          const top = item.email || '';
+      box.querySelectorAll('[data-ll-add]').forEach(btn=>{
+        btn.onclick=async()=>{
+          const it=_leadLabItems[+btn.dataset.llAdd]||{};
           try{
-            const res = await fetch('/api/crm/clients', {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({
-                name: item.name || item.company || 'New lead',
-                company: item.company || '',
-                email: top,
-                phone: item.phone || '',
-                status: 'lead',
-                pipeline_stage: 'Lead',
-                tags: ['lead-lab', ($("leadLabNiche")?.value||'').trim(), ($("leadLabLocation")?.value||'').trim()].filter(Boolean),
-                notes: ((item.notes || '') + (top ? '\nTop email guess: ' + top : '') + ((item.website || item.domain) ? '\nWebsite: ' + (item.website || item.domain) : '')).trim()
-              })
-            });
-            const data = await res.json();
-            if(!data.ok) throw new Error(data.error||'Add failed');
+            const res=await fetch('/api/crm/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              name:it.name||it.company||'New lead',company:it.company||'',email:it.email||'',
+              phone:it.phone||'',status:'lead',pipeline_stage:'Lead',
+              tags:['lead-lab',($("leadLabNiche")?.value||'').trim(),($("leadLabLocation")?.value||'').trim()].filter(Boolean),
+              notes:[it.warm_reason||'',it.website?'Website: '+it.website:'',it.linkedin?'LinkedIn: '+it.linkedin:'',it.facebook?'Facebook: '+it.facebook:''].filter(Boolean).join('\n')
+            })});
+            const d=await res.json();
+            if(!d.ok) throw new Error(d.error||'Add failed');
             showToast('Lead added to CRM');
             try{ await crmFetchClients(); }catch(e){}
-          }catch(e){
-            showToast('Could not add lead');
-          }
+          }catch(e){ showToast('Could not add lead'); }
         };
       });
+    }
+
+    function _llApplySortFilter(){
+      if(!_leadLabItems.length) return;
+      const sort = ($("leadLabSort")?.value)||'score';
+      const show = ($("leadLabShowFilter")?.value)||'all';
+      let items = [..._leadLabItems];
+      // Filter
+      if(show==='email_only')       items=items.filter(x=>x.email);
+      if(show==='phone_only')       items=items.filter(x=>x.phone);
+      if(show==='linkedin_only')    items=items.filter(x=>x.linkedin);
+      if(show==='high_confidence')  items=items.filter(x=>x.confidence==='high');
+      if(show==='active_only')      items=items.filter(x=>x.activity==='active');
+      // Sort
+      if(sort==='email')   items.sort((a,b)=>(b.email?1:0)-(a.email?1:0));
+      if(sort==='phone')   items.sort((a,b)=>(b.phone?1:0)-(a.phone?1:0));
+      if(sort==='linkedin') items.sort((a,b)=>(b.linkedin?1:0)-(a.linkedin?1:0));
+      if(sort==='rating')  items.sort((a,b)=>(b.google_rating||0)-(a.google_rating||0));
+      if(sort==='score')   items.sort((a,b)=>(b.score||0)-(a.score||0));
+      _llRenderCards(items);
+    }
+
+    function crmRenderLeadResults(items){
+      _leadLabItems = items || [];
+      const fb = $("leadLabFilterBar");
+      if(fb){ fb.style.display = items.length ? 'flex' : 'none'; }
+      if($("leadLabSort"))   $("leadLabSort").onchange   = _llApplySortFilter;
+      if($("leadLabShowFilter")) $("leadLabShowFilter").onchange = _llApplySortFilter;
+      _llApplySortFilter();
     }
 
     async function crmRunLeadLab(){
       const st = $("leadLabStatus");
       const btn = $("leadLabRunBtn");
       if(btn){ btn.disabled = true; btn.style.opacity = '0.6'; }
+      const fb = $("leadLabFilterBar");
+      if(fb) fb.style.display='none';
       if(st) st.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 0;">
           <div style="display:flex;gap:5px;align-items:center;">
@@ -18155,46 +18266,47 @@ async function crmFetchTasks(){
           <span style="font-size:13px;color:#a78bfa;font-weight:500;letter-spacing:0.03em;" id="leadLabLoadingTxt">Scanning the web</span>
         </div>
         <style>@keyframes llPulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}</style>`;
-      // Cycle through status messages while loading
-      const msgs = ['Scanning the web','Finding businesses','Extracting contacts','Checking websites','Pulling emails & phones','Almost there'];
-      let mi = 0;
-      const ticker = setInterval(()=>{ mi=(mi+1)%msgs.length; const el=$('leadLabLoadingTxt'); if(el) el.textContent=msgs[mi]; }, 1800);
+      const msgs=['Scanning the web','Finding businesses','Extracting contacts','Checking websites','Pulling emails & phones','Finding LinkedIn profiles','Detecting business signals','Almost there'];
+      let mi=0;
+      const ticker=setInterval(()=>{ mi=(mi+1)%msgs.length; const el=$('leadLabLoadingTxt'); if(el) el.textContent=msgs[mi]; },1800);
       try{
-        const res = await fetch('/api/crm/lead_lab', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            niche: ($("leadLabNiche")?.value || '').trim(),
-            location: ($("leadLabLocation")?.value || '').trim(),
-            source_text: '',
-            specific_areas: ($("leadLabAreas")?.value || '').trim(),
-            search_mode: ($("leadLabMode")?.value || 'balanced').trim(),
-            lead_count: parseInt(($("leadLabCount")?.value || '25').trim(), 10) || 25,
-            require_contact: ($("leadLabRequireContact")?.value || 'phone_or_email').trim(),
+        const res=await fetch('/api/crm/lead_lab',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            niche:          ($("leadLabNiche")?.value||'').trim(),
+            location:       ($("leadLabLocation")?.value||'').trim(),
+            source_text:    '',
+            specific_areas: ($("leadLabAreas")?.value||'').trim(),
+            search_mode:    ($("leadLabMode")?.value||'balanced').trim(),
+            lead_count:     parseInt(($("leadLabCount")?.value||'25').trim(),10)||25,
+            require_contact:($("leadLabRequireContact")?.value||'phone_or_email').trim(),
+            business_type:  ($("leadLabBizType")?.value||'any').trim(),
+            require_social: ($("leadLabRequireSocial")?.value||'any').trim(),
+            require_reviews:($("leadLabRequireReviews")?.value||'false')==='true',
             min_score: 1
           })
         });
         clearInterval(ticker);
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        const raw = await res.text();
-        let data = null;
-        try{ data = raw ? JSON.parse(raw) : null; }catch(e){}
-        if(!ct.includes('application/json') || !data){
-          throw new Error('Lead Lab server response was invalid: ' + raw.slice(0, 220));
-        }
-        if(!res.ok || !data.ok) throw new Error(data.error||'Lead build failed');
-        crmRenderLeadResults(data.items || []);
-        const count = (data.items||[]).length;
-        const withEmail = (data.items||[]).filter(x=>x.email).length;
-        const withPhone = (data.items||[]).filter(x=>x.phone).length;
-        if(st) st.innerHTML = `<span style="color:#86efac;font-weight:500;">✓ ${count} leads found &nbsp;·&nbsp; ${withEmail} with email &nbsp;·&nbsp; ${withPhone} with phone</span>${data.warning ? '<br><span style="opacity:.6;font-size:12px;">'+data.warning+'</span>' : ''}`;
+        const ct=(res.headers.get('content-type')||'').toLowerCase();
+        const raw=await res.text();
+        let data=null;
+        try{ data=raw?JSON.parse(raw):null; }catch(e){}
+        if(!ct.includes('application/json')||!data) throw new Error('Invalid server response: '+raw.slice(0,200));
+        if(!res.ok||!data.ok) throw new Error(data.error||'Lead build failed');
+        crmRenderLeadResults(data.items||[]);
+        const count=(data.items||[]).length;
+        const withEmail=(data.items||[]).filter(x=>x.email).length;
+        const withPhone=(data.items||[]).filter(x=>x.phone).length;
+        const withLI=(data.items||[]).filter(x=>x.linkedin).length;
+        if(st) st.innerHTML=`<span style="color:#86efac;font-weight:500;">&#10003; ${count} leads &nbsp;·&nbsp; ${withEmail} email &nbsp;·&nbsp; ${withPhone} phone &nbsp;·&nbsp; ${withLI} LinkedIn</span>${data.warning?'<br><span style="opacity:.5;font-size:12px;">'+escapeHtml(data.warning)+'</span>':''}`;
       }catch(e){
         clearInterval(ticker);
-        if(st) st.innerHTML = `<span style="color:#fca5a5;">${e.message || 'Lead build failed'}</span>`;
+        if(st) st.innerHTML=`<span style="color:#fca5a5;">${escapeHtml(e.message||'Lead build failed')}</span>`;
       }finally{
-        if(btn){ btn.disabled = false; btn.style.opacity = ''; }
+        if(btn){ btn.disabled=false; btn.style.opacity=''; }
       }
     }
+
 
     async function crmRunGenerator(endpoint, payload, statusId, resultsId){
       const st = $(statusId), box = $(resultsId);
@@ -26715,9 +26827,14 @@ def _crm_score_candidate(candidate: Dict[str, Any], niche: str, location: str) -
         score += 10
     if candidate.get("phone"):
         score += 18
-    public_emails = [x for x in (candidate.get("email_candidates") or []) if x.get("status") == "public"]
-    if public_emails:
+    if candidate.get("email"):
         score += 25
+    if candidate.get("linkedin"):
+        score += 10
+    if candidate.get("facebook"):
+        score += 5
+    if candidate.get("google_rating"):
+        score += 8
     if candidate.get("name") and candidate.get("name") != candidate.get("company"):
         score += 12
     if candidate.get("niche_hit"):
@@ -26727,6 +26844,131 @@ def _crm_score_candidate(candidate: Dict[str, Any], niche: str, location: str) -
     if niche and any(tok in (candidate.get("notes") or "").lower() for tok in re.findall(r"[a-z0-9]+", niche.lower())[:2]):
         score += 5
     return max(1, min(99, score))
+
+
+# ── New enrichment helpers ────────────────────────────────────────────────────
+
+def _crm_find_linkedin(name: str, company: str, location: str) -> str:
+    """Search for a LinkedIn profile/company URL. Returns URL or empty string."""
+    if not name and not company:
+        return ""
+    query = f"{(name or company).strip()} {company.strip()} {location.strip()} LinkedIn"
+    try:
+        rows = _crm_ddg_search(query, max_results=6)
+        for row in rows:
+            url = row.get("url") or ""
+            if "linkedin.com/in/" in url or "linkedin.com/company/" in url:
+                # Normalise to clean profile URL
+                m = re.search(r"(https?://(?:www\.)?linkedin\.com/(?:in|company)/[^/?&#\s]+)", url)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def _crm_find_facebook(company: str, domain: str, html: str = "") -> str:
+    """Extract a Facebook business page URL from page HTML or a targeted search."""
+    # First: look in existing HTML for facebook links
+    if html and BeautifulSoup is not None:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = (a.get("href") or "").strip()
+                if "facebook.com/" in href and "/sharer" not in href and "/share" not in href:
+                    m = re.search(r"(https?://(?:www\.)?facebook\.com/[^/?&#\s\"']+)", href)
+                    if m:
+                        pg = m.group(1)
+                        # Skip generic facebook.com or login pages
+                        if not re.search(r"facebook\.com/(login|sharer|share|dialog|profile\.php)", pg):
+                            return pg
+        except Exception:
+            pass
+    return ""
+
+
+def _crm_extract_google_rating(snippet: str) -> Dict[str, Any]:
+    """Extract Google/Yelp star rating and review count from a search snippet."""
+    rating_match = re.search(r"(\d+(?:\.\d)?)\s*(?:out of 5|stars?|★|⭐)", snippet or "", re.I)
+    reviews_match = re.search(r"([\d,]+)\s*(?:reviews?|ratings?)", snippet or "", re.I)
+    result: Dict[str, Any] = {}
+    if rating_match:
+        try:
+            result["google_rating"] = float(rating_match.group(1))
+        except Exception:
+            pass
+    if reviews_match:
+        try:
+            result["review_count"] = int(reviews_match.group(1).replace(",", ""))
+        except Exception:
+            pass
+    return result
+
+
+def _crm_detect_business_type(html: str, name: str, company: str) -> str:
+    """Return 'solo', 'team', or 'agency' based on page signals."""
+    text = (html or "").lower()
+    team_signals = ["our team", "meet the team", "our agents", "our staff",
+                    "our associates", "our brokers", "meet our", "our office"]
+    agency_signals = ["franchise", "branches", "locations", "offices nationwide",
+                      "nationwide", "regional office", "corporate", "inc.", " llc", " ltd"]
+    if any(s in text for s in agency_signals):
+        return "agency"
+    if any(s in text for s in team_signals):
+        return "team"
+    return "solo"
+
+
+def _crm_detect_activity(html: str, snippet: str) -> str:
+    """Return 'active', 'moderate', or 'dormant' based on recency signals."""
+    combined = ((html or "") + " " + (snippet or "")).lower()
+    current_year = datetime.utcnow().year
+    recent_years = [str(current_year), str(current_year - 1)]
+    if any(y in combined for y in recent_years):
+        return "active"
+    old_years = [str(y) for y in range(2015, current_year - 2)]
+    if any(y in combined for y in old_years) and not any(y in combined for y in [str(current_year - 2)]):
+        return "dormant"
+    return "moderate"
+
+
+def _crm_contact_confidence(email: str, email_source: str) -> str:
+    """Return 'high', 'medium', or 'low' based on how the email was found."""
+    if not email:
+        return "none"
+    if email_source == "mailto":
+        return "high"
+    if email_source == "snippet":
+        return "high"
+    if email_source == "page_text":
+        return "medium"
+    return "low"
+
+
+def _crm_warm_reason(candidate: Dict[str, Any], niche: str, location: str) -> str:
+    """Generate a one-line reason why this lead is worth contacting."""
+    reasons = []
+    if candidate.get("email") and candidate.get("email_source") in ("mailto", "snippet"):
+        reasons.append("publicly listed email")
+    if candidate.get("phone"):
+        reasons.append("direct phone number")
+    if candidate.get("linkedin"):
+        reasons.append("active LinkedIn presence")
+    if candidate.get("google_rating"):
+        rating = candidate["google_rating"]
+        count = candidate.get("review_count", 0)
+        reasons.append(f"{rating}★ Google rating ({count} reviews)" if count else f"{rating}★ Google rating")
+    if candidate.get("business_type") == "solo":
+        reasons.append("solo operator — direct decision maker")
+    if candidate.get("activity") == "active":
+        reasons.append("recently active online")
+    if not reasons:
+        if candidate.get("website"):
+            reasons.append("verified business website")
+        else:
+            reasons.append(f"found in {location or 'target area'} {niche or ''} search")
+    return ", ".join(reasons[:3]).capitalize() + "."
+
 
 
 def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
@@ -26833,23 +27075,32 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     domain = result.get("domain") or _crm_extract_domain(urlparse(url).netloc or url)
     if not url or _crm_is_blocked_domain(domain):
         return None
-    hint_name = (result.get('name_hint') or '').strip()
+    hint_name    = (result.get('name_hint') or '').strip()
     hint_company = (result.get('company_hint') or '').strip()
-    hint_phone = _crm_clean_phone(result.get('phone_hint') or '')
-    hint_email = (result.get('email_hint') or '').strip().lower()
+    hint_phone   = _crm_clean_phone(result.get('phone_hint') or '')
+    hint_email   = (result.get('email_hint') or '').strip().lower()
+    hint_snippet = (result.get('snippet') or '').strip()
 
-    # Start with any email already found in search snippet — instant, no fetch needed
-    all_emails: List[str] = []
-    all_phones: List[str] = []
+    # Emails found in search snippet are highest-confidence — no fetch needed
+    all_emails:  List[str] = []
+    email_source = "unknown"
+    all_phones:  List[str] = []
+    all_html_pages: List[Tuple[str, str]] = []
+
     if hint_email:
         all_emails.append(hint_email)
+        email_source = "snippet"
     if hint_phone:
         all_phones.append(hint_phone)
 
-    # Fetch homepage + common contact pages in parallel
+    # Extract Google rating from search snippet immediately
+    rating_data = _crm_extract_google_rating(hint_snippet)
+
+    # Fetch homepage + contact pages in parallel
     page_results = _crm_fetch_contact_pages(domain, timeout=10)
+    all_html_pages = page_results
+
     if not page_results:
-        # Domain unreachable — build a fallback candidate from what we have
         candidate = _crm_fallback_candidate_from_result(result, niche, location, query)
         if candidate:
             if hint_name and not candidate.get('name'):
@@ -26860,20 +27111,28 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
                 candidate['phone'] = hint_phone
             if hint_email and not candidate.get('email'):
                 candidate['email'] = hint_email
+                candidate['email_source'] = email_source
+            candidate.update(rating_data)
             candidate['score'] = max(candidate.get('score') or 0, _crm_score_candidate(candidate, niche, location))
         return candidate
 
-    signals_agg: Dict[str, Any] = {"niche_hit": False, "location_hit": False, "name": "", "company": ""}
+    signals_agg: Dict[str, Any] = {
+        "niche_hit": False, "location_hit": False, "name": "", "company": "", "facebook": ""
+    }
+    combined_html = ""
     for html, final_url in page_results:
+        combined_html += html
         signals = _crm_parse_page_signals(html, final_url, niche, location)
-        # Collect emails — mailto: hrefs most reliable, then regex
         _, page_mailto = _crm_find_contact_links(html, final_url)
         for e in page_mailto:
             if e not in all_emails:
-                all_emails.insert(0, e)  # mailto links = highest priority
+                all_emails.insert(0, e)
+                email_source = "mailto"
         for e in (signals.get("emails") or []):
             if e not in all_emails:
                 all_emails.append(e)
+                if email_source == "unknown":
+                    email_source = "page_text"
         for p in (signals.get("phones") or []):
             if p not in all_phones:
                 all_phones.append(p)
@@ -26881,27 +27140,58 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
             signals_agg["name"] = signals["name"]
         if not signals_agg["company"] and signals.get("company"):
             signals_agg["company"] = signals["company"]
-        signals_agg["niche_hit"] = signals_agg["niche_hit"] or bool(signals.get("niche_hit"))
+        signals_agg["niche_hit"]    = signals_agg["niche_hit"] or bool(signals.get("niche_hit"))
         signals_agg["location_hit"] = signals_agg["location_hit"] or bool(signals.get("location_hit"))
+        # Extract facebook from page HTML
+        if not signals_agg["facebook"]:
+            signals_agg["facebook"] = _crm_find_facebook("", domain, html)
+        # Extract Google rating from page text if not already found
+        if not rating_data:
+            page_text = signals.get("visible_text") or ""
+            rating_data = _crm_extract_google_rating(page_text)
 
-    website = f"https://{domain}"
-    name = signals_agg.get("name") or hint_name or ""
+    name    = signals_agg.get("name") or hint_name or ""
     company = signals_agg.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
-    title = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
-    candidate = {
-        "name": name or company,
-        "company": company,
-        "title": title,
-        "domain": domain,
-        "website": website,
-        "phone": all_phones[0] if all_phones else "",
-        "email": all_emails[0] if all_emails else "",
-        "niche_hit": bool(signals_agg.get("niche_hit")),
+    title   = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
+
+    # Detect business type and activity from combined HTML
+    biz_type = _crm_detect_business_type(combined_html, name, company)
+    activity  = _crm_detect_activity(combined_html, hint_snippet)
+
+    candidate: Dict[str, Any] = {
+        "name":         name or company,
+        "company":      company,
+        "title":        title,
+        "domain":       domain,
+        "website":      f"https://{domain}",
+        "phone":        all_phones[0] if all_phones else "",
+        "email":        all_emails[0] if all_emails else "",
+        "email_source": email_source if all_emails else "none",
+        "linkedin":     "",   # filled below in parallel
+        "facebook":     signals_agg.get("facebook") or "",
+        "business_type": biz_type,
+        "activity":     activity,
+        "niche_hit":    bool(signals_agg.get("niche_hit")),
         "location_hit": bool(signals_agg.get("location_hit")),
-        "notes": f"Found from public web search for {niche or 'lead'} in {location or 'target area'}. Source query: {query}",
+        "notes":        f"Found via web search for {niche or 'lead'} in {location or 'target area'}.",
         "source_query": query,
     }
+    candidate.update(rating_data)
     candidate["score"] = _crm_score_candidate(candidate, niche, location)
+
+    # LinkedIn lookup in background thread — only if we have a name or company
+    if name or company:
+        try:
+            li_url = _crm_find_linkedin(name, company, location)
+            if li_url:
+                candidate["linkedin"] = li_url
+                candidate["score"] = _crm_score_candidate(candidate, niche, location)
+        except Exception:
+            pass
+
+    candidate["warm_reason"] = _crm_warm_reason(candidate, niche, location)
+    candidate["confidence"]  = _crm_contact_confidence(
+        candidate.get("email") or "", candidate.get("email_source") or "")
     return candidate
 
 
@@ -27235,11 +27525,14 @@ def api_crm_lead_lab():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     try:
         payload = request.get_json(silent=True) or {}
-        niche = (payload.get("niche") or "").strip()
-        location = (payload.get("location") or "").strip()
+        niche          = (payload.get("niche") or "").strip()
+        location       = (payload.get("location") or "").strip()
         specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
-        search_mode = (payload.get("search_mode") or "balanced").strip().lower()
-        require_contact = (payload.get("require_contact") or "phone_or_email").strip().lower()
+        search_mode    = (payload.get("search_mode") or "balanced").strip().lower()
+        require_contact= (payload.get("require_contact") or "phone_or_email").strip().lower()
+        biz_type_filter= (payload.get("business_type") or "any").strip().lower()
+        require_social = (payload.get("require_social") or "any").strip().lower()
+        require_reviews= payload.get("require_reviews") is True or str(payload.get("require_reviews","")).lower() == "true"
         try:
             lead_count = int(payload.get("lead_count") or 25)
         except Exception:
@@ -27249,16 +27542,15 @@ def api_crm_lead_lab():
         if not niche and not location and not specific_areas:
             return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
-        # Discover leads from live web search only — no AI-generated/hallucinated contacts
         discovered = _crm_discover_public_leads(
-            niche, location, lead_count, search_mode,
+            niche, location, lead_count * 3, search_mode,
             existing_domains=set(),
             specific_areas=specific_areas,
             require_contact=require_contact,
-            min_score=1   # score filter handled by contact filter, not arbitrary threshold
+            min_score=1
         )
 
-        # Deduplicate by domain/name
+        # Apply new filters
         final: List[Dict[str, Any]] = []
         seen: set = set()
         for item in discovered:
@@ -27266,18 +27558,34 @@ def api_crm_lead_lab():
             key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
             if not key or key in seen:
                 continue
+            # Business type filter
+            if biz_type_filter != "any" and item.get("business_type") and item["business_type"] != biz_type_filter:
+                continue
+            # Social presence filter
+            if require_social == "linkedin" and not item.get("linkedin"):
+                continue
+            if require_social == "any_social" and not (item.get("linkedin") or item.get("facebook")):
+                continue
+            # Google reviews filter
+            if require_reviews and not item.get("google_rating"):
+                continue
             seen.add(key)
+            # Add warm_reason and confidence if not already set
+            if not item.get("warm_reason"):
+                item["warm_reason"] = _crm_warm_reason(item, niche, location)
+            if not item.get("confidence"):
+                item["confidence"] = _crm_contact_confidence(
+                    item.get("email") or "", item.get("email_source") or "")
             final.append(item)
             if len(final) >= lead_count:
                 break
 
         warning = ""
         if not final:
-            warning = "No public leads were found for that search. Try Broad mode, add specific areas, or broaden your niche."
+            warning = "No leads matched your filters. Try loosening the business type or social filters."
         elif len(final) < lead_count:
-            warning = f"Found {len(final)} verified leads from live web search."
+            warning = f"Found {len(final)} leads matching your filters."
 
-        # Award community points
         try:
             _uname = (u.get("username") if isinstance(u, dict) else None) or ""
             if _uname:
@@ -27297,6 +27605,7 @@ def api_crm_lead_lab():
         resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
         resp.headers['Cache-Control'] = 'no-store'
         return resp, 500
+
 
 @app.post("/api/crm/social_studio")
 def api_crm_social_studio():
