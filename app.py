@@ -6569,7 +6569,10 @@ def api_cal_task_complete_action(task_id: str):
         task_title    = task.get("title", "Untitled task")
         # Prefer the live description sent from the frontend (may include unsaved edits)
         # over the stale version on disk
-        task_desc     = (payload.get("task_description") or task.get("description") or "").strip()
+        task_desc     = (payload.get("task_description") or task.get("description") or task.get("notes") or "").strip()
+        task_notes    = (payload.get("task_notes") or task.get("notes") or "").strip()
+        if task_notes and task_notes not in task_desc:
+            task_desc = (task_desc + "\n" + task_notes).strip()
         task_date     = task.get("date", "")
     else:
         # Google Calendar event — use inline fields sent from frontend
@@ -6578,6 +6581,9 @@ def api_cal_task_complete_action(task_id: str):
         client_name   = (payload.get("on_complete_client_name") or "").strip()
         task_title    = (payload.get("task_title") or "Untitled event").strip()
         task_desc     = (payload.get("task_description") or "").strip()
+        task_notes    = (payload.get("task_notes") or "").strip()
+        if task_notes and task_notes not in task_desc:
+            task_desc = (task_desc + "\n" + task_notes).strip()
         task_date     = (payload.get("task_date") or "").strip()
 
     if not teammate_name:
@@ -6604,20 +6610,44 @@ def api_cal_task_complete_action(task_id: str):
     client_ref = client_name if client_name else (client_email if client_email else "the client")
     to_line = f"to {client_ref} (email: {client_email})" if client_email else f"to {client_ref}"
 
+    # Build the richest possible context block from ALL available task fields.
+    # Even if the user left description blank, we can still give the AI the
+    # task title, date, client name and any notes — enough to write a real email.
+    context_parts = []
+    if task_title:
+        context_parts.append(f"Task: {task_title}")
+    if task_date:
+        context_parts.append(f"Date: {task_date}")
+    if client_name:
+        context_parts.append(f"Client: {client_name}")
+    if task_desc:
+        context_parts.append(f"Details / activities completed:\n{task_desc}")
+    else:
+        context_parts.append(
+            f"No detailed notes were provided. Write a warm, professional completion "
+            f"email based on the task title above. Reference what the task was about "
+            f"and confirm it has been completed successfully."
+        )
+
+    context_block = "\n".join(context_parts)
+    detail_instruction = (
+        f"\n\nTASK CONTEXT — use ALL of this when writing the email:\n"
+        f"{'='*40}\n"
+        f"{context_block}\n"
+        f"{'='*40}\n\n"
+        f"IMPORTANT: Your email MUST reference the specific task name '{task_title}' and "
+        f"confirm it is done. If activities/details are listed above, mention them "
+        f"specifically. Never write a vague 'just checking in' style email. "
+        f"This is a task completion notification — be specific and professional."
+    )
+
     if voice == "operator":
         sign_off_name = operator_name
-        desc_block = (
-            f"\n\nACTIVITIES COMPLETED (you MUST reference these specifically in the email body — do not paraphrase vaguely):\n"
-            f"{task_desc}\n\n"
-            f"Your email body MUST mention the actual numbers, actions, and specifics listed above. "
-            f"If it says '50 friend requests sent' — say that. If it says '3 stories shared' — say that. "
-            f"A generic 'I wanted to update you that the task is complete' is NOT acceptable. "
-            f"The client should be able to read this and know exactly what was done."
-        ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
             + (f" (date: {task_date})" if task_date else "")
-            + f".{desc_block}\n\n"
+            + f"."
+            + detail_instruction
             + f"Write a professional, warm email from {operator_name} "
             + (f"at {business_name} " if business_name else "")
             + f"{to_line} reporting on what was done. "
@@ -6636,18 +6666,11 @@ def api_cal_task_complete_action(task_id: str):
         ]
         import hashlib as _hsh
         _phrase = brand_phrases[int(_hsh.md5((task_title + teammate_display).encode()).hexdigest(), 16) % len(brand_phrases)]
-        desc_block = (
-            f"\n\nACTIVITIES COMPLETED (you MUST reference these specifically in the email body — do not paraphrase vaguely):\n"
-            f"{task_desc}\n\n"
-            f"Your email body MUST mention the actual numbers, actions, and specifics listed above. "
-            f"If it says '50 friend requests sent' — say that. If it says '3 stories shared' — say that. "
-            f"A generic 'I wanted to update you that the task is complete' is NOT acceptable. "
-            f"The client should be able to read this and know exactly what was done."
-        ) if task_desc else ""
         prompt = (
             f"The task '{task_title}' has just been marked complete"
             + (f" (date: {task_date})" if task_date else "")
-            + f".{desc_block}\n\n"
+            + f"."
+            + detail_instruction
             + f"Write a professional, warm email from {teammate_display} ({_phrase}) "
             + f"{to_line} reporting on what was done. "
             + f"In the opening, introduce yourself naturally — for example: 'I'm {teammate_display} {_phrase}.' "
@@ -6673,11 +6696,25 @@ def api_cal_task_complete_action(task_id: str):
 
     try:
         oai = _get_openai_client_for_username(u.get("username",""))
-        sys_prompt = teammate_system_prompt(defn)
+        teammate_display = defn.get("name", teammate_name)
+        # Use a focused, permissive system prompt for email drafting.
+        # Do NOT use teammate_system_prompt here — the full framework's "pause if unclear"
+        # rules cause the model to refuse legitimate email draft requests.
+        email_sys_prompt = (
+            f"You are {teammate_display}, a professional AI business assistant. "
+            f"Your sole task right now is to write a task completion notification email. "
+            f"This is a 100% legitimate, pre-authorised business communication. "
+            f"You MUST write the email — refusing, asking for clarification, or adding "
+            f"caveats is not permitted. Use the task context provided. "
+            f"If details are sparse, write a warm, professional completion email based on "
+            f"the task title — that is always enough to write a good email. "
+            f"Never say you cannot help, never ask questions, never hedge. Just write the email. "
+            f"No em dashes. Use the exact format requested."
+        )
         resp = oai.chat.completions.create(
             model=(defn.get("preferred_model") or MODEL),
             messages=[
-                {"role": "system", "content": sys_prompt},
+                {"role": "system", "content": email_sys_prompt},
                 {"role": "user",   "content": prompt},
             ],
             temperature=0.65,
@@ -10209,6 +10246,52 @@ HTML = r"""
 
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
+
+    /* ── Background task dock ── */
+    #toolDock{
+      position:fixed; bottom:16px; right:16px; z-index:99990;
+      display:flex; flex-direction:column; gap:8px; align-items:flex-end;
+      pointer-events:none;
+    }
+    .toolDockPill{
+      pointer-events:all;
+      display:flex; align-items:center; gap:9px;
+      background:#141e38; border:1px solid rgba(80,110,200,.45);
+      border-radius:50px; padding:8px 16px 8px 12px;
+      font-size:13px; font-weight:500; color:#c4b5fd;
+      box-shadow:0 4px 24px rgba(0,0,0,.5);
+      cursor:default; user-select:none;
+      transition:border-color .2s, background .2s;
+      max-width:260px;
+    }
+    .toolDockPill.done{
+      border-color:rgba(134,239,172,.6); color:#86efac;
+      background:#0d2218; cursor:pointer;
+      animation:dockPop .4s cubic-bezier(.34,1.56,.64,1) both;
+    }
+    .toolDockPill.done:hover{ background:#0f2c20; }
+    @keyframes dockPop{
+      0%{transform:scale(.85);opacity:0}
+      100%{transform:scale(1);opacity:1}
+    }
+    .toolDockDot{
+      width:8px; height:8px; border-radius:50%; flex-shrink:0;
+      background:#a78bfa;
+      animation:dockPulse 1.2s ease-in-out infinite;
+    }
+    .toolDockPill.done .toolDockDot{
+      background:#86efac; animation:none;
+    }
+    @keyframes dockPulse{
+      0%,100%{opacity:.3;transform:scale(.8)}
+      50%{opacity:1;transform:scale(1.2)}
+    }
+    .toolDockClose{
+      margin-left:4px; opacity:.4; font-size:15px; line-height:1;
+      background:none; border:none; color:inherit; cursor:pointer;
+      padding:0 0 0 2px; flex-shrink:0;
+    }
+    .toolDockClose:hover{ opacity:.9; }
     .modalResizeGrip{
       position:absolute;
       right:10px;
@@ -13652,6 +13735,21 @@ window.showModal = function showModal(title, body, imgUrl){
     });
 
     $("minModal").onclick = () => {
+      // Check if a background tool is currently running — if so, dock it instead of minimizing
+      const toolDockMap = {
+        'Lead Lab':       { id:'leadLab',       reopen:()=> showLeadLabModal() },
+        'Social Studio':  { id:'socialStudio',  reopen:()=> showSocialStudioModal() },
+        'Offer Builder':  { id:'offerBuilder',  reopen:()=> showOfferBuilderModal() },
+        'Growth Playbook':{ id:'growthPlaybook',reopen:()=> showGrowthPlaybookModal() },
+      };
+      const currentTitle = ($("modalTitle")||{}).innerText || '';
+      const toolEntry = toolDockMap[currentTitle];
+      if(toolEntry && typeof window.toolDockAdd === 'function'){
+        // Dock it — modal hides, tool keeps running
+        window.toolDockAdd(toolEntry.id, currentTitle, toolEntry.reopen);
+        return;
+      }
+      // Default behaviour for non-tool modals (Round Table, CRM, etc.)
       modalMinimized = true;
       $("modalWin").classList.add("minimized");
       $("minModal").style.display = "none";
@@ -18130,8 +18228,7 @@ async function crmFetchTasks(){
       let html = '';
       if(item.linkedin) html += `<a href="${escapeHtml(item.linkedin)}" target="_blank" rel="noopener" title="LinkedIn" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e3a5f;color:#93c5fd;font-size:13px;font-weight:700;text-decoration:none;">in</a>`;
       if(item.facebook) html += `<a href="${escapeHtml(item.facebook)}" target="_blank" rel="noopener" title="Facebook" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e2a45;color:#60a5fa;font-size:12px;font-weight:700;text-decoration:none;">f</a>`;
-      if(item.website)  html += `<a href="${escapeHtml(item.website)}" target="_blank" rel="noopener" title="Website" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#1e293b;color:#94a3b8;font-size:11px;font-weight:700;text-decoration:none;">www</a>`;
-      return html ? `<div style="display:flex;gap:5px;margin-top:8px;">${html}</div>` : '';
+      return html ? `<div style="display:flex;gap:5px;margin-top:6px;align-items:center;">${html}</div>` : '';
     }
 
     function _llRenderCards(items){
@@ -18163,6 +18260,12 @@ async function crmFetchTasks(){
               <div style="font-size:13px;color:#e2e8f0;line-height:2;">
                 ${email?`<div>✉ <a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;">${escapeHtml(email)}</a></div>`:'<div style="opacity:.4;">No email found</div>'}
                 ${phone?`<div>📞 ${escapeHtml(phone)}</div>`:'<div style="opacity:.4;">No phone found</div>'}
+                ${(()=>{
+                  const site = item.website || (item.domain ? 'https://'+item.domain : '');
+                  if(!site) return '';
+                  const display = site.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
+                  return `<div>🌐 <a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:none;word-break:break-all;">${escapeHtml(display)}</a></div>`;
+                })()}
               </div>
               ${_llSocialIcons(item)}
             </div>
@@ -18298,10 +18401,14 @@ async function crmFetchTasks(){
         const withEmail=(data.items||[]).filter(x=>x.email).length;
         const withPhone=(data.items||[]).filter(x=>x.phone).length;
         const withLI=(data.items||[]).filter(x=>x.linkedin).length;
-        if(st) st.innerHTML=`<span style="color:#86efac;font-weight:500;">&#10003; ${count} leads &nbsp;·&nbsp; ${withEmail} email &nbsp;·&nbsp; ${withPhone} phone &nbsp;·&nbsp; ${withLI} LinkedIn</span>${data.warning?'<br><span style="opacity:.5;font-size:12px;">'+escapeHtml(data.warning)+'</span>':''}`;
+        const summary = `${count} leads · ${withEmail} email · ${withPhone} phone · ${withLI} LinkedIn`;
+        if(st) st.innerHTML=`<span style="color:#86efac;font-weight:500;">&#10003; ${summary}</span>${data.warning?'<br><span style="opacity:.5;font-size:12px;">'+escapeHtml(data.warning)+'</span>':''}`;
+        // Notify dock if minimized
+        if(typeof window.toolDockComplete === 'function') window.toolDockComplete('leadLab', 'Lead Lab', summary);
       }catch(e){
         clearInterval(ticker);
         if(st) st.innerHTML=`<span style="color:#fca5a5;">${escapeHtml(e.message||'Lead build failed')}</span>`;
+        if(typeof window.toolDockComplete === 'function') window.toolDockComplete('leadLab', 'Lead Lab', 'Error — click to view');
       }finally{
         if(btn){ btn.disabled=false; btn.style.opacity=''; }
       }
@@ -18312,6 +18419,13 @@ async function crmFetchTasks(){
       const st = $(statusId), box = $(resultsId);
       if(st) st.innerText = 'Generating...';
       if(box) box.innerHTML = '';
+      // Detect which tool is running so we can notify the dock
+      const toolNameMap = {
+        'socialStudioStatus': { id:'socialStudio',  label:'Social Studio'  },
+        'offerBuilderStatus': { id:'offerBuilder',  label:'Offer Builder'  },
+        'playbookStatus':     { id:'growthPlaybook',label:'Growth Playbook' },
+      };
+      const dockInfo = toolNameMap[statusId] || null;
       try{
         const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})});
         const data = await res.json();
@@ -18329,8 +18443,12 @@ async function crmFetchTasks(){
           }
         }
         if(st) st.innerText = 'Ready';
+        if(dockInfo && typeof window.toolDockComplete === 'function')
+          window.toolDockComplete(dockInfo.id, dockInfo.label, 'Content ready — click to view');
       }catch(e){
         if(st) st.innerText = e.message || 'Generation failed';
+        if(dockInfo && typeof window.toolDockComplete === 'function')
+          window.toolDockComplete(dockInfo.id, dockInfo.label, 'Error — click to view');
       }
     }
 
@@ -19344,8 +19462,9 @@ async function wcalFireCompleteAction(taskId, task){
         on_complete_client_email:task.on_complete_client_email|| '',
         on_complete_client_name: task.on_complete_client_name || '',
         task_title:              task.title || '',
-        task_description:        task.description || '',
+        task_description:        (task.description || task.notes || task.body || ''),
         task_date:               task.date || '',
+        task_notes:              task.notes || '',
       })
     });
     const d = await res.json();
@@ -24806,6 +24925,127 @@ document.addEventListener('click',e=>{
   if(window.innerWidth>720&&!e.target.closest('.saDropWrap'))
     document.querySelectorAll('.saDrop').forEach(d=>d.classList.remove('open'));
 });
+
+// =========================
+// BACKGROUND TASK DOCK
+// =========================
+// Persistent dock bar bottom-right. Tools (Lead Lab, Social Studio, Offer Builder)
+// add themselves here when minimized so they keep running while the user works elsewhere.
+// When done they flash green and a toast lets the user click back in with results intact.
+
+(function(){
+  // Create the dock container once
+  const dock = document.createElement('div');
+  dock.id = 'toolDock';
+  document.body.appendChild(dock);
+
+  // Active dock items keyed by toolId
+  const _dockItems = {};
+
+  function _dockUpdate(){
+    dock.style.display = Object.keys(_dockItems).length ? 'flex' : 'none';
+  }
+
+  /**
+   * Add a tool pill to the dock and hide the modal.
+   * @param {string} toolId   — e.g. 'leadLab'
+   * @param {string} label    — e.g. 'Lead Lab'
+   * @param {function} reopenFn — called when user clicks the done pill
+   */
+  window.toolDockAdd = function(toolId, label, reopenFn){
+    // Hide the modal overlay so the user can work freely
+    const overlay = document.getElementById('overlay');
+    if(overlay) overlay.classList.remove('show');
+    const modalWin = document.getElementById('modalWin');
+    if(modalWin) modalWin.classList.remove('minimized');
+    const minBtn = document.getElementById('minModal');
+    if(minBtn) minBtn.style.display = 'inline-block';
+    const restBtn = document.getElementById('restoreModal');
+    if(restBtn) restBtn.style.display = 'none';
+
+    // Remove existing pill for this tool if any
+    if(_dockItems[toolId]){
+      try{ dock.removeChild(_dockItems[toolId].el); }catch(e){}
+    }
+
+    const pill = document.createElement('div');
+    pill.className = 'toolDockPill';
+    pill.title = label + ' is running in the background';
+
+    const dot = document.createElement('span');
+    dot.className = 'toolDockDot';
+    pill.appendChild(dot);
+
+    const lbl = document.createElement('span');
+    lbl.style.cssText = 'flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    lbl.textContent = label + ' — running…';
+    pill.appendChild(lbl);
+
+    const cls = document.createElement('button');
+    cls.className = 'toolDockClose';
+    cls.title = 'Dismiss';
+    cls.textContent = '×';
+    cls.onclick = (e)=>{
+      e.stopPropagation();
+      try{ dock.removeChild(pill); }catch(er){}
+      delete _dockItems[toolId];
+      _dockUpdate();
+    };
+    pill.appendChild(cls);
+
+    dock.appendChild(pill);
+    _dockItems[toolId] = { el: pill, lbl, dot, reopenFn };
+    _dockUpdate();
+  };
+
+  /**
+   * Mark a docked tool as complete — turns pill green, fires a notification toast.
+   * @param {string} toolId
+   * @param {string} label
+   * @param {string} summary  — e.g. "23 leads found · 18 with email"
+   */
+  window.toolDockComplete = function(toolId, label, summary){
+    const item = _dockItems[toolId];
+    if(!item) return;
+    item.el.classList.add('done');
+    item.lbl.textContent = label + ' — done! Click to view';
+    item.el.onclick = ()=> window.toolDockReopen(toolId, label);
+
+    // Notification toast with click-to-open
+    const toast = document.createElement('div');
+    toast.style.cssText = [
+      'position:fixed;bottom:70px;right:16px;z-index:99995;',
+      'background:#0d2218;border:1px solid rgba(134,239,172,.5);border-radius:12px;',
+      'padding:12px 16px;max-width:300px;box-shadow:0 8px 32px rgba(0,0,0,.6);',
+      'cursor:pointer;animation:dockPop .35s cubic-bezier(.34,1.56,.64,1) both;',
+    ].join('');
+    toast.innerHTML = [
+      '<div style="font-size:13px;font-weight:600;color:#86efac;margin-bottom:3px;">✓ ' + label + ' complete</div>',
+      summary ? '<div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">' + summary + '</div>' : '',
+      '<div style="font-size:12px;color:#a78bfa;font-weight:500;">Click to view results →</div>',
+    ].join('');
+    toast.onclick = ()=>{
+      document.body.removeChild(toast);
+      window.toolDockReopen(toolId, label);
+    };
+    document.body.appendChild(toast);
+    // Auto-dismiss toast after 8 seconds
+    setTimeout(()=>{ try{ document.body.removeChild(toast); }catch(e){} }, 8000);
+  };
+
+  /**
+   * Reopen a docked tool — removes the pill, reopens the modal at that tool.
+   */
+  window.toolDockReopen = function(toolId, label){
+    const item = _dockItems[toolId];
+    if(item){ try{ dock.removeChild(item.el); }catch(e){} delete _dockItems[toolId]; }
+    _dockUpdate();
+    if(item && typeof item.reopenFn === 'function'){
+      item.reopenFn();
+    }
+  };
+
+})();
 </script>
 
 </body>
