@@ -50,6 +50,29 @@ except Exception:
 load_dotenv()
 
 # =========================
+# WORKER SAFETY CHECK
+# =========================
+# This app uses in-memory state (rate limits, caches, lockouts).
+# These are NOT shared across Gunicorn workers — always run with --workers 1.
+# At startup, log a clear warning if we detect a multi-worker scenario.
+import os as _os_worker
+
+_WORKER_ID = _os_worker.getpid()
+_GUNICORN_WORKERS = int(_os_worker.getenv("WEB_CONCURRENCY", "0") or
+                        _os_worker.getenv("GUNICORN_WORKERS", "0") or 0)
+
+if _GUNICORN_WORKERS > 1:
+    print(
+        f"[STARTUP] ⚠️  WARNING: WEB_CONCURRENCY={_GUNICORN_WORKERS} detected. "
+        f"This app uses in-memory state that is NOT shared across workers. "
+        f"Set WEB_CONCURRENCY=1 (or --workers 1) to avoid cache/rate-limit bypass bugs.",
+        flush=True,
+    )
+elif _GUNICORN_WORKERS == 1 or _GUNICORN_WORKERS == 0:
+    print(f"[STARTUP] Worker safety: single-worker mode confirmed (pid={_WORKER_ID})", flush=True)
+
+
+# =========================
 # SELF-HOSTED ERROR TRACKER
 # =========================
 # Captures unhandled exceptions to DATA/error_log.json — no third-party signup needed.
@@ -1562,6 +1585,22 @@ def _csrf_valid() -> bool:
     )
     return bool(incoming) and hmac.compare_digest(expected, incoming)
 
+
+@app.get("/health")
+def health_check():
+    """Health check for Render and any uptime monitors.
+    Returns 200 OK immediately — no auth, no DB calls, no overhead."""
+    return jsonify({
+        "status": "ok",
+        "app":    APP_TITLE,
+        "ts":     now_iso(),
+    })
+
+@app.get("/ping")
+def ping():
+    """Alias for /health — some monitors use /ping."""
+    return "pong", 200
+
 @app.get("/api/csrf_token")
 def api_csrf_token():
     """Issue (or return) the CSRF token for this session. Call before any POST."""
@@ -1570,7 +1609,7 @@ def api_csrf_token():
 
 @app.before_request
 def _auth_guard():
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend"):
+    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -1583,7 +1622,7 @@ def _auth_guard():
     if request.path.startswith("/setup") and not has_any_user():
         return None
 
-    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token", "/api/register"}
+    public_api = {"/api/login", "/api/logout", "/api/reset_request", "/api/reset_password", "/api/me", "/api/csrf_token", "/api/register", "/health", "/ping"}
     if request.path.startswith("/api/") and request.path in public_api:
         return None
 
@@ -12124,8 +12163,20 @@ label         { font-size: 14px !important; }
 
                 </div><!-- end formGrid2 -->
 
+                <!-- TOKEN USAGE DASHBOARD -->
+                <details style="margin-top:18px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:0;">
+                  <summary onclick="if(window.loadUsageDashboard)window.loadUsageDashboard()" style="cursor:pointer;padding:.6rem 1rem;font-size:13px;font-weight:500;list-style:none;display:flex;align-items:center;justify-content:space-between;">
+                    <span>Token usage &amp; API spend</span>
+                    <span style="font-size:11px;font-weight:400;color:var(--color-text-tertiary)">click to expand</span>
+                  </summary>
+                  <div id="usageDashboardContainer" style="padding:0 1rem .75rem;border-top:0.5px solid var(--color-border-tertiary);margin-top:0;">
+                    <div style="font-size:12px;color:var(--color-text-tertiary);padding:.5rem 0">Click the section header to load your usage data.</div>
+                  </div>
+                </details>
+
                 <div class="actions" style="justify-content:center;margin-top:16px;">
                   <button class="btn" id="cancelSettings">Cancel</button>
+                  <button class="btn" id="exportDataBtn" title="Download a ZIP of all your data (GDPR export)" onclick="window.open('/api/user/export','_blank')" style="font-size:12px;">Export my data</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                   <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
                 </div>
@@ -24449,6 +24500,118 @@ if(typeof maybeAutoShowOnboarding === "function"){
     });
   }
 
+  
+// ── TOKEN USAGE DASHBOARD (injected into settings panel) ──────────────────
+(function initUsageDashboard() {
+  function formatNum(n) {
+    if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+    return String(n || 0);
+  }
+
+  function buildUsagePanel(data) {
+    const s = data.summary || {};
+    const totalIn  = s.total_input  || 0;
+    const totalOut = s.total_output || 0;
+    const total    = s.total_tokens || 0;
+    const calls    = s.total_calls  || 0;
+    const byModel  = s.by_model     || {};
+    const byTm     = s.by_teammate  || {};
+    const recent   = s.recent       || [];
+
+    let modelRows = Object.entries(byModel).slice(0, 6).map(([m, t]) =>
+      `<tr><td style="padding:4px 0;font-size:12px;color:var(--color-text-secondary)">${m}</td>
+           <td style="padding:4px 0;font-size:12px;text-align:right">${formatNum(t)}</td></tr>`
+    ).join('');
+
+    let tmRows = Object.entries(byTm).slice(0, 6).map(([t, n]) =>
+      `<tr><td style="padding:4px 0;font-size:12px;color:var(--color-text-secondary)">${t}</td>
+           <td style="padding:4px 0;font-size:12px;text-align:right">${formatNum(n)}</td></tr>`
+    ).join('');
+
+    let recentRows = recent.slice(0, 8).map(r =>
+      `<tr>
+        <td style="padding:3px 0;font-size:11px;color:var(--color-text-tertiary)">${(r.ts||'').slice(0,16).replace('T',' ')}</td>
+        <td style="padding:3px 0;font-size:11px">${r.teammate||'–'}</td>
+        <td style="padding:3px 0;font-size:11px;color:var(--color-text-secondary)">${(r.model||'').replace('gpt-','').replace('claude-','')}</td>
+        <td style="padding:3px 0;font-size:11px;text-align:right">${formatNum(r.total_tokens||0)}</td>
+      </tr>`
+    ).join('');
+
+    return `
+<div style="padding:.75rem 0">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:1rem">
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.75rem;text-align:center">
+      <div style="font-size:20px;font-weight:500">${formatNum(total)}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">Total tokens</div>
+    </div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.75rem;text-align:center">
+      <div style="font-size:20px;font-weight:500">${formatNum(calls)}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">API calls</div>
+    </div>
+    <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.75rem;text-align:center">
+      <div style="font-size:20px;font-weight:500">${formatNum(totalIn)} / ${formatNum(totalOut)}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:2px">In / Out tokens</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem">
+    <div>
+      <div style="font-size:12px;font-weight:500;margin-bottom:.4rem">By model</div>
+      <table style="width:100%">${modelRows || '<tr><td colspan=2 style="font-size:12px;color:var(--color-text-tertiary)">No data yet</td></tr>'}</table>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:500;margin-bottom:.4rem">By teammate</div>
+      <table style="width:100%">${tmRows || '<tr><td colspan=2 style="font-size:12px;color:var(--color-text-tertiary)">No data yet</td></tr>'}</table>
+    </div>
+  </div>
+
+  ${recentRows ? `
+  <div style="font-size:12px;font-weight:500;margin-bottom:.4rem">Recent calls</div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr>
+      <th style="font-size:11px;font-weight:400;color:var(--color-text-tertiary);text-align:left;padding-bottom:4px">Time</th>
+      <th style="font-size:11px;font-weight:400;color:var(--color-text-tertiary);text-align:left;padding-bottom:4px">Teammate</th>
+      <th style="font-size:11px;font-weight:400;color:var(--color-text-tertiary);text-align:left;padding-bottom:4px">Model</th>
+      <th style="font-size:11px;font-weight:400;color:var(--color-text-tertiary);text-align:right;padding-bottom:4px">Tokens</th>
+    </tr></thead>
+    <tbody>${recentRows}</tbody>
+  </table>` : ''}
+
+  <div style="margin-top:.75rem;font-size:11px;color:var(--color-text-tertiary)">
+    Showing up to last 5,000 calls. Tokens are counted from your own API key — this is for your reference only.
+  </div>
+</div>`;
+  }
+
+  async function loadUsagePanel() {
+    const container = document.getElementById('usageDashboardContainer');
+    if (!container) return;
+    container.innerHTML = '<div style="font-size:13px;color:var(--color-text-secondary);padding:.5rem 0">Loading usage data...</div>';
+    try {
+      const res = await fetch('/api/usage/summary');
+      const data = await res.json();
+      if (data.ok) {
+        container.innerHTML = buildUsagePanel(data);
+      } else {
+        container.innerHTML = '<div style="font-size:12px;color:var(--color-text-tertiary)">Could not load usage data.</div>';
+      }
+    } catch(e) {
+      container.innerHTML = '<div style="font-size:12px;color:var(--color-text-tertiary)">Could not load usage data.</div>';
+    }
+  }
+
+  // Expose globally so settings panel can call it when opened
+  window.loadUsageDashboard = loadUsagePanel;
+
+  // Auto-load if the container already exists in the DOM
+  document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('usageDashboardContainer')) {
+      loadUsagePanel();
+    }
+  });
+})();
+
   // ── cache state for TTS voice reads ──
   // patchLoadState cannot wrap the local loadState (it lives in a different IIFE).
   // Instead, poll /api/state once on load and again every 30s so _saStateCache stays fresh.
@@ -31445,6 +31608,103 @@ def unsubscribe_page(token: str):
 <h2 style="margin:0 0 .5rem">You've been unsubscribed</h2>
 <p style="color:#666;margin:0">You will no longer receive broadcast emails from this account.</p>
 </div></body></html>"""
+
+
+@app.get("/api/user/export")
+def api_user_export():
+    """GDPR-compliant data export. Returns a ZIP of all the user's data as JSON files.
+    Covers: profile, threads, CRM, uploads index, task log, usage log, settings (keys redacted)."""
+    import zipfile, io
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+
+        # 1. Profile (redact sensitive keys)
+        try:
+            profile = dict(u)
+            profile.pop("password_hash", None)
+            settings = dict(profile.get("settings") or {})
+            for k in ["openai_key", "claude_key", "smtp_pass", "twilio_auth_token"]:
+                if k in settings:
+                    settings[k] = "[redacted]"
+            profile["settings"] = settings
+            zf.writestr("profile.json", json.dumps(profile, indent=2))
+        except Exception as e:
+            zf.writestr("profile.json", json.dumps({"error": str(e)}))
+
+        # 2. Operator profile
+        try:
+            op = _load_operator_profile(uname) or {}
+            zf.writestr("operator_profile.json", json.dumps(op, indent=2))
+        except Exception as e:
+            zf.writestr("operator_profile.json", json.dumps({"error": str(e)}))
+
+        # 3. All teammate threads
+        try:
+            reg = load_registry(uname)
+            threads = {}
+            for name in reg.get("installed", {}):
+                try:
+                    threads[name] = load_thread(name, uname)
+                except Exception:
+                    pass
+            zf.writestr("threads.json", json.dumps(threads, indent=2))
+        except Exception as e:
+            zf.writestr("threads.json", json.dumps({"error": str(e)}))
+
+        # 4. CRM data
+        try:
+            crm = _crm_load(uname)
+            crm_clean = dict(crm)
+            zf.writestr("crm.json", json.dumps(crm_clean, indent=2))
+        except Exception as e:
+            zf.writestr("crm.json", json.dumps({"error": str(e)}))
+
+        # 5. Task log (last 1000)
+        try:
+            logs = read_task_log(limit=1000)
+            zf.writestr("task_log.json", json.dumps(logs, indent=2))
+        except Exception as e:
+            zf.writestr("task_log.json", json.dumps({"error": str(e)}))
+
+        # 6. Token usage log (last 1000)
+        try:
+            usage = _read_token_usage(uname, limit=1000)
+            zf.writestr("token_usage.json", json.dumps(usage, indent=2))
+        except Exception as e:
+            zf.writestr("token_usage.json", json.dumps({"error": str(e)}))
+
+        # 7. Upload index (filenames only, no binary data)
+        try:
+            _idx = load_json(UPLOAD_INDEX_PATH, {})
+            all_uploads = [r for r in (_idx.get("files") or {}).values()
+                          if isinstance(r, dict) and r.get("owner") == uname]
+            safe = [{k: v for k, v in r.items() if k not in ("data", "content")}
+                    for r in all_uploads]
+            zf.writestr("uploads_index.json", json.dumps(safe, indent=2))
+        except Exception as e:
+            zf.writestr("uploads_index.json", json.dumps({"error": str(e)}))
+
+        # 8. Export manifest
+        zf.writestr("README.txt",
+            f"Simply Agentic AI — data export for user: {uname}\n"
+            f"Exported at: {now_iso()}\n"
+            f"Contains: profile, operator_profile, threads, crm, task_log, token_usage, uploads_index\n"
+            f"Sensitive keys have been redacted from profile.json.\n"
+        )
+
+    buf.seek(0)
+    from flask import send_file
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"simply_agentic_export_{uname}_{datetime.utcnow().strftime('%Y%m%d')}.zip",
+    )
 
 @app.get("/api/team")
 def api_team_get():
