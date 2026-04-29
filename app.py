@@ -8500,86 +8500,306 @@ def _hash_token(token: str) -> str:
 
 @app.get("/pricing")
 def pricing_page():
-    """Public pricing page — renders from the PLANS dict so it's always in sync."""
-    founder_remaining = _founder_seats_remaining()
-    stripe_ready = _stripe_ready()
+    stripe_on      = _stripe_ready()
+    founder_remain = _founder_seats_remaining()
+    founder_sold   = founder_remain <= 0
+    founder_timer  = _founder_weekly_timer()
+    sold_out_param = request.args.get("founder_sold_out", "")
+    fp             = PLANS.get("founder", {})
 
-    def plan_card(key, plan, highlight=False):
-        price     = plan.get("price", 0)
-        name      = plan.get("name", key.title())
-        badge     = plan.get("badge") or ""
-        tagline   = plan.get("tagline", "")
-        features  = plan.get("features") or []
-        price_id  = plan.get("price_id", "")
-        border    = "border:2px solid rgba(124,58,237,.6);" if highlight else "border:1px solid rgba(255,255,255,.08);"
-        badge_html = f'<div style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;display:inline-block;margin-bottom:12px;">{badge}</div>' if badge else ""
-        feat_html = "".join(f'<li style="padding:5px 0;font-size:14px;color:#cbd5e1;border-bottom:1px solid rgba(255,255,255,.05);">&#10003; {f}</li>' for f in features)
-        btn_label = "Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
-        if stripe_ready and price_id:
-            btn = f'<a href="/register?plan={key}" style="display:block;width:100%;padding:13px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-top:auto;">{btn_label}</a>'
-        else:
-            btn = f'<a href="/register" style="display:block;width:100%;padding:13px;background:rgba(124,58,237,.3);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-top:auto;">{btn_label}</a>'
-        return f"""
-        <div style="background:rgba(255,255,255,.04);{border}border-radius:16px;padding:28px 24px;display:flex;flex-direction:column;gap:12px;">
+    founder_features_html = "".join(
+        f"<li><span class='pfc'>&#10003;</span>{f}</li>"
+        for f in fp.get("features", [])
+    )
+    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
+    sold_out_msg  = "<div class='f-soldout'>All 100 founder seats have been claimed.</div>" if founder_sold else ""
+    founder_btn   = (
+        "<button class='f-btn-out' disabled>Sold Out</button>" if founder_sold else
+        f"""<button class='f-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
+              <span class='btn-spinner' id='spin-founder' style='display:none'>
+                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+              </span>
+              Claim My Founder Spot
+            </button>"""
+    )
+
+    cards_html = ""
+    for key, p in PLANS.items():
+        if key == "founder":
+            continue
+        badge         = p.get("badge")
+        is_growth     = key == "growth"
+        badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
+        rec_cls       = " plan-card-featured" if is_growth else ""
+        team_seats    = p.get("team_seats", 1)
+        features_html = "".join(
+            f"<li><span class='pfc'>&#10003;</span>{f}</li>"
+            for f in p.get("features", [])
+        )
+        trial_html    = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
+        cta_label     = f"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
+        cards_html   += f"""
+        <div class='plan-card{rec_cls}'>
           {badge_html}
-          <div style="font-size:22px;font-weight:700;color:#e2e8f0;">{name}</div>
-          <div style="font-size:38px;font-weight:800;color:#c4b5fd;">${price}<span style="font-size:16px;font-weight:400;color:#94a3b8;">/mo</span></div>
-          <div style="font-size:13px;color:#94a3b8;line-height:1.5;">{tagline}</div>
-          <ul style="list-style:none;padding:0;margin:0;flex:1;">{feat_html}</ul>
-          {btn}
+          <div class='plan-name'>{p['name']}</div>
+          <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
+          <div class='plan-tagline'>{p['tagline']}</div>
+          <ul class='plan-features'>{features_html}</ul>
+          <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
+            <span class='btn-spinner' id='spin-{key}' style='display:none'>
+              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+            </span>
+            {cta_label}
+          </button>
+          {trial_html}
         </div>"""
 
-    cards = ""
-    plan_order = ["founder", "starter", "growth", "pro"]
-    highlights = {"growth"}
-    for key in plan_order:
-        plan = PLANS.get(key)
-        if not plan:
-            continue
-        if key == "founder" and not plan.get("price_id"):
-            continue  # skip founder if not configured
-        cards += plan_card(key, plan, highlight=(key in highlights))
-
-    trial_banner = ""
-    if FREE_TRIAL_DAYS > 0:
-        trial_banner = f'<div style="text-align:center;margin-bottom:32px;"><span style="background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(79,70,229,.2));border:1px solid rgba(167,139,250,.3);border-radius:20px;padding:8px 24px;font-size:14px;color:#c4b5fd;font-weight:600;">&#127881; {FREE_TRIAL_DAYS}-day free trial on all plans — no credit card required to start</span></div>'
-
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Plans &amp; Pricing — {APP_TITLE}</title>
+    page = f"""<!doctype html>
+<html><head>
+<meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Pricing - {APP_TITLE}</title>
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:system-ui,-apple-system,sans-serif;background:#0a0e1f;color:#e2e8f0;min-height:100vh}}
-.wrap{{max-width:1100px;margin:0 auto;padding:60px 24px 80px}}
-.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-top:40px}}
-.nav{{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid rgba(255,255,255,.07);max-width:1100px;margin:0 auto}}
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(247,211,106,.13),transparent 56%),radial-gradient(1200px 900px at 50% 38%,rgba(124,58,237,.22),transparent 58%),linear-gradient(180deg,#090d19 0%,#0a1022 38%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 80px;}}
+.pg-header{{text-align:center;margin-bottom:48px;}}
+.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:12px;}}
+.pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
+.brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
+.dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
+
+/* ══ FOUNDER CARD ══════════════════════════════════ */
+.f-wrap{{max-width:720px;margin:0 auto 48px;}}
+.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
+.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+
+/* ── Ribbon pulse animation ── */
+.f-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
+@keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0),0 0 12px rgba(251,191,36,.35);}}50%{{box-shadow:0 0 0 7px rgba(251,191,36,.12),0 0 36px rgba(251,191,36,.75);}}}}
+
+.f-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
+.f-left{{flex:1;min-width:200px;}}
+.f-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
+.f-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
+
+/* ── Price breathe ── */
+.f-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
+.f-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
+.f-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
+.f-price .num{{display:inline-block;animation:priceBreathe 3s ease-in-out infinite;}}
+@keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 28px rgba(251,191,36,.6),0 0 56px rgba(251,191,36,.25);}}}}
+
+/* ── Lock badge pulse ── */
+.f-locked{{font-size:12px;color:#fbbf24;margin-top:5px;animation:lockPulse 2.8s ease-in-out infinite;}}
+@keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
+
+.f-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
+.f-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
+.seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
+.seats-num{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
+.seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
+.seats-bar{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
+
+/* ── Bar shimmer ── */
+.seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);position:relative;overflow:hidden;}}
+.seats-bar-fill::after{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:barShimmer 2.8s ease-in-out infinite;}}
+@keyframes barShimmer{{0%{{left:-80%;}}65%,100%{{left:160%;}}}}
+
+.cd-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
+.cd-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
+.cd-row{{display:flex;gap:10px;align-items:center;}}
+.cd-unit{{text-align:center;}}
+.cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
+.cd-sub{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
+.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:10px;}}
+
+/* ── Digit flip ── */
+.cd-flip{{animation:digitFlip .35s ease-out;}}
+@keyframes digitFlip{{0%{{transform:scaleY(0);opacity:0;}}55%{{transform:scaleY(1.08);}}100%{{transform:scaleY(1);opacity:1;}}}}
+
+.f-feats{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
+.f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
+.f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
+.pfc{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
+
+/* ── CTA + button shimmer ── */
+.f-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
+.f-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;}}
+.f-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);animation:btnShimmer 2.4s ease-in-out infinite;}}
+@keyframes btnShimmer{{0%{{left:-80%;}}55%,100%{{left:150%;}}}}
+.f-btn:hover{{opacity:.88;transform:translateY(-2px);}}
+.f-btn:active{{transform:translateY(0);}}
+.f-btn-out{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
+.f-note{{font-size:12px;color:#78716c;line-height:1.5;}}
+.f-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
+
+/* ── Floating particles ── */
+.f-particles{{position:absolute;inset:0;pointer-events:none;overflow:hidden;}}
+.f-particle{{position:absolute;border-radius:50%;background:rgba(251,191,36,.55);animation:floatUp linear infinite;}}
+@keyframes floatUp{{0%{{transform:translateY(0) scale(1);opacity:.55;}}100%{{transform:translateY(-140px) scale(0);opacity:0;}}}}
+
+/* ══ DIVIDER ══ */
+.divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
+.divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
+.divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
+
+/* ══ STANDARD PLAN CARDS ══ */
+.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
+.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
+.plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
+.plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
+.plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
+.plan-name{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
+.plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
+.plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
+.plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
+.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:16px;}}
+.plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:26px;flex:1;}}
+.plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
+.plan-features .pfc{{color:#a78bfa;}}
+.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;position:relative;overflow:hidden;}}
+.plan-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);animation:btnShimmer 3s ease-in-out infinite;animation-delay:.6s;}}
+.plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
+.trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
+.api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
+.api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
+.api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
+.api-note-text strong{{color:#c4b5fd;}}
+.pg-footer{{text-align:center;margin-top:32px;color:#475569;font-size:13px;}}
+.pg-footer a{{color:#7c3aed;text-decoration:none;}}
+.already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
+.already a{{color:#a78bfa;text-decoration:none;}}
+.already a:hover{{text-decoration:underline;}}
+@media(max-width:600px){{
+  .f-top{{flex-direction:column;gap:16px;}}
+  .f-price{{font-size:42px;}}
+  .f-cta{{flex-direction:column;align-items:stretch;}}
+  .f-btn,.f-btn-out{{width:100%;text-align:center;}}
+  .cd-row{{gap:6px;}}
+  .cd-num{{font-size:18px;min-width:26px;}}
+  .f-feat-grid{{grid-template-columns:1fr;}}
+}}
 </style>
-</head>
-<body>
-<nav class="nav">
-  <a href="/" style="color:#c4b5fd;font-weight:700;font-size:18px;text-decoration:none;">{APP_TITLE}</a>
-  <div style="display:flex;gap:16px;align-items:center;">
-    <a href="/login" style="color:#94a3b8;font-size:14px;text-decoration:none;">Sign in</a>
-    <a href="/register" style="background:rgba(124,58,237,.3);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:7px 18px;font-size:14px;font-weight:600;text-decoration:none;">Get started</a>
-  </div>
-</nav>
-<div class="wrap">
-  <div style="text-align:center;margin-bottom:16px;">
-    <h1 style="font-size:42px;font-weight:800;background:linear-gradient(135deg,#c4b5fd,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px;">Simple, honest pricing</h1>
-    <p style="font-size:18px;color:#94a3b8;max-width:520px;margin:0 auto;">Bring your own API key. Pay once. Own your AI team.</p>
-  </div>
-  {trial_banner}
-  <div class="grid">{cards}</div>
-  <div style="text-align:center;margin-top:48px;color:#64748b;font-size:13px;">
-    <p>All plans include a {FREE_TRIAL_DAYS}-day free trial &nbsp;&#183;&nbsp; Cancel anytime &nbsp;&#183;&nbsp; Powered by your own OpenAI / Anthropic key</p>
-    <p style="margin-top:8px;"><a href="/login" style="color:#818cf8;">Already have an account? Sign in</a> &nbsp;&#183;&nbsp; <a href="/terms" style="color:#818cf8;">Terms</a> &nbsp;&#183;&nbsp; <a href="/privacy" style="color:#818cf8;">Privacy</a></p>
+</head><body>
+<div class='brand'><div class='dot'></div>{APP_TITLE}</div>
+<div class='pg-header'>
+  <h1>Every feature. Every AI teammate.</h1>
+  <p>You get the full platform on every plan. You scale, we scale with you.</p>
+  {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
+</div>
+
+<div class='f-wrap'>
+  <div class='f-card'>
+    <div class='f-particles' id='particles'></div>
+    <div class='f-ribbon'>LIMITED</div>
+    <div class='f-top'>
+      <div class='f-left'>
+        <div class='f-badge'>🔥 Founder Access</div>
+        <div class='f-name'>{fp.get("name","Founder Access")}</div>
+        <div class='f-price'><span class='dol'>$</span><span class='num'>17</span><span class='per'>/mo</span></div>
+        <div class='f-locked'>🔒 Price locked in forever — never increases</div>
+        <div class='f-tagline'>{fp.get("tagline","")}</div>
+      </div>
+      <div class='f-right'>
+        <div>
+          <div class='seats-lbl'>Founder seats remaining</div>
+          <div class='seats-num' id='seatsRemain'>{founder_remain}</div>
+          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
+          <div class='seats-bar'>
+            <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
+          </div>
+        </div>
+        <div class='cd-wrap'>
+          <div class='cd-lbl'>Time remaining at this price</div>
+          <div class='cd-row'>
+            <div class='cd-unit'><div class='cd-num' id='cdD'>{founder_timer["days"]:02d}</div><div class='cd-sub'>days</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdH'>{founder_timer["hours"]:02d}</div><div class='cd-sub'>hrs</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdM'>{founder_timer["minutes"]:02d}</div><div class='cd-sub'>min</div></div>
+            <div class='cd-sep'>:</div>
+            <div class='cd-unit'><div class='cd-num' id='cdS'>{founder_timer["seconds"]:02d}</div><div class='cd-sub'>sec</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class='f-feats'>
+      <ul class='f-feat-grid'>{founder_features_html}</ul>
+    </div>
+    <div class='f-cta'>
+      {founder_btn}
+      <div class='f-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
+    </div>
+    {sold_out_msg}
+    {"<div class='f-soldout'>This founder price is sold out — choose a standard plan below.</div>" if sold_out_param else ""}
   </div>
 </div>
-</body>
-</html>"""
+
+<div class='divider'><hr/><span>Or choose a standard plan</span><hr/></div>
+<div class='plans'>{cards_html}</div>
+
+<div class='api-note'>
+  <div class='api-note-icon'>🔑</div>
+  <div class='api-note-text'>
+    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
+  </div>
+</div>
+<div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
+<div class='pg-footer' style='margin-top:24px;'>
+  {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+</div>
+
+<script>
+(function(){{
+  var pc = document.getElementById('particles');
+  if(pc){{
+    for(var i=0;i<14;i++){{
+      var p=document.createElement('div');
+      p.className='f-particle';
+      var sz=Math.random()*4+2;
+      p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+(Math.random()*25)+'%;animation-duration:'+(Math.random()*4+3)+'s;animation-delay:'+Math.random()*5+'s';
+      pc.appendChild(p);
+    }}
+  }}
+
+  var secs={founder_timer["total_seconds"]};
+  function pad(n){{return String(n).padStart(2,'0');}}
+  function flip(id,val){{
+    var el=document.getElementById(id);if(!el)return;
+    var v=pad(val);
+    if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
+  }}
+  setInterval(function(){{
+    if(secs<=0){{location.reload();return;}}
+    secs--;
+    flip('cdD',Math.floor(secs/86400));
+    flip('cdH',Math.floor((secs%86400)/3600));
+    flip('cdM',Math.floor((secs%3600)/60));
+    flip('cdS',secs%60);
+  }},1000);
+
+  setInterval(function(){{
+    fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
+      var r=document.getElementById('seatsRemain'),b=document.getElementById('seatsBar'),btn=document.getElementById('planBtn-founder');
+      if(r)r.textContent=d.remaining;
+      if(b)b.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
+      if(d.sold_out&&btn){{btn.disabled=true;btn.textContent='Sold Out';btn.className='f-btn-out';}}
+    }}).catch(function(){{}});
+  }},30000);
+}})();
+
+function startCheckout(plan){{
+  var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
+  if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
+  var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
+  var inp=document.createElement('input');inp.type='hidden';inp.name='plan';inp.value=plan;
+  form.appendChild(inp);document.body.appendChild(form);form.submit();
+}}
+</script>
+</body></html>"""
+    resp = make_response(page)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 @app.get("/showcase")
 def showcase_page():
