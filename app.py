@@ -13954,33 +13954,51 @@ label         { font-size: 14px !important; }
             <div class="opHead">
               <div class="opTitle">
                 <div class="t1">Group Console (All Teammates)</div>
-                <div class="t2">Send one prompt here to trigger answers from everyone.</div>
+                <div class="t2">Send one prompt to everyone at the table.</div>
               </div>
-              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">🔊 Speak</button>
-                <!-- CHANGE: Always Listening toggle (group) -->
-                <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
-                <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
-                <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
+
+                <!-- MODE dropdown -->
+                <div style="position:relative;" id="gcModeWrap">
+                  <button class="btn btnMini" id="gcModeBtn" onclick="gcToggleDrop('gcModeDrop')" style="display:flex;align-items:center;gap:4px;">
+                    &#9881; Mode <span style="font-size:9px;opacity:.6;">&#9660;</span>
+                  </button>
+                  <div id="gcModeDrop" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:rgba(13,19,45,.97);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:6px;min-width:155px;z-index:9999;box-shadow:0 8px 28px rgba(0,0,0,.5);">
+                    <div class="tiny" style="opacity:.5;padding:2px 6px 6px;font-size:10px;">Console options</div>
+                    <button class="btn btnMini gcDropItem" id="lightingModeBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#9889; Lighting mode</button>
+                    <button class="btn btnMini gcDropItem" id="talkGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#128266; Speak</button>
+                    <button class="btn btnMini gcDropItem" id="alwaysListenGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#127897; Voice mode</button>
+                    <button class="btn btnMini gcDropItem" id="screenGroupBtn" style="width:100%;text-align:left;margin-bottom:3px;">&#128421; Share screen</button>
+                    <div style="border-top:0.5px solid rgba(255,255,255,.07);margin:4px 0;"></div>
+                    <input type="file" id="groupFiles" multiple style="display:none" />
+                    <button class="btn btnMini gcDropItem" id="pickGroupFiles" style="width:100%;text-align:left;">&#128206; Upload files</button>
+                  </div>
+                </div>
+
+                <!-- ANALYZE dropdown -->
+                <div style="position:relative;" id="gcAnalyzeWrap">
+                  <button class="btn btnMini" id="gcAnalyzeBtn" onclick="gcToggleDrop('gcAnalyzeDrop')" style="display:flex;align-items:center;gap:4px;">
+                    &#128269; Analyze <span style="font-size:9px;opacity:.6;">&#9660;</span>
+                  </button>
+                  <div id="gcAnalyzeDrop" style="display:none;position:absolute;top:calc(100% + 4px);right:0;background:rgba(13,19,45,.97);border:1px solid rgba(42,58,106,.9);border-radius:10px;padding:6px;min-width:155px;z-index:9999;box-shadow:0 8px 28px rgba(0,0,0,.5);">
+                    <div class="tiny" style="opacity:.5;padding:2px 6px 6px;font-size:10px;">Runs on latest replies</div>
+                    <button class="btn btnMini gcDropItem passBtn" id="passGroupRisk" title="Risk Assessment" style="width:100%;text-align:left;margin-bottom:3px;">&#128269; Risk</button>
+                    <button class="btn btnMini gcDropItem passBtn" id="passGroupScale" title="Scalability" style="width:100%;text-align:left;margin-bottom:3px;">&#128200; Scale</button>
+                    <button class="btn btnMini gcDropItem passBtn" id="passGroupConstr" title="Constraints" style="width:100%;text-align:left;margin-bottom:3px;">&#129513; Constraints</button>
+                    <button class="btn btnMini gcDropItem passBtn" id="passGroupOpt" title="Optimize" style="width:100%;text-align:left;">&#9889; Optimize</button>
+                  </div>
+                </div>
+
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
-            <div class="passRow" id="groupPassRow">
-              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">🔍 Risk</button>
-              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">📈 Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">🧩 Constraints</button>
-              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">⚡ Optimize</button>
-              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
-            </div>
-
-            <div class="pillRow">
-              <input type="file" id="groupFiles" multiple style="display:none" />
-              <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
-              <div class="tiny" id="uploadHint">Attach files or use Share screen to capture a screenshot.</div>
+            <!-- passRow kept for JS compatibility -->
+            <div class="passRow" id="groupPassRow" style="display:none;">
+              <div class="tiny" id="uploadHint" style="display:none;"></div>
             </div>
             <div id="groupAttachList" class="pillRow"></div>
 
@@ -13988,7 +14006,7 @@ label         { font-size: 14px !important; }
               <div class="tiny" id="opStatus">Ready</div>
               <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
             </div>
-            <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
+            <div class="tiny" id="micStatusGroup" style="margin-top:4px;">Mic: idle</div>
           </div>
 
         </div>
@@ -16798,6 +16816,32 @@ function makeSeat(defn, idx){
     };
 
     // ===== NAV BAR DROPDOWN JS =====
+
+    // ── Group console mini-dropdowns (Mode / Analyze) ─────────────
+    window.gcToggleDrop = function(id) {
+      var drops = ['gcModeDrop', 'gcAnalyzeDrop'];
+      drops.forEach(function(d) {
+        var el = document.getElementById(d);
+        if (!el) return;
+        el.style.display = (d === id && el.style.display === 'none') ? 'block' : 'none';
+      });
+    };
+    document.addEventListener('click', function(e) {
+      var inWrap = e.target.closest && (e.target.closest('#gcModeWrap') || e.target.closest('#gcAnalyzeWrap'));
+      if (!inWrap) {
+        ['gcModeDrop','gcAnalyzeDrop'].forEach(function(d) {
+          var el = document.getElementById(d); if (el) el.style.display = 'none';
+        });
+      }
+      if (e.target.classList && e.target.classList.contains('gcDropItem')) {
+        setTimeout(function() {
+          ['gcModeDrop','gcAnalyzeDrop'].forEach(function(d) {
+            var el = document.getElementById(d); if (el) el.style.display = 'none';
+          });
+        }, 180);
+      }
+    });
+
     window.saToggleDrop = function saToggleDrop(dropId){
       const allDrops=document.querySelectorAll('.saDrop');
       const target=document.getElementById(dropId);
