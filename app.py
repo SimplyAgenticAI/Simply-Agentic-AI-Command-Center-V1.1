@@ -1559,7 +1559,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/admin/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -4848,7 +4848,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
   </select>
   <select id='filterPlan' onchange='filterTable()'>
     <option value=''>All plans</option>
-    <option value='starter'>Starter</option>
+    <option value='starter'>Solo Operator</option>
     <option value='growth'>Growth</option>
     <option value='pro'>Pro</option>
   </select>
@@ -4950,7 +4950,7 @@ function renderStats() {
 
 function planBadge(s) {
   const p = (s.plan || '').toLowerCase();
-  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Starter Operator');
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Solo Operator');
   if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
   if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
   return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
@@ -5128,18 +5128,30 @@ function closeGenModal() {
 }
 
 async function doGenerate() {
-  const count = parseInt(document.getElementById('genCount').value) || 1;
-  const name  = document.getElementById('genName').value.trim();
-  const email = document.getElementById('genEmail').value.trim();
-  const plan  = document.getElementById('genPlan').value || 'starter';
-  const res = await fetch('/api/admin/seats/generate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    document.getElementById('genResult').innerText = 'Generated:\\n' + d.generated.join('\\n');
-    await loadSeats();
+  const resultEl = document.getElementById('genResult');
+  resultEl.innerText = 'Generating...';
+  resultEl.style.color = '#94a3b8';
+  try {
+    const count = parseInt(document.getElementById('genCount').value) || 1;
+    const name  = document.getElementById('genName').value.trim();
+    const email = document.getElementById('genEmail').value.trim();
+    const plan  = document.getElementById('genPlan').value || 'starter';
+    const res = await fetch('/api/admin/seats/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
+      resultEl.style.color = '#86efac';
+      await loadSeats();
+    } else {
+      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+      resultEl.style.color = '#fca5a5';
+    }
+  } catch(e) {
+    resultEl.innerText = 'Error: ' + e.message;
+    resultEl.style.color = '#fca5a5';
   }
 }
 
