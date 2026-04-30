@@ -12187,7 +12187,7 @@ label         { font-size: 14px !important; }
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
-        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🤖 Scout</button>
+        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Compass</button>
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
         <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
@@ -12230,7 +12230,7 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="emailConsoleBtn">Email Console</button>
         <button class="btn" id="mobileOnboardingBtn">Next step</button>
         <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openScoutPanel,200);">🤖 Scout Help</button>
+        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openScoutPanel,200);">🧭 Compass Help</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
         <a class="btn" href="/logout" style="text-decoration:none;display:inline-block;text-align:center;">Logout</a>
@@ -26705,7 +26705,7 @@ document.addEventListener("click", function(e) {
   <div style="position:absolute;right:0;top:0;bottom:0;width:min(460px,100vw);background:rgba(10,14,30,.99);border-left:1px solid rgba(80,110,200,.4);display:flex;flex-direction:column;box-shadow:-20px 0 60px rgba(0,0,0,.7);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;background:rgba(18,28,60,.5);">
       <div>
-        <div style="font-size:15px;font-weight:800;color:#c4b5fd;">🤖 Scout — Built-in Help</div>
+        <div style="font-size:15px;font-weight:800;color:#c4b5fd;">🧭 Compass — Built-in Help</div>
         <div style="font-size:11px;color:rgba(148,163,184,.65);margin-top:2px;">Knows everything about Simply Agentic AI</div>
       </div>
       <button onclick="closeScoutPanel()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;">✕</button>
@@ -26719,7 +26719,7 @@ document.addEventListener("click", function(e) {
       <button class="sqBtn" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
     </div>
     <div style="padding:10px 14px 14px;display:flex;gap:8px;align-items:flex-end;">
-      <textarea id="scoutInput" rows="2" placeholder="Ask Scout anything about the system…"
+      <textarea id="scoutInput" rows="2" placeholder="Ask Compass anything about the system…"
         style="flex:1;background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:10px;padding:9px 12px;font-size:13px;resize:none;font-family:inherit;line-height:1.5;outline:none;"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();scoutSend();}"></textarea>
       <button onclick="scoutSend()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0;">Send</button>
@@ -26798,14 +26798,14 @@ document.addEventListener("click", function(e) {
 <script>
 /* ═══ SCOUT ═══ */
 (function(){
-  const SYSTEM=`You are Scout, the built-in help assistant for Simply Agentic AI.
+  const SYSTEM=`You are Compass, the built-in help assistant for Simply Agentic AI.
 Features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (B2B lead gen, real web scraping only — no hallucinated contacts), CRM/Client Center, Calendar (syncs Google Calendar + Motion), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings.
 IMPORTANT CALENDAR NOTE: If a user says their Google Calendar events are not showing, tell them: "Go to Settings → Disconnect Google Calendar → Reconnect Google Calendar. This grants full sync permissions including Motion and other calendars. This is required after the recent update."
 Be concise. Give step-by-step answers.`;
   const hist=[];let opened=false;
   window.openScoutPanel=function(){
     const o=document.getElementById('scoutOverlay');if(o)o.style.display='flex';
-    if(!opened){opened=true;_sm('scout',"👋 Hi! I'm Scout. Ask me anything about Simply Agentic AI.");}
+    if(!opened){opened=true;_sm('scout',"🧭 Hi! I'm Compass. Ask me anything about Simply Agentic AI.");}
     setTimeout(()=>{const i=document.getElementById('scoutInput');if(i)i.focus();},100);
   };
   window.closeScoutPanel=function(){const o=document.getElementById('scoutOverlay');if(o)o.style.display='none';};
@@ -33918,7 +33918,7 @@ def api_community_pending_ideas():
     return jsonify({"ok": True, "ideas": pending})
 
 
-# ── Scout ─────────────────────────────────────────────────────────────────
+# ── Compass ─────────────────────────────────────────────────────────────
 @app.post("/api/scout_ask")
 def api_scout_ask():
     u = current_user()
@@ -33926,7 +33926,7 @@ def api_scout_ask():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     p = request.get_json(silent=True) or {}
     messages = (p.get("messages") or [])[-20:]
-    system = p.get("system") or "You are Scout, a helpful assistant for Simply Agentic AI."
+    system = p.get("system") or "You are Compass, a helpful assistant for Simply Agentic AI."
     if not messages:
         return jsonify({"ok": False, "error": "No messages"}), 400
     try:
