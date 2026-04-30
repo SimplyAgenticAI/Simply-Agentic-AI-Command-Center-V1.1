@@ -1559,7 +1559,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/admin/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -5128,18 +5128,29 @@ function closeGenModal() {
 }
 
 async function doGenerate() {
-  const count = parseInt(document.getElementById('genCount').value) || 1;
-  const name  = document.getElementById('genName').value.trim();
-  const email = document.getElementById('genEmail').value.trim();
-  const plan  = document.getElementById('genPlan').value || 'starter';
-  const res = await fetch('/api/admin/seats/generate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    document.getElementById('genResult').innerText = 'Generated:\\n' + d.generated.join('\\n');
-    await loadSeats();
+  const resultEl = document.getElementById('genResult');
+  resultEl.innerText = 'Generating...';
+  try {
+    const count = parseInt(document.getElementById('genCount').value) || 1;
+    const name  = document.getElementById('genName').value.trim();
+    const email = document.getElementById('genEmail').value.trim();
+    const plan  = document.getElementById('genPlan').value || 'starter';
+    const res = await fetch('/api/admin/seats/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
+      resultEl.style.color = '#86efac';
+      await loadSeats();
+    } else {
+      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+      resultEl.style.color = '#fca5a5';
+    }
+  } catch(e) {
+    document.getElementById('genResult').innerText = 'Error: ' + e.message;
+    document.getElementById('genResult').style.color = '#fca5a5';
   }
 }
 
