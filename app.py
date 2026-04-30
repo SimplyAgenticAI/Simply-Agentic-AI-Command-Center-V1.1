@@ -250,9 +250,11 @@ PLANS: Dict[str, Any] = {
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
             "3 custom AI teammates — build your bench",
+            "AI Notepad with Improve, Expand & Summarize",
+            "Website & landing page analyzer (scored 1–100)",
             "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 2,500 contacts)",
-            "Email broadcast (up to 1,000 recipients) + SMS via Twilio (your account)",
+            "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
             "2 team seats — bring a partner",
             "Calendar, tasks & Gmail sync",
             "Price locked forever — never increases",
@@ -270,9 +272,11 @@ PLANS: Dict[str, Any] = {
         "team_seats":       1,
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
+            "AI Notepad with AI-powered writing actions",
+            "Website & landing page analyzer (1–100 score)",
             "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 500 contacts)",
-            "Email broadcast (up to 250 recipients) + SMS via Twilio (your account)",
+            "Email broadcast (up to 250 recipients) + SMS via Twilio",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
         ],
@@ -290,8 +294,9 @@ PLANS: Dict[str, Any] = {
         "features": [
             "Everything in Solo Operator",
             "3 custom AI teammates — build your bench",
+            "AI Notepad + Website analyzer included",
             "CRM + pipeline (up to 2,500 contacts)",
-            "Email broadcast (up to 1,000 recipients) + SMS via Twilio (your account)",
+            "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
             "3 team seats — run with a crew",
             "Advanced pipeline automation",
             "Priority support",
@@ -347,7 +352,10 @@ def _save_founder_seats(data: Dict[str, Any]) -> None:
 def _founder_seats_remaining() -> int:
     """How many founder seats are still available."""
     d = _load_founder_seats()
-    return max(0, FOUNDER_SEATS_MAX - d.get("claimed", 0))
+    # Seed with 32 pre-claimed so counter starts at 68 remaining
+    SEED_CLAIMED = 32
+    claimed = d.get("claimed", 0) + SEED_CLAIMED
+    return max(0, FOUNDER_SEATS_MAX - claimed)
 
 def _claim_founder_seat(username: str) -> bool:
     """Atomically claim one founder seat. Returns True if successful."""
@@ -4235,7 +4243,7 @@ def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
     user = (raw or "").strip()
     if not user:
         return ""
-    # Focus mode can bias toward higher contrast / cinematic looks.
+    # Direct mode can bias toward higher contrast / cinematic looks.
     if lighting_mode:
         user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
     try:
@@ -7709,7 +7717,7 @@ footer a{color:var(--pl);text-decoration:none;}
         <div class="seat"><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <!-- Row 2: Willow | Group Console | Ava -->
         <div class="seat"><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Focus mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
+        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Direct mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
         <div class="seat"><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <!-- Row 3: Orion | Alex (active) | Luna -->
         <div class="seat"><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
@@ -12643,7 +12651,7 @@ label         { font-size: 14px !important; }
                           <div class="tiny" style="opacity:.6;margin-bottom:4px;">Glow intensity</div>
                           <div style="display:flex;align-items:center;gap:8px;">
                             <input type="range" id="tableGlowSlider" min="0" max="100" value="22" step="1"
-                              style="flex:1" oninput="_applyThemePref('table_glow_opacity',this.value);document.getElementById('tableGlowVal').textContent=this.value+'%'">
+                              style="flex:1" oninput="_applyThemePref('table_glow_opacity',this.value);document.getElementById('tableGlowVal').textContent=this.value+'%';this.style.setProperty('--val',this.value+'%')">
                             <span class="tiny" id="tableGlowVal" style="opacity:.6;min-width:30px;">22%</span>
                           </div>
                         </div>
@@ -12719,7 +12727,7 @@ label         { font-size: 14px !important; }
                         <div style="display:flex;align-items:center;gap:8px;">
                           <span class="tiny" style="opacity:.5">A</span>
                           <input type="range" id="fontSizeSlider" min="12" max="20" value="14" step="1"
-                            style="flex:1" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px'">
+                            style="flex:1" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px';this.style.setProperty('--val',Math.round((this.value-12)/8*100)+'%')">
                           <span class="tiny" style="opacity:.5;font-size:17px;">A</span>
                           <span class="tiny" id="fontSizeVal" style="opacity:.7;min-width:28px;">14px</span>
                         </div>
@@ -12750,34 +12758,35 @@ label         { font-size: 14px !important; }
 
               <!-- NOTEPAD MODAL FORM -->
               <div class="modalForm" id="notepadForm" style="display:none;">
-                <div class="modalInner" style="max-width:960px;">
-                  <div style="display:flex;gap:0;height:calc(100vh - 200px);min-height:400px;border:1px solid rgba(42,58,106,.7);border-radius:12px;overflow:hidden;">
+                <div class="modalInner" style="max-width:960px;padding-bottom:0;">
+                  <div id="npWrap" style="display:flex;gap:0;height:calc(100vh - 200px);min-height:400px;border:1px solid rgba(42,58,106,.7);border-radius:12px;overflow:hidden;flex-direction:row;">
                     <!-- Note list sidebar -->
-                    <div style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
+                    <div id="npSidebar" style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
                       <div style="padding:10px 10px 8px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
                         <button class="btn btnPrimary" onclick="npNewNote()" style="width:100%;font-size:12px;padding:6px;">+ New note</button>
                       </div>
                       <div id="npNoteList" style="flex:1;overflow-y:auto;padding:6px;"></div>
                     </div>
                     <!-- Editor -->
-                    <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+                    <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;">
                       <div style="padding:10px 14px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
                         <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:15px;font-weight:600;outline:none;" />
                       </div>
-                      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.7;padding:14px;resize:none;outline:none;" placeholder="Start writing..."></textarea>
-                      <!-- AI toolbar -->
-                      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;background:rgba(7,10,20,.4);">
+                      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.7;padding:14px;resize:none;outline:none;min-height:0;" placeholder="Start writing..."></textarea>
+                      <!-- AI toolbar — always visible, no overflow -->
+                      <div style="padding:8px 10px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:5px;flex-wrap:wrap;align-items:center;flex-shrink:0;background:rgba(7,10,20,.4);">
                         <span class="tiny" style="opacity:.5;">AI:</span>
                         <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
-                        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
-                        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
-                        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
-                        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
-                        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-                          <span id="npStatus" class="tiny" style="color:#64748b;"></span>
-                          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
-                          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
-                        </div>
+                        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">Expand</button>
+                        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">Summarize</button>
+                        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">Actions</button>
+                        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">Rewrite</button>
+                      </div>
+                      <!-- Save bar — always pinned at bottom, never clipped -->
+                      <div style="padding:8px 10px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-shrink:0;background:rgba(10,14,30,.8);">
+                        <span id="npStatus" class="tiny" style="color:#64748b;flex:1;"></span>
+                        <button class="btn" onclick="npDelete()" style="font-size:12px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
+                        <button class="btn btnPrimary" onclick="npSave()" style="font-size:12px;padding:6px 18px;">Save</button>
                       </div>
                     </div>
                   </div>
@@ -13560,6 +13569,53 @@ label         { font-size: 14px !important; }
     #saMsgModal.open { display:flex !important; }
 
 /* ── Motion-style Calendar ── */
+
+/* Range slider — fill bar properly end to end */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(124,58,237,.25);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7c3aed;
+  cursor: pointer;
+  border: 2px solid rgba(196,181,253,.6);
+  margin-top: -6px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #7c3aed var(--val, 22%), rgba(255,255,255,.1) var(--val, 22%));
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #7c3aed;
+  cursor: pointer;
+  border: 2px solid rgba(196,181,253,.6);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(124,58,237,.25);
+}
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #7c3aed;
+}
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
 @media (max-width:720px) {
   /* Stack the whole calendar vertically */
@@ -13611,6 +13667,67 @@ label         { font-size: 14px !important; }
 
   /* Fix the modal scroll for calendar on mobile */
   #modalScroll { overflow-y:auto !important; }
+}
+@media (max-width:720px) {
+  /* Notepad: stack sidebar above editor */
+  #npWrap { flex-direction:column !important; height:auto !important; min-height:calc(100vh - 170px) !important; }
+
+  /* Sidebar becomes compact horizontal strip */
+  #npSidebar {
+    width:100% !important; border-right:none !important;
+    border-bottom:1px solid rgba(42,58,106,.5) !important;
+    max-height:110px !important; flex-direction:column !important;
+    overflow:hidden !important;
+  }
+  #npSidebar > div:first-child { padding:8px !important; }
+  #npNoteList {
+    display:flex !important; flex-direction:row !important;
+    gap:6px !important; padding:4px 8px 6px !important;
+    overflow-x:auto !important; overflow-y:hidden !important;
+    flex:1; min-width:0;
+  }
+  #npNoteList > div { flex-shrink:0; max-width:130px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Editor takes remaining space */
+  #npWrap > div:last-child { flex:1; min-height:0; overflow:hidden; }
+
+  /* AI toolbar wraps, slightly smaller */
+  #npWrap .btn.btnMini { font-size:10px !important; padding:3px 7px !important; }
+
+  /* Save bar — full width, always visible, not clipped */
+  #npWrap > div:last-child > div:last-child {
+    flex-direction:row !important;
+    flex-wrap:wrap !important;
+    padding:8px !important;
+    gap:6px !important;
+    width:100% !important;
+    box-sizing:border-box !important;
+  }
+  #npWrap > div:last-child > div:last-child .btn.btnPrimary {
+    flex:1 !important;
+    min-width:80px !important;
+    text-align:center !important;
+  }
+}
+@media (max-width:720px) {
+  #emailConsoleForm .modalInner,
+  #smsConsoleForm .modalInner { padding:12px !important; }
+
+  #emailBody { height:180px !important; min-height:120px !important; }
+  #smsBody   { height:160px !important; min-height:100px !important; }
+
+  #emailConsoleForm .formGrid2,
+  #smsConsoleForm .formGrid2 { grid-template-columns:1fr !important; gap:8px !important; }
+
+  #emailConsoleForm .toolRunBar,
+  #smsConsoleForm .toolRunBar {
+    position:sticky !important;
+    bottom:0 !important;
+    background:#0f1629 !important;
+    padding:10px 0 !important;
+    border-top:1px solid rgba(42,58,106,.5) !important;
+    z-index:10 !important;
+  }
 }
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
@@ -14139,7 +14256,7 @@ label         { font-size: 14px !important; }
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">&#128266; Speak</button>
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
-                <button class="btn btnMini" id="lightingModeBtn">Focus mode</button>
+                <button class="btn btnMini" id="lightingModeBtn">Direct mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f7d36a;border-color:rgba(247,211,106,.35);">New session</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
@@ -16628,8 +16745,8 @@ function makeSeat(defn, idx){
       if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
 
-    // ----- Focus Mode (ADD v1) -----
-    // Focus Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
+    // ----- Direct Mode (ADD v1) -----
+    // Direct Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
     // Safety constraints still apply.
     let lightingModeOn = false;
 
@@ -16637,7 +16754,7 @@ function makeSeat(defn, idx){
       const b = $("lightingModeBtn");
       if(!b) return;
       b.classList.toggle("btnPrimary", !!lightingModeOn);
-      b.innerText = lightingModeOn ? "Focus: On" : "Focus mode";
+      b.innerText = lightingModeOn ? "Direct: On" : "Direct mode";
     }
 
     try{
@@ -16650,7 +16767,7 @@ function makeSeat(defn, idx){
         updateLightingButton();
       }
     }catch(_){}
-    // ----- end Focus Mode -----
+    // ----- end Direct Mode -----
 
 
 
@@ -18409,7 +18526,11 @@ Challenge weak assumptions. Surface risks.`;
       const teamBtn    = $("teamBtn");
       const teamNavBtn = $("teamNavBtn");
       if(teamBtn)    teamBtn.onclick    = () => { try{ closeDropdown(); }catch(_){} showTeamModal(); };
-      if(teamNavBtn) teamNavBtn.onclick = () => showTeamModal();
+      if(teamNavBtn) teamNavBtn.onclick = () => {
+        // Close mobile drawer first if open, then show modal
+        try{ const ov = document.getElementById('mobileDrawerOverlay'); if(ov) ov.classList.remove('show'); }catch(_){}
+        setTimeout(showTeamModal, 150);
+      };
     });
 
     function showEmailConsoleModal(titleText="Email Console"){
@@ -25359,7 +25480,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     {
       id: "tip_lighting_mode",
       target: "#lightingModeBtn,button[title*='ighting']",
-      text: "⚡ Focus mode — your teammate skips the questions and delivers exactly what you asked for, fast.",
+      text: "⚡ Direct mode — your teammate skips the questions and delivers exactly what you asked for, fast.",
       level: "low", position: "top", trigger: "hover"
     },
     // MEDIUM priority tips — shown on medium and high
@@ -25398,12 +25519,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
       target: "button[onclick*='rag'],button[data-click*='rag']",
       text: "Knowledge Base — index your documents, SOPs, or brand guides and your teammates will reference them automatically.",
       level: "medium", position: "bottom", trigger: "hover"
-    },
-    {
-      id: "tip_action_stacks",
-      target: "button[onclick*='stack'],button[data-click*='stack']",
-      text: "Action Stacks — build multi-step automation sequences for your teammates to run on a schedule or trigger.",
-      level: "medium", position: "top", trigger: "hover"
     },
     {
       id: "tip_first_load",
