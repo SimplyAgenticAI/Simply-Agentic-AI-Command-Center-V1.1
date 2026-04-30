@@ -1993,10 +1993,7 @@ ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "email_connected",   "title": "Connect Email"},
     {"key": "calendar_connected","title": "Connect Calendar"},
     {"key": "first_prompt",      "title": "Send Your First Message"},
-    {"key": "rag_indexed",       "title": "Index Your First Document (Knowledge Base)"},
     {"key": "crm_contact",       "title": "Add Your First CRM Contact"},
-    {"key": "webhook_created",   "title": "Set Up a Webhook (Automation)"},
-    {"key": "action_stack",      "title": "Create an Action Stack"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -14038,7 +14035,7 @@ label         { font-size: 14px !important; }
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
                 <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
-                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f87171;border-color:rgba(248,113,113,.25);">New session</button>
+                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f7d36a;border-color:rgba(247,211,106,.35);">New session</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
@@ -26599,7 +26596,7 @@ document.addEventListener("click", function(e) {
       <div style="font-size:40px;">👋</div>
       <div style="font-size:14px;color:#e2e8f0;line-height:1.7;">Have a question, issue, or idea? We're here.<br><strong style="color:#86efac;">SimplyAgenticAI@gmail.com</strong></div>
       <div style="display:flex;flex-direction:column;gap:10px;width:100%;">
-        <button onclick="window.open('mailto:SimplyAgenticAI@gmail.com?subject=Help%20with%20Simply%20Agentic%20AI&body=Hi%20team%2C%0A%0AI%20need%20help%20with...','_blank')" style="background:linear-gradient(135deg,rgba(34,197,94,.5),rgba(22,163,74,.4));border:1px solid rgba(34,197,94,.5);color:#fff;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:700;cursor:pointer;width:100%;">📧 Open Email App</button>
+        <button onclick="window.location.href='mailto:SimplyAgenticAI@gmail.com?subject=Help%20with%20Simply%20Agentic%20AI&body=Hi%20team%2C%0A%0AI%20need%20help%20with...'" style="background:linear-gradient(135deg,rgba(34,197,94,.5),rgba(22,163,74,.4));border:1px solid rgba(34,197,94,.5);color:#fff;border-radius:12px;padding:13px 20px;font-size:15px;font-weight:700;cursor:pointer;width:100%;">📧 Open Email App</button>
         <button onclick="navigator.clipboard&&navigator.clipboard.writeText('SimplyAgenticAI@gmail.com').then(()=>{this.innerText='✓ Copied!';setTimeout(()=>this.innerText='📋 Copy Email Address',2000)}).catch(()=>{})" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#86efac;border-radius:12px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">📋 Copy Email Address</button>
       </div>
       <div style="font-size:12px;color:rgba(148,163,184,.5);">We typically respond within 24 hours.</div>
@@ -26896,6 +26893,222 @@ document.addEventListener('click',e=>{
   };
 
 })();
+</script>
+
+<!-- ═══ AI NOTEPAD PANEL ═══ -->
+<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
+  <div id="notepadDrag" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:grab;border-bottom:1px solid rgba(42,58,106,.5);user-select:none;flex-shrink:0;">
+    <div style="font-weight:700;font-size:15px;">&#128221; Notepad</div>
+    <button onclick="document.getElementById('notepadPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
+  </div>
+  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+    <!-- Note list -->
+    <div style="width:200px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:10px;display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn btnPrimary" onclick="npNewNote()" style="flex:1;font-size:12px;padding:5px;">+ New</button>
+      </div>
+      <div id="npNoteList" style="flex:1;overflow-y:auto;padding:0 8px 8px;"></div>
+    </div>
+    <!-- Editor -->
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:8px 12px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
+        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:14px;font-weight:600;outline:none;" />
+      </div>
+      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.65;padding:12px;resize:none;outline:none;min-height:200px;" placeholder="Start writing... or paste a URL and ask a teammate to analyze it."></textarea>
+      <!-- AI toolbar -->
+      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
+        <span style="font-size:11px;opacity:.5;">AI:</span>
+        <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
+        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
+        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
+        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
+        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
+          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="npStatus" style="font-size:11px;padding:4px 16px 8px;color:#64748b;flex-shrink:0;"></div>
+</div>
+
+<!-- ═══ WEBSITE ANALYZER PANEL ═══ -->
+<div id="siteAnalyzerPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(800px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
+    <div style="font-weight:700;font-size:15px;">&#127760; Website Analyzer</div>
+    <button onclick="document.getElementById('siteAnalyzerPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
+  </div>
+  <div style="padding:14px 16px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;display:flex;gap:8px;">
+    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:13px;" />
+    <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;">Analyze &#128269;</button>
+  </div>
+  <div id="saResults" style="flex:1;overflow-y:auto;padding:16px;">
+    <div style="text-align:center;color:#475569;padding:40px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis.</div>
+  </div>
+</div>
+
+<script>
+// ── AI NOTEPAD ────────────────────────────────────────────────
+var _npNotes = [], _npCurrent = null;
+
+function npOpen() {
+  var p = document.getElementById('notepadPanel');
+  p.style.display = 'flex';
+  npLoad();
+  // Simple drag
+  var drag = {active:false, dx:0, dy:0};
+  var handle = document.getElementById('notepadDrag');
+  handle.addEventListener('pointerdown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    drag.active = true; handle.style.cursor = 'grabbing';
+    var r = p.getBoundingClientRect();
+    drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top;
+    p.style.transform = 'none';
+    p.style.left = r.left + 'px'; p.style.top = r.top + 'px';
+    try { handle.setPointerCapture(e.pointerId); } catch(x) {}
+  });
+  handle.addEventListener('pointermove', function(e) {
+    if (!drag.active) return;
+    p.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
+    p.style.top  = Math.max(0, e.clientY - drag.dy) + 'px';
+  });
+  handle.addEventListener('pointerup', function(e) { drag.active = false; handle.style.cursor = 'grab'; });
+}
+
+async function npLoad() {
+  try {
+    var r = await fetch('/api/notepad');
+    var d = await r.json();
+    if (d.ok) { _npNotes = d.notes || []; npRenderList(); }
+  } catch(e) {}
+}
+
+function npRenderList() {
+  var el = document.getElementById('npNoteList');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!_npNotes.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#475569;padding:8px;">No notes yet.</div>';
+    return;
+  }
+  _npNotes.forEach(function(n, i) {
+    var d = document.createElement('div');
+    d.style.cssText = 'padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;';
+    d.textContent = n.title || 'Untitled';
+    if (_npCurrent === i) { d.style.background = 'rgba(124,58,237,.22)'; d.style.borderColor = 'rgba(124,58,237,.4)'; }
+    else { d.style.color = '#94a3b8'; }
+    d.onclick = function() { npSelect(i); };
+    el.appendChild(d);
+  });
+}
+
+function npSelect(i) {
+  _npCurrent = i;
+  var n = _npNotes[i];
+  document.getElementById('npTitle').value = n.title || '';
+  document.getElementById('npContent').value = n.content || '';
+  npRenderList();
+}
+
+function npNewNote() {
+  _npNotes.unshift({id: Date.now(), title: '', content: '', updated: new Date().toISOString()});
+  _npCurrent = 0;
+  npRenderList();
+  npSelect(0);
+  document.getElementById('npTitle').focus();
+}
+
+async function npSave() {
+  if (_npCurrent === null) { npNewNote(); return; }
+  _npNotes[_npCurrent].title   = document.getElementById('npTitle').value || 'Untitled';
+  _npNotes[_npCurrent].content = document.getElementById('npContent').value || '';
+  _npNotes[_npCurrent].updated = new Date().toISOString();
+  try {
+    await fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
+    document.getElementById('npStatus').textContent = 'Saved ✓';
+    setTimeout(function() { document.getElementById('npStatus').textContent = ''; }, 2000);
+  } catch(e) {}
+  npRenderList();
+}
+
+function npDelete() {
+  if (_npCurrent === null) return;
+  if (!confirm('Delete this note?')) return;
+  _npNotes.splice(_npCurrent, 1);
+  _npCurrent = _npNotes.length ? 0 : null;
+  if (_npCurrent !== null) npSelect(0); else { document.getElementById('npTitle').value = ''; document.getElementById('npContent').value = ''; }
+  npRenderList();
+  fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
+}
+
+async function npAI(action) {
+  var content = document.getElementById('npContent').value.trim();
+  if (!content) { alert('Write something first.'); return; }
+  var st = document.getElementById('npStatus');
+  st.textContent = 'AI working...';
+  try {
+    var r = await fetch('/api/notepad/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:action, content:content})});
+    var d = await r.json();
+    if (d.ok) {
+      document.getElementById('npContent').value = d.result;
+      st.textContent = 'Done ✓';
+    } else {
+      st.textContent = d.error || 'Error';
+    }
+  } catch(e) { st.textContent = 'Error'; }
+  setTimeout(function() { st.textContent = ''; }, 3000);
+}
+
+// ── WEBSITE ANALYZER ─────────────────────────────────────────
+function saOpen() {
+  var p = document.getElementById('siteAnalyzerPanel');
+  p.style.display = 'flex';
+}
+
+async function runSiteAnalysis() {
+  var url = document.getElementById('saUrl').value.trim();
+  if (!url) { alert('Enter a URL first.'); return; }
+  var btn = document.getElementById('saAnalyzeBtn');
+  var res = document.getElementById('saResults');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+  res.innerHTML = '<div style="text-align:center;padding:40px 0;color:#94a3b8;">Fetching and analyzing ' + url + '...</div>';
+
+  try {
+    var r = await fetch('/api/analyze/website', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
+    var d = await r.json();
+    if (!d.ok) { res.innerHTML = '<div style="color:#f87171;padding:20px;">' + (d.error||'Analysis failed') + '</div>'; return; }
+    var a = d.analysis;
+    var scoreColor = a.score >= 80 ? '#22c55e' : a.score >= 60 ? '#f59e0b' : '#ef4444';
+    var cats = a.categories || {};
+    var catHTML = Object.entries(cats).map(function(e) {
+      var bar = Math.round(e[1]*10);
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><div style="width:100px;font-size:11px;color:#94a3b8;text-transform:capitalize;">' + e[0].replace(/_/g,' ') + '</div><div style="flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;"><div style="width:' + bar + '%;height:100%;background:' + scoreColor + ';border-radius:3px;"></div></div><div style="font-size:11px;color:#94a3b8;min-width:20px;">' + e[1] + '</div></div>';
+    }).join('');
+    var qwHTML = (a.quick_wins||[]).map(function(q) {
+      var ic = q.impact==='High'?'#22c55e':q.impact==='Medium'?'#f59e0b':'#94a3b8';
+      return '<div style="padding:8px 10px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;border-left:3px solid '+ic+'"><div style="font-size:13px;color:#e2e8f0;margin-bottom:3px;">'+q.action+'</div><div style="font-size:11px;color:#64748b;">Impact: <span style="color:'+ic+'">'+q.impact+'</span> &nbsp;|&nbsp; Effort: '+q.effort+'</div></div>';
+    }).join('');
+    res.innerHTML = '<div style="display:grid;grid-template-columns:140px 1fr;gap:20px;">'
+      + '<div style="text-align:center;padding:16px 0;">'
+      + '<div style="font-size:56px;font-weight:800;color:'+scoreColor+';">'+a.score+'</div>'
+      + '<div style="font-size:24px;font-weight:700;color:'+scoreColor+';">'+a.grade+'</div>'
+      + '<div style="font-size:11px;color:#64748b;margin-top:4px;">Overall score</div>'
+      + '</div>'
+      + '<div><div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:12px;">'+a.summary+'</div>'
+      + catHTML + '</div></div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">'
+      + '<div><div style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;">&#10003; Strengths</div>'+(a.strengths||[]).map(function(s){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+s+'</div>';}).join('')+'</div>'
+      + '<div><div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;">&#9888; Weaknesses</div>'+(a.weaknesses||[]).map(function(w){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+w+'</div>';}).join('')+'</div>'
+      + '</div>'
+      + '<div style="margin-top:16px;"><div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">&#9889; Quick wins (by priority)</div>'+qwHTML+'</div>';
+  } catch(e) {
+    res.innerHTML = '<div style="color:#f87171;padding:20px;">Error: ' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Analyze';
+}
+
+// Notepad + Analyzer buttons wired via onclick attributes
 </script>
 
 </body>
@@ -33355,222 +33568,6 @@ input:focus{{border-color:rgba(124,58,237,.7);box-shadow:0 0 0 3px rgba(124,58,2
   <div class='brand'>{app_title}</div>
   {body}
 </div>
-
-<!-- ═══ AI NOTEPAD PANEL ═══ -->
-<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
-  <div id="notepadDrag" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:grab;border-bottom:1px solid rgba(42,58,106,.5);user-select:none;flex-shrink:0;">
-    <div style="font-weight:700;font-size:15px;">&#128221; Notepad</div>
-    <button onclick="document.getElementById('notepadPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
-  </div>
-  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
-    <!-- Note list -->
-    <div style="width:200px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;overflow:hidden;">
-      <div style="padding:10px;display:flex;gap:6px;flex-shrink:0;">
-        <button class="btn btnPrimary" onclick="npNewNote()" style="flex:1;font-size:12px;padding:5px;">+ New</button>
-      </div>
-      <div id="npNoteList" style="flex:1;overflow-y:auto;padding:0 8px 8px;"></div>
-    </div>
-    <!-- Editor -->
-    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div style="padding:8px 12px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
-        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:14px;font-weight:600;outline:none;" />
-      </div>
-      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.65;padding:12px;resize:none;outline:none;min-height:200px;" placeholder="Start writing... or paste a URL and ask a teammate to analyze it."></textarea>
-      <!-- AI toolbar -->
-      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
-        <span style="font-size:11px;opacity:.5;">AI:</span>
-        <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
-        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
-        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
-        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
-        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
-          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div id="npStatus" style="font-size:11px;padding:4px 16px 8px;color:#64748b;flex-shrink:0;"></div>
-</div>
-
-<!-- ═══ WEBSITE ANALYZER PANEL ═══ -->
-<div id="siteAnalyzerPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(800px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
-    <div style="font-weight:700;font-size:15px;">&#127760; Website Analyzer</div>
-    <button onclick="document.getElementById('siteAnalyzerPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
-  </div>
-  <div style="padding:14px 16px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;display:flex;gap:8px;">
-    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:13px;" />
-    <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;">Analyze &#128269;</button>
-  </div>
-  <div id="saResults" style="flex:1;overflow-y:auto;padding:16px;">
-    <div style="text-align:center;color:#475569;padding:40px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis.</div>
-  </div>
-</div>
-
-<script>
-// ── AI NOTEPAD ────────────────────────────────────────────────
-var _npNotes = [], _npCurrent = null;
-
-function npOpen() {
-  var p = document.getElementById('notepadPanel');
-  p.style.display = 'flex';
-  npLoad();
-  // Simple drag
-  var drag = {active:false, dx:0, dy:0};
-  var handle = document.getElementById('notepadDrag');
-  handle.addEventListener('pointerdown', function(e) {
-    if (e.target.tagName === 'BUTTON') return;
-    drag.active = true; handle.style.cursor = 'grabbing';
-    var r = p.getBoundingClientRect();
-    drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top;
-    p.style.transform = 'none';
-    p.style.left = r.left + 'px'; p.style.top = r.top + 'px';
-    try { handle.setPointerCapture(e.pointerId); } catch(x) {}
-  });
-  handle.addEventListener('pointermove', function(e) {
-    if (!drag.active) return;
-    p.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
-    p.style.top  = Math.max(0, e.clientY - drag.dy) + 'px';
-  });
-  handle.addEventListener('pointerup', function(e) { drag.active = false; handle.style.cursor = 'grab'; });
-}
-
-async function npLoad() {
-  try {
-    var r = await fetch('/api/notepad');
-    var d = await r.json();
-    if (d.ok) { _npNotes = d.notes || []; npRenderList(); }
-  } catch(e) {}
-}
-
-function npRenderList() {
-  var el = document.getElementById('npNoteList');
-  if (!el) return;
-  el.innerHTML = '';
-  if (!_npNotes.length) {
-    el.innerHTML = '<div style="font-size:12px;color:#475569;padding:8px;">No notes yet.</div>';
-    return;
-  }
-  _npNotes.forEach(function(n, i) {
-    var d = document.createElement('div');
-    d.style.cssText = 'padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;';
-    d.textContent = n.title || 'Untitled';
-    if (_npCurrent === i) { d.style.background = 'rgba(124,58,237,.22)'; d.style.borderColor = 'rgba(124,58,237,.4)'; }
-    else { d.style.color = '#94a3b8'; }
-    d.onclick = function() { npSelect(i); };
-    el.appendChild(d);
-  });
-}
-
-function npSelect(i) {
-  _npCurrent = i;
-  var n = _npNotes[i];
-  document.getElementById('npTitle').value = n.title || '';
-  document.getElementById('npContent').value = n.content || '';
-  npRenderList();
-}
-
-function npNewNote() {
-  _npNotes.unshift({id: Date.now(), title: '', content: '', updated: new Date().toISOString()});
-  _npCurrent = 0;
-  npRenderList();
-  npSelect(0);
-  document.getElementById('npTitle').focus();
-}
-
-async function npSave() {
-  if (_npCurrent === null) { npNewNote(); return; }
-  _npNotes[_npCurrent].title   = document.getElementById('npTitle').value || 'Untitled';
-  _npNotes[_npCurrent].content = document.getElementById('npContent').value || '';
-  _npNotes[_npCurrent].updated = new Date().toISOString();
-  try {
-    await fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
-    document.getElementById('npStatus').textContent = 'Saved ✓';
-    setTimeout(function() { document.getElementById('npStatus').textContent = ''; }, 2000);
-  } catch(e) {}
-  npRenderList();
-}
-
-function npDelete() {
-  if (_npCurrent === null) return;
-  if (!confirm('Delete this note?')) return;
-  _npNotes.splice(_npCurrent, 1);
-  _npCurrent = _npNotes.length ? 0 : null;
-  if (_npCurrent !== null) npSelect(0); else { document.getElementById('npTitle').value = ''; document.getElementById('npContent').value = ''; }
-  npRenderList();
-  fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
-}
-
-async function npAI(action) {
-  var content = document.getElementById('npContent').value.trim();
-  if (!content) { alert('Write something first.'); return; }
-  var st = document.getElementById('npStatus');
-  st.textContent = 'AI working...';
-  try {
-    var r = await fetch('/api/notepad/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:action, content:content})});
-    var d = await r.json();
-    if (d.ok) {
-      document.getElementById('npContent').value = d.result;
-      st.textContent = 'Done ✓';
-    } else {
-      st.textContent = d.error || 'Error';
-    }
-  } catch(e) { st.textContent = 'Error'; }
-  setTimeout(function() { st.textContent = ''; }, 3000);
-}
-
-// ── WEBSITE ANALYZER ─────────────────────────────────────────
-function saOpen() {
-  var p = document.getElementById('siteAnalyzerPanel');
-  p.style.display = 'flex';
-}
-
-async function runSiteAnalysis() {
-  var url = document.getElementById('saUrl').value.trim();
-  if (!url) { alert('Enter a URL first.'); return; }
-  var btn = document.getElementById('saAnalyzeBtn');
-  var res = document.getElementById('saResults');
-  btn.disabled = true; btn.textContent = 'Analyzing...';
-  res.innerHTML = '<div style="text-align:center;padding:40px 0;color:#94a3b8;">Fetching and analyzing ' + url + '...</div>';
-
-  try {
-    var r = await fetch('/api/analyze/website', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
-    var d = await r.json();
-    if (!d.ok) { res.innerHTML = '<div style="color:#f87171;padding:20px;">' + (d.error||'Analysis failed') + '</div>'; return; }
-    var a = d.analysis;
-    var scoreColor = a.score >= 80 ? '#22c55e' : a.score >= 60 ? '#f59e0b' : '#ef4444';
-    var cats = a.categories || {};
-    var catHTML = Object.entries(cats).map(function(e) {
-      var bar = Math.round(e[1]*10);
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><div style="width:100px;font-size:11px;color:#94a3b8;text-transform:capitalize;">' + e[0].replace(/_/g,' ') + '</div><div style="flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;"><div style="width:' + bar + '%;height:100%;background:' + scoreColor + ';border-radius:3px;"></div></div><div style="font-size:11px;color:#94a3b8;min-width:20px;">' + e[1] + '</div></div>';
-    }).join('');
-    var qwHTML = (a.quick_wins||[]).map(function(q) {
-      var ic = q.impact==='High'?'#22c55e':q.impact==='Medium'?'#f59e0b':'#94a3b8';
-      return '<div style="padding:8px 10px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;border-left:3px solid '+ic+'"><div style="font-size:13px;color:#e2e8f0;margin-bottom:3px;">'+q.action+'</div><div style="font-size:11px;color:#64748b;">Impact: <span style="color:'+ic+'">'+q.impact+'</span> &nbsp;|&nbsp; Effort: '+q.effort+'</div></div>';
-    }).join('');
-    res.innerHTML = '<div style="display:grid;grid-template-columns:140px 1fr;gap:20px;">'
-      + '<div style="text-align:center;padding:16px 0;">'
-      + '<div style="font-size:56px;font-weight:800;color:'+scoreColor+';">'+a.score+'</div>'
-      + '<div style="font-size:24px;font-weight:700;color:'+scoreColor+';">'+a.grade+'</div>'
-      + '<div style="font-size:11px;color:#64748b;margin-top:4px;">Overall score</div>'
-      + '</div>'
-      + '<div><div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:12px;">'+a.summary+'</div>'
-      + catHTML + '</div></div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">'
-      + '<div><div style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;">&#10003; Strengths</div>'+(a.strengths||[]).map(function(s){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+s+'</div>';}).join('')+'</div>'
-      + '<div><div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;">&#9888; Weaknesses</div>'+(a.weaknesses||[]).map(function(w){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+w+'</div>';}).join('')+'</div>'
-      + '</div>'
-      + '<div style="margin-top:16px;"><div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">&#9889; Quick wins (by priority)</div>'+qwHTML+'</div>';
-  } catch(e) {
-    res.innerHTML = '<div style="color:#f87171;padding:20px;">Error: ' + e.message + '</div>';
-  }
-  btn.disabled = false; btn.textContent = 'Analyze \uD83D\uDD0D';
-}
-
-// Notepad + Analyzer buttons wired via onclick attributes
-</script>
 </body></html>"""
 
 @app.get("/team/join/<token>")
