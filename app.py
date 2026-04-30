@@ -4973,7 +4973,7 @@ function renderStats() {
 
 function planBadge(s) {
   const p = (s.plan || '').toLowerCase();
-  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'starter' ? 'Solo Operator' : p === 'pro' ? 'Operator Pro' : (p||'Solo Operator'));
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'starter' ? 'Solo Operator' : 'Solo Operator');
   if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
   if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
   return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
