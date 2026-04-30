@@ -4848,8 +4848,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
   </select>
   <select id='filterPlan' onchange='filterTable()'>
     <option value=''>All plans</option>
-    <option value='starter'>Starter</option>
-    <option value='growth'>Growth</option>
+    <option value='starter'>Solo Operator</option>
+    <option value='growth'>Growth System</option>
     <option value='pro'>Pro</option>
   </select>
   <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
@@ -4930,12 +4930,35 @@ let allSeats = [];
 let editingCode = null;
 
 async function loadSeats() {
-  const res = await fetch('/api/admin/seats');
-  const d = await res.json();
-  if (!d.ok) return;
-  allSeats = d.seats || [];
-  renderStats();
-  renderTable(allSeats);
+  try {
+    const res = await fetch('/api/admin/seats');
+    if (!res.ok) {
+      console.error('loadSeats HTTP error:', res.status);
+      document.getElementById('seatBody').innerHTML = 
+        `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;'>
+          Could not load seats (HTTP ${res.status}). Try refreshing the page.
+        </td></tr>`;
+      return;
+    }
+    const d = await res.json();
+    if (!d.ok) {
+      console.error('loadSeats API error:', d.error);
+      document.getElementById('seatBody').innerHTML =
+        `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;'>
+          ${d.error || 'Could not load seats'}
+        </td></tr>`;
+      return;
+    }
+    allSeats = d.seats || [];
+    renderStats();
+    renderTable(allSeats);
+  } catch(e) {
+    console.error('loadSeats exception:', e);
+    document.getElementById('seatBody').innerHTML =
+      `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;'>
+        Error loading seats: ${e.message}
+      </td></tr>`;
+  }
 }
 
 function renderStats() {
@@ -4950,7 +4973,7 @@ function renderStats() {
 
 function planBadge(s) {
   const p = (s.plan || '').toLowerCase();
-  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Starter Operator');
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'starter' ? 'Solo Operator' : p === 'pro' ? 'Operator Pro' : (p||'Solo Operator'));
   if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
   if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
   return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
