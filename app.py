@@ -19757,8 +19757,8 @@ window.crmPipelineOpenClient = function(clientId){
       } finally {
         if(btn){ btn.innerText = origText; btn.disabled = false; }
       }
-      }; // end draftGo.onclick
-    }; // end crmPipelineDraft
+    }; // end draftGo.onclick
+  }; // end crmPipelineDraft
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
@@ -23954,6 +23954,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(ccTabPipeline){
       ccTabPipeline.onclick = async ()=>{ ccSelectTab("Pipeline"); await renderPipelineBoard(); };
     }
+}
 </script>
 
 
