@@ -6378,7 +6378,7 @@ def api_send_email():
                 return jsonify({
                     "ok": False,
                     "error": reason,
-                    "hint": "Connect Gmail (recommended) or add SMTP credentials in Settings. For Gmail SMTP you must use an App Password."
+                    "hint": "Connect Gmail in Settings to enable email sending."
                 }), 400
 
             s = _user_smtp_settings(u)
@@ -12532,17 +12532,6 @@ label         { font-size: 14px !important; }
                       <div class="tiny" style="margin-top:6px;opacity:.7;">Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable.</div>
                     </div>
 
-                    <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
-                      <div class="tiny" style="margin-bottom:8px;font-weight:700;color:#c4b5fd;">Email (SMTP)</div>
-                      <div class="grid" style="gap:8px;">
-                        <div><label>SMTP Host</label><input id="smtpHost" placeholder="smtp.gmail.com" /></div>
-                        <div><label>SMTP Port</label><input id="smtpPort" type="number" placeholder="587" /></div>
-                        <div><label>Username (from address)</label><input id="smtpUser" placeholder="you@example.com" /></div>
-                        <div><label>Password (app password)</label><input id="smtpPass" type="password" placeholder="••••••••" /></div>
-                      </div>
-                      <div style="margin-top:8px;"><label>From Name</label><input id="smtpFromName" placeholder="Your Name" /></div>
-                    </div>
-
                     <details style="border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
                       <summary style="cursor:pointer;user-select:none;font-size:12px;font-weight:700;color:#c4b5fd;">Twilio (SMS)</summary>
                       <div class="tiny" style="margin-top:8px;opacity:.9;">Used for Broadcast SMS in the Client Center.</div>
@@ -12848,7 +12837,7 @@ label         { font-size: 14px !important; }
 <div class="modalForm" id="emailConsoleForm" style="display:none;">
   <div class="modalInner">
     <div class="toolHint">When a teammate drafts an email, fields auto-fill here. Review and approve before sending.</div>
-    <div class="tiny" id="smtpStatus" style="margin-bottom:10px;text-align:center;"></div>
+    <div class="tiny" id="smtpStatus" style="display:none;"></div>
     <div class="formGrid2">
       <div><label>From</label><input class="field" id="emailFrom" placeholder="From" readonly/></div>
       <div><label>To</label><input class="field" id="emailTo" placeholder="name@email.com"/></div>
@@ -15775,7 +15764,7 @@ function makeSeat(defn, idx){
 
       const email = state.email || {};
       const ok = !!email.smtp_ready;
-      $("smtpStatus").innerText = ok ? `SMTP: ready (${email.smtp_user})` : `SMTP: not ready (${email.smtp_reason || "missing"})`;
+      // smtpStatus hidden — Gmail OAuth handles email connection
 
       setEmailFrom(selectedSeat || "");
       renderTable();
@@ -18131,11 +18120,7 @@ Challenge weak assumptions. Surface risks.`;
           $("globalDefaultModel").value = s.global_default_model;
         }
         const smtp = s.smtp || {};
-        $("smtpHost").value = smtp.host || "";
-        $("smtpPort").value = smtp.port || 587;
-        $("smtpUser").value = smtp.user || "";
-        $("smtpPass").value = "";
-        $("smtpFromName").value = smtp.from_name || "";
+        // SMTP fields hidden from UI — values preserved in backend
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
         // Load tooltip level
@@ -22646,11 +22631,7 @@ $("settingsBtn").onclick = () => showSettingsModal();
         tooltip_level: ($("tooltipLevel") ? $("tooltipLevel").value : "medium"),
         theme: (window._saThemePrefs || {}),
         smtp: {
-          host: ($("smtpHost").value || "").trim(),
-          port: parseInt(($("smtpPort").value || "587").trim(), 10),
-          user: ($("smtpUser").value || "").trim(),
-          pass: ($("smtpPass").value || "").trim(),
-          from_name: ($("smtpFromName").value || "").trim()
+          host: "", port: 587, user: "", pass: "", from_name: ""
         }
       };
       try{
