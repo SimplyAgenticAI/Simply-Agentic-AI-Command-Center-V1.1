@@ -4235,7 +4235,7 @@ def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
     user = (raw or "").strip()
     if not user:
         return ""
-    # Lighting mode can bias toward higher contrast / cinematic looks.
+    # Focus mode can bias toward higher contrast / cinematic looks.
     if lighting_mode:
         user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
     try:
@@ -7709,7 +7709,7 @@ footer a{color:var(--pl);text-decoration:none;}
         <div class="seat"><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <!-- Row 2: Willow | Group Console | Ava -->
         <div class="seat"><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Lighting mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
+        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Focus mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
         <div class="seat"><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
         <!-- Row 3: Orion | Alex (active) | Luna -->
         <div class="seat"><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
@@ -12219,7 +12219,10 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" id="teamNavBtn">👥 My Team</button>
+        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showCustomizeModal,200);">&#127912; Customize</button>
+        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showNotepadModal,200);">&#128221; Notepad</button>
+        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showSiteAnalyzerModal,200);">&#127760; Site Analyzer</button>
+        <button class="btn" id="teamNavBtn" onclick="if(typeof showTeamModal==='function'){document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showTeamModal,200);}">👥 My Team</button>
         <button class="btn" data-click="calendarBtn">Calendar</button>
         <button class="btn" data-click="crmBtn">CRM</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
@@ -13559,14 +13562,55 @@ label         { font-size: 14px !important; }
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
 @media (max-width:720px) {
-  .wcal-wrap { flex-direction:column; min-height:unset; height:auto; }
-  .wcal-sidebar { width:100% !important; border-right:none !important; border-bottom:1px solid rgba(42,58,106,.6); max-height:200px; overflow-y:auto; flex-direction:row; flex-wrap:wrap; gap:6px; padding:8px !important; }
+  /* Stack the whole calendar vertically */
+  .wcal-wrap { flex-direction:column !important; min-height:unset !important; height:auto !important; border-radius:8px; }
+
+  /* Sidebar becomes a slim top toolbar — hide mini-month and bulky items */
+  .wcal-sidebar {
+    width:100% !important; border-right:none !important;
+    border-bottom:1px solid rgba(42,58,106,.5) !important;
+    flex-direction:row !important; flex-wrap:wrap !important;
+    align-items:center !important;
+    max-height:none !important; overflow:visible !important;
+    gap:6px !important; padding:8px 10px !important;
+  }
   .wcal-mini-month { display:none !important; }
-  .wcal-main { width:100% !important; min-height:360px; }
-  .wcal-detail { position:fixed; bottom:0; left:0; right:0; max-height:60vh; overflow-y:auto; border-radius:12px 12px 0 0; z-index:9000; background:#131e3a; border-top:1px solid rgba(42,58,106,.6); }
-  .wcal-create-form { padding:10px !important; }
-  .wcal-event { font-size:10px !important; padding:2px 4px !important; }
-  #wcalWrap { height:calc(100vh - 120px); overflow-y:auto; }
+  .wcal-upcoming   { display:none !important; }
+
+  /* Main grid takes full width, fixed height with scroll */
+  .wcal-main { width:100% !important; min-height:0 !important; }
+  .wcal-grid { min-height:320px !important; font-size:11px !important; }
+  .wcal-grid .wcal-day { min-height:48px !important; padding:2px !important; }
+  .wcal-event { font-size:10px !important; padding:1px 3px !important; margin-bottom:1px !important; }
+  .wcal-day-num { font-size:11px !important; }
+
+  /* Detail / create panel slides up from bottom as a sheet */
+  .wcal-detail {
+    position:fixed !important; bottom:0 !important; left:0 !important; right:0 !important;
+    width:100% !important; max-height:70vh !important;
+    overflow-y:auto !important; border-radius:16px 16px 0 0 !important;
+    z-index:9500 !important;
+    background:#131e3a !important;
+    border-top:1px solid rgba(42,58,106,.7) !important;
+    box-shadow:0 -8px 40px rgba(0,0,0,.5) !important;
+    padding-bottom:env(safe-area-inset-bottom, 12px) !important;
+  }
+  .wcal-detail-inner { padding:16px !important; }
+
+  /* Shrink the create form fields */
+  .wcal-create-form { padding:12px !important; }
+  .wcal-create-form input,
+  .wcal-create-form select,
+  .wcal-create-form textarea { font-size:14px !important; }
+
+  /* Header nav stays compact */
+  .wcal-header { flex-wrap:wrap; gap:6px; padding:8px !important; }
+  .wcal-nav-btn { padding:4px 10px !important; font-size:12px !important; }
+  .wcal-view-tabs { flex-wrap:wrap; gap:4px; }
+  .wcal-view-tab { padding:4px 8px !important; font-size:11px !important; }
+
+  /* Fix the modal scroll for calendar on mobile */
+  #modalScroll { overflow-y:auto !important; }
 }
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
@@ -14095,7 +14139,7 @@ label         { font-size: 14px !important; }
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
                 <button class="btn btnMini" id="talkGroupBtn">&#128266; Speak</button>
                 <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
-                <button class="btn btnMini" id="lightingModeBtn">Lighting mode</button>
+                <button class="btn btnMini" id="lightingModeBtn">Focus mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f7d36a;border-color:rgba(247,211,106,.35);">New session</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
@@ -16327,7 +16371,15 @@ function makeSeat(defn, idx){
 
     async function captureScreenOnce(){
       if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
-        showModal("Screen share not supported", "This browser does not support screen capture. Try Chrome or Edge.");
+        // Mobile fallback — offer file upload instead
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if(isMobile){
+          showModal("Screen share on mobile",
+            "Screen capture isn\'t supported on mobile browsers.\n\n" +
+            "Alternative: take a screenshot on your device, then use the \'Upload files\' button to attach it to your message.");
+        } else {
+          showModal("Screen share not supported", "This browser does not support screen capture. Try Chrome or Edge.");
+        }
         return null;
       }
 
@@ -16576,8 +16628,8 @@ function makeSeat(defn, idx){
       if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
 
-    // ----- Lighting Mode (ADD v1) -----
-    // Lighting Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
+    // ----- Focus Mode (ADD v1) -----
+    // Focus Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
     // Safety constraints still apply.
     let lightingModeOn = false;
 
@@ -16585,7 +16637,7 @@ function makeSeat(defn, idx){
       const b = $("lightingModeBtn");
       if(!b) return;
       b.classList.toggle("btnPrimary", !!lightingModeOn);
-      b.innerText = lightingModeOn ? "Lighting: On" : "Lighting mode";
+      b.innerText = lightingModeOn ? "Focus: On" : "Focus mode";
     }
 
     try{
@@ -16598,7 +16650,7 @@ function makeSeat(defn, idx){
         updateLightingButton();
       }
     }catch(_){}
-    // ----- end Lighting Mode -----
+    // ----- end Focus Mode -----
 
 
 
@@ -22570,23 +22622,46 @@ async function showImageLibraryModal(){
       openBtn.innerText = "Open";
       openBtn.onclick = ()=> openLightbox(r.url);
 
-      const useBtn = document.createElement("button");
-      useBtn.className = "btn btnMini";
-      useBtn.innerText = "Use";
-      useBtn.onclick = async ()=>{
-        const seat = selectedSeat || "";
-        if(!seat || seat === "Operator"){ showModal("Select a teammate first", "Choose a teammate, then click Use."); return; }
-        try{
-          const rr = await fetch('/api/teammates/' + encodeURIComponent(seat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: r.id})});
-          const dd = await rr.json();
-          if(!dd.ok) throw new Error(dd.error || 'Could not set current image');
-          lastImageState = dd.image_state || {};
-          await refreshThread();
-        }catch(e){ showModal('Could not use image', String(e && e.message ? e.message : e)); }
+      const dlBtn2 = document.createElement("button");
+      dlBtn2.className = "btn btnMini";
+      dlBtn2.innerText = "Download";
+      dlBtn2.onclick = ()=>{
+        const a = document.createElement('a');
+        a.href = r.url; a.download = r.url.split('/').pop() || 'image.png';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      };
+
+      const shareBtn2 = document.createElement("button");
+      shareBtn2.className = "btn btnMini";
+      shareBtn2.innerText = "Share";
+      shareBtn2.onclick = ()=>{
+        const menu = document.createElement('div');
+        menu.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        menu.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;padding:20px;width:min(320px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.7);">
+          <div style="font-size:14px;font-weight:700;margin-bottom:14px;">Share Image</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button class="btn" id="si2Email" style="text-align:left;">&#9993; Share via Email</button>
+            <button class="btn" id="si2Copy" style="text-align:left;">&#128279; Copy image link</button>
+            <button class="btn" id="si2Close" style="text-align:left;opacity:.6;">Cancel</button>
+          </div></div>`;
+        document.body.appendChild(menu);
+        menu.querySelector('#si2Email').onclick = ()=>{
+          const subject = encodeURIComponent('Image from Simply Agentic');
+          const body = encodeURIComponent('Here is the image:\n\n' + window.location.origin + r.url);
+          window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+          menu.remove();
+        };
+        menu.querySelector('#si2Copy').onclick = ()=>{
+          const fullUrl = window.location.origin + r.url;
+          navigator.clipboard.writeText(fullUrl).then(()=>{ if(typeof showToast==='function') showToast('Link copied!'); }).catch(()=>{ prompt('Copy this link:', fullUrl); });
+          menu.remove();
+        };
+        menu.querySelector('#si2Close').onclick = ()=> menu.remove();
       };
 
       actions.appendChild(openBtn);
-      actions.appendChild(useBtn);
+      actions.appendChild(dlBtn2);
+      actions.appendChild(shareBtn2);
 
       card.appendChild(im);
       card.appendChild(meta);
@@ -25284,7 +25359,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     {
       id: "tip_lighting_mode",
       target: "#lightingModeBtn,button[title*='ighting']",
-      text: "⚡ Lighting mode — your teammate skips the questions and delivers exactly what you asked for, fast.",
+      text: "⚡ Focus mode — your teammate skips the questions and delivers exactly what you asked for, fast.",
       level: "low", position: "top", trigger: "hover"
     },
     // MEDIUM priority tips — shown on medium and high
