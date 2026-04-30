@@ -4930,12 +4930,26 @@ let allSeats = [];
 let editingCode = null;
 
 async function loadSeats() {
-  const res = await fetch('/api/admin/seats');
-  const d = await res.json();
-  if (!d.ok) return;
-  allSeats = d.seats || [];
-  renderStats();
-  renderTable(allSeats);
+  try {
+    const res = await fetch('/api/admin/seats', {credentials:'include'});
+    const d = await res.json();
+    if (!d.ok) {
+      // Show the error so we know what happened
+      document.getElementById('seatBody').innerHTML =
+        `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;font-size:13px;'>
+          API error: ${d.error || 'Unknown'} — <a href='/login' style='color:#c4b5fd;'>Re-login</a>
+        </td></tr>`;
+      return;
+    }
+    allSeats = d.seats || [];
+    renderStats();
+    renderTable(allSeats);
+  } catch(e) {
+    document.getElementById('seatBody').innerHTML =
+      `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;font-size:13px;'>
+        Load error: ${e.message}
+      </td></tr>`;
+  }
 }
 
 function renderStats() {
@@ -5138,6 +5152,7 @@ async function doGenerate() {
     const plan  = document.getElementById('genPlan').value || 'starter';
     const res = await fetch('/api/admin/seats/generate', {
       method:'POST', headers:{'Content-Type':'application/json'},
+      credentials:'include',
       body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
     });
     const d = await res.json();
