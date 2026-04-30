@@ -3913,9 +3913,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
-        "No em dashes.\n"
-        "Do not use bold markdown — never wrap words in ** asterisks.\n"
-        "Write in plain conversational prose without markdown formatting symbols.\n\n"
+        "No em dashes.\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
         f"{email_rules}\n"
@@ -18475,8 +18473,6 @@ Challenge weak assumptions. Surface risks.`;
         const lastContactLabel = lastContact
           ? `<span style="opacity:.6;">Last contact: ${lastContact}</span>`
           : '';
-        const emailBtn = email ? '<button class="btn btnTiny" data-crm-email="' + id + '" style="color:#93c5fd;border-color:rgba(147,197,253,.3);">&#9993; Email</button>' : '';
-        const smsBtn   = phone ? '<button class="btn btnTiny" data-crm-sms="'   + id + '" style="color:#86efac;border-color:rgba(134,239,172,.3);">&#128172; SMS</button>'   : '';
         return `
           <div class="diagCard" style="padding:10px;${isOverdue?'border-left:3px solid #f87171;':''}${isDueToday?'border-left:3px solid #fbbf24;':''}">
             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
@@ -18489,9 +18485,7 @@ Challenge weak assumptions. Surface risks.`;
                 ${followupLabel?`<div class="tiny" style="margin-top:5px;">${followupLabel}</div>`:''}
                 <div style="margin-top:6px;">${tags}</div>
               </div>
-              <div style="display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap;">
-                ${emailBtn}
-                ${smsBtn}
+              <div style="display:flex; gap:8px; align-items:flex-start;">
                 <button class="btn btnTiny" data-crm-edit="${id}">Edit</button>
                 <button class="btn btnTiny" data-crm-del="${id}">Delete</button>
               </div>
@@ -18508,42 +18502,6 @@ Challenge weak assumptions. Surface risks.`;
       });
       box.querySelectorAll('[data-crm-del]').forEach(btn=>{
         btn.addEventListener('click', ()=> crmDeleteClient(btn.getAttribute('data-crm-del')));
-      });
-      // Quick email from contact card
-      box.querySelectorAll('[data-crm-email]').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          const id = btn.getAttribute('data-crm-email');
-          const c = (crmCache.clients||[]).find(x=>x.id===id)||{};
-          const email = c.email||'';
-          if(!email){ alert('No email address on file for this contact.'); return; }
-          // Pre-fill the broadcast email form and switch to Email tab
-          const tabEl = document.querySelector('[data-crm-tab="email"]');
-          if(tabEl) tabEl.click();
-          setTimeout(()=>{
-            const toEl = $('crmEmailTo');
-            if(toEl){ toEl.value = email; }
-            const subEl = $('crmEmailSubject');
-            if(subEl && !subEl.value) subEl.value = 'Following up';
-            if(typeof showToast==='function') showToast('\u2709 Ready to email ' + (c.name||email));
-          }, 200);
-        });
-      });
-      // Quick SMS from contact card
-      box.querySelectorAll('[data-crm-sms]').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          const id = btn.getAttribute('data-crm-sms');
-          const c = (crmCache.clients||[]).find(x=>x.id===id)||{};
-          const phone = c.phone||'';
-          if(!phone){ alert('No phone number on file for this contact.'); return; }
-          // Pre-fill SMS broadcast form and switch to SMS tab
-          const tabEl = document.querySelector('[data-crm-tab="sms"]');
-          if(tabEl) tabEl.click();
-          setTimeout(()=>{
-            const toEl = $('crmSmsTo');
-            if(toEl){ toEl.value = phone; }
-            if(typeof showToast==='function') showToast('\ud83d\udcac Ready to text ' + (c.name||phone));
-          }, 200);
-        });
       });
     }
 
