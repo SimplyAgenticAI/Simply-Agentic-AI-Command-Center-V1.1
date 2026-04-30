@@ -5394,7 +5394,7 @@ def api_set_pinned_features():
     if not isinstance(pinned, list):
         return jsonify({"ok": False, "error": "pinned_features must be a list"}), 400
     # Validate against known feature keys
-    VALID_FEATURES = {"calendar","crm","lead_lab","social_studio","offer_builder",
+    VALID_FEATURES = {"calendar","crm","lead_lab","social_studio","offer_builder","notepad","site_analyzer",
                       "growth_playbook","image_lib","email_console","dashboard"}
     pinned = [str(f) for f in pinned if str(f) in VALID_FEATURES][:8]
     users = load_users()
@@ -12137,8 +12137,8 @@ label         { font-size: 14px !important; }
             <span>Tools</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saToolsDrop">
-            <button class="saDropItem" id="notepadBtn" onclick="if(typeof npOpen==='function')npOpen()">&#128221; Notepad</button>
-            <button class="saDropItem" id="siteAnalyzerBtn" onclick="if(typeof saOpen==='function')saOpen()">&#127760; Site Analyzer</button>
+            <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">&#128221; Notepad</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">&#127760; Site Analyzer</button>
             <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
             <button class="saDropItem" id="crmBtn">CRM</button>
             <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
@@ -12738,6 +12738,55 @@ label         { font-size: 14px !important; }
                       <button class="btn" id="cancelCustomize">Cancel</button>
                       <button class="btn btnPrimary" id="saveCustomize">Save</button>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- NOTEPAD MODAL FORM -->
+              <div class="modalForm" id="notepadForm" style="display:none;">
+                <div class="modalInner" style="max-width:960px;">
+                  <div style="display:flex;gap:0;height:calc(100vh - 200px);min-height:400px;border:1px solid rgba(42,58,106,.7);border-radius:12px;overflow:hidden;">
+                    <!-- Note list sidebar -->
+                    <div style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
+                      <div style="padding:10px 10px 8px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
+                        <button class="btn btnPrimary" onclick="npNewNote()" style="width:100%;font-size:12px;padding:6px;">+ New note</button>
+                      </div>
+                      <div id="npNoteList" style="flex:1;overflow-y:auto;padding:6px;"></div>
+                    </div>
+                    <!-- Editor -->
+                    <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+                      <div style="padding:10px 14px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
+                        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:15px;font-weight:600;outline:none;" />
+                      </div>
+                      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.7;padding:14px;resize:none;outline:none;" placeholder="Start writing..."></textarea>
+                      <!-- AI toolbar -->
+                      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;background:rgba(7,10,20,.4);">
+                        <span class="tiny" style="opacity:.5;">AI:</span>
+                        <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
+                        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
+                        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
+                        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
+                        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
+                        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+                          <span id="npStatus" class="tiny" style="color:#64748b;"></span>
+                          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
+                          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SITE ANALYZER MODAL FORM -->
+              <div class="modalForm" id="siteAnalyzerForm" style="display:none;">
+                <div class="modalInner" style="max-width:900px;">
+                  <div style="display:flex;gap:8px;margin-bottom:16px;">
+                    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
+                    <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;padding:9px 20px;">&#128269; Analyze</button>
+                  </div>
+                  <div id="saResults" style="min-height:320px;">
+                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis rated 1–100.</div>
                   </div>
                 </div>
               </div>
@@ -14468,6 +14517,8 @@ function applyModalPos(){
       if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("customizeForm")) $("customizeForm").style.display = "none";
+      if($("notepadForm")) $("notepadForm").style.display = "none";
+      if($("siteAnalyzerForm")) $("siteAnalyzerForm").style.display = "none";
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
@@ -17148,6 +17199,8 @@ async function pollImageJob(jobId, seatName){
         image_lib:      { icon:'🖼', label:'Image Lib',      fn:'showImageLibraryModal' },
         email_console:  { icon:'✉️', label:'Email',          fn:'showEmailConsoleModal' },
         dashboard:      { icon:'📊', label:'Dashboard',      fn:'saOpenDashboard' },
+        notepad:        { icon:'📝', label:'Notepad',         fn:'showNotepadModal' },
+        site_analyzer:  { icon:'🌐', label:'Site Analyzer',   fn:'showSiteAnalyzerModal' },
       };
 
       let _pinned = [];
@@ -25772,6 +25825,117 @@ document.addEventListener("click", function(e) {
 });
 
 
+
+    // ══ NOTEPAD MODAL ════════════════════════════════════════
+    var _npNotes = [], _npCurrent = null;
+
+    window.showNotepadModal = function() {
+      showModal();
+      hideAllModalForms();
+      if($("modalBody")) $("modalBody").style.display = "none";
+      if($("notepadForm")) $("notepadForm").style.display = "block";
+      if($("modalTitle")) $("modalTitle").innerText = "Notepad";
+      try {
+        var hdr = document.querySelector("#modalWin .modalHeader .modalActions");
+        if(hdr && !hdr.querySelector("[data-pin-key='notepad']") && typeof saCreatePinBtn==="function") {
+          var pb = saCreatePinBtn("notepad");
+          if(pb) hdr.insertBefore(pb, hdr.firstChild);
+        }
+      } catch(e) {}
+      npLoad();
+    };
+
+    async function npLoad() {
+      try { var r=await fetch("/api/notepad"),d=await r.json(); if(d.ok){_npNotes=d.notes||[];npRenderList();} } catch(e) {}
+    }
+
+    function npRenderList() {
+      var el=$("npNoteList"); if(!el) return;
+      el.innerHTML="";
+      if(!_npNotes.length){el.innerHTML="<div style='font-size:12px;color:#475569;padding:8px;'>No notes yet.</div>";return;}
+      _npNotes.forEach(function(n,i){
+        var d=document.createElement("div");
+        d.style.cssText="padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;color:#94a3b8;";
+        d.textContent=n.title||"Untitled";
+        if(_npCurrent===i){d.style.background="rgba(124,58,237,.22)";d.style.borderColor="rgba(124,58,237,.4)";d.style.color="#e2e8f0";}
+        d.onclick=function(){npSelect(i);}; el.appendChild(d);
+      });
+    }
+
+    function npSelect(i){
+      _npCurrent=i; var n=_npNotes[i];
+      if($("npTitle"))$("npTitle").value=n.title||"";
+      if($("npContent"))$("npContent").value=n.content||"";
+      npRenderList();
+    }
+
+    window.npNewNote=function(){
+      _npNotes.unshift({id:Date.now(),title:"",content:"",updated:new Date().toISOString()});
+      _npCurrent=0;npRenderList();npSelect(0);if($("npTitle"))$("npTitle").focus();
+    };
+
+    window.npSave=async function(){
+      if(_npCurrent===null){npNewNote();return;}
+      _npNotes[_npCurrent].title=($("npTitle")||{}).value||"Untitled";
+      _npNotes[_npCurrent].content=($("npContent")||{}).value||"";
+      _npNotes[_npCurrent].updated=new Date().toISOString();
+      try{
+        await fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
+        if($("npStatus")){$("npStatus").textContent="Saved";setTimeout(function(){if($("npStatus"))$("npStatus").textContent="";},2000);}
+      }catch(e){}
+      npRenderList();
+    };
+
+    window.npDelete=function(){
+      if(_npCurrent===null)return;
+      if(!confirm("Delete this note?"))return;
+      _npNotes.splice(_npCurrent,1);_npCurrent=_npNotes.length?0:null;
+      if(_npCurrent!==null)npSelect(0);else{if($("npTitle"))$("npTitle").value="";if($("npContent"))$("npContent").value="";}
+      npRenderList();
+      fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
+    };
+
+    window.npAI=async function(action){
+      var content=($("npContent")||{}).value||"";if(!content){alert("Write something first.");return;}
+      var st=$("npStatus");if(st)st.textContent="Working...";
+      try{
+        var r=await fetch("/api/notepad/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:action,content:content})}),d=await r.json();
+        if(d.ok){if($("npContent"))$("npContent").value=d.result;if(st)st.textContent="Done";}
+        else{if(st)st.textContent=d.error||"Error";}
+      }catch(e){if(st)st.textContent="Error";}
+      setTimeout(function(){if($("npStatus"))$("npStatus").textContent="";},3000);
+    };
+
+    // ══ SITE ANALYZER MODAL ══════════════════════════════════
+    window.showSiteAnalyzerModal=function(){
+      showModal();hideAllModalForms();
+      if($("modalBody"))$("modalBody").style.display="none";
+      if($("siteAnalyzerForm"))$("siteAnalyzerForm").style.display="block";
+      if($("modalTitle"))$("modalTitle").innerText="Site Analyzer";
+      try{
+        var hdr=document.querySelector("#modalWin .modalHeader .modalActions");
+        if(hdr&&!hdr.querySelector("[data-pin-key='site_analyzer']")&&typeof saCreatePinBtn==="function"){
+          var pb=saCreatePinBtn("site_analyzer");if(pb)hdr.insertBefore(pb,hdr.firstChild);
+        }
+      }catch(e){}
+    };
+
+    window.runSiteAnalysis=async function(){
+      var url=($("saUrl")||{}).value||"";if(!url){alert("Enter a URL first.");return;}
+      var btn=$("saAnalyzeBtn"),res=$("saResults");
+      if(btn){btn.disabled=true;btn.textContent="Analyzing...";}
+      if(res)res.innerHTML="<div style='text-align:center;padding:60px 0;color:#94a3b8;'>Fetching "+url+"...</div>";
+      try{
+        var r=await fetch("/api/analyze/website",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url})}),d=await r.json();
+        if(!d.ok){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>"+(d.error||"Failed")+"</div>";return;}
+        var a=d.analysis,sc=a.score>=80?"#22c55e":a.score>=60?"#f59e0b":"#ef4444";
+        var catH=Object.entries(a.categories||{}).map(function(e){return "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'><div style='width:110px;font-size:11px;color:#94a3b8;text-transform:capitalize;'>"+e[0].replace(/_/g," ")+"</div><div style='flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;'><div style='width:"+Math.round(e[1]*10)+"%;height:100%;background:"+sc+";border-radius:3px;'></div></div><div style='font-size:11px;color:#94a3b8;min-width:18px;'>"+e[1]+"</div></div>";}).join("");
+        var qwH=(a.quick_wins||[]).map(function(q){var ic=q.impact==="High"?"#22c55e":q.impact==="Medium"?"#f59e0b":"#94a3b8";return "<div style='padding:9px 12px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:7px;border-left:3px solid "+ic+";'><div style='font-size:13px;color:#e2e8f0;margin-bottom:3px;'>"+q.action+"</div><div style='font-size:11px;color:#64748b;'>Impact: <span style='color:"+ic+";'>"+q.impact+"</span> | Effort: "+q.effort+"</div></div>";}).join("");
+        if(res)res.innerHTML="<div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>";
+      }catch(e){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+e.message+"</div>";}
+      if(btn){btn.disabled=false;btn.textContent="Analyze";}
+    };
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   // Cmd+Enter (Mac) / Ctrl+Enter (Win): send message in active DM
   // Cmd/Ctrl+1-7: switch seat
@@ -26893,222 +27057,6 @@ document.addEventListener('click',e=>{
   };
 
 })();
-</script>
-
-<!-- ═══ AI NOTEPAD PANEL ═══ -->
-<div id="notepadPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
-  <div id="notepadDrag" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:grab;border-bottom:1px solid rgba(42,58,106,.5);user-select:none;flex-shrink:0;">
-    <div style="font-weight:700;font-size:15px;">&#128221; Notepad</div>
-    <button onclick="document.getElementById('notepadPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
-  </div>
-  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
-    <!-- Note list -->
-    <div style="width:200px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;overflow:hidden;">
-      <div style="padding:10px;display:flex;gap:6px;flex-shrink:0;">
-        <button class="btn btnPrimary" onclick="npNewNote()" style="flex:1;font-size:12px;padding:5px;">+ New</button>
-      </div>
-      <div id="npNoteList" style="flex:1;overflow-y:auto;padding:0 8px 8px;"></div>
-    </div>
-    <!-- Editor -->
-    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div style="padding:8px 12px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
-        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:14px;font-weight:600;outline:none;" />
-      </div>
-      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:13px;line-height:1.65;padding:12px;resize:none;outline:none;min-height:200px;" placeholder="Start writing... or paste a URL and ask a teammate to analyze it."></textarea>
-      <!-- AI toolbar -->
-      <div style="padding:8px 12px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex-shrink:0;">
-        <span style="font-size:11px;opacity:.5;">AI:</span>
-        <button class="btn btnMini" onclick="npAI('improve')" style="font-size:11px;">&#10024; Improve</button>
-        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:11px;">&#128640; Expand</button>
-        <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:11px;">&#128203; Summarize</button>
-        <button class="btn btnMini" onclick="npAI('action')" style="font-size:11px;">&#9989; Action items</button>
-        <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:11px;">&#9997; Rewrite</button>
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <button class="btn" onclick="npDelete()" style="font-size:11px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
-          <button class="btn btnPrimary" onclick="npSave()" style="font-size:11px;">Save</button>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div id="npStatus" style="font-size:11px;padding:4px 16px 8px;color:#64748b;flex-shrink:0;"></div>
-</div>
-
-<!-- ═══ WEBSITE ANALYZER PANEL ═══ -->
-<div id="siteAnalyzerPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(800px,96vw);max-height:88vh;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.7);z-index:10000;flex-direction:column;overflow:hidden;">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
-    <div style="font-weight:700;font-size:15px;">&#127760; Website Analyzer</div>
-    <button onclick="document.getElementById('siteAnalyzerPanel').style.display='none'" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#x2715;</button>
-  </div>
-  <div style="padding:14px 16px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;display:flex;gap:8px;">
-    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:13px;" />
-    <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;">Analyze &#128269;</button>
-  </div>
-  <div id="saResults" style="flex:1;overflow-y:auto;padding:16px;">
-    <div style="text-align:center;color:#475569;padding:40px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis.</div>
-  </div>
-</div>
-
-<script>
-// ── AI NOTEPAD ────────────────────────────────────────────────
-var _npNotes = [], _npCurrent = null;
-
-function npOpen() {
-  var p = document.getElementById('notepadPanel');
-  p.style.display = 'flex';
-  npLoad();
-  // Simple drag
-  var drag = {active:false, dx:0, dy:0};
-  var handle = document.getElementById('notepadDrag');
-  handle.addEventListener('pointerdown', function(e) {
-    if (e.target.tagName === 'BUTTON') return;
-    drag.active = true; handle.style.cursor = 'grabbing';
-    var r = p.getBoundingClientRect();
-    drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top;
-    p.style.transform = 'none';
-    p.style.left = r.left + 'px'; p.style.top = r.top + 'px';
-    try { handle.setPointerCapture(e.pointerId); } catch(x) {}
-  });
-  handle.addEventListener('pointermove', function(e) {
-    if (!drag.active) return;
-    p.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
-    p.style.top  = Math.max(0, e.clientY - drag.dy) + 'px';
-  });
-  handle.addEventListener('pointerup', function(e) { drag.active = false; handle.style.cursor = 'grab'; });
-}
-
-async function npLoad() {
-  try {
-    var r = await fetch('/api/notepad');
-    var d = await r.json();
-    if (d.ok) { _npNotes = d.notes || []; npRenderList(); }
-  } catch(e) {}
-}
-
-function npRenderList() {
-  var el = document.getElementById('npNoteList');
-  if (!el) return;
-  el.innerHTML = '';
-  if (!_npNotes.length) {
-    el.innerHTML = '<div style="font-size:12px;color:#475569;padding:8px;">No notes yet.</div>';
-    return;
-  }
-  _npNotes.forEach(function(n, i) {
-    var d = document.createElement('div');
-    d.style.cssText = 'padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;';
-    d.textContent = n.title || 'Untitled';
-    if (_npCurrent === i) { d.style.background = 'rgba(124,58,237,.22)'; d.style.borderColor = 'rgba(124,58,237,.4)'; }
-    else { d.style.color = '#94a3b8'; }
-    d.onclick = function() { npSelect(i); };
-    el.appendChild(d);
-  });
-}
-
-function npSelect(i) {
-  _npCurrent = i;
-  var n = _npNotes[i];
-  document.getElementById('npTitle').value = n.title || '';
-  document.getElementById('npContent').value = n.content || '';
-  npRenderList();
-}
-
-function npNewNote() {
-  _npNotes.unshift({id: Date.now(), title: '', content: '', updated: new Date().toISOString()});
-  _npCurrent = 0;
-  npRenderList();
-  npSelect(0);
-  document.getElementById('npTitle').focus();
-}
-
-async function npSave() {
-  if (_npCurrent === null) { npNewNote(); return; }
-  _npNotes[_npCurrent].title   = document.getElementById('npTitle').value || 'Untitled';
-  _npNotes[_npCurrent].content = document.getElementById('npContent').value || '';
-  _npNotes[_npCurrent].updated = new Date().toISOString();
-  try {
-    await fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
-    document.getElementById('npStatus').textContent = 'Saved ✓';
-    setTimeout(function() { document.getElementById('npStatus').textContent = ''; }, 2000);
-  } catch(e) {}
-  npRenderList();
-}
-
-function npDelete() {
-  if (_npCurrent === null) return;
-  if (!confirm('Delete this note?')) return;
-  _npNotes.splice(_npCurrent, 1);
-  _npCurrent = _npNotes.length ? 0 : null;
-  if (_npCurrent !== null) npSelect(0); else { document.getElementById('npTitle').value = ''; document.getElementById('npContent').value = ''; }
-  npRenderList();
-  fetch('/api/notepad', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({notes: _npNotes})});
-}
-
-async function npAI(action) {
-  var content = document.getElementById('npContent').value.trim();
-  if (!content) { alert('Write something first.'); return; }
-  var st = document.getElementById('npStatus');
-  st.textContent = 'AI working...';
-  try {
-    var r = await fetch('/api/notepad/ai', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:action, content:content})});
-    var d = await r.json();
-    if (d.ok) {
-      document.getElementById('npContent').value = d.result;
-      st.textContent = 'Done ✓';
-    } else {
-      st.textContent = d.error || 'Error';
-    }
-  } catch(e) { st.textContent = 'Error'; }
-  setTimeout(function() { st.textContent = ''; }, 3000);
-}
-
-// ── WEBSITE ANALYZER ─────────────────────────────────────────
-function saOpen() {
-  var p = document.getElementById('siteAnalyzerPanel');
-  p.style.display = 'flex';
-}
-
-async function runSiteAnalysis() {
-  var url = document.getElementById('saUrl').value.trim();
-  if (!url) { alert('Enter a URL first.'); return; }
-  var btn = document.getElementById('saAnalyzeBtn');
-  var res = document.getElementById('saResults');
-  btn.disabled = true; btn.textContent = 'Analyzing...';
-  res.innerHTML = '<div style="text-align:center;padding:40px 0;color:#94a3b8;">Fetching and analyzing ' + url + '...</div>';
-
-  try {
-    var r = await fetch('/api/analyze/website', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
-    var d = await r.json();
-    if (!d.ok) { res.innerHTML = '<div style="color:#f87171;padding:20px;">' + (d.error||'Analysis failed') + '</div>'; return; }
-    var a = d.analysis;
-    var scoreColor = a.score >= 80 ? '#22c55e' : a.score >= 60 ? '#f59e0b' : '#ef4444';
-    var cats = a.categories || {};
-    var catHTML = Object.entries(cats).map(function(e) {
-      var bar = Math.round(e[1]*10);
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;"><div style="width:100px;font-size:11px;color:#94a3b8;text-transform:capitalize;">' + e[0].replace(/_/g,' ') + '</div><div style="flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;"><div style="width:' + bar + '%;height:100%;background:' + scoreColor + ';border-radius:3px;"></div></div><div style="font-size:11px;color:#94a3b8;min-width:20px;">' + e[1] + '</div></div>';
-    }).join('');
-    var qwHTML = (a.quick_wins||[]).map(function(q) {
-      var ic = q.impact==='High'?'#22c55e':q.impact==='Medium'?'#f59e0b':'#94a3b8';
-      return '<div style="padding:8px 10px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:6px;border-left:3px solid '+ic+'"><div style="font-size:13px;color:#e2e8f0;margin-bottom:3px;">'+q.action+'</div><div style="font-size:11px;color:#64748b;">Impact: <span style="color:'+ic+'">'+q.impact+'</span> &nbsp;|&nbsp; Effort: '+q.effort+'</div></div>';
-    }).join('');
-    res.innerHTML = '<div style="display:grid;grid-template-columns:140px 1fr;gap:20px;">'
-      + '<div style="text-align:center;padding:16px 0;">'
-      + '<div style="font-size:56px;font-weight:800;color:'+scoreColor+';">'+a.score+'</div>'
-      + '<div style="font-size:24px;font-weight:700;color:'+scoreColor+';">'+a.grade+'</div>'
-      + '<div style="font-size:11px;color:#64748b;margin-top:4px;">Overall score</div>'
-      + '</div>'
-      + '<div><div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:12px;">'+a.summary+'</div>'
-      + catHTML + '</div></div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">'
-      + '<div><div style="font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;">&#10003; Strengths</div>'+(a.strengths||[]).map(function(s){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+s+'</div>';}).join('')+'</div>'
-      + '<div><div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;">&#9888; Weaknesses</div>'+(a.weaknesses||[]).map(function(w){return '<div style="font-size:12px;color:#94a3b8;margin-bottom:5px;padding-left:12px;">'+w+'</div>';}).join('')+'</div>'
-      + '</div>'
-      + '<div style="margin-top:16px;"><div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">&#9889; Quick wins (by priority)</div>'+qwHTML+'</div>';
-  } catch(e) {
-    res.innerHTML = '<div style="color:#f87171;padding:20px;">Error: ' + e.message + '</div>';
-  }
-  btn.disabled = false; btn.textContent = 'Analyze';
-}
-
-// Notepad + Analyzer buttons wired via onclick attributes
 </script>
 
 </body>
