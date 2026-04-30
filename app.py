@@ -12191,7 +12191,7 @@ label         { font-size: 14px !important; }
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
         <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
-        <a class="saNavBtn" href="/logout" title="Sign out" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
+        <a class="saNavBtn" href="/logout" title="Sign out" onclick="return confirm('Are you sure you want to log out?')" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
       </div>
 
     </div>
@@ -12219,9 +12219,9 @@ label         { font-size: 14px !important; }
         <button class="btn" data-click="createTeamBtn">Create teammate</button>
         <button class="btn" data-click="installFullBtn">Install full team</button>
         <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" id="teamNavBtn">👥 Team</button>
+        <button class="btn" id="teamNavBtn">👥 My Team</button>
         <button class="btn" data-click="calendarBtn">Calendar</button>
-        <button class="btn" data-click="crmBtn">Client Center</button>
+        <button class="btn" data-click="crmBtn">CRM</button>
         <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
         <button class="btn" data-click="leadLabBtn">Lead Lab</button>
         <button class="btn" data-click="socialStudioBtn">Social Studio</button>
@@ -12233,10 +12233,10 @@ label         { font-size: 14px !important; }
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openScoutPanel,200);">🧭 Compass Help</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
         <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
-        <a class="btn" href="/logout" style="text-decoration:none;display:inline-block;text-align:center;">Logout</a>
+        <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="text-align:center;">Logout</button>
       </div>
       <div class="mobileDrawerFoot">
-        <button class="btn" id="mobileScrollTopBtn">Top</button>
+
         <button class="btn btnPrimary" id="mobileCloseMenuBtn2">Done</button>
       </div>
     </div>
@@ -12357,6 +12357,21 @@ label         { font-size: 14px !important; }
   </div>
   <div class="tiny" style="margin-top:12px; opacity:.85;">
     Tip: Never share your key publicly. If it leaks, revoke it and create a new one.
+  </div>
+
+  <div style="border-top:1px solid rgba(42,58,106,.5);margin-top:16px;padding-top:14px;">
+    <div class="pill" style="margin:0 0 8px;">Using Claude (Anthropic) instead?</div>
+    <div class="tiny" style="margin-bottom:8px;">Simply Agentic supports both OpenAI and Anthropic models. To use Claude:</div>
+    <ol style="margin:8px 0 0 18px;line-height:1.7;font-size:13px;">
+      <li>Open the Anthropic Console API Keys page</li>
+      <li>Click <b>Create Key</b>, name it, and copy it</li>
+      <li>Back here: click <b>Settings</b> and paste into <b>Claude API Key</b></li>
+      <li>In each teammate's Edit panel, set their model to a Claude model</li>
+    </ol>
+    <div style="margin-top:12px;">
+      <a class="btn btnPrimary" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Open Anthropic Console</a>
+    </div>
+    <div class="tiny" style="margin-top:10px;opacity:.75;">Claude models stream beautifully and are great for longer, more nuanced responses.</div>
   </div>
 </div>
 
@@ -12587,7 +12602,6 @@ label         { font-size: 14px !important; }
 
                 <div class="actions" style="justify-content:center;margin-top:16px;">
                   <button class="btn" id="cancelSettings">Cancel</button>
-                  <button class="btn" id="exportDataBtn" title="Download a ZIP of all your data (GDPR export)" onclick="window.open('/api/user/export','_blank')" style="font-size:12px;">Export my data</button>
                   <button class="btn btnPrimary" id="saveSettings">Save settings</button>
                   <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
                 </div>
@@ -13544,6 +13558,16 @@ label         { font-size: 14px !important; }
 
 /* ── Motion-style Calendar ── */
 .wcal-wrap { display:flex; height:100%; min-height:640px; background:#0f1629; border-radius:12px; overflow:hidden; position:relative; }
+@media (max-width:720px) {
+  .wcal-wrap { flex-direction:column; min-height:unset; height:auto; }
+  .wcal-sidebar { width:100% !important; border-right:none !important; border-bottom:1px solid rgba(42,58,106,.6); max-height:200px; overflow-y:auto; flex-direction:row; flex-wrap:wrap; gap:6px; padding:8px !important; }
+  .wcal-mini-month { display:none !important; }
+  .wcal-main { width:100% !important; min-height:360px; }
+  .wcal-detail { position:fixed; bottom:0; left:0; right:0; max-height:60vh; overflow-y:auto; border-radius:12px 12px 0 0; z-index:9000; background:#131e3a; border-top:1px solid rgba(42,58,106,.6); }
+  .wcal-create-form { padding:10px !important; }
+  .wcal-event { font-size:10px !important; padding:2px 4px !important; }
+  #wcalWrap { height:calc(100vh - 120px); overflow-y:auto; }
+}
 /* ── Global scrollbar styling — dark, minimal, matches interface ── */
 ::-webkit-scrollbar { width:6px; height:6px; }
 ::-webkit-scrollbar-track { background:rgba(7,10,20,.0); }
@@ -15945,29 +15969,52 @@ function makeSeat(defn, idx){
           openBtn.innerText = "Open";
           openBtn.onclick = ()=> openLightbox(url);
 
-          const useBtn = document.createElement("button");
-          useBtn.className = "btn btnMini";
-          useBtn.innerText = "Use for revisions";
-          useBtn.onclick = async ()=>{
-            try{
-              const imgs = await fetch('/api/images').then(r=>r.json());
-              const match = (imgs.images || []).find(x => x.url === url);
-              if(!match || !match.id) throw new Error('Could not find this image in the library');
-              const r = await fetch('/api/teammates/' + encodeURIComponent(selectedSeat) + '/current_image', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({file_id: match.id})});
-              const d = await r.json();
-              if(!d.ok) throw new Error(d.error || 'Could not set current image');
-              lastImageState = d.image_state || {};
-              await refreshThread();
-            }catch(e){ showModal('Image selection failed', String(e && e.message ? e.message : e)); }
+          const dlBtn = document.createElement("button");
+          dlBtn.className = "btn btnMini";
+          dlBtn.innerText = "Download";
+          dlBtn.onclick = ()=>{
+            const a = document.createElement('a');
+            a.href = url; a.download = url.split('/').pop() || 'image.png';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          };
+
+          const shareBtn = document.createElement("button");
+          shareBtn.className = "btn btnMini";
+          shareBtn.innerText = "Share";
+          shareBtn.onclick = ()=>{
+            const menu = document.createElement('div');
+            menu.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+            menu.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;padding:20px;width:min(340px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.7);">
+              <div style="font-size:14px;font-weight:700;margin-bottom:14px;">Share Image</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <button class="btn" id="shareEmail" style="text-align:left;">&#9993; Share via Email</button>
+                <button class="btn" id="shareCopy" style="text-align:left;">&#128279; Copy image link</button>
+                <button class="btn" id="shareClose" style="text-align:left;margin-top:4px;opacity:.6;">Cancel</button>
+              </div>
+            </div>`;
+            document.body.appendChild(menu);
+            menu.querySelector('#shareEmail').onclick = ()=>{
+              const subject = encodeURIComponent('Image from Simply Agentic');
+              const body = encodeURIComponent('Here is the image:\n\n' + window.location.origin + url);
+              window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+              menu.remove();
+            };
+            menu.querySelector('#shareCopy').onclick = ()=>{
+              const fullUrl = window.location.origin + url;
+              navigator.clipboard.writeText(fullUrl).then(()=>{ if(typeof showToast==='function') showToast('Link copied!'); }).catch(()=>{ prompt('Copy this link:', window.location.origin + url); });
+              menu.remove();
+            };
+            menu.querySelector('#shareClose').onclick = ()=> menu.remove();
           };
 
           const editBtn = document.createElement("button");
           editBtn.className = "btn btnMini";
-          editBtn.innerText = "Edit this";
+          editBtn.innerText = "Edit";
           editBtn.onclick = ()=>{ const el = $('followMsg'); if(el){ el.value = 'Edit the current graphic. Keep the same overall image, but '; el.focus(); } };
 
           actions.appendChild(openBtn);
-          actions.appendChild(useBtn);
+          actions.appendChild(dlBtn);
+          actions.appendChild(shareBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
         }else{
@@ -19466,7 +19513,7 @@ async function crmFetchTasks(){
                   <button onclick="crmPipelineOpenClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">View</button>
                   ${hasEmail?`<button onclick="crmPipelineEmail('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.35);color:#93c5fd;cursor:pointer;">✉</button>`:''}
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">💬</button>`:''}
-                  ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">⚡ Draft</button>`:''}
+                  ${(hasEmail||hasPhone)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">Draft</button>`:''}
                   <button onclick="crmCreateTaskForContact('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;cursor:pointer;" title="Add calendar task for this contact">+ Task</button>
                 </div>
               </div>`;
@@ -19548,25 +19595,41 @@ async function crmFetchTasks(){
     }
 
     // Pipeline quick-actions
-    window.crmCreateTaskForContact = async function(clientId){
+    window.crmCreateTaskForContact = function(clientId){
   const client = (crmCache.clients||[]).find(c=>c.id===clientId);
   if(!client) return;
   const today = new Date().toISOString().slice(0,10);
-  const defaultTitle = 'Follow up with ' + (client.name||'contact');
-  const payload = {
-    title: defaultTitle,
-    date: today,
-    start: '09:00',
-    duration: 30,
-    priority: 'high',
-    recurring: 'none',
-    recur_days: [],
-    description: '',
-    on_complete_client_name: client.name||'',
-    on_complete_client_email: client.email||'',
-    on_complete_teammate: '',
-  };
-  try{
+  // Show a dialog asking for task details before creating
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:16px;padding:24px;width:min(420px,94vw);box-shadow:0 24px 80px rgba(0,0,0,.7);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px;">Create Task for ${client.name||'Contact'}</div>
+    <div style="margin-bottom:10px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Task title</label>
+      <input id="ctfTitle" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;" value="Follow up with ${client.name||'contact'}" /></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Date</label>
+        <input id="ctfDate" type="date" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;" value="${today}" /></div>
+      <div><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Time</label>
+        <input id="ctfTime" type="time" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;" value="09:00" /></div>
+    </div>
+    <div style="margin-bottom:16px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Notes (optional)</label>
+      <textarea id="ctfNotes" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;resize:none;height:70px;" placeholder="What is this task about?"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="ctfCancel" class="btn" style="font-size:13px;">Cancel</button>
+      <button id="ctfSave" class="btn btnPrimary" style="font-size:13px;">Add to Calendar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  setTimeout(()=>{ const t=document.getElementById('ctfTitle'); if(t){t.focus();t.select();} },100);
+  document.getElementById('ctfCancel').onclick = ()=> overlay.remove();
+  document.getElementById('ctfSave').onclick = async ()=>{
+    const title = (document.getElementById('ctfTitle')||{}).value||('Follow up with '+(client.name||'contact'));
+    const date  = (document.getElementById('ctfDate')||{}).value||today;
+    const time  = (document.getElementById('ctfTime')||{}).value||'09:00';
+    const notes = (document.getElementById('ctfNotes')||{}).value||'';
+    const payload = { title, date, start:time, duration:30, priority:'high', recurring:'none', recur_days:[], description:notes, on_complete_client_name:client.name||'', on_complete_client_email:client.email||'', on_complete_teammate:'' };
+    overlay.remove();
+    try{
     const res = await fetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error||'Failed');
@@ -19624,26 +19687,46 @@ window.crmPipelineOpenClient = function(clientId){
     };
 
     // ── One-click AI outreach draft ────────────────────────────
-    window.crmPipelineDraft = async function(clientId){
+    window.crmPipelineDraft = function(clientId){
       const c = (crmCache.clients||[]).find(x=>x.id===clientId);
       if(!c){ showToast('Client not found'); return; }
-
       const hasEmail = !!(c.email||'').trim();
       const hasPhone = !!(c.phone||'').trim();
-      const channel  = hasEmail ? 'email' : 'sms';
-
-      // Spinner on the button
-      const btn = document.getElementById('draftBtn-'+clientId);
-      const origText = btn ? btn.innerText : '';
-      if(btn){ btn.innerText = '⏳'; btn.disabled = true; }
-
-      showToast('⚡ Drafting outreach for ' + (c.name||'client') + '…');
+      // Show dialog asking what to draft before running
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:16px;padding:24px;width:min(420px,94vw);box-shadow:0 24px 80px rgba(0,0,0,.7);">
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px;">Draft Outreach for ${c.name||'Contact'}</div>
+        <div style="font-size:12px;opacity:.6;margin-bottom:16px;">Our AI will write a personalised message for you to review before sending.</div>
+        <div style="margin-bottom:10px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Channel</label>
+          <select id="draftChannel" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;">
+            ${hasEmail ? '<option value="email">Email — '+c.email+'</option>' : ''}
+            ${hasPhone ? '<option value="sms">SMS — '+c.phone+'</option>' : ''}
+          </select></div>
+        <div style="margin-bottom:16px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">What is this outreach about?</label>
+          <textarea id="draftContext" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;resize:none;height:80px;" placeholder="e.g. Following up on our last call, introducing our new service, checking in..."></textarea></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button id="draftCancel" class="btn" style="font-size:13px;">Cancel</button>
+          <button id="draftGo" class="btn btnPrimary" style="font-size:13px;">Draft it</button>
+        </div>
+      </div>`;
+      document.body.appendChild(overlay);
+      setTimeout(()=>{ const t=document.getElementById('draftContext'); if(t)t.focus(); },100);
+      document.getElementById('draftCancel').onclick = ()=> overlay.remove();
+      document.getElementById('draftGo').onclick = async ()=>{
+        const channel = (document.getElementById('draftChannel')||{}).value || (hasEmail?'email':'sms');
+        const context = (document.getElementById('draftContext')||{}).value||'';
+        overlay.remove();
+        const btn = document.getElementById('draftBtn-'+clientId);
+        const origText = btn ? btn.innerText : '';
+        if(btn){ btn.innerText = '...'; btn.disabled = true; }
+        showToast('Drafting outreach for ' + (c.name||'client') + '...');
 
       try{
         const res = await fetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/draft_outreach',{
           method: 'POST',
           headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({channel})
+          body: JSON.stringify({channel, context})
         });
         const d = await res.json();
 
@@ -19674,7 +19757,8 @@ window.crmPipelineOpenClient = function(clientId){
       } finally {
         if(btn){ btn.innerText = origText; btn.disabled = false; }
       }
-    };
+      }; // end draftGo.onclick
+    }; // end crmPipelineDraft
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
@@ -23300,7 +23384,6 @@ function initMobileUIv2(){
   });
 
   // Handy: scroll to top from drawer
-  const topBtn = $("mobileScrollTopBtn");
   if(topBtn) topBtn.onclick = () => { try{ window.scrollTo({top:0, behavior:"smooth"}); }catch(_){ window.scrollTo(0,0); } closeMenu(); };
 }
 
