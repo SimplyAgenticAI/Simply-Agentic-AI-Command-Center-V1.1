@@ -18488,8 +18488,8 @@ Challenge weak assumptions. Surface risks.`;
                 <div style="margin-top:6px;">${tags}</div>
               </div>
               <div style="display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap;">
-                ${email ? `<button class="btn btnTiny" data-crm-email="${id}" title="Send email to ${email}" style="color:#93c5fd;border-color:rgba(147,197,253,.3);">&#9993; Email</button>` : ''}
-                ${phone ? `<button class="btn btnTiny" data-crm-sms="${id}" title="Send SMS to ${phone}" style="color:#86efac;border-color:rgba(134,239,172,.3);">&#128172; SMS</button>` : ''}
+                ${email ? '<button class="btn btnTiny" data-crm-email="'+id+'" style="color:#93c5fd;border-color:rgba(147,197,253,.3);">&#9993; Email</button>' : ''}
+                ${phone ? '<button class="btn btnTiny" data-crm-sms="'+id+'" style="color:#86efac;border-color:rgba(134,239,172,.3);">&#128172; SMS</button>' : ''}
                 <button class="btn btnTiny" data-crm-edit="${id}">Edit</button>
                 <button class="btn btnTiny" data-crm-del="${id}">Delete</button>
               </div>
