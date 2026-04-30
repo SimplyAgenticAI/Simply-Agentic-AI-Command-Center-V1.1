@@ -19645,7 +19645,8 @@ async function crmFetchTasks(){
       }
     }
   }catch(err){ showToast('Could not create task: '+(err.message||'error')); }
-};
+  };  // end ctfSave.onclick
+};  // end crmCreateTaskForContact
 
 window.crmPipelineOpenClient = function(clientId){
       const c = (crmCache.clients||[]).find(x=>x.id===clientId);
@@ -19758,7 +19759,7 @@ window.crmPipelineOpenClient = function(clientId){
         if(btn){ btn.innerText = origText; btn.disabled = false; }
       }
     }; // end draftGo.onclick
-  }; // end crmPipelineDraft
+    }; // end crmPipelineDraft
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
@@ -23954,7 +23955,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(ccTabPipeline){
       ccTabPipeline.onclick = async ()=>{ ccSelectTab("Pipeline"); await renderPipelineBoard(); };
     }
-}
 </script>
 
 
