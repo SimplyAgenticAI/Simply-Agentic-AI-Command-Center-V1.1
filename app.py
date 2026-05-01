@@ -228,8 +228,8 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
-# the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $27/mo)
-STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "price_1TQC3uKAWBo2NxJsBt6QBdqT")
+# the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
+STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "price_1TS4JiKAWBo2NxJsCGC6Z8JQ")
 FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "100"))  # total slots
 # Fixed epoch: the week counter resets every Monday 00:00 UTC
 FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any past Monday
