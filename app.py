@@ -13241,14 +13241,14 @@ label         { font-size: 14px !important; }
                       <div>
                         <label style="margin:0 0 8px;display:block;font-size:13px;">Background color</label>
                         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
-                          <div class="color-swatch" data-target="bg_color" data-value="#060c18" title="Deep Navy" style="width:26px;height:26px;border-radius:50%;background:#060c18;cursor:pointer;border:2px solid white;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0a0f1e" title="Midnight" style="width:26px;height:26px;border-radius:50%;background:#0a0f1e;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0d1117" title="GitHub Dark" style="width:26px;height:26px;border-radius:50%;background:#0d1117;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#1a1a2e" title="Indigo Dark" style="width:26px;height:26px;border-radius:50%;background:#1a1a2e;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0f0f23" title="Space Black" style="width:26px;height:26px;border-radius:50%;background:#0f0f23;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.15);"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#111827" title="Slate Dark" style="width:26px;height:26px;border-radius:50%;background:#111827;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0c0c0c" title="Pure Black" style="width:26px;height:26px;border-radius:50%;background:#0c0c0c;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.15);"></div>
-                          <input type="color" id="bgColorCustom" value="#060c18" title="Custom"
+                          <div class="color-swatch" data-target="bg_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="bgColorCustom" value="#7c3aed" title="Custom"
                             style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
                             oninput="_applyThemePref('bg_color',this.value)">
                         </div>
