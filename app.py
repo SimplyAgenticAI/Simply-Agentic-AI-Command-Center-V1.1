@@ -4875,19 +4875,19 @@ tr:hover td{background:rgba(255,255,255,.02);}
 <div id='editPop'>
   <h3>✏️ Edit Seat</h3>
   <label>Holder name</label>
-  <input id='editName' type='text' placeholder='e.g. Jane Smith'/>
+  <input id='seatEditName' type='text' placeholder='e.g. Jane Smith'/>
   <label>Holder email</label>
-  <input id='editEmail' type='email' placeholder='jane@example.com'/>
+  <input id='seatEditEmail' type='email' placeholder='jane@example.com'/>
   <label>Plan</label>
-  <select id='editPlan'>
+  <select id='seatEditPlan'>
     <option value='starter'>Starter Operator — $47/mo</option>
     <option value='growth'>Growth System — $97/mo</option>
     <option value='pro'>Operator Pro — $197/mo</option>
   </select>
   <label>Notes</label>
-  <textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
+  <textarea id='seatEditNotes' rows='2' placeholder='Any notes…'></textarea>
   <label>Status</label>
-  <select id='editStatus'>
+  <select id='seatEditStatus'>
     <option value='active'>Active (available)</option>
     <option value='inactive'>Inactive (deactivated)</option>
   </select>
@@ -4895,7 +4895,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <button class='btn btn-primary' onclick='saveEdit()'>Save</button>
     <button class='btn btn-sm' onclick='closeEdit()'>Cancel</button>
   </div>
-  <div class='status-msg' id='editMsg'></div>
+  <div class='status-msg' id='seatEditMsg'></div>
 </div>
 
 <!-- Generate modal -->
@@ -5062,12 +5062,12 @@ function openEdit(code) {
   const s = allSeats.find(x => x.code === code);
   if (!s) return;
   editingCode = code;
-  document.getElementById('editName').value   = s.holder_name  || '';
-  document.getElementById('editEmail').value  = s.holder_email || s.stripe_email || '';
-  document.getElementById('editPlan').value   = s.plan || 'starter';
-  document.getElementById('editNotes').value  = s.notes || '';
-  document.getElementById('editStatus').value = s.status || 'active';
-  document.getElementById('editMsg').innerText = '';
+  document.getElementById('seatEditName').value   = s.holder_name  || '';
+  document.getElementById('seatEditEmail').value  = s.holder_email || s.stripe_email || '';
+  document.getElementById('seatEditPlan').value   = s.plan || 'starter';
+  document.getElementById('seatEditNotes').value  = s.notes || '';
+  document.getElementById('seatEditStatus').value = s.status || 'active';
+  document.getElementById('seatEditMsg').innerText = '';
   // Position near the clicked row
   const row = document.querySelector(`tr[data-code="${code}"]`);
   const pop = document.getElementById('editPop');
@@ -5091,15 +5091,15 @@ function closeEdit() {
 
 async function saveEdit() {
   if (!editingCode) return;
-  const msg = document.getElementById('editMsg');
+  const msg = document.getElementById('seatEditMsg');
   msg.innerText = 'Saving…';
   try {
     const payload = {
-      holder_name:  document.getElementById('editName').value.trim(),
-      holder_email: document.getElementById('editEmail').value.trim(),
-      plan:         document.getElementById('editPlan').value,
-      notes:        document.getElementById('editNotes').value.trim(),
-      status:       document.getElementById('editStatus').value,
+      holder_name:  document.getElementById('seatEditName').value.trim(),
+      holder_email: document.getElementById('seatEditEmail').value.trim(),
+      plan:         document.getElementById('seatEditPlan').value,
+      notes:        document.getElementById('seatEditNotes').value.trim(),
+      status:       document.getElementById('seatEditStatus').value,
     };
     const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
       method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin', body: JSON.stringify(payload)
