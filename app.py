@@ -5370,7 +5370,7 @@ def api_set_user_settings():
             "task_glow_color", "event_color",
             "seat_glow_color", "nav_style",
             "font_family", "font_size",
-            "arena_bg_color", "accent_color", "bg_color", "bg_brightness",
+            "arena_bg_color", "accent_color",
         }
         for k, v in theme_in.items():
             if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80:
@@ -12770,48 +12770,16 @@ label         { font-size: 14px !important; }
 
                       <!-- Accent color -->
                       <div>
-                        <label style="margin:0 0 8px;display:block;font-size:13px;">UI accent color <span style="font-size:11px;opacity:.5;font-weight:400;">(buttons, calendar, focus rings)</span></label>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">UI accent color</label>
                         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
                           <div class="color-swatch" data-target="accent_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <input type="color" id="accentColorCustom" value="#7c3aed" title="Custom"
                             style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
                             oninput="_applyThemePref('accent_color',this.value)">
-                        </div>
-                      </div>
-
-                      <!-- Background color -->
-                      <div>
-                        <label style="margin:0 0 8px;display:block;font-size:13px;">Background color <span style="font-size:11px;opacity:.5;font-weight:400;">(match your brand)</span></label>
-                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
-                          <div class="color-swatch" data-target="bg_color" data-value="#07091a" title="Default Navy" style="width:26px;height:26px;border-radius:50%;background:#07091a;cursor:pointer;border:2px solid white;outline:1px solid rgba(255,255,255,.25);transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <input type="color" id="bgColorCustom" value="#07091a" title="Custom"
-                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
-                            oninput="_applyThemePref('bg_color',this.value)">
-                        </div>
-                      </div>
-
-                      <!-- Brightness -->
-                      <div>
-                        <label style="margin:0 0 8px;display:block;font-size:13px;">Brightness</label>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                          <span class="tiny" style="opacity:.4;">🌑</span>
-                          <input type="range" id="bgBrightnessSlider" min="60" max="130" value="100" step="1"
-                            style="flex:1" oninput="_applyThemePref('bg_brightness',this.value);document.getElementById('bgBrightnessVal').textContent=this.value+'%';">
-                          <span class="tiny" style="opacity:.4;">☀️</span>
-                          <span class="tiny" id="bgBrightnessVal" style="opacity:.7;min-width:32px;">100%</span>
                         </div>
                       </div>
 
@@ -12858,7 +12826,6 @@ label         { font-size: 14px !important; }
                     <div style="display:flex;gap:8px;">
                       <button class="btn" id="cancelCustomize">Cancel</button>
                       <button class="btn btnPrimary" id="saveCustomize">Save</button>
-                      <button class="btn btnPrimary" id="saveExitCustomize" style="background:rgba(16,185,129,.5);border-color:rgba(16,185,129,.7);">Save &amp; Exit</button>
                     </div>
                   </div>
                 </div>
@@ -12895,7 +12862,6 @@ label         { font-size: 14px !important; }
                         <span id="npStatus" class="tiny" style="color:#64748b;flex:1;"></span>
                         <button class="btn" onclick="npDelete()" style="font-size:12px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
                         <button class="btn btnPrimary" onclick="npSave()" style="font-size:12px;padding:6px 18px;">Save</button>
-                        <button class="btn btnPrimary" onclick="npSave().then(function(){hideModal();}).catch(function(){hideModal();})" style="font-size:12px;padding:6px 18px;background:rgba(16,185,129,.5);border-color:rgba(16,185,129,.7);">Save &amp; Exit</button>
                       </div>
                     </div>
                   </div>
@@ -15691,6 +15657,9 @@ function makeSeat(defn, idx){
       let startX = 0, startY = 0;
       let offsetX = 0, offsetY = 0;
 
+      let _lastTapTime = 0;
+      let _tapHintTimer = null;
+
       seat.addEventListener("pointerdown", (e) => {
         if(e.button !== undefined && e.button !== 0) return;
         dragging = true;
@@ -15709,11 +15678,14 @@ function makeSeat(defn, idx){
 
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
-        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
-        if(dx > 6 || dy > 6) moved = true;
+        // Higher threshold on mobile so normal scroll drift doesn't count as a move
+        const moveThreshold = window.innerWidth <= 640 ? 12 : 6;
+        if(dx > moveThreshold || dy > moveThreshold) moved = true;
+
+        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
 
         const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : $("tableWrap"));
         const boundsRect = boundsEl.getBoundingClientRect();
@@ -15747,8 +15719,42 @@ function makeSeat(defn, idx){
           saveSeatPositions(current);
         }
 
+        const moveThreshold = window.innerWidth <= 640 ? 10 : 6;
+        const dx = Math.abs((typeof e !== 'undefined' ? 0 : 0)); // use stored moved flag
         if(!moved){
-          selectSeat(defn.name);
+          if(window.innerWidth <= 640){
+            // Mobile: require double-tap within 400ms
+            const now = Date.now();
+            const timeSinceLast = now - _lastTapTime;
+            if(timeSinceLast < 400 && timeSinceLast > 50){
+              // Double tap — select
+              _lastTapTime = 0;
+              if(_tapHintTimer){ clearTimeout(_tapHintTimer); _tapHintTimer = null; }
+              seat.querySelector('.seatDoubleTapHint') && seat.querySelector('.seatDoubleTapHint').remove();
+              selectSeat(defn.name);
+            } else {
+              // First tap — show hint
+              _lastTapTime = now;
+              // Show brief "tap again" hint on the seat
+              let hint = seat.querySelector('.seatDoubleTapHint');
+              if(!hint){
+                hint = document.createElement('div');
+                hint.className = 'seatDoubleTapHint';
+                hint.innerText = 'Tap again to select';
+                hint.style.cssText = 'position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:10px;color:#c4b5fd;background:rgba(7,9,26,.85);padding:2px 0;border-radius:0 0 12px 12px;pointer-events:none;z-index:10;';
+                seat.style.position = 'relative';
+                seat.appendChild(hint);
+              }
+              if(_tapHintTimer) clearTimeout(_tapHintTimer);
+              _tapHintTimer = setTimeout(() => {
+                hint && hint.remove();
+                _lastTapTime = 0;
+              }, 1200);
+            }
+          } else {
+            // Desktop: single click selects as before
+            selectSeat(defn.name);
+          }
         }
 
         try{ seat.releasePointerCapture(pointerId); }catch(err){}
@@ -17211,10 +17217,11 @@ function makeSeat(defn, idx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        // Do NOT snapshot textarea → _buf here: that causes duplication because
-        // _buf already holds confirmed finals and onresult will add new finals on top.
-        // Only keep _buf as-is (it holds confirmed finals from speech events only).
-        if(_switching){ _buf=""; } // seat switch in flight — wipe to stay clean
+        // Only snapshot box → buffer when NOT switching seats (prevents name re-entering buf)
+        if(!_switching){
+          const t=currentAlwaysTarget();
+          if(t)_buf=t.value.trim();
+        }
         _setAlwaysStatus("Mic: active");
         try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
@@ -23083,17 +23090,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
     if ($("customizeBtn")) $("customizeBtn").onclick = () => { showCustomizeModal(); };
 
     // Wire Save button in customize modal
-    if ($("saveExitCustomize")) $("saveExitCustomize").onclick = async () => {
-      try {
-        const res = await fetch("/api/user/settings", {
-          method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ theme: window._saThemePrefs || {} })
-        });
-        const d = await res.json();
-        if (d.ok) { showToast("✓ Theme saved"); hideModal(); }
-        else showToast("Save failed: " + (d.error || "unknown error"), "error");
-      } catch(e) { showToast("Save failed: " + e.message, "error"); }
-    };
     if ($("saveCustomize")) $("saveCustomize").onclick = async () => {
       try {
         const res = await fetch("/api/user/settings", {
@@ -26022,23 +26018,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const c = p.seat_glow_color;
       css += `
         .seat:hover { border-color: ${_rgba(c, 0.75)} !important; box-shadow: 0 0 20px ${_rgba(c, 0.28)} !important; }
-        .seat.active { border-color: ${_rgba(c, 0.9)} !important; background: ${_rgba(c, 0.08)} !important; box-shadow: 0 0 0 2px ${_rgba(c, 0.4)}, 0 0 28px ${_rgba(c, 0.38)} !important; }
-        .seat.active .sn { color: ${_rgba(c, 1.0)} !important; }
+        .seat.active { border-color: ${_rgba(c, 0.85)} !important; box-shadow: 0 0 28px ${_rgba(c, 0.38)}, 0 0 8px ${_rgba(c, 0.2)} inset !important; }
       `;
-    }
-
-    if (p.bg_color) {
-      const c = p.bg_color;
-      const bright = parseFloat(p.bg_brightness || "100") / 100;
-      css += `
-        body { background-color: ${c} !important; filter: brightness(${bright}); }
-        .saNavBar { background: color-mix(in srgb, ${c} 85%, black) !important; }
-        .sideCard { background: color-mix(in srgb, ${c} 80%, black) !important; }
-        .dmPanel { background: color-mix(in srgb, ${c} 78%, black) !important; }
-      `;
-    } else if (p.bg_brightness && p.bg_brightness !== "100") {
-      const bright = parseFloat(p.bg_brightness) / 100;
-      css += `body { filter: brightness(${bright}); }`;
     }
 
     if (p.accent_color) {
@@ -26047,19 +26028,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
         .btnPrimary { background: ${c} !important; border-color: ${c} !important; }
         #streamToggleBtn.sa-stream-on { border-color: ${_rgba(c, 0.6)} !important; color: ${c} !important; }
         .saObjectivePill { border-color: ${_rgba(c, 0.4)} !important; }
-        .wcal-nav-btn.today { background: ${_rgba(c, 0.25)} !important; border-color: ${_rgba(c, 0.5)} !important; }
-        .wcal-view-btn.active { background: ${_rgba(c, 0.3)} !important; border-color: ${_rgba(c, 0.6)} !important; }
-        .wcal-day-btn.active { background: ${_rgba(c, 0.35)} !important; border-color: ${_rgba(c, 0.7)} !important; }
-        .wcal-day-btn:hover { border-color: ${_rgba(c, 0.5)} !important; }
-        .wcal-mini-day.today { background: ${_rgba(c, 0.6)} !important; }
-        .wcal-mini-day:hover { background: ${_rgba(c, 0.2)} !important; }
-        .wcal-mini-day.has-events::after { background: ${c} !important; }
-        .wcal-add-tab.active { background: ${_rgba(c, 0.3)} !important; border-color: ${_rgba(c, 0.6)} !important; }
-        .wcal-submit { background: ${_rgba(c, 0.4)} !important; border-color: ${_rgba(c, 0.6)} !important; }
-        .wcal-submit:hover { background: ${_rgba(c, 0.65)} !important; }
-        .wcal-col-header .dd.today-num { background: ${_rgba(c, 0.8)} !important; }
-        .wcal-det-btn.primary { background: ${_rgba(c, 0.4)} !important; border-color: ${_rgba(c, 0.6)} !important; }
-        .wcal-det-btn.primary:hover { background: ${_rgba(c, 0.65)} !important; }
       `;
     }
 
@@ -26167,18 +26135,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
         document.getElementById("fontSizeSlider").value = sz;
         document.getElementById("fontSizeVal").textContent = sz + "px";
       }
-      if (theme.bg_color) {
-        try { document.getElementById("bgColorCustom").value = theme.bg_color; } catch(e) {}
-        document.querySelectorAll(".color-swatch[data-target='bg_color']").forEach(s => {
-          s.style.borderColor = s.dataset.value === theme.bg_color ? "#fff" : "transparent";
-        });
-      }
-      if (theme.bg_brightness) {
-        try {
-          document.getElementById("bgBrightnessSlider").value = theme.bg_brightness;
-          document.getElementById("bgBrightnessVal").textContent = theme.bg_brightness + "%";
-        } catch(e) {}
-      }
     } catch(e) {}
   };
 
@@ -26198,11 +26154,9 @@ if(typeof maybeAutoShowOnboarding === "function"){
     // Sync the custom color picker
     try {
       const picker = document.getElementById(
-        target === "table_color"     ? "tableColorCustom" :
+        target === "table_color"    ? "tableColorCustom" :
         target === "task_glow_color" ? "taskGlowCustom" :
-        target === "accent_color"    ? "accentColorCustom" :
-        target === "bg_color"        ? "bgColorCustom" :
-        target === "seat_glow_color" ? "seatGlowCustom" : ""
+        target === "accent_color"   ? "accentColorCustom" : ""
       );
       if (picker) picker.value = value;
     } catch(_e) {}
