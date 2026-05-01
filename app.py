@@ -33485,21 +33485,43 @@ If you have any questions, contact the person who sent this invite.
 
 — The {APP_TITLE} Team
 """
-    # Try owner SMTP first, then server SMTP
+    from_name = SMTP_FROM_NAME or APP_TITLE
+
+    # Tier 1: owner's connected Gmail OAuth
+    owner_user_rec = load_users().get("users", {}).get(owner_username)
+    if owner_user_rec:
+        access_token, gmail_err = _gmail_creds_for_user(owner_user_rec)
+        if access_token:
+            try:
+                _gmail_send_message(access_token, to_addr=invitee_email, subject=subject, body=body, from_name=from_name)
+                return True, f"Invite sent to {invitee_email}."
+            except Exception as exc:
+                return False, f"Gmail send failed ({exc}) — share manually: {join_link}"
+
+    # Tier 2: owner's personal SMTP settings
     smtp = (owner_data.get("settings") or {}).get("smtp") or {}
-    host = (smtp.get("host") or "").strip() or SMTP_HOST
-    port = int(smtp.get("port") or SMTP_PORT)
-    user = (smtp.get("user") or "").strip() or SMTP_USER
-    pw   = (smtp.get("pass") or "").strip() or SMTP_PASS
-    from_name = (smtp.get("from_name") or "").strip() or SMTP_FROM_NAME or APP_TITLE
-    if not user or not pw:
-        # Return the link so admin can share manually
-        return False, f"No email configured — share this link manually: {join_link}"
-    try:
-        send_email_smtp_with_creds(invitee_email, subject, body, host, port, user, pw, from_name)
-        return True, f"Invite sent to {invitee_email}."
-    except Exception as exc:
-        return False, f"Email failed ({exc}) — share manually: {join_link}"
+    user = (smtp.get("user") or "").strip()
+    pw   = (smtp.get("pass") or "").strip()
+    if user and pw:
+        host = (smtp.get("host") or "").strip() or SMTP_HOST
+        port = int(smtp.get("port") or SMTP_PORT)
+        fn   = (smtp.get("from_name") or "").strip() or from_name
+        try:
+            send_email_smtp_with_creds(invitee_email, subject, body, host, port, user, pw, fn)
+            return True, f"Invite sent to {invitee_email}."
+        except Exception as exc:
+            return False, f"Email failed ({exc}) — share manually: {join_link}"
+
+    # Tier 3: server-level SMTP env vars
+    if SMTP_USER and SMTP_PASS:
+        try:
+            send_email_smtp_with_creds(invitee_email, subject, body, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, from_name)
+            return True, f"Invite sent to {invitee_email}."
+        except Exception as exc:
+            return False, f"Email failed ({exc}) — share manually: {join_link}"
+
+    # Tier 4: nothing configured
+    return False, f"No email configured — share this link manually: {join_link}"
 
 
 # ── Team Seats API ───────────────────────────────────────────────────────────
