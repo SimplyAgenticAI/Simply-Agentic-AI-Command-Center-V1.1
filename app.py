@@ -4826,10 +4826,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
 </style></head><body>
 <a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
 <h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
-<div id='secretBanner' style='display:none;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#fcd34d;'>
-  ⚠️ <strong>Seats not loading?</strong> Your session resets on every deploy because <code>APP_SECRET</code> is not set as a permanent env var in Render.
-  Go to Render → Your service → Environment → Add <code>APP_SECRET</code> = any long random string. Then redeploy once and you'll stay logged in permanently.
-</div>
 <div style='margin-bottom:16px;display:flex;gap:16px;'>
   <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users & Impersonation</a>
 </div>
@@ -4934,35 +4930,12 @@ let allSeats = [];
 let editingCode = null;
 
 async function loadSeats() {
-  try {
-    const res = await fetch('/api/admin/seats');
-    if (res.status === 401 || res.redirected) {
-      window.location.href = '/login?next=/admin/seats';
-      return;
-    }
-    const d = await res.json();
-    if (!d.ok) {
-      if (d.error && d.error.toLowerCase().includes('admin')) {
-        var sb = document.getElementById('secretBanner'); if(sb) sb.style.display='block';
-        document.getElementById('seatBody').innerHTML =
-          "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;font-size:14px;'>" +
-          "⚠️ Session expired or not recognized as admin.<br><br>" +
-          "<a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a><br><br>" +
-          "<span style='font-size:12px;color:#64748b;'>If this keeps happening, set APP_SECRET as a permanent env var in Render.</span>" +
-          "</td></tr>";
-      } else {
-        document.getElementById('seatBody').innerHTML =
-          "<tr><td colspan='9' style='padding:24px;text-align:center;color:#f87171;'>Error: " + (d.error || 'Unknown error') + "</td></tr>";
-      }
-      return;
-    }
-    allSeats = d.seats || [];
-    renderStats();
-    renderTable(allSeats);
-  } catch(e) {
-    document.getElementById('seatBody').innerHTML =
-      "<tr><td colspan='9' style='padding:24px;text-align:center;color:#f87171;'>Network error: " + e.message + "</td></tr>";
-  }
+  const res = await fetch('/api/admin/seats');
+  const d = await res.json();
+  if (!d.ok) return;
+  allSeats = d.seats || [];
+  renderStats();
+  renderTable(allSeats);
 }
 
 function renderStats() {
@@ -12804,8 +12777,8 @@ label         { font-size: 14px !important; }
                           <div class="color-swatch" data-target="accent_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <div class="color-swatch" data-target="accent_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#f59e0b" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="accent_color" data-value="#ec4899" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#ec4899;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="accent_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <input type="color" id="accentColorCustom" value="#7c3aed" title="Custom"
                             style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
                             oninput="_applyThemePref('accent_color',this.value)">
@@ -12816,12 +12789,14 @@ label         { font-size: 14px !important; }
                       <div>
                         <label style="margin:0 0 8px;display:block;font-size:13px;">Background color <span style="font-size:11px;opacity:.5;font-weight:400;">(match your brand)</span></label>
                         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
-                          <div class="color-swatch" data-target="bg_color" data-value="#07091a" title="Deep Navy (default)" style="width:26px;height:26px;border-radius:50%;background:#07091a;cursor:pointer;border:2px solid white;outline:1px solid rgba(255,255,255,.3);transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0a0f0a" title="Deep Green" style="width:26px;height:26px;border-radius:50%;background:#0a0f0a;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0f0a07" title="Deep Amber" style="width:26px;height:26px;border-radius:50%;background:#0f0a07;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0a0707" title="Deep Red" style="width:26px;height:26px;border-radius:50%;background:#0a0707;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#07100f" title="Deep Teal" style="width:26px;height:26px;border-radius:50%;background:#07100f;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
-                          <div class="color-swatch" data-target="bg_color" data-value="#0d0d0d" title="Pure Black" style="width:26px;height:26px;border-radius:50%;background:#0d0d0d;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#07091a" title="Default Navy" style="width:26px;height:26px;border-radius:50%;background:#07091a;cursor:pointer;border:2px solid white;outline:1px solid rgba(255,255,255,.25);transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#dc2626" title="Red" style="width:26px;height:26px;border-radius:50%;background:#dc2626;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0891b2" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#0891b2;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#d97706" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#d97706;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#db2777" title="Pink" style="width:26px;height:26px;border-radius:50%;background:#db2777;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
                           <input type="color" id="bgColorCustom" value="#07091a" title="Custom"
                             style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
                             oninput="_applyThemePref('bg_color',this.value)">
@@ -12834,7 +12809,7 @@ label         { font-size: 14px !important; }
                         <div style="display:flex;align-items:center;gap:8px;">
                           <span class="tiny" style="opacity:.4;">🌑</span>
                           <input type="range" id="bgBrightnessSlider" min="60" max="130" value="100" step="1"
-                            style="flex:1" oninput="_applyThemePref('bg_brightness',this.value);document.getElementById('bgBrightnessVal').textContent=this.value+'%';this.style.setProperty('--val',Math.round((this.value-60)/70*100)+'%')">
+                            style="flex:1" oninput="_applyThemePref('bg_brightness',this.value);document.getElementById('bgBrightnessVal').textContent=this.value+'%';">
                           <span class="tiny" style="opacity:.4;">☀️</span>
                           <span class="tiny" id="bgBrightnessVal" style="opacity:.7;min-width:32px;">100%</span>
                         </div>
@@ -12883,6 +12858,7 @@ label         { font-size: 14px !important; }
                     <div style="display:flex;gap:8px;">
                       <button class="btn" id="cancelCustomize">Cancel</button>
                       <button class="btn btnPrimary" id="saveCustomize">Save</button>
+                      <button class="btn btnPrimary" id="saveExitCustomize" style="background:rgba(16,185,129,.5);border-color:rgba(16,185,129,.7);">Save &amp; Exit</button>
                     </div>
                   </div>
                 </div>
@@ -12919,6 +12895,7 @@ label         { font-size: 14px !important; }
                         <span id="npStatus" class="tiny" style="color:#64748b;flex:1;"></span>
                         <button class="btn" onclick="npDelete()" style="font-size:12px;color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
                         <button class="btn btnPrimary" onclick="npSave()" style="font-size:12px;padding:6px 18px;">Save</button>
+                        <button class="btn btnPrimary" onclick="npSave().then(function(){hideModal();}).catch(function(){hideModal();})" style="font-size:12px;padding:6px 18px;background:rgba(16,185,129,.5);border-color:rgba(16,185,129,.7);">Save &amp; Exit</button>
                       </div>
                     </div>
                   </div>
@@ -17234,11 +17211,10 @@ function makeSeat(defn, idx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        // Only snapshot box → buffer when NOT switching seats (prevents name re-entering buf)
-        if(!_switching){
-          const t=currentAlwaysTarget();
-          if(t)_buf=t.value.trim();
-        }
+        // Do NOT snapshot textarea → _buf here: that causes duplication because
+        // _buf already holds confirmed finals and onresult will add new finals on top.
+        // Only keep _buf as-is (it holds confirmed finals from speech events only).
+        if(_switching){ _buf=""; } // seat switch in flight — wipe to stay clean
         _setAlwaysStatus("Mic: active");
         try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
@@ -23107,6 +23083,17 @@ $("settingsBtn").onclick = () => showSettingsModal();
     if ($("customizeBtn")) $("customizeBtn").onclick = () => { showCustomizeModal(); };
 
     // Wire Save button in customize modal
+    if ($("saveExitCustomize")) $("saveExitCustomize").onclick = async () => {
+      try {
+        const res = await fetch("/api/user/settings", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ theme: window._saThemePrefs || {} })
+        });
+        const d = await res.json();
+        if (d.ok) { showToast("✓ Theme saved"); hideModal(); }
+        else showToast("Save failed: " + (d.error || "unknown error"), "error");
+      } catch(e) { showToast("Save failed: " + e.message, "error"); }
+    };
     if ($("saveCustomize")) $("saveCustomize").onclick = async () => {
       try {
         const res = await fetch("/api/user/settings", {
@@ -26044,7 +26031,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const c = p.bg_color;
       const bright = parseFloat(p.bg_brightness || "100") / 100;
       css += `
-        body { background: ${c} !important; filter: brightness(${bright}); }
+        body { background-color: ${c} !important; filter: brightness(${bright}); }
         .saNavBar { background: color-mix(in srgb, ${c} 85%, black) !important; }
         .sideCard { background: color-mix(in srgb, ${c} 80%, black) !important; }
         .dmPanel { background: color-mix(in srgb, ${c} 78%, black) !important; }
@@ -26061,7 +26048,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
         #streamToggleBtn.sa-stream-on { border-color: ${_rgba(c, 0.6)} !important; color: ${c} !important; }
         .saObjectivePill { border-color: ${_rgba(c, 0.4)} !important; }
         .wcal-nav-btn.today { background: ${_rgba(c, 0.25)} !important; border-color: ${_rgba(c, 0.5)} !important; }
-        .wcal-view-btn.active { background: ${_rgba(c, 0.3)} !important; border-color: ${_rgba(c, 0.6)} !important; color: #fff !important; }
+        .wcal-view-btn.active { background: ${_rgba(c, 0.3)} !important; border-color: ${_rgba(c, 0.6)} !important; }
         .wcal-day-btn.active { background: ${_rgba(c, 0.35)} !important; border-color: ${_rgba(c, 0.7)} !important; }
         .wcal-day-btn:hover { border-color: ${_rgba(c, 0.5)} !important; }
         .wcal-mini-day.today { background: ${_rgba(c, 0.6)} !important; }
@@ -26071,13 +26058,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
         .wcal-submit { background: ${_rgba(c, 0.4)} !important; border-color: ${_rgba(c, 0.6)} !important; }
         .wcal-submit:hover { background: ${_rgba(c, 0.65)} !important; }
         .wcal-col-header .dd.today-num { background: ${_rgba(c, 0.8)} !important; }
-        .wcal-field:focus, .wcal-detail-title:focus, .wcal-detail-field:focus, .wcal-detail-textarea:focus { border-color: ${_rgba(c, 0.7)} !important; }
         .wcal-det-btn.primary { background: ${_rgba(c, 0.4)} !important; border-color: ${_rgba(c, 0.6)} !important; }
         .wcal-det-btn.primary:hover { background: ${_rgba(c, 0.65)} !important; }
-        .wcal-event[style*="cursor: grabbing"] { outline: 2px solid ${_rgba(c, 0.7)} !important; }
-        input:focus, textarea:focus, select:focus { border-color: ${_rgba(c, 0.7)} !important; }
-        .mdGroupHead.open, .mdGroupHead:hover { background: ${_rgba(c, 0.15)} !important; }
-        .mdChevron { color: ${c} !important; }
       `;
     }
 
