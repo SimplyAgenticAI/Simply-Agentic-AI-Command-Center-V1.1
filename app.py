@@ -4944,6 +4944,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <option value='pro'>Pro</option>
   </select>
   <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
+<button class='btn' onclick='runDiag()' style='background:rgba(234,179,8,.15);border-color:rgba(234,179,8,.4);color:#fcd34d;font-size:12px;'>🔧 Diagnose</button>
+<div id='diagOut' style='width:100%;margin-top:8px;font-family:monospace;font-size:12px;line-height:1.7;display:none;background:rgba(0,0,0,.4);border-radius:8px;padding:12px;white-space:pre-wrap;color:#94a3b8;'></div>
 </div>
 
 <table id='seatTable'>
@@ -5043,6 +5045,54 @@ async function _smFetch(url, opts) {
 
 let allSeats = [];
 let editingCode = null;
+
+async function runDiag() {
+  const out = document.getElementById('diagOut');
+  out.style.display = 'block';
+  out.textContent = 'Running diagnostics...\n';
+  const log = s => { out.textContent += s + '\n'; };
+
+  // Step 1: Check session (GET /api/me)
+  try {
+    const r = await fetch('/api/me', {credentials:'same-origin'});
+    const d = await r.json();
+    log('1. Session: ' + (d.ok ? '✓ Logged in as ' + (d.user&&d.user.username) : '✗ NOT logged in — ' + d.error));
+    if (!d.ok) { log('   FIX: You are not logged in. Go to /login first.'); return; }
+    log('   Admin: ' + (d.user&&d.user.is_admin ? '✓ YES' : '✗ NO — only admins can generate codes'));
+  } catch(e) { log('1. Session check FAILED: ' + e.message); return; }
+
+  // Step 2: Fetch CSRF token
+  let token = '';
+  try {
+    const r = await fetch('/api/csrf_token', {credentials:'same-origin'});
+    const d = await r.json();
+    token = d.csrf_token || '';
+    log('2. CSRF token: ' + (token ? '✓ Got token (' + token.length + ' chars)' : '✗ Empty token'));
+  } catch(e) { log('2. CSRF token fetch FAILED: ' + e.message); return; }
+
+  // Step 3: Call generate with explicit token
+  try {
+    const r = await fetch('/api/admin/seats/generate', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type':'application/json','X-CSRF-Token':token},
+      body: JSON.stringify({count:1, holder_name:'Diag Test', plan:'starter'})
+    });
+    const text = await r.text();
+    log('3. Generate response: HTTP ' + r.status);
+    try {
+      const d = JSON.parse(text);
+      if (d.ok) {
+        log('   ✓ SUCCESS! Code generated: ' + d.generated.join(', '));
+        log('   The seat manager should work. Try the Generate button now.');
+      } else {
+        log('   ✗ Error: ' + d.error);
+      }
+    } catch(e) {
+      log('   Raw response: ' + text.slice(0, 300));
+    }
+  } catch(e) { log('3. Generate request FAILED: ' + e.message); }
+}
 
 async function loadSeats() {
   const tbody = document.getElementById('seatBody');
@@ -9051,625 +9101,392 @@ def showcase_page():
 # AI TELEPROMPTER
 # =========================
 
-_TELEPROMPTER_HTML = r"""<!doctype html>
+_TELEPROMPTER_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-<title>Teleprompter — Simply Agentic AI</title>
+<title>Teleprompter</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0;}
-:root{
-  --bg:#060c18;--surface:#0d1526;--surface2:#121d35;
-  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.16);
-  --purple:#7c3aed;--purple-l:#c4b5fd;--purple-d:rgba(124,58,237,.25);
-  --green:#34d399;--red:#f87171;--text:#e2e8f0;--muted:#64748b;
-}
-html,body{height:100%;background:var(--bg);color:var(--text);
-  font-family:system-ui,-apple-system,sans-serif;overflow:hidden;}
-#app{display:flex;flex-direction:column;height:100dvh;position:relative;}
-
-/* topbar */
-#topbar{
-  display:flex;align-items:center;gap:6px;padding:8px 14px;
-  background:var(--surface);border-bottom:1px solid var(--border);
-  flex-shrink:0;flex-wrap:wrap;min-height:48px;
-}
-#topbar h1{font-size:14px;font-weight:700;color:var(--purple-l);
-  white-space:nowrap;margin-right:2px;letter-spacing:.01em;}
-.tb{background:rgba(255,255,255,.06);border:1px solid var(--border);
-  color:var(--text);padding:5px 12px;border-radius:7px;font-size:12.5px;
-  cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s;
-  font-family:inherit;}
-.tb:hover{background:rgba(255,255,255,.11);}
-.tb.on{background:var(--purple-d);border-color:rgba(124,58,237,.55);color:var(--purple-l);}
-.tb.rl{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:var(--red);}
-.tb.rl.live{background:rgba(239,68,68,.25);border-color:var(--red);}
-.spacer{flex:1;}
-#dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
-#dot.live{background:var(--red);box-shadow:0 0 7px var(--red);animation:blink 1.1s infinite;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:.3;}}
-#timer{font-size:13px;font-weight:700;color:var(--red);
-  font-variant-numeric:tabular-nums;display:none;letter-spacing:.03em;}
-
-/* script viewport */
-#scriptWrap{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
-#scriptBox{
-  flex:1;padding:32px 28px;overflow-y:auto;
-  font-size:38px;font-weight:700;line-height:1.5;letter-spacing:.01em;
-  color:rgba(255,255,255,.18);
-  scroll-behavior:smooth;
-  -ms-overflow-style:none;scrollbar-width:none;
-  user-select:none;-webkit-user-select:none;
-}
-#scriptBox::-webkit-scrollbar{display:none;}
-.w{display:inline;transition:color .1s,text-shadow .1s;cursor:pointer;}
-.w:hover{color:rgba(255,255,255,.55)!important;}
-.w.done{color:rgba(255,255,255,.14)!important;}
-.w.active{color:#fff!important;text-shadow:0 0 36px rgba(124,58,237,.9);}
-.w.near{color:rgba(255,255,255,.5)!important;}
-#readLine{
-  position:absolute;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,transparent 0%,var(--purple) 30%,var(--purple) 70%,transparent 100%);
-  pointer-events:none;z-index:4;opacity:.7;
-}
-#tFade,#bFade{position:absolute;left:0;right:0;height:90px;pointer-events:none;z-index:3;}
-#tFade{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}
-#bFade{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}
-
-/* bottombar */
-#bottombar{
-  display:flex;align-items:center;gap:10px;padding:10px 14px;
-  background:var(--surface);border-top:1px solid var(--border);
-  flex-shrink:0;flex-wrap:wrap;
-}
-.slw{display:flex;align-items:center;gap:7px;}
-.sll{font-size:11.5px;color:var(--muted);white-space:nowrap;}
-.slv{font-size:11.5px;font-weight:600;color:var(--text);min-width:26px;}
-input[type=range]{accent-color:var(--purple);cursor:pointer;}
-#spdR{width:110px;}
-#fszR{width:85px;}
-#pLbl{font-size:11.5px;color:var(--muted);}
-
-/* camera pip */
-#camPip{
-  position:absolute;bottom:68px;right:14px;
-  width:200px;height:113px;
-  border-radius:11px;overflow:hidden;
-  border:2px solid var(--border2);
-  background:#000;z-index:10;
-  box-shadow:0 10px 30px rgba(0,0,0,.7);
-  display:none;cursor:move;
-}
-#camPip.show{display:block;}
-#camVid{width:100%;height:100%;object-fit:cover;display:block;}
-#camSel{
-  position:absolute;bottom:0;left:0;right:0;
-  background:rgba(0,0,0,.75);padding:5px 7px;
-  display:none;
-}
-#camPip:hover #camSel{display:block;}
-#camSelect{width:100%;background:rgba(255,255,255,.1);border:none;
-  color:#fff;font-size:10.5px;border-radius:4px;padding:2px 5px;cursor:pointer;}
-
-/* countdown */
-#cdOv{
-  position:absolute;inset:0;background:rgba(6,12,24,.92);
-  display:none;align-items:center;justify-content:center;
-  flex-direction:column;gap:14px;z-index:40;
-}
-#cdN{font-size:130px;font-weight:800;color:var(--purple-l);line-height:1;}
-#cdN.pop{animation:pop .85s ease-out;}
-@keyframes pop{0%{transform:scale(1.5);opacity:0;}100%{transform:scale(1);opacity:1;}}
-#cdL{font-size:17px;color:var(--muted);}
-
-/* save dialog */
-#saveD{
-  position:absolute;inset:0;background:rgba(6,12,24,.88);
-  display:none;align-items:center;justify-content:center;z-index:50;
-}
-#saveBox{
-  background:var(--surface2);border:1px solid var(--border2);
-  border-radius:14px;padding:24px 28px;max-width:360px;width:90%;
-  display:flex;flex-direction:column;gap:14px;text-align:center;
-}
-#saveBox h3{font-size:17px;font-weight:700;color:var(--purple-l);}
-#saveBox p{font-size:13px;color:var(--muted);line-height:1.55;}
-
-/* editor overlay */
-#editOv{
-  position:absolute;inset:0;background:rgba(6,12,24,.97);
-  display:none;flex-direction:column;z-index:30;padding:18px;gap:11px;
-}
-#editOv h2{font-size:15px;font-weight:600;color:var(--purple-l);}
-#scriptTA{
-  flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);
-  border-radius:10px;color:var(--text);font-size:15px;line-height:1.65;
-  padding:14px;resize:none;outline:none;font-family:inherit;
-}
-#scriptTA:focus{border-color:var(--purple);}
-#aiRow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
-#aiIn{
-  flex:1;min-width:160px;background:rgba(255,255,255,.05);
-  border:1px solid var(--border);border-radius:7px;
-  color:var(--text);font-size:13.5px;padding:7px 11px;
-  outline:none;font-family:inherit;
-}
-#aiIn:focus{border-color:var(--purple);}
-#aiIn::placeholder{color:var(--muted);}
-#aiSp{display:none;width:15px;height:15px;border:2px solid rgba(124,58,237,.25);
-  border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-#editFt{display:flex;gap:8px;justify-content:flex-end;}
-
-body.mirrored #scriptBox{transform:scaleX(-1);}
-
-@media(max-width:600px){
-  #scriptBox{font-size:26px;padding:20px 16px;}
-  #camPip{width:130px;height:73px;bottom:60px;right:10px;}
-  #spdR{width:80px;}#fszR{width:65px;}
-}
+*{{box-sizing:border-box;margin:0;padding:0;}}
+:root{{--bg:#060c18;--sur:#0d1526;--bor:rgba(255,255,255,.09);
+  --pur:#7c3aed;--purl:#c4b5fd;--red:#f87171;--tx:#e2e8f0;--mu:#64748b;}}
+html,body{{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;}}
+#app{{display:flex;flex-direction:column;height:100dvh;}}
+#top{{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--sur);
+  border-bottom:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;min-height:50px;}}
+#top h1{{font-size:14px;font-weight:700;color:var(--purl);white-space:nowrap;margin-right:4px;}}
+.tb{{background:rgba(255,255,255,.06);border:1px solid var(--bor);color:var(--tx);
+  padding:5px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;}}
+.tb:hover{{background:rgba(255,255,255,.11);}}
+.tb.on{{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.55);color:var(--purl);}}
+.tb.rl{{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:var(--red);}}
+.tb.rl.live{{background:rgba(239,68,68,.25);border-color:var(--red);}}
+.sp{{flex:1;}}
+#dot{{width:8px;height:8px;border-radius:50%;background:var(--mu);flex-shrink:0;}}
+#dot.live{{background:var(--red);animation:blink 1.1s infinite;}}
+@keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:.3;}}}}
+#tmr{{font-size:13px;font-weight:700;color:var(--red);display:none;font-variant-numeric:tabular-nums;}}
+#sw{{flex:1;overflow:hidden;position:relative;}}
+#sb{{height:100%;padding:30px 28px;overflow-y:auto;font-size:38px;font-weight:700;
+  line-height:1.5;color:rgba(255,255,255,.18);scroll-behavior:smooth;
+  -ms-overflow-style:none;scrollbar-width:none;}}
+#sb::-webkit-scrollbar{{display:none;}}
+.w{{display:inline;cursor:pointer;transition:color .1s,text-shadow .1s;}}
+.w.done{{color:rgba(255,255,255,.14)!important;}}
+.w.active{{color:#fff!important;text-shadow:0 0 36px rgba(124,58,237,.9);}}
+.w.near{{color:rgba(255,255,255,.5)!important;}}
+#rl{{position:absolute;left:0;right:0;height:2px;pointer-events:none;z-index:2;
+  background:linear-gradient(90deg,transparent,var(--pur),transparent);opacity:.6;}}
+#tf,#bf{{position:absolute;left:0;right:0;height:80px;pointer-events:none;z-index:1;}}
+#tf{{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}}
+#bf{{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}}
+#bot{{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--sur);
+  border-top:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;}}
+.sr{{display:flex;align-items:center;gap:7px;}}
+.sl{{font-size:11.5px;color:var(--mu);white-space:nowrap;}}
+.sv{{font-size:11.5px;font-weight:600;min-width:26px;}}
+input[type=range]{{accent-color:var(--pur);cursor:pointer;}}
+#pl{{font-size:11.5px;color:var(--mu);}}
+#pip{{position:absolute;bottom:68px;right:14px;width:200px;height:113px;border-radius:11px;
+  overflow:hidden;border:2px solid rgba(255,255,255,.16);background:#000;z-index:10;
+  box-shadow:0 10px 30px rgba(0,0,0,.7);display:none;cursor:move;}}
+#pip.show{{display:block;}}
+#cv{{width:100%;height:100%;object-fit:cover;display:block;}}
+#csel{{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.8);padding:5px 7px;display:none;}}
+#pip:hover #csel{{display:block;}}
+#cselect{{width:100%;background:rgba(255,255,255,.1);border:none;color:#fff;
+  font-size:10.5px;border-radius:4px;padding:2px 5px;cursor:pointer;}}
+.ov{{position:absolute;inset:0;background:rgba(6,12,24,.94);z-index:20;
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:20px;}}
+.ov.show{{display:flex;}}
+#cdown{{font-size:130px;font-weight:800;color:var(--purl);line-height:1;}}
+#eed{{width:100%;max-width:720px;background:#0d1526;border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;}}
+#eed h2{{font-size:15px;font-weight:600;color:var(--purl);}}
+#sta{{flex:1;min-height:200px;background:rgba(255,255,255,.05);border:1px solid var(--bor);
+  border-radius:10px;color:var(--tx);font-size:15px;line-height:1.65;padding:14px;
+  resize:vertical;outline:none;font-family:inherit;}}
+#sta:focus{{border-color:var(--pur);}}
+#air{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}}
+#ain{{flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--bor);
+  border-radius:7px;color:var(--tx);font-size:13px;padding:7px 11px;outline:none;font-family:inherit;}}
+#ain::placeholder{{color:var(--mu);}}
+#ain:focus{{border-color:var(--pur);}}
+#asp{{display:none;width:14px;height:14px;border:2px solid rgba(124,58,237,.2);
+  border-top-color:var(--pur);border-radius:50%;animation:spin .6s linear infinite;}}
+@keyframes spin{{to{{transform:rotate(360deg);}}}}
+#edf{{display:flex;gap:8px;justify-content:flex-end;}}
+#camInfo{{text-align:center;padding:20px;max-width:380px;background:#0d1526;
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;}}
+#camInfo h3{{font-size:17px;font-weight:700;color:var(--purl);margin-bottom:10px;}}
+#camInfo p{{font-size:13px;color:var(--mu);line-height:1.65;margin-bottom:16px;}}
+#camInfo ol{{font-size:13px;color:var(--mu);line-height:1.9;padding-left:18px;margin-bottom:16px;text-align:left;}}
+#camInfo .cb{{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}}
+#saved{{background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:14px;
+  padding:24px;max-width:340px;text-align:center;display:flex;flex-direction:column;gap:12px;}}
+#saved h3{{font-size:17px;font-weight:700;color:var(--purl);}}
+#saved p{{font-size:13px;color:var(--mu);line-height:1.55;}}
+body.mir #sb{{transform:scaleX(-1);}}
+@media(max-width:600px){{
+  #sb{{font-size:24px;padding:20px 14px;}}
+  #pip{{width:130px;height:73px;bottom:58px;right:8px;}}
+}}
 </style>
 </head>
 <body>
 <div id="app">
 
-<div id="topbar">
-  <h1>🎬 Teleprompter</h1>
-  <div id="dot"></div>
-  <div id="timer">0:00</div>
-  <button class="tb" onclick="openEdit()">✏️ Script</button>
-  <button class="tb rl" id="recBtn" onclick="toggleRecord()">⏺ Record</button>
-  <button class="tb" id="camBtn" onclick="toggleCam()">📷 Camera</button>
-  <div class="spacer"></div>
-  <button class="tb" onclick="resetScroll()">↑ Reset</button>
-  <button class="tb" id="mirBtn" onclick="toggleMirror()">⇄ Mirror</button>
-  <a href="/" class="tb" style="text-decoration:none;">← Back</a>
+<div id="top">
+  <h1>&#127916; Teleprompter</h1>
+  <div id="dot"></div><div id="tmr">0:00</div>
+  <button class="tb" onclick="openEd()">&#9999;&#65039; Script</button>
+  <button class="tb rl" id="rb" onclick="toggleRec()">&#9210; Record</button>
+  <button class="tb" id="cb" onclick="toggleCam()">&#128247; Camera</button>
+  <div class="sp"></div>
+  <button class="tb" onclick="goTop()">&#8593; Reset</button>
+  <button class="tb" id="mb" onclick="toggleMir()">&#8644; Mirror</button>
+  <a href="/" class="tb" style="text-decoration:none;">&#8592; Back</a>
 </div>
 
-<div id="scriptWrap">
-  <div id="tFade"></div>
-  <div id="scriptBox"></div>
-  <div id="readLine"></div>
-  <div id="bFade"></div>
+<div id="sw">
+  <div id="tf"></div>
+  <div id="sb"></div>
+  <div id="rl"></div>
+  <div id="bf"></div>
 </div>
 
-<div id="bottombar">
-  <div class="slw">
-    <span class="sll">Speed</span>
-    <input type="range" id="spdR" min="1" max="20" value="6" oninput="onSpd(this.value)"/>
-    <span class="slv" id="spdV">6</span>
-  </div>
-  <div class="slw">
-    <span class="sll">Size</span>
-    <input type="range" id="fszR" min="18" max="90" value="38" oninput="onFsz(this.value)"/>
-    <span class="slv" id="fszV">38</span>
-  </div>
-  <div class="spacer"></div>
-  <span id="pLbl">0%</span>
+<div id="bot">
+  <div class="sr"><span class="sl">Speed</span>
+    <input type="range" id="spr" min="1" max="20" value="6" oninput="setSpd(this.value)"/>
+    <span class="sv" id="spv">6</span></div>
+  <div class="sr"><span class="sl">Size</span>
+    <input type="range" id="fsr" min="18" max="90" value="38" oninput="setFsz(this.value)"/>
+    <span class="sv" id="fsv">38</span></div>
+  <div class="sp"></div>
+  <span id="pl">0%</span>
 </div>
 
-<div id="camPip">
-  <video id="camVid" autoplay muted playsinline></video>
-  <div id="camSel">
-    <select id="camSelect" onchange="switchCam(this.value)"></select>
-  </div>
+<div id="pip">
+  <video id="cv" autoplay muted playsinline></video>
+  <div id="csel"><select id="cselect" onchange="swCam(this.value)"></select></div>
 </div>
 
-<!-- Permission guide (shown in-page instead of alert) -->
-<div id="camGuide" style="visibility:hidden;position:absolute;inset:0;background:rgba(6,12,24,.96);z-index:45;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;padding:24px;pointer-events:none;">
-  <div style="max-width:400px;width:100%;background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:16px;">
-    <div style="font-size:36px;text-align:center;">📷</div>
-    <div style="font-size:18px;font-weight:700;color:#c4b5fd;text-align:center;" id="camGuideTitle">Allow camera access</div>
-    <div style="font-size:14px;color:#94a3b8;line-height:1.7;text-align:center;" id="camGuideMsg">Click Allow when Chrome asks — the prompt appears at the top-left of your screen.</div>
-    <div id="camGuideSteps" style="background:rgba(255,255,255,.04);border-radius:10px;padding:14px;flex-direction:column;gap:10px;"></div>
-    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-      <button class="tb on" id="camGuideBtn" onclick="camPermissionRetry()">Try again</button>
-      <button class="tb" onclick="hideCamGuide()">Cancel</button>
+<div class="ov" id="cdov"><div id="cdown">3</div><div style="font-size:17px;color:var(--mu);">Get ready&#8230;</div></div>
+
+<div class="ov" id="edov">
+  <div id="eed">
+    <h2>&#9999;&#65039; Your script</h2>
+    <textarea id="sta" placeholder="Type or paste your script&#8230; or use AI below."></textarea>
+    <div id="air">
+      <input id="ain" placeholder="e.g. 60-sec intro for my coaching business&#8230;"/>
+      <div id="asp"></div>
+      <button class="tb on" onclick="aiW()">&#10022; Write</button>
+      <button class="tb on" onclick="aiR()">&#10022; Tighten</button>
+      <button class="tb on" onclick="aiH()">&#10022; Hook</button>
+    </div>
+    <div id="edf">
+      <button class="tb" onclick="closeEd(false)">Cancel</button>
+      <button class="tb on" onclick="closeEd(true)">&#9654; Start Reading</button>
     </div>
   </div>
 </div>
 
-<div id="cdOv">
-  <div id="cdN" class="pop">3</div>
-  <div id="cdL">Get ready…</div>
-</div>
-
-<div id="saveD">
-  <div id="saveBox">
-    <h3>🎉 Recording complete!</h3>
-    <p id="saveMsg">Downloading now.</p>
-    <button class="tb on" onclick="Q('#saveD').style.display='none'">✓ Done</button>
+<div class="ov" id="camov">
+  <div id="camInfo">
+    <h3 id="camT">&#128247; Allow camera access</h3>
+    <p id="camM">Chrome will ask for permission. Look for the popup at the top of your screen and click <b>Allow</b>.</p>
+    <ol id="camS" style="display:none;"></ol>
+    <div class="cb">
+      <button class="tb on" id="camTryBtn" onclick="camRetry()">Try again</button>
+      <button class="tb" onclick="hideCamOv()">Cancel</button>
+    </div>
   </div>
 </div>
 
-<div id="editOv">
-  <h2>✏️ Your script</h2>
-  <textarea id="scriptTA" placeholder="Paste or type your script… or use AI below."></textarea>
-  <div id="aiRow">
-    <input id="aiIn" placeholder="e.g. 60-sec intro for my coaching business…"/>
-    <div id="aiSp"></div>
-    <button class="tb on" onclick="aiWrite()">✦ Write</button>
-    <button class="tb on" onclick="aiRefine()">✦ Tighten</button>
-    <button class="tb on" onclick="aiHook()">✦ Hook</button>
-  </div>
-  <div id="editFt">
-    <button class="tb" onclick="closeEdit(false)">Cancel</button>
-    <button class="tb on" onclick="closeEdit(true)">▶ Start Reading</button>
+<div class="ov" id="savov">
+  <div id="saved">
+    <h3>&#127881; Recording saved!</h3>
+    <p id="savmsg">Downloading now.</p>
+    <button class="tb on" onclick="document.getElementById('savov').classList.remove('show')">&#10003; Done</button>
   </div>
 </div>
 
 </div>
 
 <script>
-var words=[], idx=0, scrollTmr=null, recTmr=null, recSecs=0;
-var isRec=false, autoPlay=false, mediaRec=null, chunks=[];
-var camStream=null, camOn=false, selCamId=null, mirrored=false;
-var spd=6, fsz=38;
+var _csrf=null;
+async function sfetch(url,opts){{
+  opts=opts||{{}};
+  if(['POST','PUT','DELETE'].indexOf((opts.method||'GET').toUpperCase())>=0){{
+    if(!_csrf){{
+      try{{var r=await fetch('/api/csrf_token',{{credentials:'same-origin'}});_csrf=(await r.json()).csrf_token||'';}}catch(e){{_csrf='';}}
+    }}
+    opts.headers=opts.headers||{{}};
+    opts.headers['X-CSRF-Token']=_csrf;
+    opts.credentials=opts.credentials||'same-origin';
+  }}
+  return fetch(url,opts);
+}}
 
-var DEFAULT_SCRIPT="Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nLet me show you what that looks like.";
+var words=[],idx=0,sTmr=null,rTmr=null,rSec=0;
+var isRec=false,isPlay=false,mRec=null,chunks=[];
+var cStream=null,camOn=false,camId=null,mir=false;
+var spd=6,fsz=38;
+var DEF="Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds like you.\n\nLet me show you.";
 
-function Q(s){return document.querySelector(s);}
+function Q(s){{return document.querySelector(s);}}
+function QI(s){{return document.getElementById(s);}}
 
-function init(){
-  loadScript(localStorage.getItem('tp_script')||DEFAULT_SCRIPT);
-  var s=localStorage.getItem('tp_spd'), f=localStorage.getItem('tp_fsz');
-  if(s){spd=+s;Q('#spdR').value=s;Q('#spdV').textContent=s;}
-  if(f){fsz=+f;Q('#fszR').value=f;Q('#fszV').textContent=f;applyFsz();}
-  posLine();
-  // Camera was on last session — don't auto-restore on load (avoids overlay-on-load bug)
-  // User can click Camera button to start it fresh
-}
+function init(){{
+  loadScript(localStorage.getItem('tp_s')||DEF);
+  var s=localStorage.getItem('tp_spd'),f=localStorage.getItem('tp_fsz');
+  if(s){{spd=+s;Q('#spr').value=s;QI('spv').textContent=s;}}
+  if(f){{fsz=+f;Q('#fsr').value=f;QI('fsv').textContent=f;applyFsz();}}
+  posRL();
+}}
 
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){{return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
 
-function loadScript(text){
-  words=text.trim().split(/\s+/).filter(Boolean);
-  idx=0;
-  Q('#scriptBox').innerHTML=words.map(function(w,i){
-    return '<span class="w near" id="w'+i+'" onclick="jumpTo('+i+')">'+esc(w)+'&nbsp;</span>';
-  }).join('');
+function loadScript(text){{
+  words=text.trim().split(/\\s+/).filter(Boolean);idx=0;
+  QI('sb').innerHTML=words.map(function(w,i){{return '<span class="w near" id="w'+i+'" onclick="jmp('+i+')">'  +esc(w)+'&nbsp;</span>';}}).join('');
   render();
-}
+}}
 
-function render(){
-  words.forEach(function(_,i){
-    var el=document.getElementById('w'+i);
-    if(!el) return;
-    el.className='w'+(i<idx?' done':i===idx?' active':i<idx+10?' near':'');
-  });
-  scrollToIdx();
-  Q('#pLbl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
-}
+function render(){{
+  words.forEach(function(_,i){{
+    var e=document.getElementById('w'+i);if(!e)return;
+    e.className='w'+(i<idx?' done':i===idx?' active':i<idx+10?' near':'');
+  }});
+  scrollTo2();
+  QI('pl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
+}}
 
-function scrollToIdx(){
-  var el=document.getElementById('w'+idx);
-  if(!el) return;
-  var box=Q('#scriptBox'), br=box.getBoundingClientRect(), er=el.getBoundingClientRect();
-  box.scrollTo({top:Math.max(0,box.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'});
-}
+function scrollTo2(){{
+  var e=document.getElementById('w'+idx);if(!e)return;
+  var b=QI('sb'),br=b.getBoundingClientRect(),er=e.getBoundingClientRect();
+  b.scrollTo({{top:Math.max(0,b.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'}});
+}}
 
-function posLine(){
-  var wr=Q('#scriptWrap');
-  if(!wr) return;
-  Q('#readLine').style.top=Math.round(wr.getBoundingClientRect().height*0.38)+'px';
-}
+function posRL(){{
+  var w=Q('#sw');if(!w)return;
+  QI('rl').style.top=Math.round(w.getBoundingClientRect().height*0.38)+'px';
+}}
 
-function jumpTo(i){idx=i;render();}
-function resetScroll(){idx=0;render();Q('#scriptBox').scrollTo({top:0,behavior:'smooth'});}
+function jmp(i){{idx=i;render();}}
+function goTop(){{idx=0;render();QI('sb').scrollTo({{top:0,behavior:'smooth'}});}}
 
-function startScroll(){
-  if(scrollTmr) return;
-  autoPlay=true;
-  function tick(){
-    if(!autoPlay) return;
-    if(idx<words.length-1){idx++;render();}
-    else{stopScroll();return;}
-    scrollTmr=setTimeout(tick,60000/(30+spd*13));
-  }
-  scrollTmr=setTimeout(tick,60000/(30+spd*13));
-}
-function stopScroll(){autoPlay=false;clearTimeout(scrollTmr);scrollTmr=null;}
+function play(){{
+  if(sTmr)return;isPlay=true;
+  function t(){{
+    if(!isPlay)return;
+    if(idx<words.length-1){{idx++;render();}}else{{stop2();return;}}
+    sTmr=setTimeout(t,60000/(30+spd*13));
+  }}
+  sTmr=setTimeout(t,60000/(30+spd*13));
+}}
+function stop2(){{isPlay=false;clearTimeout(sTmr);sTmr=null;}}
+function setSpd(v){{spd=+v;QI('spv').textContent=v;localStorage.setItem('tp_spd',v);if(isPlay){{stop2();play();}}}}
+function setFsz(v){{fsz=+v;QI('fsv').textContent=v;localStorage.setItem('tp_fsz',v);applyFsz();}}
+function applyFsz(){{QI('sb').style.fontSize=fsz+'px';}}
 
-function onSpd(v){spd=+v;Q('#spdV').textContent=v;localStorage.setItem('tp_spd',v);if(autoPlay){stopScroll();startScroll();}}
-function onFsz(v){fsz=+v;Q('#fszV').textContent=v;localStorage.setItem('tp_fsz',v);applyFsz();}
-function applyFsz(){Q('#scriptBox').style.fontSize=fsz+'px';}
+async function toggleCam(){{camOn?stopCam():await startCam(camId);}}
+function hideCamOv(){{QI('camov').classList.remove('show');}}
+function camRetry(){{hideCamOv();startCam(camId);}}
 
-/* ── Camera ── */
-async function toggleCam(){camOn?stopCam():await startCam(selCamId);}
-
-/* Check permission state before asking — avoids jarring errors */
-async function checkCamPermission(){
-  try{
-    if(navigator.permissions){
-      var r=await navigator.permissions.query({name:'camera'});
-      return r.state; // 'granted','prompt','denied'
-    }
-  }catch(e){}
-  return 'prompt'; // assume promptable if API unavailable
-}
-
-function showCamGuide(state, errName){
-  var guide=Q('#camGuide'), title=Q('#camGuideTitle'), msg=Q('#camGuideMsg');
-  var steps=Q('#camGuideSteps'), btn=Q('#camGuideBtn');
-  guide.style.visibility='visible';guide.style.pointerEvents='auto';
-  if(state==='denied'||errName==='NotAllowedError'||errName==='PermissionDeniedError'){
-    title.textContent='Camera is blocked';
-    msg.textContent='Chrome is blocking camera access for this site. Here's how to fix it in a few seconds:';
-    steps.style.display='flex';steps.style.flexDirection='column';
-    steps.innerHTML=[
-      '1. Click the <b>🔒 lock icon</b> in your address bar (top of Chrome)',
-      '2. Find <b>Camera</b> and change it from <b style="color:#f87171">Block</b> to <b style="color:#34d399">Allow</b>',
-      '3. Click <b>Reload</b> — then come back and click 📷 Camera again'
-    ].map(function(s){
-      return '<div style="font-size:13px;color:#94a3b8;line-height:1.6;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);">'+s+'</div>';
-    }).join('');
-    btn.textContent='Open camera settings';
-    btn.onclick=function(){
-      window.open('chrome://settings/content/camera','_blank');
-      hideCamGuide();
-    };
-  } else if(state==='prompt'){
-    title.textContent='Allow camera access';
-    msg.textContent='Chrome will ask permission in a moment. Look for the popup in the top-left of your screen and click Allow.';
-    steps.style.display='none';
-    btn.textContent='Try again';
-    btn.onclick=camPermissionRetry;
-  } else {
-    title.textContent='Camera not found';
-    msg.textContent='No camera was detected. Make sure your USB camera is plugged in and not being used by another app, then try again.';
-    steps.style.display='none';
-    btn.textContent='Try again';
-    btn.onclick=camPermissionRetry;
-  }
-}
-
-function hideCamGuide(){var g=Q('#camGuide');g.style.visibility='hidden';g.style.pointerEvents='none';}
-
-async function camPermissionRetry(){
-  hideCamGuide();
-  await startCam(selCamId);
-}
-
-async function startCam(devId){
-  try{
-    if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
-
-    // Check permission state first so we can show helpful UI before any error
-    var permState=await checkCamPermission();
-    if(permState==='denied'){
-      showCamGuide('denied');
-      localStorage.removeItem('tp_cam');
-      return;
-    }
-
-    // Request with generic constraints first — never use {exact:id} before permission granted
-    // because Chrome throws NotFoundError instead of showing the permission prompt
-    var stream=await navigator.mediaDevices.getUserMedia({
-      video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},
-      audio:false
-    });
-
-    // Permission granted — now switch to preferred device if one was saved
+async function startCam(devId){{
+  try{{
+    if(cStream)cStream.getTracks().forEach(function(t){{t.stop();}});
+    var s=await navigator.mediaDevices.getUserMedia({{video:{{width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
     var devs=await navigator.mediaDevices.enumerateDevices();
-    var cams=devs.filter(function(d){return d.kind==='videoinput';});
-    var gotId=stream.getVideoTracks()[0].getSettings().deviceId;
-    if(devId && devId!==gotId && cams.some(function(c){return c.deviceId===devId;})){
-      stream.getTracks().forEach(function(t){t.stop();});
-      stream=await navigator.mediaDevices.getUserMedia({
-        video:{deviceId:{exact:devId},width:{ideal:1280},height:{ideal:720}},
-        audio:false
-      });
-    }
+    var cams=devs.filter(function(d){{return d.kind==='videoinput';}});
+    var got=s.getVideoTracks()[0].getSettings().deviceId;
+    if(devId&&devId!==got&&cams.some(function(c){{return c.deviceId===devId;}}))){{
+      s.getTracks().forEach(function(t){{t.stop();}});
+      s=await navigator.mediaDevices.getUserMedia({{video:{{deviceId:{{exact:devId}},width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
+    }}
+    cStream=s;QI('cv').srcObject=s;
+    QI('pip').classList.add('show');QI('cb').classList.add('on');
+    camOn=true;camId=s.getVideoTracks()[0].getSettings().deviceId||devId;
+    fillCams();drag();
+  }}catch(e){{
+    var denied=e.name==='NotAllowedError'||e.name==='PermissionDeniedError';
+    QI('camT').textContent=denied?'Camera blocked':'Camera not found';
+    QI('camM').textContent=denied?'Chrome is blocking camera access. Quick fix:':'No camera detected. Check it is plugged in and not in use.';
+    var S=QI('camS'),B=QI('camTryBtn');
+    if(denied){{S.style.display='block';S.innerHTML='<li>Click the lock icon in your address bar</li><li>Set Camera to Allow</li><li>Reload the page</li>';B.textContent='Open settings';B.onclick=function(){{window.open('chrome://settings/content/camera');hideCamOv();}};}}
+    else{{S.style.display='none';B.textContent='Try again';B.onclick=camRetry;}}
+    QI('camov').classList.add('show');
+  }}
+}}
 
-    camStream=stream;
-    Q('#camVid').srcObject=camStream;
-    Q('#camPip').classList.add('show');
-    Q('#camBtn').classList.add('on');
-    camOn=true;
-    localStorage.setItem('tp_cam','1');
-    selCamId=camStream.getVideoTracks()[0].getSettings().deviceId||devId;
-    await populateCams();
-    makeDraggable();
-  }catch(e){
-    localStorage.removeItem('tp_cam');
-    showCamGuide(null, e.name);
-  }
-}
+function stopCam(){{
+  if(cStream)cStream.getTracks().forEach(function(t){{t.stop();}});
+  cStream=null;camOn=false;
+  QI('pip').classList.remove('show');QI('cb').classList.remove('on');
+}}
 
-function stopCam(){
-  if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
-  camStream=null;camOn=false;
-  Q('#camPip').classList.remove('show');
-  Q('#camBtn').classList.remove('on');
-  localStorage.setItem('tp_cam','0');
-}
+async function fillCams(){{
+  try{{
+    var d=await navigator.mediaDevices.enumerateDevices();
+    QI('cselect').innerHTML=d.filter(function(x){{return x.kind==='videoinput';}}).map(function(x,i){{
+      return '<option value="'+x.deviceId+'"'+( x.deviceId===camId?' selected':'')+'>' +(x.label||'Camera '+(i+1))+'</option>';
+    }}).join('');
+  }}catch(e){{}}
+}}
+async function swCam(id){{camId=id;if(camOn)await startCam(id);}}
+navigator.mediaDevices.addEventListener('devicechange',function(){{if(camOn)fillCams();}});
 
-async function populateCams(){
-  try{
-    var devs=await navigator.mediaDevices.enumerateDevices();
-    var cams=devs.filter(function(d){return d.kind==='videoinput';});
-    Q('#camSelect').innerHTML=cams.map(function(c,i){
-      return '<option value="'+c.deviceId+'"'+(c.deviceId===selCamId?' selected':'')+'>'+
-        (c.label||'Camera '+(i+1))+'</option>';
-    }).join('');
-  }catch(e){}
-}
+function drag(){{
+  var p=QI('pip'),ox=0,oy=0,dn=false;
+  p.onmousedown=function(e){{if(e.target===QI('cselect'))return;dn=true;ox=e.clientX-p.offsetLeft;oy=e.clientY-p.offsetTop;}};
+  document.onmousemove=function(e){{if(!dn)return;p.style.right='auto';p.style.bottom='auto';p.style.left=Math.max(0,e.clientX-ox)+'px';p.style.top=Math.max(0,e.clientY-oy)+'px';}};document.onmouseup=function(){{dn=false;}};
+}}
 
-async function switchCam(id){selCamId=id;if(camOn) await startCam(id);}
+async function toggleRec(){{isRec?stopRec():await startRec();}}
 
-navigator.mediaDevices.addEventListener('devicechange',function(){if(camOn) populateCams();});
+async function startRec(){{
+  if(!camOn){{if(confirm('Camera is off. Turn on for video+audio? OK=yes, Cancel=audio only.')){{await startCam(camId);if(!camOn)return;}}}}
+  try{{
+    var aS=await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+    var rS=camOn&&cStream?new MediaStream([cStream.getVideoTracks()[0],aS.getAudioTracks()[0]]):aS;
+    var mimes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+    var mime=mimes.find(function(m){{return MediaRecorder.isTypeSupported(m);}});
+    chunks=[];mRec=new MediaRecorder(rS,mime?{{mimeType:mime}}:{{}});
+    mRec.ondataavailable=function(e){{if(e.data&&e.data.size)chunks.push(e.data);}};
+    mRec.onstop=function(){{
+      var ext=mime&&mime.includes('mp4')?'mp4':'webm';
+      var blob=new Blob(chunks,{{type:mime||'video/webm'}});
+      var url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='teleprompter-'+Date.now()+'.'+ext;a.click();
+      setTimeout(function(){{URL.revokeObjectURL(url);}},5000);
+      aS.getTracks().forEach(function(t){{t.stop();}});
+      QI('savmsg').textContent='Your '+(camOn?'video':'audio')+' ('+(blob.size/1048576).toFixed(1)+' MB) is downloading.';
+      QI('savov').classList.add('show');
+    }};
+    await cdown(3);mRec.start(500);isRec=true;rSec=0;
+    QI('tmr').style.display='block';QI('dot').className='live';
+    QI('rb').textContent='&#9209; Stop';QI('rb').classList.add('live');
+    rTmr=setInterval(function(){{rSec++;var m=Math.floor(rSec/60),s=rSec%60;QI('tmr').textContent=m+':'+(s<10?'0':'')+s;}},1000);
+    play();
+  }}catch(e){{alert('Recording error: '+e.message);}}
+}}
 
-function makeDraggable(){
-  var pip=Q('#camPip'),ox=0,oy=0,drag=false;
-  pip.onmousedown=function(e){
-    if(e.target===Q('#camSelect')||e.target===Q('#camSel')) return;
-    drag=true;ox=e.clientX-pip.offsetLeft;oy=e.clientY-pip.offsetTop;
-  };
-  document.onmousemove=function(e){
-    if(!drag) return;
-    pip.style.right='auto';pip.style.bottom='auto';
-    pip.style.left=Math.max(0,e.clientX-ox)+'px';
-    pip.style.top=Math.max(0,e.clientY-oy)+'px';
-  };
-  document.onmouseup=function(){drag=false;};
-}
+function stopRec(){{
+  if(mRec&&mRec.state!=='inactive')mRec.stop();
+  isRec=false;clearInterval(rTmr);stop2();
+  QI('tmr').style.display='none';QI('dot').className='';
+  QI('rb').textContent='&#9210; Record';QI('rb').classList.remove('live');
+}}
 
-/* ── Recording — video + audio combined ── */
-async function toggleRecord(){isRec?stopRec():await startRec();}
+function cdown(n){{
+  return new Promise(function(res){{
+    QI('cdov').classList.add('show');
+    var i=n,el=QI('cdown');el.textContent=i;
+    var iv=setInterval(function(){{i--;if(i<=0){{clearInterval(iv);QI('cdov').classList.remove('show');res();return;}}el.textContent=i;}},1000);
+  }});
+}}
 
-async function startRec(){
-  if(!camOn){
-    var go=confirm('Camera is off. Enable it now to record video + audio?\n\nOK = turn on camera, Cancel = record audio only.');
-    if(go){await startCam(selCamId);if(!camOn) return;}
-  }
-  try{
-    var audioStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
-    var recStream;
-    if(camOn&&camStream){
-      var vt=camStream.getVideoTracks()[0];
-      var at=audioStream.getAudioTracks()[0];
-      recStream=new MediaStream([vt,at]);
-    } else {
-      recStream=audioStream;
-    }
-    var mimes=[
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=h264,opus',
-      'video/webm','video/mp4'
-    ];
-    var mime=mimes.find(function(m){return MediaRecorder.isTypeSupported(m);})||'';
-    chunks=[];
-    mediaRec=new MediaRecorder(recStream,mime?{mimeType:mime}:{});
-    mediaRec.ondataavailable=function(e){if(e.data&&e.data.size>0) chunks.push(e.data);};
-    mediaRec.onstop=function(){
-      var ext=mime.includes('mp4')?'mp4':'webm';
-      var blob=new Blob(chunks,{type:mime||'video/webm'});
-      var url=URL.createObjectURL(blob);
-      var ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-      var a=document.createElement('a');
-      a.href=url;a.download='teleprompter-'+ts+'.'+ext;a.click();
-      setTimeout(function(){URL.revokeObjectURL(url);},5000);
-      audioStream.getTracks().forEach(function(t){t.stop();});
-      var mb=(blob.size/1048576).toFixed(1);
-      Q('#saveMsg').textContent='Your '+ext.toUpperCase()+' video ('+mb+' MB) is downloading — video and audio included.';
-      Q('#saveD').style.display='flex';
-    };
-    await countdown(3);
-    mediaRec.start(500);
-    isRec=true;recSecs=0;
-    Q('#timer').style.display='block';
-    Q('#dot').className='live';
-    Q('#recBtn').textContent='⏹ Stop';
-    Q('#recBtn').classList.add('live');
-    recTmr=setInterval(function(){
-      recSecs++;
-      var m=Math.floor(recSecs/60),s=recSecs%60;
-      Q('#timer').textContent=m+':'+(s<10?'0':'')+s;
-    },1000);
-    startScroll();
-  }catch(e){alert('Recording error: '+e.message);}
-}
+function toggleMir(){{mir=!mir;document.body.classList.toggle('mir',mir);QI('mb').classList.toggle('on',mir);}}
 
-function stopRec(){
-  if(mediaRec&&mediaRec.state!=='inactive') mediaRec.stop();
-  isRec=false;clearInterval(recTmr);stopScroll();
-  Q('#timer').style.display='none';Q('#dot').className='';
-  Q('#recBtn').textContent='⏺ Record';Q('#recBtn').classList.remove('live');
-}
+function openEd(){{stop2();QI('sta').value=words.join(' ');QI('edov').classList.add('show');}}
+function closeEd(save){{
+  QI('edov').classList.remove('show');
+  if(save){{var t=QI('sta').value.trim();if(t){{localStorage.setItem('tp_s',t);loadScript(t);}}}}
+}}
 
-/* ── Countdown ── */
-function countdown(n){
-  return new Promise(function(resolve){
-    var ov=Q('#cdOv'),num=Q('#cdN');
-    ov.style.display='flex';
-    var i=n;num.textContent=i;
-    num.className='pop';
-    var tick=function(){
-      i--;
-      if(i<=0){ov.style.display='none';resolve();return;}
-      num.className='';
-      void num.offsetWidth;
-      num.className='pop';
-      num.textContent=i;
-      setTimeout(tick,1000);
-    };
-    setTimeout(tick,1000);
-  });
-}
+async function aiCall(sys,msg){{
+  QI('asp').style.display='block';
+  try{{var r=await sfetch('/api/teleprompter/ai',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{system:sys,message:msg}})}});var d=await r.json();return d.text||'';}}catch(e){{return'';}}
+  finally{{QI('asp').style.display='none';}}
+}}
+async function aiW(){{var t=QI('ain').value.trim();if(!t){{QI('ain').focus();return;}}var r=await aiCall('Write a clear conversational teleprompter script. Natural spoken English only, no brackets or headers. Short punchy sentences. 90-150 words. End with a call to action.',t);if(r)QI('sta').value=r;}}
+async function aiR(){{var c=QI('sta').value.trim();if(!c)return;var r=await aiCall('Tighten this script: shorter sentences, remove filler, keep the voice. Return ONLY the improved script.',c);if(r)QI('sta').value=r;}}
+async function aiH(){{var c=QI('sta').value.trim();if(!c)return;var r=await aiCall('Rewrite ONLY the opening 1-2 sentences to be a stronger hook. Return full script with improved opening.',c);if(r)QI('sta').value=r;}}
 
-/* ── Mirror ── */
-function toggleMirror(){
-  mirrored=!mirrored;
-  document.body.classList.toggle('mirrored',mirrored);
-  Q('#mirBtn').classList.toggle('on',mirrored);
-}
-
-/* ── Editor ── */
-function openEdit(){
-  stopScroll();
-  Q('#scriptTA').value=words.join(' ');
-  Q('#editOv').style.display='flex';
-  setTimeout(function(){Q('#scriptTA').focus();},50);
-}
-function closeEdit(save){
-  Q('#editOv').style.display='none';
-  if(save){var t=Q('#scriptTA').value.trim();if(t){localStorage.setItem('tp_script',t);loadScript(t);}}
-}
-
-/* ── AI ── */
-async function callAI(sys,msg){
-  Q('#aiSp').style.display='block';
-  try{
-    var r=await fetch('/api/teleprompter/ai',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      credentials:'same-origin',
-      body:JSON.stringify({system:sys,message:msg})
-    });
-    var d=await r.json();return d.text||'';
-  }catch(e){return'';}
-  finally{Q('#aiSp').style.display='none';}
-}
-async function aiWrite(){
-  var t=Q('#aiIn').value.trim();if(!t){Q('#aiIn').focus();return;}
-  var r=await callAI('You are a professional video scriptwriter. Write a clear, conversational teleprompter script. Rules: natural spoken English only, no stage directions, no brackets, no headers. Short punchy sentences. 90-150 words. End with a call to action.',t);
-  if(r) Q('#scriptTA').value=r;
-}
-async function aiRefine(){
-  var c=Q('#scriptTA').value.trim();if(!c){alert('Write a script first.');return;}
-  var r=await callAI('Tighten this teleprompter script: shorter sentences, remove filler, keep the speaker voice. Return ONLY the improved script.',c);
-  if(r) Q('#scriptTA').value=r;
-}
-async function aiHook(){
-  var c=Q('#scriptTA').value.trim();if(!c){alert('Write a script first.');return;}
-  var r=await callAI('Rewrite ONLY the opening 1-2 sentences to be a stronger hook. Return the full script with the improved opening.',c);
-  if(r) Q('#scriptTA').value=r;
-}
-
-/* ── Keys ── */
-document.addEventListener('keydown',function(e){
-  var ed=Q('#editOv').style.display!=='none';
-  if(ed&&e.code!=='Escape') return;
-  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
-  if(e.code==='Space'){e.preventDefault();autoPlay?stopScroll():startScroll();}
-  if(e.code==='ArrowRight'||e.code==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}
-  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);render();}
-  if(e.code==='Home'){e.preventDefault();resetScroll();}
-  if(e.code==='KeyR') toggleRecord();
-  if(e.code==='KeyC') toggleCam();
-  if(e.code==='KeyM') toggleMirror();
-  if(e.code==='Escape'&&ed) closeEdit(false);
-});
+document.addEventListener('keydown',function(e){{
+  var inEd=QI('edov').classList.contains('show');
+  if(inEd&&e.code!=='Escape')return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  if(e.code==='Space'){{e.preventDefault();isPlay?stop2():play();}}
+  if(e.code==='ArrowRight'||e.code==='ArrowDown'){{e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}}
+  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){{e.preventDefault();idx=Math.max(idx-1,0);render();}}
+  if(e.code==='Home'){{e.preventDefault();goTop();}}
+  if(e.code==='KeyR')toggleRec();
+  if(e.code==='KeyC')toggleCam();
+  if(e.code==='KeyM')toggleMir();
+  if(e.code==='Escape'&&inEd)closeEd(false);
+}});
 
 var tx0=0;
-Q('#scriptBox').addEventListener('touchstart',function(e){tx0=e.touches[0].clientX;},{passive:true});
-Q('#scriptBox').addEventListener('touchend',function(e){
+QI('sb').addEventListener('touchstart',function(e){{tx0=e.touches[0].clientX;}},{{passive:true}});
+QI('sb').addEventListener('touchend',function(e){{
   var dx=e.changedTouches[0].clientX-tx0;
-  if(Math.abs(dx)>55){idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}
-},{passive:true});
+  if(Math.abs(dx)>55){{idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}}
+}},{{passive:true}});
 
-window.addEventListener('resize',posLine);
+window.addEventListener('resize',posRL);
 init();
 </script>
 </body>
@@ -13083,6 +12900,7 @@ label         { font-size: 14px !important; }
               </div>
 
 <div id="apiKeyHelpForm" class="modalForm" style="display:none;">
+  <div class="modalInner" style="max-width:560px;">
   <div class="tiny" style="margin-bottom:10px;">Quick setup: create an OpenAI API key, then paste it into Settings.</div>
   <div class="pill" style="margin:8px 0;">Steps</div>
   <ol style="margin: 8px 0 0 18px; line-height:1.5;">
@@ -13112,6 +12930,7 @@ label         { font-size: 14px !important; }
       <a class="btn btnPrimary" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Open Anthropic Console</a>
     </div>
     <div class="tiny" style="margin-top:10px;opacity:.75;">Claude models stream beautifully and are great for longer, more nuanced responses.</div>
+  </div>
   </div>
 </div>
 
@@ -13417,6 +13236,35 @@ label         { font-size: 14px !important; }
                         </div>
                       </div>
 
+
+                      <!-- Background color -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Background color</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="bg_color" data-value="#060c18" title="Deep Navy" style="width:26px;height:26px;border-radius:50%;background:#060c18;cursor:pointer;border:2px solid white;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0a0f1e" title="Midnight" style="width:26px;height:26px;border-radius:50%;background:#0a0f1e;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0d1117" title="GitHub Dark" style="width:26px;height:26px;border-radius:50%;background:#0d1117;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.2);"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#1a1a2e" title="Indigo Dark" style="width:26px;height:26px;border-radius:50%;background:#1a1a2e;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0f0f23" title="Space Black" style="width:26px;height:26px;border-radius:50%;background:#0f0f23;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.15);"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#111827" title="Slate Dark" style="width:26px;height:26px;border-radius:50%;background:#111827;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="bg_color" data-value="#0c0c0c" title="Pure Black" style="width:26px;height:26px;border-radius:50%;background:#0c0c0c;cursor:pointer;border:2px solid transparent;transition:transform .12s;outline:1px solid rgba(255,255,255,.15);"></div>
+                          <input type="color" id="bgColorCustom" value="#060c18" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('bg_color',this.value)">
+                        </div>
+                        <!-- Brightness slider -->
+                        <div style="margin-top:10px;">
+                          <div class="tiny" style="opacity:.6;margin-bottom:4px;">Brightness</div>
+                          <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="tiny" style="opacity:.4;">&#9788;</span>
+                            <input type="range" id="bgBrightnessSlider" min="60" max="140" value="100" step="1"
+                              style="flex:1" oninput="_applyThemePref('bg_brightness',this.value);document.getElementById('bgBrightnessVal').textContent=this.value+'%'">
+                            <span class="tiny" style="opacity:.8;">&#9788;</span>
+                            <span class="tiny" id="bgBrightnessVal" style="opacity:.6;min-width:34px;">100%</span>
+                          </div>
+                        </div>
+                      </div>
+
                     </div><!-- end left col -->
 
                     <!-- RIGHT COL -->
@@ -13469,6 +13317,31 @@ label         { font-size: 14px !important; }
                           <button type="button" class="nav-style-btn btn" data-value="default" style="font-size:11px;padding:4px 12px;">Default</button>
                           <button type="button" class="nav-style-btn btn" data-value="compact" style="font-size:11px;padding:4px 12px;">Compact</button>
                           <button type="button" class="nav-style-btn btn" data-value="minimal" style="font-size:11px;padding:4px 12px;">Minimal</button>
+                        </div>
+                      </div>
+
+
+                      <!-- Calendar glow -->
+                      <div>
+                        <label style="margin:0 0 8px;display:block;font-size:13px;">Calendar glow</label>
+                        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#7c3aed" title="Purple" style="width:26px;height:26px;border-radius:50%;background:#7c3aed;cursor:pointer;border:2px solid white;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#2563eb" title="Blue" style="width:26px;height:26px;border-radius:50%;background:#2563eb;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#059669" title="Green" style="width:26px;height:26px;border-radius:50%;background:#059669;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#f59e0b" title="Amber" style="width:26px;height:26px;border-radius:50%;background:#f59e0b;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#ef4444" title="Red" style="width:26px;height:26px;border-radius:50%;background:#ef4444;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <div class="color-swatch" data-target="cal_glow_color" data-value="#06b6d4" title="Cyan" style="width:26px;height:26px;border-radius:50%;background:#06b6d4;cursor:pointer;border:2px solid transparent;transition:transform .12s;"></div>
+                          <input type="color" id="calGlowCustom" value="#7c3aed" title="Custom"
+                            style="width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,255,255,.2);padding:0;cursor:pointer;background:none;"
+                            oninput="_applyThemePref('cal_glow_color',this.value)">
+                        </div>
+                        <div style="margin-top:10px;">
+                          <div class="tiny" style="opacity:.6;margin-bottom:4px;">Glow intensity</div>
+                          <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="range" id="calGlowSlider" min="0" max="100" value="30" step="1"
+                              style="flex:1" oninput="_applyThemePref('cal_glow_opacity',this.value);document.getElementById('calGlowVal').textContent=this.value+'%'">
+                            <span class="tiny" id="calGlowVal" style="opacity:.6;min-width:30px;">30%</span>
+                          </div>
                         </div>
                       </div>
 
@@ -26645,6 +26518,40 @@ if(typeof maybeAutoShowOnboarding === "function"){
       `;
     }
 
+    if (p.bg_color) {
+      const c = p.bg_color;
+      const brightness = parseFloat(p.bg_brightness || "100") / 100;
+      css += `
+        body, .rt-arena, #dmPanel, .saDrop, .saNavBar, #saNavBar {
+          background-color: ${c} !important;
+        }
+        body { filter: brightness(${brightness}) !important; }
+      `;
+    }
+
+    if (p.bg_brightness && !p.bg_color) {
+      const brightness = parseFloat(p.bg_brightness) / 100;
+      css += `body { filter: brightness(${brightness}) !important; }`;
+    }
+
+    if (p.cal_glow_color) {
+      const c = p.cal_glow_color;
+      const op = parseFloat(p.cal_glow_opacity || "30") / 100;
+      css += `
+        .wcal-wrap, #wcalPanel { box-shadow: 0 0 40px ${_rgba(c, op * 0.6)} !important; }
+        .wcal-day-head.today { color: ${c} !important; border-bottom-color: ${_rgba(c, 0.6)} !important; }
+        .wcal-now-line { background: ${c} !important; }
+        .wcal-now-dot { background: ${c} !important; box-shadow: 0 0 6px ${_rgba(c, 0.8)} !important; }
+        .wcal-header { border-bottom-color: ${_rgba(c, 0.3)} !important; }
+      `;
+    }
+
+    if (p.cal_glow_opacity && p.cal_glow_color) {
+      const c = p.cal_glow_color;
+      const op = parseFloat(p.cal_glow_opacity) / 100;
+      css += `.wcal-wrap { box-shadow: 0 0 40px ${_rgba(c, op * 0.6)} !important; }`;
+    }
+
     if (p.nav_style === "compact") {
       css += `.saNavBar { padding: 4px 12px !important; } .saNavBtn { padding: 4px 8px !important; font-size: 12px !important; }`;
     } else if (p.nav_style === "minimal") {
@@ -26694,6 +26601,10 @@ if(typeof maybeAutoShowOnboarding === "function"){
       try { document.getElementById("fontSizeVal").textContent = "14px"; } catch(e) {}
       try { document.getElementById("fontFamilySelect").value = ""; } catch(e) {}
       try { document.getElementById("seatGlowCustom").value = "#7c3aed"; } catch(e) {}
+      try { document.getElementById("bgColorCustom").value = "#060c18"; } catch(e) {}
+      try { document.getElementById("bgBrightnessSlider").value = "100"; document.getElementById("bgBrightnessVal").textContent = "100%"; } catch(e) {}
+      try { document.getElementById("calGlowCustom").value = "#7c3aed"; } catch(e) {}
+      try { document.getElementById("calGlowSlider").value = "30"; document.getElementById("calGlowVal").textContent = "30%"; } catch(e) {}
       document.querySelectorAll(".color-swatch").forEach(s => s.style.borderColor = "transparent");
       // Reset nav style buttons
       document.querySelectorAll(".nav-style-btn").forEach(b => {
@@ -26749,6 +26660,30 @@ if(typeof maybeAutoShowOnboarding === "function"){
         document.getElementById("fontSizeSlider").value = sz;
         document.getElementById("fontSizeVal").textContent = sz + "px";
       }
+      if (theme.bg_color) {
+        try { document.getElementById("bgColorCustom").value = theme.bg_color; } catch(e) {}
+        document.querySelectorAll(".color-swatch[data-target='bg_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.bg_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.bg_brightness) {
+        try {
+          document.getElementById("bgBrightnessSlider").value = theme.bg_brightness;
+          document.getElementById("bgBrightnessVal").textContent = theme.bg_brightness + "%";
+        } catch(e) {}
+      }
+      if (theme.cal_glow_color) {
+        try { document.getElementById("calGlowCustom").value = theme.cal_glow_color; } catch(e) {}
+        document.querySelectorAll(".color-swatch[data-target='cal_glow_color']").forEach(s => {
+          s.style.borderColor = s.dataset.value === theme.cal_glow_color ? "#fff" : "transparent";
+        });
+      }
+      if (theme.cal_glow_opacity) {
+        try {
+          document.getElementById("calGlowSlider").value = theme.cal_glow_opacity;
+          document.getElementById("calGlowVal").textContent = theme.cal_glow_opacity + "%";
+        } catch(e) {}
+      }
     } catch(e) {}
   };
 
@@ -26770,7 +26705,10 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const picker = document.getElementById(
         target === "table_color"    ? "tableColorCustom" :
         target === "task_glow_color" ? "taskGlowCustom" :
-        target === "accent_color"   ? "accentColorCustom" : ""
+        target === "seat_glow_color" ? "seatGlowCustom" :
+        target === "accent_color"   ? "accentColorCustom" :
+        target === "bg_color"       ? "bgColorCustom" :
+        target === "cal_glow_color" ? "calGlowCustom" : ""
       );
       if (picker) picker.value = value;
     } catch(_e) {}
