@@ -4999,24 +4999,23 @@ function renderTable(seats) {
     tbody.innerHTML = `<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
     return;
   }
-  tbody.innerHTML = seats.map(s => `
-    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}' data-plan='${s.plan||''}'>
-      <td><span class='code' title='Click to copy' onclick='copyCode("${escH(s.code)}")'>${escH(s.code)}</span></td>
-      <td>${s.holder_name ? `<span class='name-cell'>${escH(s.holder_name)}</span>` : `<span class='empty-cell'>—</span>`}</td>
-      <td>${(s.holder_email||s.stripe_email) ? `<span class='email-cell'>${escH(s.holder_email||s.stripe_email||'')}</span>` : `<span class='empty-cell'>—</span>`}</td>
-      <td>${planBadge(s)}</td>
-      <td>${sourceBadge(s)}</td>
-      <td>${statusBadge(s)}</td>
-      <td style='color:#94a3b8;font-size:12px;'>${escH(s.claimed_by||'—')}</td>
-      <td style='color:#64748b;font-size:12px;'>${fmtDate(s.created_at)}</td>
-      <td>
-        <div style='display:flex;gap:6px;'>
-          <button class='btn btn-sm' onclick='openEdit("${escH(s.code)}")'>Edit</button>
-          <button class='btn btn-sm btn-danger' onclick='toggleSeat("${escH(s.code)}","${s.status||'active'}")'>${s.status==='inactive'?'Activate':'Deactivate'}</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = seats.map(function(s) {
+    var st = s.status || 'active';
+    return "<tr data-code='" + escH(s.code) + "'>" +
+      "<td><span class='code' title='Click to copy' onclick='copyCode("" + escH(s.code) + "")'>" + escH(s.code) + "</span></td>" +
+      "<td>" + (s.holder_name ? "<span class='name-cell'>" + escH(s.holder_name) + "</span>" : "<span class='empty-cell'>—</span>") + "</td>" +
+      "<td>" + ((s.holder_email||s.stripe_email) ? "<span class='email-cell'>" + escH(s.holder_email||s.stripe_email||'') + "</span>" : "<span class='empty-cell'>—</span>") + "</td>" +
+      "<td>" + planBadge(s) + "</td>" +
+      "<td>" + sourceBadge(s) + "</td>" +
+      "<td>" + statusBadge(s) + "</td>" +
+      "<td style='color:#94a3b8;font-size:12px;'>" + escH(s.claimed_by||'—') + "</td>" +
+      "<td style='color:#64748b;font-size:12px;'>" + fmtDate(s.created_at) + "</td>" +
+      "<td><div style='display:flex;gap:6px;'>" +
+        "<button class='btn btn-sm' onclick='openEdit("" + escH(s.code) + "")'>Edit</button>" +
+        "<button class='btn btn-sm btn-danger' onclick='toggleSeat("" + escH(s.code) + "","" + st + "")'>" + (st === 'inactive' ? 'Activate' : 'Deactivate') + "</button>" +
+      "</div></td>" +
+    "</tr>";
+  }).join('');
 }
 
 function filterTable() {
