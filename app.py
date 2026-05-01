@@ -228,7 +228,7 @@ STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWB
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
-# the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $17/mo)
+# the product: prod_UP048a3RZv4e9i  (dashboard.stripe.com → Products → $27/mo)
 STRIPE_PRICE_ID_FOUNDER = os.getenv("STRIPE_PRICE_ID_FOUNDER", "price_1TQC3uKAWBo2NxJsBt6QBdqT")
 FOUNDER_SEATS_MAX        = int(os.getenv("FOUNDER_SEATS_MAX", "100"))  # total slots
 # Fixed epoch: the week counter resets every Monday 00:00 UTC
@@ -238,7 +238,7 @@ FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any
 PLANS: Dict[str, Any] = {
     "founder": {
         "name":             "Founder Access",
-        "price":            17,
+        "price":            27,
         "price_id":         STRIPE_PRICE_ID_FOUNDER,
         "badge":            "🔥 Founder",
         "tagline":          "Locked in forever at our lowest price — for the first believers.",
@@ -5128,18 +5128,30 @@ function closeGenModal() {
 }
 
 async function doGenerate() {
+  const resultEl = document.getElementById('genResult');
+  resultEl.style.color = '#6ee7b7';
+  resultEl.innerText = 'Generating…';
   const count = parseInt(document.getElementById('genCount').value) || 1;
   const name  = document.getElementById('genName').value.trim();
   const email = document.getElementById('genEmail').value.trim();
   const plan  = document.getElementById('genPlan').value || 'starter';
-  const res = await fetch('/api/admin/seats/generate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    document.getElementById('genResult').innerText = 'Generated:\\n' + d.generated.join('\\n');
-    await loadSeats();
+  try {
+    const res = await fetch('/api/admin/seats/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      resultEl.style.color = '#6ee7b7';
+      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
+      await loadSeats();
+    } else {
+      resultEl.style.color = '#f87171';
+      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+    }
+  } catch (err) {
+    resultEl.style.color = '#f87171';
+    resultEl.innerText = 'Request failed: ' + err.message;
   }
 }
 
@@ -7680,7 +7692,7 @@ footer a{color:var(--pl);text-decoration:none;}
   <div style="text-align:center"><div class="stat-n" data-t="7">7</div><div class="stat-l">AI Teammates</div></div>
   <div style="text-align:center"><div class="stat-n" data-t="10">10</div><div class="stat-l">Built-in Tools</div></div>
   <div style="text-align:center"><div class="stat-n" data-t="100" data-suf="%">100%</div><div class="stat-l">Your Key, Your Data</div></div>
-  <div style="text-align:center"><div class="stat-n" data-t="17" data-pre="$">$17</div><div class="stat-l">Starting /month</div></div>
+  <div style="text-align:center"><div class="stat-n" data-t="27" data-pre="$">$27</div><div class="stat-l">Starting /month</div></div>
 </div>
 
 <!-- ROUND TABLE PREVIEW -->
@@ -7802,7 +7814,7 @@ footer a{color:var(--pl);text-decoration:none;}
     <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">&#128640; View Plans &amp; Start Free</a>
     <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Already have an account &rarr;</a>
   </div>
-  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Solo Operator $47/mo &middot; Growth $97/mo &middot; <strong style="color:#fbbf24;">Founder Access $17/mo &mdash; limited seats</strong></div>
+  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Solo Operator $47/mo &middot; Growth $97/mo &middot; <strong style="color:#fbbf24;">Founder Access $27/mo &mdash; limited seats</strong></div>
 </section>
 
 <footer class="a6">
@@ -8798,7 +8810,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
       <div class='f-left'>
         <div class='f-badge'>🔥 Founder Access</div>
         <div class='f-name'>{fp.get("name","Founder Access")}</div>
-        <div class='f-price'><span class='dol'>$</span><span class='num'>17</span><span class='per'>/mo</span></div>
+        <div class='f-price'><span class='dol'>$</span><span class='num'>27</span><span class='per'>/mo</span></div>
         <div class='f-locked'>🔒 Price locked in forever — never increases</div>
         <div class='f-tagline'>{fp.get("tagline","")}</div>
       </div>
@@ -9219,7 +9231,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
       <div class='f-left'>
         <div class='f-badge'>🔥 Founder Access</div>
         <div class='f-name'>{fp.get("name","Founder Access")}</div>
-        <div class='f-price'><span class='dol'>$</span><span class='num'>17</span><span class='per'>/mo</span></div>
+        <div class='f-price'><span class='dol'>$</span><span class='num'>27</span><span class='per'>/mo</span></div>
         <div class='f-locked'>🔒 Price locked in forever — never increases</div>
         <div class='f-tagline'>{fp.get("tagline","")}</div>
       </div>
