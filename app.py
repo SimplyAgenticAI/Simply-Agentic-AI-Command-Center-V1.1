@@ -9060,532 +9060,521 @@ _TELEPROMPTER_HTML = r"""<!doctype html>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
-  --bg:#0a0f1e;--surface:#0f172a;--border:rgba(255,255,255,.1);
-  --purple:#7c3aed;--purple-light:#c4b5fd;--green:#34d399;
-  --text:#e2e8f0;--muted:#64748b;--danger:#f87171;
+  --bg:#060c18;--surface:#0d1526;--surface2:#121d35;
+  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.16);
+  --purple:#7c3aed;--purple-l:#c4b5fd;--purple-d:rgba(124,58,237,.25);
+  --green:#34d399;--red:#f87171;--text:#e2e8f0;--muted:#64748b;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;overflow:hidden;}
-
-/* ── Layout ── */
+html,body{height:100%;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,sans-serif;overflow:hidden;}
 #app{display:flex;flex-direction:column;height:100dvh;position:relative;}
 
-/* ── Top bar ── */
+/* topbar */
 #topbar{
-  display:flex;align-items:center;gap:10px;padding:10px 16px;
+  display:flex;align-items:center;gap:6px;padding:8px 14px;
   background:var(--surface);border-bottom:1px solid var(--border);
-  flex-shrink:0;flex-wrap:wrap;gap:8px;
+  flex-shrink:0;flex-wrap:wrap;min-height:48px;
 }
-#topbar h1{font-size:15px;font-weight:700;color:var(--purple-light);margin-right:4px;white-space:nowrap;}
-.tb-btn{
-  background:rgba(255,255,255,.06);border:1px solid var(--border);
-  color:var(--text);padding:6px 13px;border-radius:8px;font-size:13px;
-  cursor:pointer;white-space:nowrap;transition:background .15s;
-}
-.tb-btn:hover{background:rgba(255,255,255,.12);}
-.tb-btn.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:var(--purple-light);}
-.tb-btn.danger{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:var(--danger);}
-#statusDot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0;}
-#statusDot.recording{background:var(--danger);box-shadow:0 0 6px var(--danger);animation:pulse 1.2s infinite;}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
-#recTimer{font-size:13px;font-weight:700;color:var(--danger);font-variant-numeric:tabular-nums;display:none;}
+#topbar h1{font-size:14px;font-weight:700;color:var(--purple-l);
+  white-space:nowrap;margin-right:2px;letter-spacing:.01em;}
+.tb{background:rgba(255,255,255,.06);border:1px solid var(--border);
+  color:var(--text);padding:5px 12px;border-radius:7px;font-size:12.5px;
+  cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s;
+  font-family:inherit;}
+.tb:hover{background:rgba(255,255,255,.11);}
+.tb.on{background:var(--purple-d);border-color:rgba(124,58,237,.55);color:var(--purple-l);}
+.tb.rl{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:var(--red);}
+.tb.rl.live{background:rgba(239,68,68,.25);border-color:var(--red);}
 .spacer{flex:1;}
+#dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+#dot.live{background:var(--red);box-shadow:0 0 7px var(--red);animation:blink 1.1s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.3;}}
+#timer{font-size:13px;font-weight:700;color:var(--red);
+  font-variant-numeric:tabular-nums;display:none;letter-spacing:.03em;}
 
-/* ── Script area ── */
-#scriptWrap{
-  flex:1;overflow:hidden;position:relative;
-  display:flex;flex-direction:column;
-}
+/* script viewport */
+#scriptWrap{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
 #scriptBox{
-  flex:1;padding:28px 24px;overflow-y:auto;
-  font-size:clamp(22px,4vw,56px);
-  font-weight:700;line-height:1.45;
-  letter-spacing:.01em;color:rgba(255,255,255,.25);
+  flex:1;padding:32px 28px;overflow-y:auto;
+  font-size:38px;font-weight:700;line-height:1.5;letter-spacing:.01em;
+  color:rgba(255,255,255,.18);
   scroll-behavior:smooth;
   -ms-overflow-style:none;scrollbar-width:none;
+  user-select:none;-webkit-user-select:none;
 }
 #scriptBox::-webkit-scrollbar{display:none;}
-
-/* reading zone highlight */
-.word{
-  display:inline;
-  transition:color .12s, text-shadow .12s;
-  cursor:pointer;
+.w{display:inline;transition:color .1s,text-shadow .1s;cursor:pointer;}
+.w:hover{color:rgba(255,255,255,.55)!important;}
+.w.done{color:rgba(255,255,255,.14)!important;}
+.w.active{color:#fff!important;text-shadow:0 0 36px rgba(124,58,237,.9);}
+.w.near{color:rgba(255,255,255,.5)!important;}
+#readLine{
+  position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent 0%,var(--purple) 30%,var(--purple) 70%,transparent 100%);
+  pointer-events:none;z-index:4;opacity:.7;
 }
-.word:hover{color:rgba(255,255,255,.6);}
-.word.done{color:rgba(255,255,255,.18);}
-.word.active{
-  color:#fff;
-  text-shadow:0 0 40px rgba(124,58,237,.8);
-}
-.word.upcoming{color:rgba(255,255,255,.45);}
+#tFade,#bFade{position:absolute;left:0;right:0;height:90px;pointer-events:none;z-index:3;}
+#tFade{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}
+#bFade{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}
 
-/* focus line */
-#focusLine{
-  position:absolute;left:0;right:0;
-  height:3px;background:linear-gradient(90deg,transparent,var(--purple),transparent);
-  pointer-events:none;transition:top .1s;
-  display:none;
-}
-
-/* ── Bottom bar ── */
+/* bottombar */
 #bottombar{
-  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
   background:var(--surface);border-top:1px solid var(--border);
   flex-shrink:0;flex-wrap:wrap;
 }
+.slw{display:flex;align-items:center;gap:7px;}
+.sll{font-size:11.5px;color:var(--muted);white-space:nowrap;}
+.slv{font-size:11.5px;font-weight:600;color:var(--text);min-width:26px;}
+input[type=range]{accent-color:var(--purple);cursor:pointer;}
+#spdR{width:110px;}
+#fszR{width:85px;}
+#pLbl{font-size:11.5px;color:var(--muted);}
 
-/* speed slider */
-#speedLabel{font-size:12px;color:var(--muted);white-space:nowrap;}
-#speedSlider{width:120px;accent-color:var(--purple);}
-
-/* font size */
-#fontLabel{font-size:12px;color:var(--muted);white-space:nowrap;}
-#fontSlider{width:90px;accent-color:var(--purple);}
-
-/* mirror toggle */
-#mirrorBtn{font-size:18px;line-height:1;}
-
-/* ── Edit overlay ── */
-#editOverlay{
-  position:absolute;inset:0;background:rgba(10,15,30,.97);
-  display:flex;flex-direction:column;z-index:20;padding:20px;gap:12px;
+/* camera pip */
+#camPip{
+  position:absolute;bottom:68px;right:14px;
+  width:200px;height:113px;
+  border-radius:11px;overflow:hidden;
+  border:2px solid var(--border2);
+  background:#000;z-index:10;
+  box-shadow:0 10px 30px rgba(0,0,0,.7);
+  display:none;cursor:move;
 }
-#editOverlay h2{font-size:16px;font-weight:600;color:var(--purple-light);}
-#scriptInput{
+#camPip.show{display:block;}
+#camVid{width:100%;height:100%;object-fit:cover;display:block;}
+#camSel{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(0,0,0,.75);padding:5px 7px;
+  display:none;
+}
+#camPip:hover #camSel{display:block;}
+#camSelect{width:100%;background:rgba(255,255,255,.1);border:none;
+  color:#fff;font-size:10.5px;border-radius:4px;padding:2px 5px;cursor:pointer;}
+
+/* countdown */
+#cdOv{
+  position:absolute;inset:0;background:rgba(6,12,24,.92);
+  display:none;align-items:center;justify-content:center;
+  flex-direction:column;gap:14px;z-index:40;
+}
+#cdN{font-size:130px;font-weight:800;color:var(--purple-l);line-height:1;}
+#cdN.pop{animation:pop .85s ease-out;}
+@keyframes pop{0%{transform:scale(1.5);opacity:0;}100%{transform:scale(1);opacity:1;}}
+#cdL{font-size:17px;color:var(--muted);}
+
+/* save dialog */
+#saveD{
+  position:absolute;inset:0;background:rgba(6,12,24,.88);
+  display:none;align-items:center;justify-content:center;z-index:50;
+}
+#saveBox{
+  background:var(--surface2);border:1px solid var(--border2);
+  border-radius:14px;padding:24px 28px;max-width:360px;width:90%;
+  display:flex;flex-direction:column;gap:14px;text-align:center;
+}
+#saveBox h3{font-size:17px;font-weight:700;color:var(--purple-l);}
+#saveBox p{font-size:13px;color:var(--muted);line-height:1.55;}
+
+/* editor overlay */
+#editOv{
+  position:absolute;inset:0;background:rgba(6,12,24,.97);
+  display:none;flex-direction:column;z-index:30;padding:18px;gap:11px;
+}
+#editOv h2{font-size:15px;font-weight:600;color:var(--purple-l);}
+#scriptTA{
   flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);
-  border-radius:10px;color:var(--text);font-size:16px;line-height:1.6;
-  padding:16px;resize:none;outline:none;font-family:inherit;
+  border-radius:10px;color:var(--text);font-size:15px;line-height:1.65;
+  padding:14px;resize:none;outline:none;font-family:inherit;
 }
-#scriptInput:focus{border-color:var(--purple);}
-#aiRow{display:flex;gap:8px;flex-wrap:wrap;}
-#aiPromptInput{
-  flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--border);
-  border-radius:8px;color:var(--text);font-size:14px;padding:8px 12px;outline:none;font-family:inherit;
+#scriptTA:focus{border-color:var(--purple);}
+#aiRow{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
+#aiIn{
+  flex:1;min-width:160px;background:rgba(255,255,255,.05);
+  border:1px solid var(--border);border-radius:7px;
+  color:var(--text);font-size:13.5px;padding:7px 11px;
+  outline:none;font-family:inherit;
 }
-#aiPromptInput:focus{border-color:var(--purple);}
-#aiPromptInput::placeholder{color:var(--muted);}
-#aiSpin{display:none;width:16px;height:16px;border:2px solid rgba(124,58,237,.3);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0;}
+#aiIn:focus{border-color:var(--purple);}
+#aiIn::placeholder{color:var(--muted);}
+#aiSp{display:none;width:15px;height:15px;border:2px solid rgba(124,58,237,.25);
+  border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
-#editActions{display:flex;gap:8px;justify-content:flex-end;}
+#editFt{display:flex;gap:8px;justify-content:flex-end;}
 
-/* ── Countdown overlay ── */
-#countdownOverlay{
-  position:absolute;inset:0;background:rgba(10,15,30,.92);
-  display:none;align-items:center;justify-content:center;z-index:30;
-  flex-direction:column;gap:12px;
-}
-#countdownNum{font-size:120px;font-weight:800;color:var(--purple-light);line-height:1;}
-#countdownLabel{font-size:16px;color:var(--muted);}
-
-/* ── Camera preview ── */
-#camWrap{
-  position:absolute;bottom:70px;right:16px;
-  width:160px;height:90px;border-radius:10px;
-  overflow:hidden;border:2px solid var(--border);
-  background:#000;display:none;z-index:10;
-  box-shadow:0 8px 24px rgba(0,0,0,.5);
-  resize:both;
-}
-#camWrap.visible{display:block;}
-#camPreview{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
-
-/* ── Mirror mode ── */
 body.mirrored #scriptBox{transform:scaleX(-1);}
 
-/* ── Mobile tweaks ── */
 @media(max-width:600px){
-  #topbar{padding:8px 12px;}
-  #speedSlider{width:80px;}
-  #fontSlider{width:70px;}
-  #camWrap{width:100px;height:56px;bottom:62px;right:10px;}
+  #scriptBox{font-size:26px;padding:20px 16px;}
+  #camPip{width:130px;height:73px;bottom:60px;right:10px;}
+  #spdR{width:80px;}#fszR{width:65px;}
 }
-
-/* ── Dark overlay cue lines ── */
-#topFade,#botFade{
-  position:absolute;left:0;right:0;height:80px;pointer-events:none;z-index:5;
-}
-#topFade{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}
-#botFade{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}
 </style>
 </head>
 <body>
 <div id="app">
 
-  <!-- Top bar -->
-  <div id="topbar">
-    <h1>🎬 Teleprompter</h1>
-    <div id="statusDot"></div>
-    <div id="recTimer">0:00</div>
-    <button class="tb-btn" id="editBtn" onclick="openEdit()">✏️ Script</button>
-    <button class="tb-btn" id="recordBtn" onclick="toggleRecord()">⏺ Record</button>
-    <button class="tb-btn" id="camBtn" onclick="toggleCam()">📷 Camera</button>
-    <div class="spacer"></div>
-    <button class="tb-btn" id="resetBtn" onclick="resetScroll()" title="Back to top">↑ Reset</button>
-    <a href="/" class="tb-btn" style="text-decoration:none;">← Back</a>
-  </div>
+<div id="topbar">
+  <h1>🎬 Teleprompter</h1>
+  <div id="dot"></div>
+  <div id="timer">0:00</div>
+  <button class="tb" onclick="openEdit()">✏️ Script</button>
+  <button class="tb rl" id="recBtn" onclick="toggleRecord()">⏺ Record</button>
+  <button class="tb" id="camBtn" onclick="toggleCam()">📷 Camera</button>
+  <div class="spacer"></div>
+  <button class="tb" onclick="resetScroll()">↑ Reset</button>
+  <button class="tb" id="mirBtn" onclick="toggleMirror()">⇄ Mirror</button>
+  <a href="/" class="tb" style="text-decoration:none;">← Back</a>
+</div>
 
-  <!-- Script display -->
-  <div id="scriptWrap">
-    <div id="topFade"></div>
-    <div id="scriptBox" id="scriptBox"></div>
-    <div id="focusLine"></div>
-    <div id="botFade"></div>
-  </div>
+<div id="scriptWrap">
+  <div id="tFade"></div>
+  <div id="scriptBox"></div>
+  <div id="readLine"></div>
+  <div id="bFade"></div>
+</div>
 
-  <!-- Bottom bar -->
-  <div id="bottombar">
-    <span id="speedLabel">Speed: <b id="speedVal">5</b></span>
-    <input type="range" id="speedSlider" min="0" max="20" value="5" oninput="onSpeedChange(this.value)"/>
-    <span id="fontLabel">Size: <b id="fontVal">36</b>px</span>
-    <input type="range" id="fontSlider" min="18" max="80" value="36" oninput="onFontChange(this.value)"/>
-    <button class="tb-btn" id="mirrorBtn" onclick="toggleMirror()" title="Mirror for teleprompter glass">⇄ Mirror</button>
-    <div class="spacer"></div>
-    <span style="font-size:12px;color:var(--muted);" id="progressLabel">0%</span>
+<div id="bottombar">
+  <div class="slw">
+    <span class="sll">Speed</span>
+    <input type="range" id="spdR" min="1" max="20" value="6" oninput="onSpd(this.value)"/>
+    <span class="slv" id="spdV">6</span>
   </div>
+  <div class="slw">
+    <span class="sll">Size</span>
+    <input type="range" id="fszR" min="18" max="90" value="38" oninput="onFsz(this.value)"/>
+    <span class="slv" id="fszV">38</span>
+  </div>
+  <div class="spacer"></div>
+  <span id="pLbl">0%</span>
+</div>
 
-  <!-- Camera preview -->
-  <div id="camWrap">
-    <video id="camPreview" autoplay muted playsinline></video>
+<div id="camPip">
+  <video id="camVid" autoplay muted playsinline></video>
+  <div id="camSel">
+    <select id="camSelect" onchange="switchCam(this.value)"></select>
   </div>
+</div>
 
-  <!-- Countdown overlay -->
-  <div id="countdownOverlay">
-    <div id="countdownNum">3</div>
-    <div id="countdownLabel">Get ready…</div>
-  </div>
+<div id="cdOv">
+  <div id="cdN" class="pop">3</div>
+  <div id="cdL">Get ready…</div>
+</div>
 
-  <!-- Edit overlay -->
-  <div id="editOverlay" style="display:none;">
-    <h2>✏️ Your script</h2>
-    <textarea id="scriptInput" placeholder="Paste or type your script here. Or describe your video topic below and let AI write it for you…"></textarea>
-    <div id="aiRow">
-      <input id="aiPromptInput" placeholder="e.g. 60-second intro for my marketing agency…" />
-      <div id="aiSpin"></div>
-      <button class="tb-btn active" onclick="aiWrite()">✦ AI Write</button>
-      <button class="tb-btn active" onclick="aiRefine()">✦ Tighten</button>
-    </div>
-    <div id="editActions">
-      <button class="tb-btn danger" onclick="closeEdit(false)">Cancel</button>
-      <button class="tb-btn active" onclick="closeEdit(true)">▶ Start Reading</button>
-    </div>
+<div id="saveD">
+  <div id="saveBox">
+    <h3>🎉 Recording complete!</h3>
+    <p id="saveMsg">Downloading now.</p>
+    <button class="tb on" onclick="Q('#saveD').style.display='none'">✓ Done</button>
   </div>
+</div>
+
+<div id="editOv">
+  <h2>✏️ Your script</h2>
+  <textarea id="scriptTA" placeholder="Paste or type your script… or use AI below."></textarea>
+  <div id="aiRow">
+    <input id="aiIn" placeholder="e.g. 60-sec intro for my coaching business…"/>
+    <div id="aiSp"></div>
+    <button class="tb on" onclick="aiWrite()">✦ Write</button>
+    <button class="tb on" onclick="aiRefine()">✦ Tighten</button>
+    <button class="tb on" onclick="aiHook()">✦ Hook</button>
+  </div>
+  <div id="editFt">
+    <button class="tb" onclick="closeEdit(false)">Cancel</button>
+    <button class="tb on" onclick="closeEdit(true)">▶ Start Reading</button>
+  </div>
+</div>
 
 </div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
-let words = [];
-let currentIdx = 0;
-let scrollTimer = null;
-let recTimer = null;
-let recSeconds = 0;
-let isRecording = false;
-let mediaRec = null;
-let camStream = null;
-let camOn = false;
-let mirrored = false;
-let scrollSpeed = 5;
-let fontSize = 36;
-let autoScrolling = false;
-let chunks = [];
+var words=[], idx=0, scrollTmr=null, recTmr=null, recSecs=0;
+var isRec=false, autoPlay=false, mediaRec=null, chunks=[];
+var camStream=null, camOn=false, selCamId=null, mirrored=false;
+var spd=6, fsz=38;
 
-const DEFAULT_SCRIPT = `Welcome to Simply Agentic AI — the command center for your business.
+var DEFAULT_SCRIPT="Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nLet me show you what that looks like.";
 
-Today I want to walk you through how our AI teammates work together to handle your marketing, sales outreach, and client communications — all in one place.
+function Q(s){return document.querySelector(s);}
 
-No more switching between twenty different tools. No more dropped follow-ups. Just smart, consistent, automated work that sounds like you.
-
-Let me show you what that looks like in action.`;
-
-// ── Init ───────────────────────────────────────────────────────────────────
-function init() {
-  loadScript(localStorage.getItem('tp_script') || DEFAULT_SCRIPT);
-  const savedSpeed = localStorage.getItem('tp_speed');
-  const savedFont  = localStorage.getItem('tp_font');
-  if (savedSpeed) { scrollSpeed = +savedSpeed; document.getElementById('speedSlider').value = savedSpeed; document.getElementById('speedVal').textContent = savedSpeed; }
-  if (savedFont)  { fontSize = +savedFont; document.getElementById('fontSlider').value = savedFont; document.getElementById('fontVal').textContent = savedFont; applyFont(); }
+function init(){
+  loadScript(localStorage.getItem('tp_script')||DEFAULT_SCRIPT);
+  var s=localStorage.getItem('tp_spd'), f=localStorage.getItem('tp_fsz');
+  if(s){spd=+s;Q('#spdR').value=s;Q('#spdV').textContent=s;}
+  if(f){fsz=+f;Q('#fszR').value=f;Q('#fszV').textContent=f;applyFsz();}
+  posLine();
+  if(localStorage.getItem('tp_cam')==='1') toggleCam();
 }
 
-// ── Script rendering ───────────────────────────────────────────────────────
-function loadScript(text) {
-  const box = document.getElementById('scriptBox');
-  words = text.trim().split(/\s+/).filter(Boolean);
-  currentIdx = 0;
-  box.innerHTML = words.map((w, i) =>
-    `<span class="word upcoming" id="w${i}" onclick="jumpTo(${i})">${escH(w)} </span>`
-  ).join('');
-  updateActive();
-  updateProgress();
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function loadScript(text){
+  words=text.trim().split(/\s+/).filter(Boolean);
+  idx=0;
+  Q('#scriptBox').innerHTML=words.map(function(w,i){
+    return '<span class="w near" id="w'+i+'" onclick="jumpTo('+i+')">'+esc(w)+'&nbsp;</span>';
+  }).join('');
+  render();
 }
 
-function escH(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function updateActive() {
-  words.forEach((_, i) => {
-    const el = document.getElementById('w' + i);
-    if (!el) return;
-    el.className = 'word ' + (i < currentIdx ? 'done' : i === currentIdx ? 'active' : i < currentIdx + 8 ? 'upcoming' : '');
+function render(){
+  words.forEach(function(_,i){
+    var el=document.getElementById('w'+i);
+    if(!el) return;
+    el.className='w'+(i<idx?' done':i===idx?' active':i<idx+10?' near':'');
   });
-  scrollToCurrent();
-  updateProgress();
+  scrollToIdx();
+  Q('#pLbl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
 }
 
-function scrollToCurrent() {
-  const el = document.getElementById('w' + currentIdx);
-  if (!el) return;
-  const box = document.getElementById('scriptBox');
-  const boxRect = box.getBoundingClientRect();
-  const elRect = el.getBoundingClientRect();
-  const targetTop = box.scrollTop + (elRect.top - boxRect.top) - (boxRect.height * 0.35);
-  box.scrollTo({ top: targetTop, behavior: 'smooth' });
+function scrollToIdx(){
+  var el=document.getElementById('w'+idx);
+  if(!el) return;
+  var box=Q('#scriptBox'), br=box.getBoundingClientRect(), er=el.getBoundingClientRect();
+  box.scrollTo({top:Math.max(0,box.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'});
 }
 
-function updateProgress() {
-  const pct = words.length ? Math.round((currentIdx / words.length) * 100) : 0;
-  document.getElementById('progressLabel').textContent = pct + '%';
+function posLine(){
+  var wr=Q('#scriptWrap');
+  if(!wr) return;
+  Q('#readLine').style.top=Math.round(wr.getBoundingClientRect().height*0.38)+'px';
 }
 
-function jumpTo(i) {
-  currentIdx = i;
-  updateActive();
-}
+function jumpTo(i){idx=i;render();}
+function resetScroll(){idx=0;render();Q('#scriptBox').scrollTo({top:0,behavior:'smooth'});}
 
-function resetScroll() {
-  currentIdx = 0;
-  updateActive();
-  document.getElementById('scriptBox').scrollTo({top: 0, behavior: 'smooth'});
-}
-
-// ── Auto-scroll ────────────────────────────────────────────────────────────
-function startAutoScroll() {
-  if (scrollTimer) return;
-  autoScrolling = true;
-  // words per minute roughly: speed 1=30wpm, speed 20=300wpm
-  function tick() {
-    if (!autoScrolling) return;
-    if (currentIdx < words.length) {
-      currentIdx++;
-      updateActive();
-    } else {
-      stopAutoScroll();
-      return;
-    }
-    const wpm = 30 + (scrollSpeed * 13.5);
-    const msPerWord = 60000 / wpm;
-    scrollTimer = setTimeout(tick, msPerWord);
+function startScroll(){
+  if(scrollTmr) return;
+  autoPlay=true;
+  function tick(){
+    if(!autoPlay) return;
+    if(idx<words.length-1){idx++;render();}
+    else{stopScroll();return;}
+    scrollTmr=setTimeout(tick,60000/(30+spd*13));
   }
-  const wpm = 30 + (scrollSpeed * 13.5);
-  scrollTimer = setTimeout(tick, 60000 / wpm);
+  scrollTmr=setTimeout(tick,60000/(30+spd*13));
 }
+function stopScroll(){autoPlay=false;clearTimeout(scrollTmr);scrollTmr=null;}
 
-function stopAutoScroll() {
-  autoScrolling = false;
-  clearTimeout(scrollTimer);
-  scrollTimer = null;
-}
+function onSpd(v){spd=+v;Q('#spdV').textContent=v;localStorage.setItem('tp_spd',v);if(autoPlay){stopScroll();startScroll();}}
+function onFsz(v){fsz=+v;Q('#fszV').textContent=v;localStorage.setItem('tp_fsz',v);applyFsz();}
+function applyFsz(){Q('#scriptBox').style.fontSize=fsz+'px';}
 
-function onSpeedChange(v) {
-  scrollSpeed = +v;
-  document.getElementById('speedVal').textContent = v;
-  localStorage.setItem('tp_speed', v);
-  if (autoScrolling) { stopAutoScroll(); startAutoScroll(); }
-}
+/* ── Camera ── */
+async function toggleCam(){camOn?stopCam():await startCam(selCamId);}
 
-function onFontChange(v) {
-  fontSize = +v;
-  document.getElementById('fontVal').textContent = v;
-  localStorage.setItem('tp_font', v);
-  applyFont();
-}
-
-function applyFont() {
-  document.getElementById('scriptBox').style.fontSize = fontSize + 'px';
-}
-
-// ── Record ─────────────────────────────────────────────────────────────────
-async function toggleRecord() {
-  if (isRecording) {
-    stopRecording();
-  } else {
-    await startRecording();
-  }
-}
-
-async function startRecording() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
-    chunks = [];
-    mediaRec = new MediaRecorder(stream);
-    mediaRec.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
-    mediaRec.onstop = () => {
-      const blob = new Blob(chunks, {type: 'audio/webm'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'teleprompter-recording.webm'; a.click();
-      stream.getTracks().forEach(t => t.stop());
+async function startCam(devId){
+  try{
+    var constraints={
+      video:devId?{deviceId:{exact:devId},width:{ideal:1280},height:{ideal:720}}:{width:{ideal:1280},height:{ideal:720}},
+      audio:false
     };
-    // countdown then start
-    await countdown(3);
-    mediaRec.start(1000);
-    isRecording = true;
-    recSeconds = 0;
-    document.getElementById('recTimer').style.display = 'block';
-    document.getElementById('statusDot').className = 'recording';
-    document.getElementById('recordBtn').textContent = '⏹ Stop';
-    document.getElementById('recordBtn').classList.add('danger');
-    recTimer = setInterval(() => {
-      recSeconds++;
-      const m = Math.floor(recSeconds/60), s = recSeconds%60;
-      document.getElementById('recTimer').textContent = m+':'+(s<10?'0':'')+s;
-    }, 1000);
-    startAutoScroll();
-  } catch(e) {
-    alert('Microphone access needed to record. ' + e.message);
+    if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
+    camStream=await navigator.mediaDevices.getUserMedia(constraints);
+    Q('#camVid').srcObject=camStream;
+    Q('#camPip').classList.add('show');
+    Q('#camBtn').classList.add('on');
+    camOn=true;
+    localStorage.setItem('tp_cam','1');
+    selCamId=camStream.getVideoTracks()[0].getSettings().deviceId||devId;
+    await populateCams();
+    makeDraggable();
+  }catch(e){alert('Camera error: '+e.message);}
+}
+
+function stopCam(){
+  if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
+  camStream=null;camOn=false;
+  Q('#camPip').classList.remove('show');
+  Q('#camBtn').classList.remove('on');
+  localStorage.setItem('tp_cam','0');
+}
+
+async function populateCams(){
+  try{
+    var devs=await navigator.mediaDevices.enumerateDevices();
+    var cams=devs.filter(function(d){return d.kind==='videoinput';});
+    Q('#camSelect').innerHTML=cams.map(function(c,i){
+      return '<option value="'+c.deviceId+'"'+(c.deviceId===selCamId?' selected':'')+'>'+
+        (c.label||'Camera '+(i+1))+'</option>';
+    }).join('');
+  }catch(e){}
+}
+
+async function switchCam(id){selCamId=id;if(camOn) await startCam(id);}
+
+navigator.mediaDevices.addEventListener('devicechange',function(){if(camOn) populateCams();});
+
+function makeDraggable(){
+  var pip=Q('#camPip'),ox=0,oy=0,drag=false;
+  pip.onmousedown=function(e){
+    if(e.target===Q('#camSelect')||e.target===Q('#camSel')) return;
+    drag=true;ox=e.clientX-pip.offsetLeft;oy=e.clientY-pip.offsetTop;
+  };
+  document.onmousemove=function(e){
+    if(!drag) return;
+    pip.style.right='auto';pip.style.bottom='auto';
+    pip.style.left=Math.max(0,e.clientX-ox)+'px';
+    pip.style.top=Math.max(0,e.clientY-oy)+'px';
+  };
+  document.onmouseup=function(){drag=false;};
+}
+
+/* ── Recording — video + audio combined ── */
+async function toggleRecord(){isRec?stopRec():await startRec();}
+
+async function startRec(){
+  if(!camOn){
+    var go=confirm('Camera is off. Enable it now to record video + audio?\n\nOK = turn on camera, Cancel = record audio only.');
+    if(go){await startCam(selCamId);if(!camOn) return;}
   }
+  try{
+    var audioStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    var recStream;
+    if(camOn&&camStream){
+      var vt=camStream.getVideoTracks()[0];
+      var at=audioStream.getAudioTracks()[0];
+      recStream=new MediaStream([vt,at]);
+    } else {
+      recStream=audioStream;
+    }
+    var mimes=[
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
+      'video/webm','video/mp4'
+    ];
+    var mime=mimes.find(function(m){return MediaRecorder.isTypeSupported(m);})||'';
+    chunks=[];
+    mediaRec=new MediaRecorder(recStream,mime?{mimeType:mime}:{});
+    mediaRec.ondataavailable=function(e){if(e.data&&e.data.size>0) chunks.push(e.data);};
+    mediaRec.onstop=function(){
+      var ext=mime.includes('mp4')?'mp4':'webm';
+      var blob=new Blob(chunks,{type:mime||'video/webm'});
+      var url=URL.createObjectURL(blob);
+      var ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+      var a=document.createElement('a');
+      a.href=url;a.download='teleprompter-'+ts+'.'+ext;a.click();
+      setTimeout(function(){URL.revokeObjectURL(url);},5000);
+      audioStream.getTracks().forEach(function(t){t.stop();});
+      var mb=(blob.size/1048576).toFixed(1);
+      Q('#saveMsg').textContent='Your '+ext.toUpperCase()+' video ('+mb+' MB) is downloading — video and audio included.';
+      Q('#saveD').style.display='flex';
+    };
+    await countdown(3);
+    mediaRec.start(500);
+    isRec=true;recSecs=0;
+    Q('#timer').style.display='block';
+    Q('#dot').className='live';
+    Q('#recBtn').textContent='⏹ Stop';
+    Q('#recBtn').classList.add('live');
+    recTmr=setInterval(function(){
+      recSecs++;
+      var m=Math.floor(recSecs/60),s=recSecs%60;
+      Q('#timer').textContent=m+':'+(s<10?'0':'')+s;
+    },1000);
+    startScroll();
+  }catch(e){alert('Recording error: '+e.message);}
 }
 
-function stopRecording() {
-  if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
-  isRecording = false;
-  clearInterval(recTimer);
-  stopAutoScroll();
-  document.getElementById('recTimer').style.display = 'none';
-  document.getElementById('statusDot').className = '';
-  document.getElementById('recordBtn').textContent = '⏺ Record';
-  document.getElementById('recordBtn').classList.remove('danger');
+function stopRec(){
+  if(mediaRec&&mediaRec.state!=='inactive') mediaRec.stop();
+  isRec=false;clearInterval(recTmr);stopScroll();
+  Q('#timer').style.display='none';Q('#dot').className='';
+  Q('#recBtn').textContent='⏺ Record';Q('#recBtn').classList.remove('live');
 }
 
-// ── Countdown ──────────────────────────────────────────────────────────────
-function countdown(n) {
-  return new Promise(resolve => {
-    const overlay = document.getElementById('countdownOverlay');
-    const numEl   = document.getElementById('countdownNum');
-    overlay.style.display = 'flex';
-    let i = n;
-    numEl.textContent = i;
-    const iv = setInterval(() => {
+/* ── Countdown ── */
+function countdown(n){
+  return new Promise(function(resolve){
+    var ov=Q('#cdOv'),num=Q('#cdN');
+    ov.style.display='flex';
+    var i=n;num.textContent=i;
+    num.className='pop';
+    var tick=function(){
       i--;
-      if (i <= 0) { clearInterval(iv); overlay.style.display = 'none'; resolve(); }
-      else numEl.textContent = i;
-    }, 1000);
+      if(i<=0){ov.style.display='none';resolve();return;}
+      num.className='';
+      void num.offsetWidth;
+      num.className='pop';
+      num.textContent=i;
+      setTimeout(tick,1000);
+    };
+    setTimeout(tick,1000);
   });
 }
 
-// ── Camera ─────────────────────────────────────────────────────────────────
-async function toggleCam() {
-  if (camOn) {
-    if (camStream) camStream.getTracks().forEach(t => t.stop());
-    camStream = null; camOn = false;
-    document.getElementById('camWrap').classList.remove('visible');
-    document.getElementById('camBtn').classList.remove('active');
-  } else {
-    try {
-      camStream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
-      document.getElementById('camPreview').srcObject = camStream;
-      document.getElementById('camWrap').classList.add('visible');
-      document.getElementById('camBtn').classList.add('active');
-      camOn = true;
-    } catch(e) { alert('Camera access denied. ' + e.message); }
-  }
+/* ── Mirror ── */
+function toggleMirror(){
+  mirrored=!mirrored;
+  document.body.classList.toggle('mirrored',mirrored);
+  Q('#mirBtn').classList.toggle('on',mirrored);
 }
 
-// ── Mirror ─────────────────────────────────────────────────────────────────
-function toggleMirror() {
-  mirrored = !mirrored;
-  document.body.classList.toggle('mirrored', mirrored);
-  document.getElementById('mirrorBtn').classList.toggle('active', mirrored);
+/* ── Editor ── */
+function openEdit(){
+  stopScroll();
+  Q('#scriptTA').value=words.join(' ');
+  Q('#editOv').style.display='flex';
+  setTimeout(function(){Q('#scriptTA').focus();},50);
+}
+function closeEdit(save){
+  Q('#editOv').style.display='none';
+  if(save){var t=Q('#scriptTA').value.trim();if(t){localStorage.setItem('tp_script',t);loadScript(t);}}
 }
 
-// ── Edit overlay ───────────────────────────────────────────────────────────
-function openEdit() {
-  stopAutoScroll();
-  const raw = words.join(' ');
-  document.getElementById('scriptInput').value = raw;
-  document.getElementById('editOverlay').style.display = 'flex';
-}
-
-function closeEdit(save) {
-  document.getElementById('editOverlay').style.display = 'none';
-  if (save) {
-    const text = document.getElementById('scriptInput').value.trim();
-    if (text) {
-      localStorage.setItem('tp_script', text);
-      loadScript(text);
-    }
-  }
-}
-
-// ── AI write / refine ──────────────────────────────────────────────────────
-async function aiCall(systemPrompt, userMsg) {
-  const spin = document.getElementById('aiSpin');
-  spin.style.display = 'block';
-  try {
-    const res = await fetch('/api/teleprompter/ai', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      credentials: 'same-origin',
-      body: JSON.stringify({system: systemPrompt, message: userMsg})
+/* ── AI ── */
+async function callAI(sys,msg){
+  Q('#aiSp').style.display='block';
+  try{
+    var r=await fetch('/api/teleprompter/ai',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({system:sys,message:msg})
     });
-    const d = await res.json();
-    return d.text || '';
-  } catch(e) {
-    return '';
-  } finally {
-    spin.style.display = 'none';
-  }
+    var d=await r.json();return d.text||'';
+  }catch(e){return'';}
+  finally{Q('#aiSp').style.display='none';}
+}
+async function aiWrite(){
+  var t=Q('#aiIn').value.trim();if(!t){Q('#aiIn').focus();return;}
+  var r=await callAI('You are a professional video scriptwriter. Write a clear, conversational teleprompter script. Rules: natural spoken English only, no stage directions, no brackets, no headers. Short punchy sentences. 90-150 words. End with a call to action.',t);
+  if(r) Q('#scriptTA').value=r;
+}
+async function aiRefine(){
+  var c=Q('#scriptTA').value.trim();if(!c){alert('Write a script first.');return;}
+  var r=await callAI('Tighten this teleprompter script: shorter sentences, remove filler, keep the speaker voice. Return ONLY the improved script.',c);
+  if(r) Q('#scriptTA').value=r;
+}
+async function aiHook(){
+  var c=Q('#scriptTA').value.trim();if(!c){alert('Write a script first.');return;}
+  var r=await callAI('Rewrite ONLY the opening 1-2 sentences to be a stronger hook. Return the full script with the improved opening.',c);
+  if(r) Q('#scriptTA').value=r;
 }
 
-async function aiWrite() {
-  const topic = document.getElementById('aiPromptInput').value.trim();
-  if (!topic) { document.getElementById('aiPromptInput').focus(); return; }
-  const sys = `You are a professional scriptwriter for video content creators. 
-Write a clear, natural-sounding teleprompter script based on the topic given.
-Rules:
-- Conversational tone, like the creator is speaking directly to camera
-- No stage directions, no [brackets], no headers — pure spoken words only
-- Use short sentences. One idea per sentence.
-- Aim for 90-150 words unless the user specifies otherwise
-- End with a clear call to action`;
-  const text = await aiCall(sys, topic);
-  if (text) document.getElementById('scriptInput').value = text;
-}
-
-async function aiRefine() {
-  const current = document.getElementById('scriptInput').value.trim();
-  if (!current) { alert('Write or paste a script first.'); return; }
-  const sys = `You are a professional script editor. Tighten the following teleprompter script:
-- Remove filler words and redundancy
-- Make sentences shorter and punchier
-- Keep the speaker's voice and key points
-- Return ONLY the improved script, no commentary`;
-  const text = await aiCall(sys, current);
-  if (text) document.getElementById('scriptInput').value = text;
-}
-
-// ── Keyboard shortcuts ─────────────────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if (document.getElementById('editOverlay').style.display !== 'none') return;
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  if (e.code === 'Space') { e.preventDefault(); autoScrolling ? stopAutoScroll() : startAutoScroll(); }
-  if (e.code === 'ArrowRight' || e.code === 'ArrowDown') { e.preventDefault(); currentIdx = Math.min(currentIdx+1, words.length-1); updateActive(); }
-  if (e.code === 'ArrowLeft'  || e.code === 'ArrowUp')   { e.preventDefault(); currentIdx = Math.max(currentIdx-1, 0); updateActive(); }
-  if (e.code === 'KeyR') toggleRecord();
-  if (e.code === 'KeyM') toggleMirror();
-  if (e.code === 'Home') resetScroll();
+/* ── Keys ── */
+document.addEventListener('keydown',function(e){
+  var ed=Q('#editOv').style.display!=='none';
+  if(ed&&e.code!=='Escape') return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+  if(e.code==='Space'){e.preventDefault();autoPlay?stopScroll():startScroll();}
+  if(e.code==='ArrowRight'||e.code==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}
+  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);render();}
+  if(e.code==='Home'){e.preventDefault();resetScroll();}
+  if(e.code==='KeyR') toggleRecord();
+  if(e.code==='KeyC') toggleCam();
+  if(e.code==='KeyM') toggleMirror();
+  if(e.code==='Escape'&&ed) closeEdit(false);
 });
 
-// Touch swipe to advance/go back
-let touchStartX = 0;
-document.getElementById('scriptBox') && document.getElementById('scriptBox').addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, {passive:true});
-document.getElementById('scriptBox') && document.getElementById('scriptBox').addEventListener('touchend', e => {
-  const dx = e.changedTouches[0].clientX - touchStartX;
-  if (Math.abs(dx) > 50) {
-    if (dx < 0) { currentIdx = Math.min(currentIdx+3, words.length-1); }
-    else        { currentIdx = Math.max(currentIdx-3, 0); }
-    updateActive();
-  }
-}, {passive:true});
+var tx0=0;
+Q('#scriptBox').addEventListener('touchstart',function(e){tx0=e.touches[0].clientX;},{passive:true});
+Q('#scriptBox').addEventListener('touchend',function(e){
+  var dx=e.changedTouches[0].clientX-tx0;
+  if(Math.abs(dx)>55){idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}
+},{passive:true});
 
+window.addEventListener('resize',posLine);
 init();
 </script>
 </body>
