@@ -4996,13 +4996,13 @@ function escH(s) {
 function renderTable(seats) {
   const tbody = document.getElementById('seatBody');
   if (!seats.length) {
-    tbody.innerHTML = `<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
+    tbody.innerHTML = "<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>";
     return;
   }
   tbody.innerHTML = seats.map(function(s) {
     var st = s.status || 'active';
     return "<tr data-code='" + escH(s.code) + "'>" +
-      "<td><span class='code' title='Click to copy' onclick='copyCode("" + escH(s.code) + "")'>" + escH(s.code) + "</span></td>" +
+      "<td><span class='code' title='Click to copy' onclick='copyCode(\"" + escH(s.code) + "\")'>" + escH(s.code) + "</span></td>" +
       "<td>" + (s.holder_name ? "<span class='name-cell'>" + escH(s.holder_name) + "</span>" : "<span class='empty-cell'>—</span>") + "</td>" +
       "<td>" + ((s.holder_email||s.stripe_email) ? "<span class='email-cell'>" + escH(s.holder_email||s.stripe_email||'') + "</span>" : "<span class='empty-cell'>—</span>") + "</td>" +
       "<td>" + planBadge(s) + "</td>" +
@@ -5011,8 +5011,8 @@ function renderTable(seats) {
       "<td style='color:#94a3b8;font-size:12px;'>" + escH(s.claimed_by||'—') + "</td>" +
       "<td style='color:#64748b;font-size:12px;'>" + fmtDate(s.created_at) + "</td>" +
       "<td><div style='display:flex;gap:6px;'>" +
-        "<button class='btn btn-sm' onclick='openEdit("" + escH(s.code) + "")'>Edit</button>" +
-        "<button class='btn btn-sm btn-danger' onclick='toggleSeat("" + escH(s.code) + "","" + st + "")'>" + (st === 'inactive' ? 'Activate' : 'Deactivate') + "</button>" +
+        "<button class='btn btn-sm' onclick='openEdit(\"" + escH(s.code) + "\")'>Edit</button>" +
+        "<button class='btn btn-sm btn-danger' onclick='toggleSeat(\"" + escH(s.code) + "\",\"" + st + "\")'>" + (st === 'inactive' ? 'Activate' : 'Deactivate') + "</button>" +
       "</div></td>" +
     "</tr>";
   }).join('');
@@ -5159,7 +5159,7 @@ async function doGenerate() {
     const d = await res.json();
     if (d.ok) {
       resultEl.style.color = '#6ee7b7';
-      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
+      resultEl.innerText = 'Generated:' + d.generated.map(function(c){return '\n'+c;}).join('');
       await loadSeats();
     } else {
       resultEl.style.color = '#f87171';
