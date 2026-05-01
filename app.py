@@ -4803,8 +4803,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .name-cell{color:#e2e8f0;font-weight:500;}
 .email-cell{color:#94a3b8;font-size:12px;}
 .empty-cell{color:#475569;font-style:italic;font-size:12px;}
-
-/* Edit popover */
+.notice{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#fcd34d;display:none;}
 #editPop{display:none;position:fixed;z-index:999;background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:14px;padding:18px 20px;width:340px;box-shadow:0 16px 48px rgba(0,0,0,.7);}
 #editPop h3{font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:14px;}
 #editPop label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
@@ -4812,8 +4811,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
 #editPop input:focus,#editPop textarea:focus{border-color:#7c3aed;}
 #editPop .actions{display:flex;gap:8px;margin-top:14px;}
 #editPop .status-msg{font-size:12px;color:#6ee7b7;margin-top:8px;min-height:14px;}
-
-/* Generate modal */
 #genModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:998;align-items:center;justify-content:center;}
 #genModal.open{display:flex;}
 #genBox{background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:16px;padding:24px;width:min(400px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.7);}
@@ -4822,17 +4819,19 @@ tr:hover td{background:rgba(255,255,255,.02);}
 #genBox input,#genBox select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
 #genBox input:focus{border-color:#7c3aed;}
 #genBox .actions{display:flex;gap:8px;margin-top:16px;}
-#genResult{margin-top:12px;font-family:monospace;font-size:13px;color:#6ee7b7;word-break:break-all;}
+#genResult{margin-top:12px;font-family:monospace;font-size:13px;color:#6ee7b7;word-break:break-all;white-space:pre-wrap;}
 </style></head><body>
 <a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
 <h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
 <div style='margin-bottom:16px;display:flex;gap:16px;'>
-  <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users & Impersonation</a>
+  <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users &amp; Impersonation</a>
 </div>
 <div class='sub'>Manage access codes for Simply Agentic AI. Stripe purchases appear automatically.</div>
-
+<div class='notice' id='sessionNotice'>
+  ⚠️ Session expired — <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a>
+  &nbsp;&nbsp;<span style='font-size:11px;color:#94a3b8;'>If this keeps happening, set APP_SECRET as a permanent env var in Render.</span>
+</div>
 <div class='stats' id='statsBar'></div>
-
 <div class='toolbar'>
   <input type='text' id='searchBox' placeholder='Search name, email, code…' oninput='filterTable()'/>
   <select id='filterStatus' onchange='filterTable()'>
@@ -4855,37 +4854,26 @@ tr:hover td{background:rgba(255,255,255,.02);}
   </select>
   <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
 </div>
-
 <table id='seatTable'>
 <thead><tr>
-  <th>Code</th>
-  <th>Name</th>
-  <th>Email</th>
-  <th>Plan</th>
-  <th>Source</th>
-  <th>Status</th>
-  <th>Claimed by</th>
-  <th>Created</th>
-  <th>Actions</th>
+  <th>Code</th><th>Name</th><th>Email</th><th>Plan</th><th>Source</th><th>Status</th><th>Claimed by</th><th>Created</th><th>Actions</th>
 </tr></thead>
-<tbody id='seatBody'></tbody>
+<tbody id='seatBody'>
+  <tr><td colspan='9' style='padding:32px;text-align:center;color:#475569;'>Loading…</td></tr>
+</tbody>
 </table>
-
-<!-- Edit popover -->
 <div id='editPop'>
   <h3>✏️ Edit Seat</h3>
-  <label>Holder name</label>
-  <input id='editName' type='text' placeholder='e.g. Jane Smith'/>
-  <label>Holder email</label>
-  <input id='editEmail' type='email' placeholder='jane@example.com'/>
+  <label>Holder name</label><input id='editName' type='text' placeholder='e.g. Jane Smith'/>
+  <label>Holder email</label><input id='editEmail' type='email' placeholder='jane@example.com'/>
   <label>Plan</label>
   <select id='editPlan'>
-    <option value='starter'>Starter Operator — $47/mo</option>
+    <option value='founder'>Founder Access — $27/mo</option>
+    <option value='starter'>Solo Operator — $47/mo</option>
     <option value='growth'>Growth System — $97/mo</option>
     <option value='pro'>Operator Pro — $197/mo</option>
   </select>
-  <label>Notes</label>
-  <textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
+  <label>Notes</label><textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
   <label>Status</label>
   <select id='editStatus'>
     <option value='active'>Active (available)</option>
@@ -4897,8 +4885,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
   </div>
   <div class='status-msg' id='editMsg'></div>
 </div>
-
-<!-- Generate modal -->
 <div id='genModal'>
   <div id='genBox'>
     <h3>Generate Access Code</h3>
@@ -4915,9 +4901,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <option value='5'>5 codes</option>
       <option value='10'>10 codes</option>
     </select>
-    <label>Holder name <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <label>Holder name <span style='color:#475569;font-weight:400;font-size:11px;'>(optional)</span></label>
     <input id='genName' type='text' placeholder='e.g. Jane Smith'/>
-    <label>Holder email <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <label>Holder email <span style='color:#475569;font-weight:400;font-size:11px;'>(optional)</span></label>
     <input id='genEmail' type='email' placeholder='jane@example.com'/>
     <div class='actions'>
       <button class='btn btn-primary' onclick='doGenerate()'>Generate</button>
@@ -4926,270 +4912,251 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <div id='genResult'></div>
   </div>
 </div>
-
 <script>
-let allSeats = [];
-let editingCode = null;
+'use strict';
+var allSeats = [];
+var editingCode = null;
 
-async function loadSeats() {
-  const tbody = document.getElementById('seatBody');
-  try {
-    const res = await fetch('/api/admin/seats', {credentials: 'same-origin'});
-    // If we got redirected to login, res.url will differ from the requested URL
-    if (res.redirected || res.url.includes('/login')) {
-      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;font-size:14px;'>⚠️ Session expired. <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
-      return;
-    }
-    let d;
-    try {
-      d = await res.json();
-    } catch(parseErr) {
-      // Got HTML instead of JSON — almost always means redirect to login
-      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;font-size:14px;'>⚠️ Session expired. <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
-      return;
-    }
-    if (!d.ok) {
-      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;font-size:14px;'>Error: " + (d.error || 'Unknown error') + "</td></tr>";
-      return;
-    }
-    allSeats = d.seats || [];
-    renderStats();
-    renderTable(allSeats);
-  } catch(e) {
-    tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;font-size:14px;'>Network error: " + e.message + "</td></tr>";
-  }
+function el(id){ return document.getElementById(id); }
+
+function escH(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-function renderStats() {
-  const total  = allSeats.length;
-  const used   = allSeats.filter(s => s.status === 'used').length;
-  const avail  = allSeats.filter(s => s.status === 'active' && !s.claimed_by).length;
-  const stripe = allSeats.filter(s => s.source === 'stripe').length;
-  document.getElementById('statsBar').innerHTML = [
-    ['Total', total], ['Available', avail], ['Used', used], ['Stripe', stripe]
-  ].map(([l,v]) => `<div class='stat'><b>${v}</b><span>${l}</span></div>`).join('');
+function planBadge(s){
+  var p=(s.plan||'').toLowerCase();
+  var n=s.plan_name||(p==='pro'?'Operator Pro':p==='growth'?'Growth System':p==='founder'?'Founder Access':'Solo Operator');
+  if(p==='pro')     return "<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ "+escH(n)+"</span>";
+  if(p==='growth')  return "<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 "+escH(n)+"</span>";
+  if(p==='founder') return "<span class='badge' style='background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.35);'>🔥 "+escH(n)+"</span>";
+  return "<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ "+escH(n)+"</span>";
 }
 
-function planBadge(s) {
-  const p = (s.plan || '').toLowerCase();
-  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'founder' ? 'Founder Access' : 'Solo Operator');
-  if (p === 'pro')     return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
-  if (p === 'growth')  return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
-  if (p === 'founder') return `<span class='badge' style='background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.35);'>🔥 ${name}</span>`;
-  return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
-}
-
-function statusBadge(s) {
-  if (s.status === 'inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
-  if (s.claimed_by || s.status === 'used') return "<span class='badge badge-used'>⊙ Used</span>";
+function statusBadge(s){
+  if(s.status==='inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
+  if(s.claimed_by||s.status==='used') return "<span class='badge badge-used'>⊙ Used</span>";
   return "<span class='badge badge-avail'>✓ Available</span>";
 }
 
-function sourceBadge(s) {
-  if (s.source === 'stripe') return "<span class='badge badge-stripe'>💳 Stripe</span>";
+function sourceBadge(s){
+  if(s.source==='stripe') return "<span class='badge badge-stripe'>💳 Stripe</span>";
   return "<span class='badge badge-manual'>✎ Manual</span>";
 }
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  try { return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
-  catch(e) { return iso.slice(0,10); }
+function fmtDate(iso){
+  if(!iso) return '—';
+  try{ return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+  catch(e){ return iso.slice(0,10); }
 }
 
-function escH(s) {
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function renderStats(){
+  var total=allSeats.length;
+  var used=allSeats.filter(function(s){return s.status==='used';}).length;
+  var avail=allSeats.filter(function(s){return s.status==='active'&&!s.claimed_by;}).length;
+  var stripe=allSeats.filter(function(s){return s.source==='stripe';}).length;
+  el('statsBar').innerHTML=[['Total',total],['Available',avail],['Used',used],['Stripe',stripe]].map(function(p){
+    return "<div class='stat'><b>"+p[1]+"</b><span>"+p[0]+"</span></div>";
+  }).join('');
 }
 
-function renderTable(seats) {
-  const tbody = document.getElementById('seatBody');
-  if (!seats.length) {
-    tbody.innerHTML = `<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
+function renderTable(seats){
+  var tbody=el('seatBody');
+  if(!seats||!seats.length){
+    tbody.innerHTML="<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats match.</td></tr>";
     return;
   }
-  tbody.innerHTML = seats.map(s => `
-    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}' data-plan='${s.plan||''}'>
-      <td><span class='code' title='Click to copy' onclick='copyCode("${escH(s.code)}")'>${escH(s.code)}</span></td>
-      <td>${s.holder_name ? `<span class='name-cell'>${escH(s.holder_name)}</span>` : `<span class='empty-cell'>—</span>`}</td>
-      <td>${(s.holder_email||s.stripe_email) ? `<span class='email-cell'>${escH(s.holder_email||s.stripe_email||'')}</span>` : `<span class='empty-cell'>—</span>`}</td>
-      <td>${planBadge(s)}</td>
-      <td>${sourceBadge(s)}</td>
-      <td>${statusBadge(s)}</td>
-      <td style='color:#94a3b8;font-size:12px;'>${escH(s.claimed_by||'—')}</td>
-      <td style='color:#64748b;font-size:12px;'>${fmtDate(s.created_at)}</td>
-      <td>
-        <div style='display:flex;gap:6px;'>
-          <button class='btn btn-sm' onclick='openEdit("${escH(s.code)}")'>Edit</button>
-          <button class='btn btn-sm btn-danger' onclick='toggleSeat("${escH(s.code)}","${s.status||'active'}")'>${s.status==='inactive'?'Activate':'Deactivate'}</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML=seats.map(function(s){
+    return "<tr data-code='"+escH(s.code)+"'>"+
+      "<td><span class='code' onclick='copyCode(""+escH(s.code)+"")' title='Click to copy'>"+escH(s.code)+"</span></td>"+
+      "<td>"+(s.holder_name?"<span class='name-cell'>"+escH(s.holder_name)+"</span>":"<span class='empty-cell'>—</span>")+"</td>"+
+      "<td>"+((s.holder_email||s.stripe_email)?"<span class='email-cell'>"+escH(s.holder_email||s.stripe_email||'')+"</span>":"<span class='empty-cell'>—</span>")+"</td>"+
+      "<td>"+planBadge(s)+"</td>"+
+      "<td>"+sourceBadge(s)+"</td>"+
+      "<td>"+statusBadge(s)+"</td>"+
+      "<td style='color:#94a3b8;font-size:12px;'>"+escH(s.claimed_by||'—')+"</td>"+
+      "<td style='color:#64748b;font-size:12px;'>"+fmtDate(s.created_at)+"</td>"+
+      "<td><div style='display:flex;gap:6px;'>"+
+        "<button class='btn btn-sm' onclick='openEdit(""+escH(s.code)+"")'>Edit</button>"+
+        "<button class='btn btn-sm btn-danger' onclick='toggleSeat(""+escH(s.code)+"",""+escH(s.status||'active')+"")'>"+
+          (s.status==='inactive'?'Activate':'Deactivate')+
+        "</button>"+
+      "</div></td>"+
+    "</tr>";
+  }).join('');
 }
 
-function filterTable() {
-  const q = document.getElementById('searchBox').value.toLowerCase();
-  const fs   = document.getElementById('filterStatus').value;
-  const fsrc = document.getElementById('filterSource').value;
-  const fpln = document.getElementById('filterPlan').value;
-  const filtered = allSeats.filter(s => {
-    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes, s.plan, s.plan_name].join(' ').toLowerCase();
-    const matchQ   = !q    || hay.includes(q);
-    const matchSt  = !fs   || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
-    const matchSrc = !fsrc || (s.source||'manual') === fsrc;
-    const matchPln = !fpln || (s.plan||'starter') === fpln;
-    return matchQ && matchSt && matchSrc && matchPln;
+function filterTable(){
+  var q=el('searchBox').value.toLowerCase();
+  var fs=el('filterStatus').value;
+  var fsrc=el('filterSource').value;
+  var fpln=el('filterPlan').value;
+  var filtered=allSeats.filter(function(s){
+    var hay=[s.code,s.holder_name,s.holder_email,s.stripe_email,s.claimed_by,s.notes,s.plan,s.plan_name].join(' ').toLowerCase();
+    var matchQ=!q||hay.includes(q);
+    var matchSt=!fs||(fs==='active'?(s.status==='active'&&!s.claimed_by):fs==='used'?(s.status==='used'||!!s.claimed_by):s.status===fs);
+    var matchSrc=!fsrc||(s.source||'manual')===fsrc;
+    var matchPln=!fpln||(s.plan||'starter')===fpln;
+    return matchQ&&matchSt&&matchSrc&&matchPln;
   });
   renderTable(filtered);
 }
 
-function copyCode(code) {
-  navigator.clipboard.writeText(code).then(() => {
-    showToast('📋 Copied: ' + code);
-  }).catch(() => { prompt('Copy this code:', code); });
+function copyCode(code){
+  navigator.clipboard.writeText(code).then(function(){showToast('📋 Copied: '+code);}).catch(function(){prompt('Copy this code:',code);});
 }
 
-function showToast(msg, type) {
-  var borderColor = type==='success' ? 'rgba(52,211,153,.7)' : type==='error' ? 'rgba(248,113,113,.7)' : 'rgba(124,58,237,.5)';
-  var textColor   = type==='success' ? '#6ee7b7' : type==='error' ? '#fca5a5' : '#c4b5fd';
-  var icon        = type==='success' ? '✓ ' : type==='error' ? '✕ ' : '';
-  var t = document.createElement('div');
-  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#141e38;border-left:3px solid '+borderColor+';border-top:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);color:'+textColor+';padding:11px 18px 11px 15px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.55);max-width:320px;line-height:1.4;transform:translateX(120%);transition:transform .28s cubic-bezier(.34,1.56,.64,1),opacity .22s;opacity:0;';
-  t.innerHTML = '<span style="opacity:.8;">' + icon + '</span>' + String(msg).replace(/</g,'&lt;');
+function showToast(msg,type){
+  var bc=type==='error'?'rgba(248,113,113,.7)':'rgba(124,58,237,.5)';
+  var tc=type==='error'?'#fca5a5':'#c4b5fd';
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;bottom:24px;right:24px;background:#141e38;border-left:3px solid '+bc+';color:'+tc+';padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.55);transform:translateX(120%);transition:transform .28s ease,opacity .22s;opacity:0;';
+  t.innerText=msg;
   document.body.appendChild(t);
-  requestAnimationFrame(function(){ requestAnimationFrame(function(){
-    t.style.transform = 'translateX(0)'; t.style.opacity = '1';
-  }); });
-  setTimeout(function(){
-    t.style.transform = 'translateX(120%)'; t.style.opacity = '0';
-    setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 280);
-  }, 2600);
+  requestAnimationFrame(function(){requestAnimationFrame(function(){t.style.transform='translateX(0)';t.style.opacity='1';});});
+  setTimeout(function(){t.style.transform='translateX(120%)';t.style.opacity='0';setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},280);},2600);
 }
 
-function openEdit(code) {
-  const s = allSeats.find(x => x.code === code);
-  if (!s) return;
-  editingCode = code;
-  document.getElementById('editName').value   = s.holder_name  || '';
-  document.getElementById('editEmail').value  = s.holder_email || s.stripe_email || '';
-  document.getElementById('editPlan').value   = s.plan || 'starter';
-  document.getElementById('editNotes').value  = s.notes || '';
-  document.getElementById('editStatus').value = s.status || 'active';
-  document.getElementById('editMsg').innerText = '';
-  // Position near the clicked row
-  const row = document.querySelector(`tr[data-code="${code}"]`);
-  const pop = document.getElementById('editPop');
-  pop.style.display = 'block';
-  if (row) {
-    const rect = row.getBoundingClientRect();
-    const ph = 320, pw = 340;
-    let top = rect.top + window.scrollY - 20;
-    let left = rect.right - pw - 20;
-    if (left < 8) left = 8;
-    if (top + ph > document.body.scrollHeight) top = document.body.scrollHeight - ph - 20;
-    pop.style.top  = top  + 'px';
-    pop.style.left = left + 'px';
+function openEdit(code){
+  var s=allSeats.find(function(x){return x.code===code;});
+  if(!s) return;
+  editingCode=code;
+  el('editName').value=s.holder_name||'';
+  el('editEmail').value=s.holder_email||s.stripe_email||'';
+  el('editPlan').value=s.plan||'starter';
+  el('editNotes').value=s.notes||'';
+  el('editStatus').value=s.status||'active';
+  el('editMsg').innerText='';
+  var row=document.querySelector('[data-code="'+code+'"]');
+  var pop=el('editPop');
+  pop.style.display='block';
+  if(row){
+    var rect=row.getBoundingClientRect();
+    var top=rect.top+window.scrollY-20;
+    var left=rect.right-340-20;
+    if(left<8)left=8;
+    if(top+320>document.body.scrollHeight)top=document.body.scrollHeight-340;
+    pop.style.top=top+'px';
+    pop.style.left=left+'px';
   }
 }
 
-function closeEdit() {
-  document.getElementById('editPop').style.display = 'none';
-  editingCode = null;
-}
+function closeEdit(){el('editPop').style.display='none';editingCode=null;}
 
-async function saveEdit() {
-  if (!editingCode) return;
-  const msg = document.getElementById('editMsg');
-  msg.innerText = 'Saving…';
-  try {
-    const payload = {
-      holder_name:  document.getElementById('editName').value.trim(),
-      holder_email: document.getElementById('editEmail').value.trim(),
-      plan:         document.getElementById('editPlan').value,
-      notes:        document.getElementById('editNotes').value.trim(),
-      status:       document.getElementById('editStatus').value,
+async function saveEdit(){
+  if(!editingCode)return;
+  var msg=el('editMsg');
+  msg.innerText='Saving…';
+  try{
+    var payload={
+      holder_name:el('editName').value.trim(),
+      holder_email:el('editEmail').value.trim(),
+      plan:el('editPlan').value,
+      notes:el('editNotes').value.trim(),
+      status:el('editStatus').value
     };
-    const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
-      credentials: 'same-origin',
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    var res=await fetch('/api/admin/seats/'+encodeURIComponent(editingCode)+'/update',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',body:JSON.stringify(payload)
     });
-    const d = await res.json();
-    if (!d.ok) throw new Error(d.error || 'Save failed');
-    // Update local cache
-    const idx = allSeats.findIndex(x => x.code === editingCode);
-    if (idx >= 0) allSeats[idx] = {...allSeats[idx], ...payload};
-    msg.innerText = '✓ Saved!';
-    setTimeout(()=>{ closeEdit(); filterTable(); renderStats(); }, 700);
-  } catch(e) {
-    msg.innerText = e.message || 'Save failed';
-  }
+    var d=await res.json();
+    if(!d.ok)throw new Error(d.error||'Save failed');
+    var idx=allSeats.findIndex(function(x){return x.code===editingCode;});
+    if(idx>=0)allSeats[idx]=Object.assign({},allSeats[idx],payload);
+    msg.innerText='✓ Saved!';
+    setTimeout(function(){closeEdit();filterTable();renderStats();},700);
+  }catch(e){msg.innerText=e.message||'Save failed';}
 }
 
-async function toggleSeat(code, currentStatus) {
-  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
-  });
-  const d = await res.json();
-  if (d.ok) {
-    const idx = allSeats.findIndex(x => x.code === code);
-    if (idx >= 0) allSeats[idx].status = newStatus;
-    filterTable(); renderStats();
-    showToast(newStatus === 'active' ? '✓ Seat activated' : '✗ Seat deactivated');
-  }
-}
-
-function openGenModal() {
-  document.getElementById('genResult').innerText = '';
-  document.getElementById('genName').value  = '';
-  document.getElementById('genEmail').value = '';
-  document.getElementById('genCount').value = '1';
-  document.getElementById('genPlan').value  = 'starter';
-  document.getElementById('genModal').classList.add('open');
-}
-
-function closeGenModal() {
-  document.getElementById('genModal').classList.remove('open');
-}
-
-async function doGenerate() {
-  const resultEl = document.getElementById('genResult');
-  resultEl.style.color = '#6ee7b7';
-  resultEl.innerText = 'Generating…';
-  const count = parseInt(document.getElementById('genCount').value) || 1;
-  const name  = document.getElementById('genName').value.trim();
-  const email = document.getElementById('genEmail').value.trim();
-  const plan  = document.getElementById('genPlan').value || 'starter';
-  try {
-    const res = await fetch('/api/admin/seats/generate', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      credentials: 'same-origin',
-      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+async function toggleSeat(code,currentStatus){
+  var newStatus=currentStatus==='active'?'inactive':'active';
+  try{
+    var res=await fetch('/api/admin/seats/'+encodeURIComponent(code)+'/update',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',body:JSON.stringify({status:newStatus})
     });
-    const d = await res.json();
-    if (d.ok) {
-      resultEl.style.color = '#6ee7b7';
-      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
-      await loadSeats();
-    } else {
-      resultEl.style.color = '#f87171';
-      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+    var d=await res.json();
+    if(d.ok){
+      var idx=allSeats.findIndex(function(x){return x.code===code;});
+      if(idx>=0)allSeats[idx].status=newStatus;
+      filterTable();renderStats();
+      showToast(newStatus==='active'?'✓ Seat activated':'✗ Seat deactivated');
     }
-  } catch (err) {
-    resultEl.style.color = '#f87171';
-    resultEl.innerText = 'Request failed: ' + err.message;
+  }catch(e){showToast('Error: '+e.message,'error');}
+}
+
+function openGenModal(){
+  el('genResult').innerText='';el('genName').value='';
+  el('genEmail').value='';el('genCount').value='1';el('genPlan').value='starter';
+  el('genModal').classList.add('open');
+}
+
+function closeGenModal(){el('genModal').classList.remove('open');}
+
+async function doGenerate(){
+  var resultEl=el('genResult');
+  resultEl.style.color='#6ee7b7';
+  resultEl.innerText='Generating…';
+  var count=parseInt(el('genCount').value)||1;
+  var name=el('genName').value.trim();
+  var email=el('genEmail').value.trim();
+  var plan=el('genPlan').value||'starter';
+  try{
+    var res=await fetch('/api/admin/seats/generate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body:JSON.stringify({count:count,holder_name:name,holder_email:email,plan:plan})
+    });
+    var d=await res.json();
+    if(d.ok){
+      resultEl.style.color='#6ee7b7';
+      resultEl.innerText='Generated:\n'+d.generated.join('\n');
+      await loadSeats();
+    }else{
+      resultEl.style.color='#f87171';
+      resultEl.innerText='Error: '+(d.error||'Unknown error');
+    }
+  }catch(err){
+    resultEl.style.color='#f87171';
+    resultEl.innerText='Request failed: '+err.message;
   }
 }
 
-// Close popover on outside click
-document.addEventListener('click', function(e) {
-  const pop = document.getElementById('editPop');
-  if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('button[onclick^="openEdit"]')) {
-    closeEdit();
-  }
-  if (document.getElementById('genModal').classList.contains('open') && e.target === document.getElementById('genModal')) {
-    closeGenModal();
-  }
+document.addEventListener('click',function(e){
+  var pop=el('editPop');
+  if(pop.style.display==='block'&&!pop.contains(e.target)&&!e.target.closest('[onclick^="openEdit"]'))closeEdit();
+  if(el('genModal').classList.contains('open')&&e.target===el('genModal'))closeGenModal();
 });
+
+async function loadSeats(){
+  var tbody=el('seatBody');
+  tbody.innerHTML="<tr><td colspan='9' style='padding:32px;text-align:center;color:#475569;'>Loading…</td></tr>";
+  try{
+    var res=await fetch('/api/admin/seats',{credentials:'same-origin'});
+    var text=await res.text();
+    var d;
+    try{ d=JSON.parse(text); }
+    catch(e){
+      el('sessionNotice').style.display='block';
+      tbody.innerHTML="<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;'>Session expired — <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
+      return;
+    }
+    if(!d.ok){
+      if((d.error||'').toLowerCase().includes('admin')){
+        el('sessionNotice').style.display='block';
+        tbody.innerHTML="<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;'>Not recognized as admin — <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
+      }else{
+        tbody.innerHTML="<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;'>Error: "+(d.error||'Unknown error')+"</td></tr>";
+      }
+      return;
+    }
+    el('sessionNotice').style.display='none';
+    allSeats=d.seats||[];
+    renderStats();
+    renderTable(allSeats);
+  }catch(e){
+    tbody.innerHTML="<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;'>Network error: "+e.message+"<br><br><button class='btn btn-primary' onclick='loadSeats()'>Retry</button></td></tr>";
+  }
+}
 
 loadSeats();
 </script></body></html>"""
@@ -15682,9 +15649,6 @@ function makeSeat(defn, idx){
       let startX = 0, startY = 0;
       let offsetX = 0, offsetY = 0;
 
-      let _lastTapTime = 0;
-      let _tapHintTimer = null;
-
       seat.addEventListener("pointerdown", (e) => {
         if(e.button !== undefined && e.button !== 0) return;
         dragging = true;
@@ -15703,13 +15667,11 @@ function makeSeat(defn, idx){
 
       seat.addEventListener("pointermove", (e) => {
         if(!dragging) return;
+        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
-        const moveThreshold = window.innerWidth <= 640 ? 12 : 6;
-        if(dx > moveThreshold || dy > moveThreshold) moved = true;
-
-        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
+        if(dx > 6 || dy > 6) moved = true;
 
         const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : $("tableWrap"));
         const boundsRect = boundsEl.getBoundingClientRect();
@@ -15744,35 +15706,7 @@ function makeSeat(defn, idx){
         }
 
         if(!moved){
-          if(window.innerWidth <= 640){
-            const now = Date.now();
-            const since = now - _lastTapTime;
-            if(since < 400 && since > 50){
-              _lastTapTime = 0;
-              if(_tapHintTimer){ clearTimeout(_tapHintTimer); _tapHintTimer = null; }
-              const h = seat.querySelector('.seatDoubleTapHint');
-              if(h) h.remove();
-              selectSeat(defn.name);
-            } else {
-              _lastTapTime = now;
-              let hint = seat.querySelector('.seatDoubleTapHint');
-              if(!hint){
-                hint = document.createElement('div');
-                hint.className = 'seatDoubleTapHint';
-                hint.innerText = 'Tap again to select';
-                hint.style.cssText = 'position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:10px;color:#c4b5fd;background:rgba(7,9,26,.88);padding:2px 0;border-radius:0 0 12px 12px;pointer-events:none;z-index:10;';
-                seat.style.position = 'relative';
-                seat.appendChild(hint);
-              }
-              if(_tapHintTimer) clearTimeout(_tapHintTimer);
-              _tapHintTimer = setTimeout(() => {
-                hint && hint.remove();
-                _lastTapTime = 0;
-              }, 1200);
-            }
-          } else {
-            selectSeat(defn.name);
-          }
+          selectSeat(defn.name);
         }
 
         try{ seat.releasePointerCapture(pointerId); }catch(err){}
