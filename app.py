@@ -7,9 +7,13 @@ import base64
 import secrets
 import hashlib
 import hmac
+import struct
+import time
 import threading
 import shutil
 import tempfile
+import gzip
+import io
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -1520,6 +1524,38 @@ def _add_security_headers(response):
     response.headers["Content-Security-Policy"] = csp
     return response
 
+
+@app.after_request
+def _compress_response(response):
+    """Gzip compress responses >1KB for text/html, application/json, text/javascript, text/css."""
+    if response.direct_passthrough:
+        return response
+    if response.status_code < 200 or response.status_code >= 300:
+        return response
+    if "Content-Encoding" in response.headers:
+        return response
+    accept_encoding = request.headers.get("Accept-Encoding", "")
+    if "gzip" not in accept_encoding:
+        return response
+    ctype = response.content_type or ""
+    compressible = any(t in ctype for t in ("text/html", "application/json", "text/javascript", "text/css", "text/plain", "application/javascript"))
+    if not compressible:
+        return response
+    data = response.get_data()
+    if len(data) < 1024:
+        return response
+    buf = io.BytesIO()
+    with gzip.GzipFile(mode="wb", fileobj=buf, compresslevel=6) as gz:
+        gz.write(data)
+    compressed = buf.getvalue()
+    if len(compressed) >= len(data):
+        return response
+    response.set_data(compressed)
+    response.headers["Content-Encoding"] = "gzip"
+    response.headers["Content-Length"] = len(compressed)
+    response.headers.add("Vary", "Accept-Encoding")
+    return response
+
 @app.errorhandler(404)
 def _error_404(e):
     page = (
@@ -1552,6 +1588,60 @@ def _error_500(e):
 # =========================
 # All state-changing requests (POST/PUT/PATCH/DELETE) from authenticated sessions
 # must include a valid CSRF token via the X-CSRF-Token header.
+
+# =========================
+# TOTP TWO-FACTOR AUTHENTICATION (RFC 6238, no extra deps)
+# =========================
+# Users can enable 2FA in Settings. A secret is generated and shown as a QR URI.
+# On login, if 2FA is enabled the session is marked pending_2fa until the code is verified.
+
+def _totp_generate_secret() -> str:
+    """Generate a random 20-byte base32 secret for TOTP."""
+    return base64.b32encode(os.urandom(20)).decode("utf-8")
+
+def _totp_hotp(key_b32: str, counter: int) -> int:
+    """HMAC-based OTP (RFC 4226)."""
+    try:
+        key = base64.b32decode(key_b32.upper() + "=" * (-len(key_b32) % 8))
+        msg = struct.pack(">Q", counter)
+        h = hmac.new(key, msg, hashlib.sha1).digest()
+        offset = h[-1] & 0x0F
+        code = struct.unpack(">I", h[offset:offset + 4])[0] & 0x7FFFFFFF
+        return code % 1_000_000
+    except Exception:
+        return -1
+
+def _totp_code(secret: str, ts: int = 0) -> str:
+    """Current TOTP code (30-second window). ts=0 means now."""
+    t = int(time.time() // 30) + ts
+    return f"{_totp_hotp(secret, t):06d}"
+
+def _totp_verify(secret: str, code: str) -> bool:
+    """Verify a 6-digit TOTP code. Accepts ±1 window for clock drift."""
+    if not secret or not code:
+        return False
+    code = code.strip().replace(" ", "")
+    if len(code) != 6 or not code.isdigit():
+        return False
+    for offset in (-1, 0, 1):
+        if _totp_code(secret, offset) == code:
+            return True
+    return False
+
+def _totp_uri(secret: str, username: str) -> str:
+    """otpauth:// URI for QR code generation."""
+    label = quote_plus(f"{APP_TITLE}:{username}")
+    issuer = quote_plus(APP_TITLE)
+    return f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
+
+def _user_has_2fa(u: dict) -> bool:
+    totp = u.get("totp") or {}
+    return bool(totp.get("enabled")) and bool(_decrypt_field(totp.get("secret", "") or ""))
+
+def _get_2fa_pending_user() -> str:
+    """Return username if session is mid-2FA verification."""
+    return session.get("_2fa_pending_user", "")
+
 # The token is issued per-session via GET /api/csrf_token.
 # Stripe webhooks are explicitly exempt — they use HMAC signature verification instead.
 
@@ -5997,6 +6087,7 @@ def api_convene():
     try:
         return _api_convene_impl(data)
     except Exception as e:
+        _capture_error(e, context="api_convene")
         try:
             append_log("convene_crash", {"error": str(e)})
         except Exception:
@@ -6161,6 +6252,7 @@ def api_followup():
     try:
         return _api_followup_impl(data)
     except Exception as e:
+        _capture_error(e, context="api_followup")
         try:
             append_log("followup_crash", {"error": str(e)})
         except Exception:
@@ -9052,307 +9144,6 @@ def privacy_page():
     return html
 
 
-    stripe_on      = _stripe_ready()
-    founder_remain = _founder_seats_remaining()
-    founder_sold   = founder_remain <= 0
-    founder_timer  = _founder_weekly_timer()
-    sold_out_param = request.args.get("founder_sold_out", "")
-    fp             = PLANS.get("founder", {})
-
-    founder_features_html = "".join(
-        f"<li><span class='pfc'>&#10003;</span>{f}</li>"
-        for f in fp.get("features", [])
-    )
-    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
-    sold_out_msg  = "<div class='f-soldout'>All 100 founder seats have been claimed.</div>" if founder_sold else ""
-    founder_btn   = (
-        "<button class='f-btn-out' disabled>Sold Out</button>" if founder_sold else
-        f"""<button class='f-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
-              <span class='btn-spinner' id='spin-founder' style='display:none'>
-                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
-              </span>
-              Claim My Founder Spot
-            </button>"""
-    )
-
-    cards_html = ""
-    for key, p in PLANS.items():
-        if key == "founder":
-            continue
-        badge         = p.get("badge")
-        is_growth     = key == "growth"
-        badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        rec_cls       = " plan-card-featured" if is_growth else ""
-        team_seats    = p.get("team_seats", 1)
-        features_html = "".join(
-            f"<li><span class='pfc'>&#10003;</span>{f}</li>"
-            for f in p.get("features", [])
-        )
-        trial_html    = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
-        cta_label     = f"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
-        cards_html   += f"""
-        <div class='plan-card{rec_cls}'>
-          {badge_html}
-          <div class='plan-name'>{p['name']}</div>
-          <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
-          <div class='plan-tagline'>{p['tagline']}</div>
-          <ul class='plan-features'>{features_html}</ul>
-          <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
-            <span class='btn-spinner' id='spin-{key}' style='display:none'>
-              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
-            </span>
-            {cta_label}
-          </button>
-          {trial_html}
-        </div>"""
-
-    page = f"""<!doctype html>
-<html><head>
-<meta charset='utf-8'/>
-<meta name='viewport' content='width=device-width,initial-scale=1'/>
-<title>Pricing - {APP_TITLE}</title>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0;}}
-body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(247,211,106,.13),transparent 56%),radial-gradient(1200px 900px at 50% 38%,rgba(124,58,237,.22),transparent 58%),linear-gradient(180deg,#090d19 0%,#0a1022 38%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 80px;}}
-.pg-header{{text-align:center;margin-bottom:48px;}}
-.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:12px;}}
-.pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
-.brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
-.dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
-
-/* ══ FOUNDER CARD ══════════════════════════════════ */
-.f-wrap{{max-width:720px;margin:0 auto 48px;}}
-.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
-.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
-
-/* ── Ribbon pulse animation ── */
-.f-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
-@keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0),0 0 12px rgba(251,191,36,.35);}}50%{{box-shadow:0 0 0 7px rgba(251,191,36,.12),0 0 36px rgba(251,191,36,.75);}}}}
-
-.f-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
-.f-left{{flex:1;min-width:200px;}}
-.f-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
-.f-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
-
-/* ── Price breathe ── */
-.f-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
-.f-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
-.f-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
-.f-price .num{{display:inline-block;animation:priceBreathe 3s ease-in-out infinite;}}
-@keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 28px rgba(251,191,36,.6),0 0 56px rgba(251,191,36,.25);}}}}
-
-/* ── Lock badge pulse ── */
-.f-locked{{font-size:12px;color:#fbbf24;margin-top:5px;animation:lockPulse 2.8s ease-in-out infinite;}}
-@keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
-
-.f-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
-.f-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
-.seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
-.seats-num{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
-.seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
-.seats-bar{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
-
-/* ── Bar shimmer ── */
-.seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);position:relative;overflow:hidden;}}
-.seats-bar-fill::after{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:barShimmer 2.8s ease-in-out infinite;}}
-@keyframes barShimmer{{0%{{left:-80%;}}65%,100%{{left:160%;}}}}
-
-.cd-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
-.cd-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
-.cd-row{{display:flex;gap:10px;align-items:center;}}
-.cd-unit{{text-align:center;}}
-.cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
-.cd-sub{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
-.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:10px;}}
-
-/* ── Digit flip ── */
-.cd-flip{{animation:digitFlip .35s ease-out;}}
-@keyframes digitFlip{{0%{{transform:scaleY(0);opacity:0;}}55%{{transform:scaleY(1.08);}}100%{{transform:scaleY(1);opacity:1;}}}}
-
-.f-feats{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
-.f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
-.f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
-.pfc{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
-
-/* ── CTA + button shimmer ── */
-.f-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
-.f-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;}}
-.f-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);animation:btnShimmer 2.4s ease-in-out infinite;}}
-@keyframes btnShimmer{{0%{{left:-80%;}}55%,100%{{left:150%;}}}}
-.f-btn:hover{{opacity:.88;transform:translateY(-2px);}}
-.f-btn:active{{transform:translateY(0);}}
-.f-btn-out{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
-.f-note{{font-size:12px;color:#78716c;line-height:1.5;}}
-.f-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
-
-/* ── Floating particles ── */
-.f-particles{{position:absolute;inset:0;pointer-events:none;overflow:hidden;}}
-.f-particle{{position:absolute;border-radius:50%;background:rgba(251,191,36,.55);animation:floatUp linear infinite;}}
-@keyframes floatUp{{0%{{transform:translateY(0) scale(1);opacity:.55;}}100%{{transform:translateY(-140px) scale(0);opacity:0;}}}}
-
-/* ══ DIVIDER ══ */
-.divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
-.divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
-.divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
-
-/* ══ STANDARD PLAN CARDS ══ */
-.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
-.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
-.plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
-.plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
-.plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
-.plan-name{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
-.plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
-.plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
-.plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
-.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:16px;}}
-.plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:26px;flex:1;}}
-.plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
-.plan-features .pfc{{color:#a78bfa;}}
-.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;position:relative;overflow:hidden;}}
-.plan-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);animation:btnShimmer 3s ease-in-out infinite;animation-delay:.6s;}}
-.plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
-.trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
-.api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
-.api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
-.api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
-.api-note-text strong{{color:#c4b5fd;}}
-.pg-footer{{text-align:center;margin-top:32px;color:#475569;font-size:13px;}}
-.pg-footer a{{color:#7c3aed;text-decoration:none;}}
-.already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
-.already a{{color:#a78bfa;text-decoration:none;}}
-.already a:hover{{text-decoration:underline;}}
-@media(max-width:600px){{
-  .f-top{{flex-direction:column;gap:16px;}}
-  .f-price{{font-size:42px;}}
-  .f-cta{{flex-direction:column;align-items:stretch;}}
-  .f-btn,.f-btn-out{{width:100%;text-align:center;}}
-  .cd-row{{gap:6px;}}
-  .cd-num{{font-size:18px;min-width:26px;}}
-  .f-feat-grid{{grid-template-columns:1fr;}}
-}}
-</style>
-</head><body>
-<div class='brand'><div class='dot'></div>{APP_TITLE}</div>
-<div class='pg-header'>
-  <h1>Every feature. Every AI teammate.</h1>
-  <p>You get the full platform on every plan. You scale, we scale with you.</p>
-  {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
-</div>
-
-<div class='f-wrap'>
-  <div class='f-card'>
-    <div class='f-particles' id='particles'></div>
-    <div class='f-ribbon'>LIMITED</div>
-    <div class='f-top'>
-      <div class='f-left'>
-        <div class='f-badge'>🔥 Founder Access</div>
-        <div class='f-name'>{fp.get("name","Founder Access")}</div>
-        <div class='f-price'><span class='dol'>$</span><span class='num'>27</span><span class='per'>/mo</span></div>
-        <div class='f-locked'>🔒 Price locked in forever — never increases</div>
-        <div class='f-tagline'>{fp.get("tagline","")}</div>
-      </div>
-      <div class='f-right'>
-        <div>
-          <div class='seats-lbl'>Founder seats remaining</div>
-          <div class='seats-num' id='seatsRemain'>{founder_remain}</div>
-          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
-          <div class='seats-bar'>
-            <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
-          </div>
-        </div>
-        <div class='cd-wrap'>
-          <div class='cd-lbl'>Time remaining at this price</div>
-          <div class='cd-row'>
-            <div class='cd-unit'><div class='cd-num' id='cdD'>{founder_timer["days"]:02d}</div><div class='cd-sub'>days</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdH'>{founder_timer["hours"]:02d}</div><div class='cd-sub'>hrs</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdM'>{founder_timer["minutes"]:02d}</div><div class='cd-sub'>min</div></div>
-            <div class='cd-sep'>:</div>
-            <div class='cd-unit'><div class='cd-num' id='cdS'>{founder_timer["seconds"]:02d}</div><div class='cd-sub'>sec</div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class='f-feats'>
-      <ul class='f-feat-grid'>{founder_features_html}</ul>
-    </div>
-    <div class='f-cta'>
-      {founder_btn}
-      <div class='f-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
-    </div>
-    {sold_out_msg}
-    {"<div class='f-soldout'>This founder price is sold out — choose a standard plan below.</div>" if sold_out_param else ""}
-  </div>
-</div>
-
-<div class='divider'><hr/><span>Or choose a standard plan</span><hr/></div>
-<div class='plans'>{cards_html}</div>
-
-<div class='api-note'>
-  <div class='api-note-icon'>🔑</div>
-  <div class='api-note-text'>
-    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
-  </div>
-</div>
-<div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
-<div class='pg-footer' style='margin-top:24px;'>
-  {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
-</div>
-
-<script>
-(function(){{
-  var pc = document.getElementById('particles');
-  if(pc){{
-    for(var i=0;i<14;i++){{
-      var p=document.createElement('div');
-      p.className='f-particle';
-      var sz=Math.random()*4+2;
-      p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+(Math.random()*25)+'%;animation-duration:'+(Math.random()*4+3)+'s;animation-delay:'+Math.random()*5+'s';
-      pc.appendChild(p);
-    }}
-  }}
-
-  var secs={founder_timer["total_seconds"]};
-  function pad(n){{return String(n).padStart(2,'0');}}
-  function flip(id,val){{
-    var el=document.getElementById(id);if(!el)return;
-    var v=pad(val);
-    if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
-  }}
-  setInterval(function(){{
-    if(secs<=0) return;  // freeze at zero — no page reload
-    secs--;
-    flip('cdD',Math.floor(secs/86400));
-    flip('cdH',Math.floor((secs%86400)/3600));
-    flip('cdM',Math.floor((secs%3600)/60));
-    flip('cdS',secs%60);
-  }},1000);
-
-  setInterval(function(){{
-    fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
-      var r=document.getElementById('seatsRemain'),b=document.getElementById('seatsBar'),btn=document.getElementById('planBtn-founder');
-      if(r)r.textContent=d.remaining;
-      if(b)b.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
-      if(d.sold_out&&btn){{btn.disabled=true;btn.textContent='Sold Out';btn.className='f-btn-out';}}
-    }}).catch(function(){{}});
-  }},30000);
-}})();
-
-function startCheckout(plan){{
-  var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
-  if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
-  var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
-  var inp=document.createElement('input');inp.type='hidden';inp.name='plan';inp.value=plan;
-  form.appendChild(inp);document.body.appendChild(form);form.submit();
-}}
-</script>
-</body></html>"""
-    resp = make_response(page)
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
 
 @app.get("/setup")
 def setup():
@@ -9416,13 +9207,148 @@ def login_post():
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
+
+    # If 2FA is enabled, start a pending 2FA session instead of fully logging in
+    if _user_has_2fa(u):
+        session.pop("user", None)
+        session["_2fa_pending_user"] = username
+        session["_2fa_remember"] = bool(remember)
+        session["_2fa_next"] = (request.args.get("next") or request.form.get("next") or "").strip()
+        return redirect(url_for("verify_2fa"))
+
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
         app.permanent_session_lifetime = timedelta(days=30)
 
+    # Safe same-origin ?next= redirect (prevents open redirect attacks)
+    next_url = (request.args.get("next") or request.form.get("next") or "").strip()
+    if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
     return redirect(url_for("index"))
 
+
+
+
+# =========================
+# TWO-FACTOR AUTHENTICATION ROUTES
+# =========================
+
+_2FA_HTML = """<!doctype html>
+<html><head><meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Two-Factor Authentication — {app_title}</title>
+<style>
+body{{font-family:system-ui,sans-serif;background:#0a0f1e;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}}
+.box{{background:#0f172a;border:1px solid rgba(124,58,237,.35);border-radius:16px;padding:36px 40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.5);}}
+h2{{font-size:20px;font-weight:600;color:#c4b5fd;margin:0 0 6px;}}
+p{{font-size:13px;color:#64748b;margin:0 0 20px;}}
+input{{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:10px 14px;font-size:18px;letter-spacing:4px;text-align:center;outline:none;box-sizing:border-box;}}
+input:focus{{border-color:#7c3aed;}}
+button{{width:100%;padding:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px;}}
+.err{{color:#f87171;font-size:13px;margin-top:10px;text-align:center;}}
+.back{{text-align:center;margin-top:16px;font-size:13px;}}
+.back a{{color:#7c3aed;text-decoration:none;}}
+</style></head>
+<body><div class='box'>
+<h2>🔐 Two-Factor Auth</h2>
+<p>Enter the 6-digit code from your authenticator app.</p>
+<form method='POST'>
+  <input name='code' type='text' inputmode='numeric' pattern='[0-9]*' maxlength='6' autocomplete='one-time-code' autofocus placeholder='000000'/>
+  <button type='submit'>Verify</button>
+  {error}
+</form>
+<div class='back'><a href='/logout'>Cancel and sign out</a></div>
+</div></body></html>"""
+
+@app.get("/verify-2fa")
+def verify_2fa():
+    if not _get_2fa_pending_user():
+        return redirect(url_for("login"))
+    return _2FA_HTML.format(app_title=APP_TITLE, error="")
+
+@app.post("/verify-2fa")
+def verify_2fa_post():
+    pending = _get_2fa_pending_user()
+    if not pending:
+        return redirect(url_for("login"))
+    code = (request.form.get("code") or "").strip()
+    data = load_users()
+    u = (data.get("users") or {}).get(pending)
+    raw_secret = _decrypt_field((u.get("totp") or {}).get("secret", ""))
+    if not u or not _totp_verify(raw_secret, code):
+        return _2FA_HTML.format(app_title=APP_TITLE, error="<div class='err'>Invalid code. Please try again.</div>")
+    # 2FA passed — complete login
+    remember = session.pop("_2fa_remember", False)
+    next_url = session.pop("_2fa_next", "")
+    session.pop("_2fa_pending_user", None)
+    session["user"] = pending
+    session.permanent = bool(remember)
+    if remember:
+        app.permanent_session_lifetime = timedelta(days=30)
+    if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
+    return redirect(url_for("index"))
+
+@app.get("/api/user/2fa/status")
+def api_2fa_status():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "enabled": _user_has_2fa(u)})
+
+@app.post("/api/user/2fa/setup")
+def api_2fa_setup():
+    """Generate a new TOTP secret. Returns secret + otpauth URI. Not yet enabled until /confirm."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    secret = _totp_generate_secret()
+    uri = _totp_uri(secret, uname)
+    # Store provisionally — not enabled yet
+    session["_2fa_setup_secret"] = secret
+    return jsonify({"ok": True, "secret": secret, "uri": uri})
+
+@app.post("/api/user/2fa/confirm")
+def api_2fa_confirm():
+    """Verify user scanned QR correctly, then enable 2FA."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    code = (request.get_json(silent=True) or {}).get("code", "").strip()
+    secret = session.get("_2fa_setup_secret", "")
+    if not secret:
+        return jsonify({"ok": False, "error": "No setup in progress. Call /api/user/2fa/setup first."}), 400
+    if not _totp_verify(secret, code):
+        return jsonify({"ok": False, "error": "Invalid code — please try again."}), 400
+    data = load_users()
+    users = data.get("users") or {}
+    if uname not in users:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    users[uname]["totp"] = {"enabled": True, "secret": _encrypt_field(secret), "enabled_at": now_iso()}
+    users[uname]["updated_at"] = now_iso()
+    data["users"] = users
+    save_users(data)
+    session.pop("_2fa_setup_secret", None)
+    return jsonify({"ok": True, "message": "Two-factor authentication enabled."})
+
+@app.post("/api/user/2fa/disable")
+def api_2fa_disable():
+    """Disable 2FA (requires current password confirmation)."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    body = request.get_json(silent=True) or {}
+    pw = (body.get("password") or "").strip()
+    if not pw or not check_password_hash(u.get("password_hash", ""), pw):
+        return jsonify({"ok": False, "error": "Incorrect password"}), 403
+    data = load_users()
+    users = data.get("users") or {}
+    if uname in users:
+        users[uname]["totp"] = {"enabled": False, "secret": "", "disabled_at": now_iso()}
+        users[uname]["updated_at"] = now_iso()
+        data["users"] = users
+        save_users(data)
+    return jsonify({"ok": True, "message": "Two-factor authentication disabled."})
 
 
 # ===== NEW: Account registration (additive) =====
@@ -10097,6 +10023,11 @@ def reset():
 
 @app.post("/reset")
 def reset_post():
+    # Rate-limit password reset requests: 5 per hour per IP to prevent token spam
+    _ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    _rl_ok, _rl_msg = _rate_limit_check(f"reset:{_ip}", 5)
+    if not _rl_ok:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Too many reset attempts. Please wait before trying again.", token=None, ok=None)
     username = _clean_username(request.form.get("username", ""))
     data = load_users()
     u = (data.get("users") or {}).get(username)
@@ -12165,7 +12096,7 @@ label         { font-size: 14px !important; }
         <div>{{app_title}}</div>
       </div>
       <div class="rightmeta">
-        <div id="modelTag">Model: {{model}}</div>
+        <div class="modelTagLegacy">Model: {{model}}</div>
       </div>
     </div>
     <!-- ===== REDESIGNED NAV BAR ===== -->
@@ -28108,7 +28039,20 @@ def api_crm_clients_list():
         except Exception:
             return ""
     clients.sort(key=_ts, reverse=True)
-    return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}})
+    # Pagination support: ?page=0&page_size=100 (default: all for backward compat, max 500/page)
+    try:
+        page = int(request.args.get("page", -1))
+        page_size = min(int(request.args.get("page_size", 100)), 500)
+    except (ValueError, TypeError):
+        page, page_size = -1, 100
+    total = len(clients)
+    if page >= 0:
+        start = page * page_size
+        clients = clients[start:start + page_size]
+        return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {},
+                        "total": total, "page": page, "page_size": page_size,
+                        "has_more": (start + page_size) < total})
+    return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}, "total": total})
 
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
