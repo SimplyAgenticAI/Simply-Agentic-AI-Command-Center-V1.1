@@ -11578,6 +11578,24 @@ HTML = r"""
 }
 .mobileDrawerFoot .btn{ flex: 1 1 auto; }
 
+/* ── Accordion nav groups ── */
+.mdAccordion{ padding:10px 10px 4px; display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow-y:auto; }
+.mdGroup{ border:1px solid rgba(42,58,106,.6); border-radius:12px; overflow:hidden; }
+.mdGroupHead{
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; background:rgba(255,255,255,.04); border:none; color:#c4b5fd;
+  font-size:13px; font-weight:700; cursor:pointer; text-align:left;
+  transition:background .15s;
+}
+.mdGroupHead:hover{ background:rgba(124,58,237,.15); }
+.mdGroupHead.open{ background:rgba(124,58,237,.12); border-bottom:1px solid rgba(42,58,106,.5); }
+.mdChevron{ font-size:11px; transition:transform .2s; color:#7c3aed; }
+.mdGroupHead.open .mdChevron{ transform:rotate(180deg); }
+.mdGroupBody{ display:none; padding:8px; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.mdGroupBody.open{ display:grid; }
+.mdGroupBody:not(.open){ display:none; }
+.mdGroupBody .btn{ width:100%; justify-content:center; font-size:12px; padding:8px 6px; }
+
 @media (max-width: 720px){
   /* keep top brand, move actions to bottom bar + drawer */
   .rightmeta{ display:none !important; }
@@ -12232,34 +12250,79 @@ label         { font-size: 14px !important; }
         </div>
         <button class="btn btnMini" id="mobileCloseMenuBtn">Close</button>
       </div>
-      <div class="mobileDrawerGrid">
-        <button class="btn" data-click="frameworkBtn">Core framework</button>
-        <button class="btn" data-click="promptLibraryBtn">📚 Prompt Library</button>
-        <button class="btn" data-click="manageTeamBtn">Add or dismiss</button>
-        <button class="btn" data-click="createTeamBtn">Create teammate</button>
-        <button class="btn" data-click="installFullBtn">Install full team</button>
-        <button class="btn" data-click="settingsBtn">Settings</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showCustomizeModal,200);">&#127912; Customize</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showNotepadModal,200);">&#128221; Notepad</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showSiteAnalyzerModal,200);">&#127760; Site Analyzer</button>
-        <button class="btn" id="teamNavBtn" onclick="if(typeof showTeamModal==='function'){document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(showTeamModal,200);}">👥 My Team</button>
-        <button class="btn" data-click="calendarBtn">Calendar</button>
-        <button class="btn" data-click="crmBtn">CRM</button>
-        <button class="btn" data-click="growthPlaybookBtn">Growth Playbook</button>
-        <button class="btn" data-click="leadLabBtn">Lead Lab</button>
-        <button class="btn" data-click="socialStudioBtn">Social Studio</button>
-        <button class="btn" data-click="offerBuilderBtn">Offer Builder</button>
-        <button class="btn" data-click="imageLibBtn">Image Library</button>
-        <button class="btn" data-click="emailConsoleBtn">Email Console</button>
-        <button class="btn" id="mobileOnboardingBtn">Next step</button>
-        <button class="btn" data-click="openApiKeyHelpBtn">Get OpenAI key</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openScoutPanel,200);">🧭 Compass Help</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
-        <button class="btn" onclick="document.getElementById('mobileDrawerOverlay').classList.remove('show');setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
-        <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="text-align:center;">Logout</button>
+      <div class="mdAccordion">
+
+        <!-- ✍️ Create -->
+        <div class="mdGroup">
+          <button class="mdGroupHead" onclick="mdToggle(this)">
+            <span>✍️ Create</span><span class="mdChevron">▾</span>
+          </button>
+          <div class="mdGroupBody">
+            <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
+            <button class="btn" data-click="socialStudioBtn" onclick="closeMobileDrawer()">📣 Social Studio</button>
+            <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
+            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
+            <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
+          </div>
+        </div>
+
+        <!-- 🔍 Research -->
+        <div class="mdGroup">
+          <button class="mdGroupHead" onclick="mdToggle(this)">
+            <span>🔍 Research</span><span class="mdChevron">▾</span>
+          </button>
+          <div class="mdGroupBody">
+            <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🧪 Lead Lab</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showSiteAnalyzerModal,200);">🌐 Site Analyzer</button>
+            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
+          </div>
+        </div>
+
+        <!-- 📊 Manage -->
+        <div class="mdGroup">
+          <button class="mdGroupHead" onclick="mdToggle(this)">
+            <span>📊 Manage</span><span class="mdChevron">▾</span>
+          </button>
+          <div class="mdGroupBody">
+            <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👤 CRM</button>
+            <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
+            <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
+          </div>
+        </div>
+
+        <!-- 🤖 Teammates -->
+        <div class="mdGroup">
+          <button class="mdGroupHead" onclick="mdToggle(this)">
+            <span>🤖 Teammates</span><span class="mdChevron">▾</span>
+          </button>
+          <div class="mdGroupBody">
+            <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
+            <button class="btn" data-click="createTeamBtn" onclick="closeMobileDrawer()">🛠 Create Teammate</button>
+            <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showCustomizeModal,200);">🎨 Customize</button>
+            <button class="btn" id="teamNavBtn" onclick="closeMobileDrawer();setTimeout(showTeamModal,200);">👥 My Team</button>
+          </div>
+        </div>
+
+        <!-- ⚙️ Settings & Help -->
+        <div class="mdGroup">
+          <button class="mdGroupHead" onclick="mdToggle(this)">
+            <span>⚙️ Settings &amp; Help</span><span class="mdChevron">▾</span>
+          </button>
+          <div class="mdGroupBody">
+            <button class="btn" data-click="settingsBtn" onclick="closeMobileDrawer()">⚙️ Settings</button>
+            <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 Get OpenAI Key</button>
+            <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Compass Help</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
+            <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="color:#94a3b8;">🚪 Logout</button>
+          </div>
+        </div>
+
       </div>
       <div class="mobileDrawerFoot">
-
         <button class="btn btnPrimary" id="mobileCloseMenuBtn2">Done</button>
       </div>
     </div>
@@ -23553,6 +23616,16 @@ function initMobileUIv2(){
   if(openBtn) openBtn.onclick = () => { if(isMobile()) openMenu(); };
   if(closeBtn) closeBtn.onclick = () => closeMenu();
   if(closeBtn2) closeBtn2.onclick = () => closeMenu();
+
+  // Accordion helpers for grouped mobile nav
+  window.closeMobileDrawer = function(){ closeMenu(); };
+  window.mdToggle = function(head){
+    var body = head.nextElementSibling;
+    var isOpen = body.classList.contains('open');
+    document.querySelectorAll('.mdGroupBody').forEach(function(b){ b.classList.remove('open'); });
+    document.querySelectorAll('.mdGroupHead').forEach(function(h){ h.classList.remove('open'); });
+    if(!isOpen){ body.classList.add('open'); head.classList.add('open'); }
+  };
 
   // Bottom bar shortcuts
   const mAssemble = $("mobileAssembleBtn");
