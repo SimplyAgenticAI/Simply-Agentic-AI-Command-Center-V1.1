@@ -1505,7 +1505,7 @@ def _add_security_headers(response):
     response.headers["X-Frame-Options"]        = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"]     = "geolocation=(), camera=(), microphone=(self)"
+    response.headers["Permissions-Policy"]     = "geolocation=(), camera=(self), microphone=(self)"
     if PUBLIC_BASE_URL.startswith("https://"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Content Security Policy — tightened for production
@@ -9256,6 +9256,20 @@ body.mirrored #scriptBox{transform:scaleX(-1);}
   </div>
 </div>
 
+<!-- Permission guide (shown in-page instead of alert) -->
+<div id="camGuide" style="display:none;position:absolute;inset:0;background:rgba(6,12,24,.96);z-index:45;align-items:center;justify-content:center;flex-direction:column;gap:0;padding:24px;">
+  <div style="max-width:400px;width:100%;background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:16px;">
+    <div style="font-size:36px;text-align:center;">📷</div>
+    <div style="font-size:18px;font-weight:700;color:#c4b5fd;text-align:center;" id="camGuideTitle">Allow camera access</div>
+    <div style="font-size:14px;color:#94a3b8;line-height:1.7;text-align:center;" id="camGuideMsg">Click Allow when Chrome asks — the prompt appears at the top-left of your screen.</div>
+    <div id="camGuideSteps" style="display:none;background:rgba(255,255,255,.04);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <button class="tb on" id="camGuideBtn" onclick="camPermissionRetry()">Try again</button>
+      <button class="tb" onclick="hideCamGuide()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="cdOv">
   <div id="cdN" class="pop">3</div>
   <div id="cdL">Get ready…</div>
@@ -9303,11 +9317,12 @@ function init(){
   if(s){spd=+s;Q('#spdR').value=s;Q('#spdV').textContent=s;}
   if(f){fsz=+f;Q('#fszR').value=f;Q('#fszV').textContent=f;applyFsz();}
   posLine();
-  // Restore camera if it was on last session — silently skip if permission not yet granted
+  // Restore camera — only if permission already granted (don't prompt on page load)
   if(localStorage.getItem('tp_cam')==='1'){
-    navigator.mediaDevices.getUserMedia({video:true,audio:false})
-      .then(function(s){s.getTracks().forEach(function(t){t.stop();});toggleCam();})
-      .catch(function(){localStorage.removeItem('tp_cam');});
+    checkCamPermission().then(function(state){
+      if(state==='granted') startCam(selCamId);
+      else localStorage.removeItem('tp_cam');
+    });
   }
 }
 
@@ -9368,21 +9383,81 @@ function applyFsz(){Q('#scriptBox').style.fontSize=fsz+'px';}
 /* ── Camera ── */
 async function toggleCam(){camOn?stopCam():await startCam(selCamId);}
 
+/* Check permission state before asking — avoids jarring errors */
+async function checkCamPermission(){
+  try{
+    if(navigator.permissions){
+      var r=await navigator.permissions.query({name:'camera'});
+      return r.state; // 'granted','prompt','denied'
+    }
+  }catch(e){}
+  return 'prompt'; // assume promptable if API unavailable
+}
+
+function showCamGuide(state, errName){
+  var guide=Q('#camGuide'), title=Q('#camGuideTitle'), msg=Q('#camGuideMsg');
+  var steps=Q('#camGuideSteps'), btn=Q('#camGuideBtn');
+  guide.style.display='flex';
+  if(state==='denied'||errName==='NotAllowedError'||errName==='PermissionDeniedError'){
+    title.textContent='Camera is blocked';
+    msg.textContent='Chrome is blocking camera access for this site. Here's how to fix it in a few seconds:';
+    steps.style.display='flex';
+    steps.innerHTML=[
+      '1. Click the <b>🔒 lock icon</b> in your address bar (top of Chrome)',
+      '2. Find <b>Camera</b> and change it from <b style="color:#f87171">Block</b> to <b style="color:#34d399">Allow</b>',
+      '3. Click <b>Reload</b> — then come back and click 📷 Camera again'
+    ].map(function(s){
+      return '<div style="font-size:13px;color:#94a3b8;line-height:1.6;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);">'+s+'</div>';
+    }).join('');
+    btn.textContent='Open camera settings';
+    btn.onclick=function(){
+      window.open('chrome://settings/content/camera','_blank');
+      hideCamGuide();
+    };
+  } else if(state==='prompt'){
+    title.textContent='Allow camera access';
+    msg.textContent='Chrome will ask permission in a moment. Look for the popup in the top-left of your screen and click Allow.';
+    steps.style.display='none';
+    btn.textContent='Try again';
+    btn.onclick=camPermissionRetry;
+  } else {
+    title.textContent='Camera not found';
+    msg.textContent='No camera was detected. Make sure your USB camera is plugged in and not being used by another app, then try again.';
+    steps.style.display='none';
+    btn.textContent='Try again';
+    btn.onclick=camPermissionRetry;
+  }
+}
+
+function hideCamGuide(){Q('#camGuide').style.display='none';}
+
+async function camPermissionRetry(){
+  hideCamGuide();
+  await startCam(selCamId);
+}
+
 async function startCam(devId){
   try{
     if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
 
-    // Step 1: always request with generic constraints first.
-    // Using {exact: deviceId} before permission is granted throws NotFoundError
-    // or OverconstrainedError in Chrome/Safari. We get permission with a plain
-    // request, then switch to the specific device if one was requested.
-    var stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+    // Check permission state first so we can show helpful UI before any error
+    var permState=await checkCamPermission();
+    if(permState==='denied'){
+      showCamGuide('denied');
+      localStorage.removeItem('tp_cam');
+      return;
+    }
 
-    // Step 2: now that permission is granted, enumerate real device labels
+    // Request with generic constraints first — never use {exact:id} before permission granted
+    // because Chrome throws NotFoundError instead of showing the permission prompt
+    var stream=await navigator.mediaDevices.getUserMedia({
+      video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},
+      audio:false
+    });
+
+    // Permission granted — now switch to preferred device if one was saved
     var devs=await navigator.mediaDevices.enumerateDevices();
     var cams=devs.filter(function(d){return d.kind==='videoinput';});
-
-    // Step 3: if a specific device was requested AND it's not what we just got, switch to it
     var gotId=stream.getVideoTracks()[0].getSettings().deviceId;
     if(devId && devId!==gotId && cams.some(function(c){return c.deviceId===devId;})){
       stream.getTracks().forEach(function(t){t.stop();});
@@ -9402,12 +9477,8 @@ async function startCam(devId){
     await populateCams();
     makeDraggable();
   }catch(e){
-    // Clear stale saved camera preference so next open doesn't loop
     localStorage.removeItem('tp_cam');
-    var msg=e.name==='NotAllowedError'||e.name==='PermissionDeniedError'
-      ?'Camera permission denied. Please allow camera access in your browser settings and try again.'
-      :'Camera error: '+e.message;
-    alert(msg);
+    showCamGuide(null, e.name);
   }
 }
 
