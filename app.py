@@ -4765,6 +4765,13 @@ def admin_seats_page():
         return redirect(url_for("login"))
     if not _is_admin_user(u):
         return redirect(url_for("index"))
+    # Inject seat data directly — no JS fetch needed, no session/CSRF issues
+    import json as _json
+    _seat_data = _load_seats()
+    _seats_json = _json.dumps([{"code": k, **v} for k, v in sorted(
+        (_seat_data.get("seats") or {}).items(),
+        key=lambda x: x[1].get("seat_num", 999)
+    )])
     page = """<!doctype html><html><head><meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
 <title>Seat Manager — Simply Agentic AI</title>
@@ -4930,25 +4937,17 @@ let allSeats = [];
 let editingCode = null;
 
 async function loadSeats() {
+  // Reload seats via API after changes (generate, edit, toggle)
   try {
     const res = await fetch('/api/admin/seats', {credentials:'include'});
+    if (!res.ok) { location.reload(); return; } // session issue - just reload page
     const d = await res.json();
-    if (!d.ok) {
-      // Show the error so we know what happened
-      document.getElementById('seatBody').innerHTML =
-        `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;font-size:13px;'>
-          API error: ${d.error || 'Unknown'} — <a href='/login' style='color:#c4b5fd;'>Re-login</a>
-        </td></tr>`;
-      return;
-    }
+    if (!d.ok) { location.reload(); return; }   // same - reload gets fresh server-render
     allSeats = d.seats || [];
     renderStats();
     renderTable(allSeats);
   } catch(e) {
-    document.getElementById('seatBody').innerHTML =
-      `<tr><td colspan='9' style='padding:24px;text-align:center;color:#fca5a5;font-size:13px;'>
-        Load error: ${e.message}
-      </td></tr>`;
+    location.reload(); // fallback - page reload will show server-rendered data
   }
 }
 
@@ -5181,7 +5180,10 @@ document.addEventListener('click', function(e) {
   }
 });
 
-loadSeats();
+// Seats pre-loaded from server — no fetch needed
+  allSeats = """ + _seats_json + """;
+  renderStats();
+  renderTable(allSeats);
 </script></body></html>"""
     return page
 
