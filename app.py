@@ -4765,74 +4765,147 @@ def admin_seats_page():
         return redirect(url_for("login"))
     if not _is_admin_user(u):
         return redirect(url_for("index"))
-
-    # Load seats and CSRF token server-side
-    import json as _json
-    _seat_data   = _load_seats()
-    _seats_list  = sorted(
-        (_seat_data.get("seats") or {}).items(),
-        key=lambda x: x[1].get("seat_num", 999)
-    )
-    _seats_json  = _json.dumps([{"code": k, **v} for k, v in _seats_list])
-    _csrf        = _csrf_token_for_session()
-
-    html = f"""<!doctype html><html><head>
-<meta charset='utf-8'/>
+    page = """<!doctype html><html><head><meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
-<title>Seat Manager</title>
+<title>Seat Manager — Simply Agentic AI</title>
 <style>
-*{{box-sizing:border-box;margin:0;padding:0;}}
-body{{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;padding:24px;}}
-h1{{color:#c4b5fd;font-size:22px;font-weight:800;margin-bottom:4px;}}
-.sub{{color:#64748b;font-size:13px;margin-bottom:20px;}}
-table{{width:100%;border-collapse:collapse;font-size:13px;}}
-th{{background:#131e3a;padding:10px 12px;text-align:left;color:#94a3b8;font-weight:600;border-bottom:1px solid rgba(42,58,106,.6);}}
-td{{padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.3);vertical-align:middle;}}
-tr:hover td{{background:rgba(255,255,255,.02);}}
-.code{{font-family:monospace;background:rgba(124,58,237,.15);color:#c4b5fd;padding:3px 8px;border-radius:6px;cursor:pointer;font-size:12px;}}
-.badge{{font-size:11px;padding:2px 8px;border-radius:8px;}}
-.btn{{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e2e8f0;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;}}
-.btn:hover{{background:rgba(255,255,255,.14);}}
-.btn-primary{{background:rgba(124,58,237,.35);border-color:rgba(124,58,237,.6);color:#c4b5fd;}}
-.btn-danger{{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.35);color:#fca5a5;}}
-.toolbar{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}}
-input,select,textarea{{background:#131e3a;border:1px solid rgba(42,58,106,.8);color:#e2e8f0;padding:8px 10px;border-radius:8px;font-size:13px;width:100%;}}
-label{{font-size:12px;color:#94a3b8;display:block;margin:10px 0 4px;}}
-.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;}}
-.modal.open{{display:flex;}}
-.modal-box{{background:#131e3a;border:1px solid rgba(42,58,106,.9);border-radius:16px;padding:24px;width:min(480px,95vw);max-height:90vh;overflow-y:auto;}}
-.modal-box h3{{color:#c4b5fd;font-size:16px;margin-bottom:16px;}}
-.actions{{display:flex;gap:8px;margin-top:16px;justify-content:flex-end;}}
-#genResult{{margin-top:10px;font-size:13px;font-family:monospace;white-space:pre;}}
-.stats{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}}
-.stat{{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px 20px;min-width:100px;}}
-.stat b{{display:block;font-size:24px;font-weight:800;color:#c4b5fd;}}
-.stat span{{font-size:11px;color:#64748b;text-transform:uppercase;}}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;padding:24px;min-height:100vh;}
+h1{color:#c4b5fd;font-size:22px;font-weight:800;margin-bottom:4px;}
+.sub{color:#64748b;font-size:13px;margin-bottom:20px;}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+.stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px 20px;min-width:110px;}
+.stat b{display:block;font-size:26px;font-weight:800;color:#c4b5fd;}
+.stat span{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+input[type=text]{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 12px;font-size:13px;outline:none;width:240px;}
+input[type=text]:focus{border-color:#7c3aed;}
+select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+.btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:background .15s;}
+.btn-primary{background:rgba(124,58,237,.5);border:1px solid rgba(124,58,237,.7);color:#f3e8ff;}
+.btn-primary:hover{background:rgba(124,58,237,.75);}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e2e8f0;}
+.btn-sm:hover{background:rgba(255,255,255,.12);}
+.btn-danger{border-color:rgba(239,68,68,.4);color:#fca5a5;}
+.btn-danger:hover{background:rgba(239,68,68,.15);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap;}
+td{padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.code{font-family:monospace;color:#c4b5fd;font-size:13px;letter-spacing:.04em;cursor:pointer;}
+.code:hover{color:#e9d5ff;}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;}
+.badge-avail{background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);}
+.badge-used{background:rgba(251,191,36,.12);color:#fcd34d;border:1px solid rgba(251,191,36,.3);}
+.badge-inactive{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.badge-stripe{background:rgba(99,91,255,.15);color:#a5b4fc;border:1px solid rgba(99,91,255,.3);}
+.badge-manual{background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);}
+.name-cell{color:#e2e8f0;font-weight:500;}
+.email-cell{color:#94a3b8;font-size:12px;}
+.empty-cell{color:#475569;font-style:italic;font-size:12px;}
+
+/* Edit popover */
+#editPop{display:none;position:fixed;z-index:999;background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:14px;padding:18px 20px;width:340px;box-shadow:0 16px 48px rgba(0,0,0,.7);}
+#editPop h3{font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:14px;}
+#editPop label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#editPop input,#editPop textarea,#editPop select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:7px 10px;font-size:13px;outline:none;}
+#editPop input:focus,#editPop textarea:focus{border-color:#7c3aed;}
+#editPop .actions{display:flex;gap:8px;margin-top:14px;}
+#editPop .status-msg{font-size:12px;color:#6ee7b7;margin-top:8px;min-height:14px;}
+
+/* Generate modal */
+#genModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:998;align-items:center;justify-content:center;}
+#genModal.open{display:flex;}
+#genBox{background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:16px;padding:24px;width:min(400px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.7);}
+#genBox h3{font-size:16px;font-weight:800;color:#c4b5fd;margin-bottom:16px;}
+#genBox label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#genBox input,#genBox select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+#genBox input:focus{border-color:#7c3aed;}
+#genBox .actions{display:flex;gap:8px;margin-top:16px;}
+#genResult{margin-top:12px;font-family:monospace;font-size:13px;color:#6ee7b7;word-break:break-all;}
 </style></head><body>
 <a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
-<h1 style='margin-top:12px;'>🔑 Seat Manager</h1>
-<div class='sub'>Manage user access codes</div>
+<h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
+<div style='margin-bottom:16px;display:flex;gap:16px;'>
+  <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users & Impersonation</a>
+</div>
+<div class='sub'>Manage access codes for Simply Agentic AI. Stripe purchases appear automatically.</div>
 
 <div class='stats' id='statsBar'></div>
 
 <div class='toolbar'>
-  <input type='text' id='searchBox' placeholder='Search codes, names, emails…' style='max-width:260px;' oninput='applyFilters()'/>
+  <input type='text' id='searchBox' placeholder='Search name, email, code…' oninput='filterTable()'/>
+  <select id='filterStatus' onchange='filterTable()'>
+    <option value=''>All statuses</option>
+    <option value='active'>Available</option>
+    <option value='used'>Used</option>
+    <option value='inactive'>Inactive</option>
+  </select>
+  <select id='filterSource' onchange='filterTable()'>
+    <option value=''>All sources</option>
+    <option value='stripe'>Stripe</option>
+    <option value='manual'>Manual</option>
+  </select>
+  <select id='filterPlan' onchange='filterTable()'>
+    <option value=''>All plans</option>
+    <option value='starter'>Starter</option>
+    <option value='growth'>Growth</option>
+    <option value='pro'>Pro</option>
+  </select>
   <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
 </div>
 
-<table><thead><tr>
-  <th>Code</th><th>Name</th><th>Email</th><th>Plan</th><th>Status</th><th>Claimed by</th><th>Created</th><th>Actions</th>
-</tr></thead><tbody id='seatBody'></tbody></table>
+<table id='seatTable'>
+<thead><tr>
+  <th>Code</th>
+  <th>Name</th>
+  <th>Email</th>
+  <th>Plan</th>
+  <th>Source</th>
+  <th>Status</th>
+  <th>Claimed by</th>
+  <th>Created</th>
+  <th>Actions</th>
+</tr></thead>
+<tbody id='seatBody'></tbody>
+</table>
 
-<!-- Generate Modal -->
-<div class='modal' id='genModal'>
-  <div class='modal-box'>
+<!-- Edit popover -->
+<div id='editPop'>
+  <h3>✏️ Edit Seat</h3>
+  <label>Holder name</label>
+  <input id='editName' type='text' placeholder='e.g. Jane Smith'/>
+  <label>Holder email</label>
+  <input id='editEmail' type='email' placeholder='jane@example.com'/>
+  <label>Plan</label>
+  <select id='editPlan'>
+    <option value='starter'>Starter Operator — $47/mo</option>
+    <option value='growth'>Growth System — $97/mo</option>
+    <option value='pro'>Operator Pro — $197/mo</option>
+  </select>
+  <label>Notes</label>
+  <textarea id='editNotes' rows='2' placeholder='Any notes…'></textarea>
+  <label>Status</label>
+  <select id='editStatus'>
+    <option value='active'>Active (available)</option>
+    <option value='inactive'>Inactive (deactivated)</option>
+  </select>
+  <div class='actions'>
+    <button class='btn btn-primary' onclick='saveEdit()'>Save</button>
+    <button class='btn btn-sm' onclick='closeEdit()'>Cancel</button>
+  </div>
+  <div class='status-msg' id='editMsg'></div>
+</div>
+
+<!-- Generate modal -->
+<div id='genModal'>
+  <div id='genBox'>
     <h3>Generate Access Code</h3>
     <label>Plan</label>
     <select id='genPlan'>
-      <option value='starter'>Solo Operator</option>
-      <option value='growth'>Growth System</option>
-      <option value='pro'>Operator Pro</option>
+      <option value='starter'>Starter Operator — $47/mo</option>
+      <option value='growth'>Growth System — $97/mo</option>
+      <option value='pro'>Operator Pro — $197/mo</option>
     </select>
     <label>Number of codes</label>
     <select id='genCount'>
@@ -4840,119 +4913,261 @@ label{{font-size:12px;color:#94a3b8;display:block;margin:10px 0 4px;}}
       <option value='5'>5 codes</option>
       <option value='10'>10 codes</option>
     </select>
-    <label>Holder name (optional)</label>
+    <label>Holder name <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
     <input id='genName' type='text' placeholder='e.g. Jane Smith'/>
-    <label>Holder email (optional)</label>
+    <label>Holder email <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
     <input id='genEmail' type='email' placeholder='jane@example.com'/>
-    <div id='genResult'></div>
     <div class='actions'>
-      <button class='btn' onclick='closeGenModal()'>Cancel</button>
       <button class='btn btn-primary' onclick='doGenerate()'>Generate</button>
+      <button class='btn btn-sm' onclick='closeGenModal()'>Cancel</button>
     </div>
+    <div id='genResult'></div>
   </div>
 </div>
 
 <script>
-const CSRF = '{_csrf}';
-let allSeats = {_seats_json};
+let allSeats = [];
+let editingCode = null;
 
-function escH(s){{return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}}
-function fmtDate(s){{if(!s)return'—';try{{return new Date(s).toLocaleDateString();}}catch{{return s;}}}}
+async function loadSeats() {
+  const res = await fetch('/api/admin/seats');
+  const d = await res.json();
+  if (!d.ok) return;
+  allSeats = d.seats || [];
+  renderStats();
+  renderTable(allSeats);
+}
 
-function planBadge(s){{
-  const p=(s.plan||'').toLowerCase();
-  const name=s.plan_name||(p==='pro'?'Operator Pro':p==='growth'?'Growth System':'Solo Operator');
-  const colors={{pro:'background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);',growth:'background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);',starter:'background:rgba(14,165,233,.15);color:#7dd3fc;border:1px solid rgba(14,165,233,.3);'}};
-  return `<span class='badge' style='${{colors[p]||colors.starter}}'>${{name}}</span>`;
-}}
+function renderStats() {
+  const total  = allSeats.length;
+  const used   = allSeats.filter(s => s.status === 'used').length;
+  const avail  = allSeats.filter(s => s.status === 'active' && !s.claimed_by).length;
+  const stripe = allSeats.filter(s => s.source === 'stripe').length;
+  document.getElementById('statsBar').innerHTML = [
+    ['Total', total], ['Available', avail], ['Used', used], ['Stripe', stripe]
+  ].map(([l,v]) => `<div class='stat'><b>${v}</b><span>${l}</span></div>`).join('');
+}
 
-function statusBadge(s){{
-  if(s.status==='used')return`<span class='badge' style='background:rgba(34,197,94,.15);color:#86efac;border:1px solid rgba(34,197,94,.3);'>Used</span>`;
-  if(s.status==='inactive')return`<span class='badge' style='background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3);'>Inactive</span>`;
-  return`<span class='badge' style='background:rgba(14,165,233,.15);color:#7dd3fc;border:1px solid rgba(14,165,233,.3);'>Active</span>`;
-}}
+function planBadge(s) {
+  const p = (s.plan || '').toLowerCase();
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Starter Operator');
+  if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
+  if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
+  return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
+}
 
-function renderStats(){{
-  const total=allSeats.length,used=allSeats.filter(s=>s.status==='used').length,avail=allSeats.filter(s=>s.status==='active'&&!s.claimed_by).length;
-  document.getElementById('statsBar').innerHTML=[['Total',total],['Available',avail],['Used',used]].map(([l,v])=>`<div class='stat'><b>${{v}}</b><span>${{l}}</span></div>`).join('');
-}}
+function statusBadge(s) {
+  if (s.status === 'inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
+  if (s.claimed_by || s.status === 'used') return "<span class='badge badge-used'>⊙ Used</span>";
+  return "<span class='badge badge-avail'>✓ Available</span>";
+}
 
-function renderTable(seats){{
-  const tbody=document.getElementById('seatBody');
-  if(!seats.length){{tbody.innerHTML=`<tr><td colspan='8' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;return;}}
-  tbody.innerHTML=seats.map(s=>`
-    <tr>
-      <td><span class='code' onclick='copyCode("${{escH(s.code)}}")'>${{escH(s.code)}}</span></td>
-      <td>${{escH(s.holder_name||'—')}}</td>
-      <td style='color:#64748b;font-size:12px;'>${{escH(s.holder_email||s.stripe_email||'—')}}</td>
-      <td>${{planBadge(s)}}</td>
-      <td>${{statusBadge(s)}}</td>
-      <td style='color:#94a3b8;font-size:12px;'>${{escH(s.claimed_by||'—')}}</td>
-      <td style='color:#64748b;font-size:12px;'>${{fmtDate(s.created_at)}}</td>
-      <td><div style='display:flex;gap:6px;'>
-        <button class='btn' style='font-size:11px;padding:4px 10px;' onclick='toggleSeat("${{escH(s.code)}}","${{s.status||"active"}}") '>${{s.status==='inactive'?'Activate':'Deactivate'}}</button>
-      </div></td>
-    </tr>`).join('');
-}}
+function sourceBadge(s) {
+  if (s.source === 'stripe') return "<span class='badge badge-stripe'>💳 Stripe</span>";
+  return "<span class='badge badge-manual'>✎ Manual</span>";
+}
 
-function applyFilters(){{
-  const q=(document.getElementById('searchBox').value||'').toLowerCase();
-  renderTable(allSeats.filter(s=>!q||(s.code||'').toLowerCase().includes(q)||(s.holder_name||'').toLowerCase().includes(q)||(s.holder_email||'').toLowerCase().includes(q)));
-}}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+  catch(e) { return iso.slice(0,10); }
+}
 
-function copyCode(code){{navigator.clipboard.writeText(code).then(()=>alert('Copied: '+code)).catch(()=>alert(code));}}
+function escH(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-function openGenModal(){{document.getElementById('genModal').classList.add('open');document.getElementById('genResult').innerText='';}}
-function closeGenModal(){{document.getElementById('genModal').classList.remove('open');}}
+function renderTable(seats) {
+  const tbody = document.getElementById('seatBody');
+  if (!seats.length) {
+    tbody.innerHTML = `<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = seats.map(s => `
+    <tr data-code='${escH(s.code)}' data-name='${escH(s.holder_name||'')}' data-email='${escH(s.holder_email||s.stripe_email||'')}' data-status='${s.status||''}' data-source='${s.source||''}' data-plan='${s.plan||''}'>
+      <td><span class='code' title='Click to copy' onclick='copyCode("${escH(s.code)}")'>${escH(s.code)}</span></td>
+      <td>${s.holder_name ? `<span class='name-cell'>${escH(s.holder_name)}</span>` : `<span class='empty-cell'>—</span>`}</td>
+      <td>${(s.holder_email||s.stripe_email) ? `<span class='email-cell'>${escH(s.holder_email||s.stripe_email||'')}</span>` : `<span class='empty-cell'>—</span>`}</td>
+      <td>${planBadge(s)}</td>
+      <td>${sourceBadge(s)}</td>
+      <td>${statusBadge(s)}</td>
+      <td style='color:#94a3b8;font-size:12px;'>${escH(s.claimed_by||'—')}</td>
+      <td style='color:#64748b;font-size:12px;'>${fmtDate(s.created_at)}</td>
+      <td>
+        <div style='display:flex;gap:6px;'>
+          <button class='btn btn-sm' onclick='openEdit("${escH(s.code)}")'>Edit</button>
+          <button class='btn btn-sm btn-danger' onclick='toggleSeat("${escH(s.code)}","${s.status||'active'}")'>${s.status==='inactive'?'Activate':'Deactivate'}</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
 
-async function doGenerate(){{
-  const resultEl=document.getElementById('genResult');
-  resultEl.innerText='Generating...';resultEl.style.color='#94a3b8';
-  try{{
-    const res=await fetch('/api/admin/seats/generate',{{
-      method:'POST',
-      headers:{{'Content-Type':'application/json','X-CSRF-Token':CSRF}},
-      credentials:'include',
-      body:JSON.stringify({{
-        count:parseInt(document.getElementById('genCount').value)||1,
-        holder_name:document.getElementById('genName').value.trim(),
-        holder_email:document.getElementById('genEmail').value.trim(),
-        plan:document.getElementById('genPlan').value||'starter'
-      }})
-    }});
-    const d=await res.json();
-    if(d.ok){{
-      resultEl.style.color='#86efac';
-      resultEl.innerText='✓ Generated:\n'+d.generated.join('\n');
-      // Reload page after 1.5s so new codes appear
-      setTimeout(()=>location.reload(),1500);
-    }}else{{
-      resultEl.style.color='#fca5a5';
-      resultEl.innerText='Error: '+(d.error||'Unknown');
-    }}
-  }}catch(e){{resultEl.style.color='#fca5a5';resultEl.innerText='Error: '+e.message;}}
-}}
+function filterTable() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const fs   = document.getElementById('filterStatus').value;
+  const fsrc = document.getElementById('filterSource').value;
+  const fpln = document.getElementById('filterPlan').value;
+  const filtered = allSeats.filter(s => {
+    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes, s.plan, s.plan_name].join(' ').toLowerCase();
+    const matchQ   = !q    || hay.includes(q);
+    const matchSt  = !fs   || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
+    const matchSrc = !fsrc || (s.source||'manual') === fsrc;
+    const matchPln = !fpln || (s.plan||'starter') === fpln;
+    return matchQ && matchSt && matchSrc && matchPln;
+  });
+  renderTable(filtered);
+}
 
-async function toggleSeat(code,currentStatus){{
-  const newStatus=currentStatus==='inactive'?'active':'inactive';
-  try{{
-    const res=await fetch('/api/admin/seats/'+encodeURIComponent(code),{{
-      method:'PUT',
-      headers:{{'Content-Type':'application/json','X-CSRF-Token':CSRF}},
-      credentials:'include',
-      body:JSON.stringify({{status:newStatus}})
-    }});
-    const d=await res.json();
-    if(d.ok)location.reload();
-    else alert('Error: '+(d.error||'Failed'));
-  }}catch(e){{alert('Error: '+e.message);}}
-}}
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => {
+    showToast('📋 Copied: ' + code);
+  }).catch(() => { prompt('Copy this code:', code); });
+}
 
-// Initial render
-renderStats();
-renderTable(allSeats);
+function showToast(msg, type) {
+  var borderColor = type==='success' ? 'rgba(52,211,153,.7)' : type==='error' ? 'rgba(248,113,113,.7)' : 'rgba(124,58,237,.5)';
+  var textColor   = type==='success' ? '#6ee7b7' : type==='error' ? '#fca5a5' : '#c4b5fd';
+  var icon        = type==='success' ? '✓ ' : type==='error' ? '✕ ' : '';
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#141e38;border-left:3px solid '+borderColor+';border-top:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);color:'+textColor+';padding:11px 18px 11px 15px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.55);max-width:320px;line-height:1.4;transform:translateX(120%);transition:transform .28s cubic-bezier(.34,1.56,.64,1),opacity .22s;opacity:0;';
+  t.innerHTML = '<span style="opacity:.8;">' + icon + '</span>' + String(msg).replace(/</g,'&lt;');
+  document.body.appendChild(t);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    t.style.transform = 'translateX(0)'; t.style.opacity = '1';
+  }); });
+  setTimeout(function(){
+    t.style.transform = 'translateX(120%)'; t.style.opacity = '0';
+    setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 280);
+  }, 2600);
+}
+
+function openEdit(code) {
+  const s = allSeats.find(x => x.code === code);
+  if (!s) return;
+  editingCode = code;
+  document.getElementById('editName').value   = s.holder_name  || '';
+  document.getElementById('editEmail').value  = s.holder_email || s.stripe_email || '';
+  document.getElementById('editPlan').value   = s.plan || 'starter';
+  document.getElementById('editNotes').value  = s.notes || '';
+  document.getElementById('editStatus').value = s.status || 'active';
+  document.getElementById('editMsg').innerText = '';
+  // Position near the clicked row
+  const row = document.querySelector(`tr[data-code="${code}"]`);
+  const pop = document.getElementById('editPop');
+  pop.style.display = 'block';
+  if (row) {
+    const rect = row.getBoundingClientRect();
+    const ph = 320, pw = 340;
+    let top = rect.top + window.scrollY - 20;
+    let left = rect.right - pw - 20;
+    if (left < 8) left = 8;
+    if (top + ph > document.body.scrollHeight) top = document.body.scrollHeight - ph - 20;
+    pop.style.top  = top  + 'px';
+    pop.style.left = left + 'px';
+  }
+}
+
+function closeEdit() {
+  document.getElementById('editPop').style.display = 'none';
+  editingCode = null;
+}
+
+async function saveEdit() {
+  if (!editingCode) return;
+  const msg = document.getElementById('editMsg');
+  msg.innerText = 'Saving…';
+  try {
+    const payload = {
+      holder_name:  document.getElementById('editName').value.trim(),
+      holder_email: document.getElementById('editEmail').value.trim(),
+      plan:         document.getElementById('editPlan').value,
+      notes:        document.getElementById('editNotes').value.trim(),
+      status:       document.getElementById('editStatus').value,
+    };
+    const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Save failed');
+    // Update local cache
+    const idx = allSeats.findIndex(x => x.code === editingCode);
+    if (idx >= 0) allSeats[idx] = {...allSeats[idx], ...payload};
+    msg.innerText = '✓ Saved!';
+    setTimeout(()=>{ closeEdit(); filterTable(); renderStats(); }, 700);
+  } catch(e) {
+    msg.innerText = e.message || 'Save failed';
+  }
+}
+
+async function toggleSeat(code, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    const idx = allSeats.findIndex(x => x.code === code);
+    if (idx >= 0) allSeats[idx].status = newStatus;
+    filterTable(); renderStats();
+    showToast(newStatus === 'active' ? '✓ Seat activated' : '✗ Seat deactivated');
+  }
+}
+
+function openGenModal() {
+  document.getElementById('genResult').innerText = '';
+  document.getElementById('genName').value  = '';
+  document.getElementById('genEmail').value = '';
+  document.getElementById('genCount').value = '1';
+  document.getElementById('genPlan').value  = 'starter';
+  document.getElementById('genModal').classList.add('open');
+}
+
+function closeGenModal() {
+  document.getElementById('genModal').classList.remove('open');
+}
+
+async function doGenerate() {
+  const resultEl = document.getElementById('genResult');
+  resultEl.innerText = 'Generating...';
+  try {
+    const count = parseInt(document.getElementById('genCount').value) || 1;
+    const name  = document.getElementById('genName').value.trim();
+    const email = document.getElementById('genEmail').value.trim();
+    const plan  = document.getElementById('genPlan').value || 'starter';
+    const res = await fetch('/api/admin/seats/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      resultEl.innerText = 'Generated:\n' + d.generated.join('\n');
+      resultEl.style.color = '#86efac';
+      await loadSeats();
+    } else {
+      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+      resultEl.style.color = '#fca5a5';
+    }
+  } catch(e) {
+    document.getElementById('genResult').innerText = 'Error: ' + e.message;
+    document.getElementById('genResult').style.color = '#fca5a5';
+  }
+}
+
+// Close popover on outside click
+document.addEventListener('click', function(e) {
+  const pop = document.getElementById('editPop');
+  if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('button[onclick^="openEdit"]')) {
+    closeEdit();
+  }
+  if (document.getElementById('genModal').classList.contains('open') && e.target === document.getElementById('genModal')) {
+    closeGenModal();
+  }
+});
+
+loadSeats();
 </script></body></html>"""
-    return html
+    return page
 
 
 @app.get("/api/me")
