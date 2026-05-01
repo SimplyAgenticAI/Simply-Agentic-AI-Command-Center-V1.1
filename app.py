@@ -9257,12 +9257,12 @@ body.mirrored #scriptBox{transform:scaleX(-1);}
 </div>
 
 <!-- Permission guide (shown in-page instead of alert) -->
-<div id="camGuide" style="display:none;position:absolute;inset:0;background:rgba(6,12,24,.96);z-index:45;align-items:center;justify-content:center;flex-direction:column;gap:0;padding:24px;">
+<div id="camGuide" style="visibility:hidden;position:absolute;inset:0;background:rgba(6,12,24,.96);z-index:45;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;padding:24px;pointer-events:none;">
   <div style="max-width:400px;width:100%;background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:16px;">
     <div style="font-size:36px;text-align:center;">📷</div>
     <div style="font-size:18px;font-weight:700;color:#c4b5fd;text-align:center;" id="camGuideTitle">Allow camera access</div>
     <div style="font-size:14px;color:#94a3b8;line-height:1.7;text-align:center;" id="camGuideMsg">Click Allow when Chrome asks — the prompt appears at the top-left of your screen.</div>
-    <div id="camGuideSteps" style="display:none;background:rgba(255,255,255,.04);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
+    <div id="camGuideSteps" style="background:rgba(255,255,255,.04);border-radius:10px;padding:14px;flex-direction:column;gap:10px;"></div>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
       <button class="tb on" id="camGuideBtn" onclick="camPermissionRetry()">Try again</button>
       <button class="tb" onclick="hideCamGuide()">Cancel</button>
@@ -9317,13 +9317,8 @@ function init(){
   if(s){spd=+s;Q('#spdR').value=s;Q('#spdV').textContent=s;}
   if(f){fsz=+f;Q('#fszR').value=f;Q('#fszV').textContent=f;applyFsz();}
   posLine();
-  // Restore camera — only if permission already granted (don't prompt on page load)
-  if(localStorage.getItem('tp_cam')==='1'){
-    checkCamPermission().then(function(state){
-      if(state==='granted') startCam(selCamId);
-      else localStorage.removeItem('tp_cam');
-    });
-  }
+  // Camera was on last session — don't auto-restore on load (avoids overlay-on-load bug)
+  // User can click Camera button to start it fresh
 }
 
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -9397,11 +9392,11 @@ async function checkCamPermission(){
 function showCamGuide(state, errName){
   var guide=Q('#camGuide'), title=Q('#camGuideTitle'), msg=Q('#camGuideMsg');
   var steps=Q('#camGuideSteps'), btn=Q('#camGuideBtn');
-  guide.style.display='flex';
+  guide.style.visibility='visible';guide.style.pointerEvents='auto';
   if(state==='denied'||errName==='NotAllowedError'||errName==='PermissionDeniedError'){
     title.textContent='Camera is blocked';
     msg.textContent='Chrome is blocking camera access for this site. Here's how to fix it in a few seconds:';
-    steps.style.display='flex';
+    steps.style.display='flex';steps.style.flexDirection='column';
     steps.innerHTML=[
       '1. Click the <b>🔒 lock icon</b> in your address bar (top of Chrome)',
       '2. Find <b>Camera</b> and change it from <b style="color:#f87171">Block</b> to <b style="color:#34d399">Allow</b>',
@@ -9429,7 +9424,7 @@ function showCamGuide(state, errName){
   }
 }
 
-function hideCamGuide(){Q('#camGuide').style.display='none';}
+function hideCamGuide(){var g=Q('#camGuide');g.style.visibility='hidden';g.style.pointerEvents='none';}
 
 async function camPermissionRetry(){
   hideCamGuide();
@@ -12811,21 +12806,38 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saToolsDropBtn" onclick="saToggleDrop('saToolsDrop')">
-            <span>Tools</span><span class="saChevron">&#9660;</span>
+          <button class="saNavBtn" id="saCreateDropBtn" onclick="saToggleDrop('saCreateDrop')">
+            <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
-          <div class="saDrop" id="saToolsDrop">
-            <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">&#128221; Notepad</button>
-            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">&#127760; Site Analyzer</button>
-            <button class="saDropItem" id="leadLabBtn">Lead Lab</button>
-            <button class="saDropItem" id="crmBtn">CRM</button>
-            <button class="saDropItem" id="growthPlaybookBtn">Growth Playbook</button>
-            <button class="saDropItem" id="socialStudioBtn">Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn">Offer Builder</button>
-            <button class="saDropItem" id="imageLibBtn">Image Library</button>
-            <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
-            <button class="saDropItem" id="calendarBtn">Calendar</button>
+          <div class="saDrop" id="saCreateDrop">
             <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
+            <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
+            <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
+            <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
+            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
+          </div>
+        </div>
+
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saResearchDropBtn" onclick="saToggleDrop('saResearchDrop')">
+            <span>🔍 Research</span><span class="saChevron">&#9660;</span>
+          </button>
+          <div class="saDrop" id="saResearchDrop">
+            <button class="saDropItem" id="leadLabBtn">🧪 Lead Lab</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
+            <button class="saDropItem" id="frameworkResearchBtn" onclick="document.getElementById('frameworkBtn')&&document.getElementById('frameworkBtn').click()">🧠 Core Framework</button>
+          </div>
+        </div>
+
+        <div class="saDropWrap">
+          <button class="saNavBtn" id="saManageDropBtn" onclick="saToggleDrop('saManageDrop')">
+            <span>📊 Manage</span><span class="saChevron">&#9660;</span>
+          </button>
+          <div class="saDrop" id="saManageDrop">
+            <button class="saDropItem" id="crmBtn">👤 CRM</button>
+            <button class="saDropItem" id="calendarBtn">📅 Calendar</button>
+            <button class="saDropItem" id="emailConsoleBtn">📧 Email Console</button>
           </div>
         </div>
 
