@@ -11174,7 +11174,7 @@ HTML = r"""
 
 
     /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}
+    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(18,26,56,.97);border-bottom:1px solid rgba(80,110,200,.3);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}@media(max-width:720px){.saNavBar{display:none!important;}}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
     .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
     #saPinnedBar:empty{ display:none; }
@@ -12708,6 +12708,7 @@ label         { font-size: 14px !important; }
 
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">☰ Menu</button>
+    <button class="btn" id="mobileSettingsBarBtn" style="flex:0.6;" onclick="var s=document.getElementById('settingsBtn');if(s)s.click();">⚙️ Settings</button>
     <button class="btn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
   </div>
 
