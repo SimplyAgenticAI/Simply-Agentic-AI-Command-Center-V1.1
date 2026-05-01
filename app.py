@@ -12736,6 +12736,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="imageLibBtn">Image Library</button>
             <button class="saDropItem" id="emailConsoleBtn">Email Console</button>
             <button class="saDropItem" id="calendarBtn">Calendar</button>
+            <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
           </div>
         </div>
 
@@ -12752,7 +12753,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
-            <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
@@ -12816,6 +12816,7 @@ label         { font-size: 14px !important; }
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
+            <a class="btn" href="/teleprompter" onclick="closeMobileDrawer()" style="text-decoration:none;display:block;text-align:left;">🎬 Teleprompter</a>
           </div>
         </div>
 
