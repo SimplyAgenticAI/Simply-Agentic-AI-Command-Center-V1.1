@@ -4848,7 +4848,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
   </select>
   <select id='filterPlan' onchange='filterTable()'>
     <option value=''>All plans</option>
-    <option value='starter'>Starter</option>
+    <option value='founder'>Founder</option>
+    <option value='starter'>Solo Operator</option>
     <option value='growth'>Growth</option>
     <option value='pro'>Pro</option>
   </select>
@@ -4903,7 +4904,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <h3>Generate Access Code</h3>
     <label>Plan</label>
     <select id='genPlan'>
-      <option value='starter'>Starter Operator — $47/mo</option>
+      <option value='founder'>Founder Access — $27/mo</option>
+      <option value='starter'>Solo Operator — $47/mo</option>
       <option value='growth'>Growth System — $97/mo</option>
       <option value='pro'>Operator Pro — $197/mo</option>
     </select>
@@ -4930,12 +4932,32 @@ let allSeats = [];
 let editingCode = null;
 
 async function loadSeats() {
-  const res = await fetch('/api/admin/seats');
-  const d = await res.json();
-  if (!d.ok) return;
-  allSeats = d.seats || [];
-  renderStats();
-  renderTable(allSeats);
+  const tbody = document.getElementById('seatBody');
+  try {
+    const res = await fetch('/api/admin/seats', {credentials: 'same-origin'});
+    // If we got redirected to login, res.url will differ from the requested URL
+    if (res.redirected || res.url.includes('/login')) {
+      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;font-size:14px;'>⚠️ Session expired. <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
+      return;
+    }
+    let d;
+    try {
+      d = await res.json();
+    } catch(parseErr) {
+      // Got HTML instead of JSON — almost always means redirect to login
+      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;font-size:14px;'>⚠️ Session expired. <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again →</a></td></tr>";
+      return;
+    }
+    if (!d.ok) {
+      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;font-size:14px;'>Error: " + (d.error || 'Unknown error') + "</td></tr>";
+      return;
+    }
+    allSeats = d.seats || [];
+    renderStats();
+    renderTable(allSeats);
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;font-size:14px;'>Network error: " + e.message + "</td></tr>";
+  }
 }
 
 function renderStats() {
@@ -4950,9 +4972,10 @@ function renderStats() {
 
 function planBadge(s) {
   const p = (s.plan || '').toLowerCase();
-  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : 'Starter Operator');
-  if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
-  if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'founder' ? 'Founder Access' : 'Solo Operator');
+  if (p === 'pro')     return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
+  if (p === 'growth')  return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
+  if (p === 'founder') return `<span class='badge' style='background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.35);'>🔥 ${name}</span>`;
   return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
 }
 
@@ -5086,6 +5109,7 @@ async function saveEdit() {
       status:       document.getElementById('editStatus').value,
     };
     const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
+      credentials: 'same-origin',
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const d = await res.json();
@@ -5138,6 +5162,7 @@ async function doGenerate() {
   try {
     const res = await fetch('/api/admin/seats/generate', {
       method:'POST', headers:{'Content-Type':'application/json'},
+      credentials: 'same-origin',
       body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
     });
     const d = await res.json();
@@ -15681,7 +15706,6 @@ function makeSeat(defn, idx){
 
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
-        // Higher threshold on mobile so normal scroll drift doesn't count as a move
         const moveThreshold = window.innerWidth <= 640 ? 12 : 6;
         if(dx > moveThreshold || dy > moveThreshold) moved = true;
 
@@ -15719,29 +15743,24 @@ function makeSeat(defn, idx){
           saveSeatPositions(current);
         }
 
-        const moveThreshold = window.innerWidth <= 640 ? 10 : 6;
-        const dx = Math.abs((typeof e !== 'undefined' ? 0 : 0)); // use stored moved flag
         if(!moved){
           if(window.innerWidth <= 640){
-            // Mobile: require double-tap within 400ms
             const now = Date.now();
-            const timeSinceLast = now - _lastTapTime;
-            if(timeSinceLast < 400 && timeSinceLast > 50){
-              // Double tap — select
+            const since = now - _lastTapTime;
+            if(since < 400 && since > 50){
               _lastTapTime = 0;
               if(_tapHintTimer){ clearTimeout(_tapHintTimer); _tapHintTimer = null; }
-              seat.querySelector('.seatDoubleTapHint') && seat.querySelector('.seatDoubleTapHint').remove();
+              const h = seat.querySelector('.seatDoubleTapHint');
+              if(h) h.remove();
               selectSeat(defn.name);
             } else {
-              // First tap — show hint
               _lastTapTime = now;
-              // Show brief "tap again" hint on the seat
               let hint = seat.querySelector('.seatDoubleTapHint');
               if(!hint){
                 hint = document.createElement('div');
                 hint.className = 'seatDoubleTapHint';
                 hint.innerText = 'Tap again to select';
-                hint.style.cssText = 'position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:10px;color:#c4b5fd;background:rgba(7,9,26,.85);padding:2px 0;border-radius:0 0 12px 12px;pointer-events:none;z-index:10;';
+                hint.style.cssText = 'position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:10px;color:#c4b5fd;background:rgba(7,9,26,.88);padding:2px 0;border-radius:0 0 12px 12px;pointer-events:none;z-index:10;';
                 seat.style.position = 'relative';
                 seat.appendChild(hint);
               }
@@ -15752,7 +15771,6 @@ function makeSeat(defn, idx){
               }, 1200);
             }
           } else {
-            // Desktop: single click selects as before
             selectSeat(defn.name);
           }
         }
