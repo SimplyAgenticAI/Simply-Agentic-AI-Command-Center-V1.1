@@ -9303,7 +9303,12 @@ function init(){
   if(s){spd=+s;Q('#spdR').value=s;Q('#spdV').textContent=s;}
   if(f){fsz=+f;Q('#fszR').value=f;Q('#fszV').textContent=f;applyFsz();}
   posLine();
-  if(localStorage.getItem('tp_cam')==='1') toggleCam();
+  // Restore camera if it was on last session — silently skip if permission not yet granted
+  if(localStorage.getItem('tp_cam')==='1'){
+    navigator.mediaDevices.getUserMedia({video:true,audio:false})
+      .then(function(s){s.getTracks().forEach(function(t){t.stop();});toggleCam();})
+      .catch(function(){localStorage.removeItem('tp_cam');});
+  }
 }
 
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -9365,12 +9370,29 @@ async function toggleCam(){camOn?stopCam():await startCam(selCamId);}
 
 async function startCam(devId){
   try{
-    var constraints={
-      video:devId?{deviceId:{exact:devId},width:{ideal:1280},height:{ideal:720}}:{width:{ideal:1280},height:{ideal:720}},
-      audio:false
-    };
     if(camStream) camStream.getTracks().forEach(function(t){t.stop();});
-    camStream=await navigator.mediaDevices.getUserMedia(constraints);
+
+    // Step 1: always request with generic constraints first.
+    // Using {exact: deviceId} before permission is granted throws NotFoundError
+    // or OverconstrainedError in Chrome/Safari. We get permission with a plain
+    // request, then switch to the specific device if one was requested.
+    var stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+
+    // Step 2: now that permission is granted, enumerate real device labels
+    var devs=await navigator.mediaDevices.enumerateDevices();
+    var cams=devs.filter(function(d){return d.kind==='videoinput';});
+
+    // Step 3: if a specific device was requested AND it's not what we just got, switch to it
+    var gotId=stream.getVideoTracks()[0].getSettings().deviceId;
+    if(devId && devId!==gotId && cams.some(function(c){return c.deviceId===devId;})){
+      stream.getTracks().forEach(function(t){t.stop();});
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{deviceId:{exact:devId},width:{ideal:1280},height:{ideal:720}},
+        audio:false
+      });
+    }
+
+    camStream=stream;
     Q('#camVid').srcObject=camStream;
     Q('#camPip').classList.add('show');
     Q('#camBtn').classList.add('on');
@@ -9379,7 +9401,14 @@ async function startCam(devId){
     selCamId=camStream.getVideoTracks()[0].getSettings().deviceId||devId;
     await populateCams();
     makeDraggable();
-  }catch(e){alert('Camera error: '+e.message);}
+  }catch(e){
+    // Clear stale saved camera preference so next open doesn't loop
+    localStorage.removeItem('tp_cam');
+    var msg=e.name==='NotAllowedError'||e.name==='PermissionDeniedError'
+      ?'Camera permission denied. Please allow camera access in your browser settings and try again.'
+      :'Camera error: '+e.message;
+    alert(msg);
+  }
 }
 
 function stopCam(){
