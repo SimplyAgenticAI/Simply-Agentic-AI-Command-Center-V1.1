@@ -12052,19 +12052,20 @@ HTML = r"""
   /* keep top brand, move actions to bottom bar + drawer */
   .rightmeta{ display:none !important; }
   .mobileBar{
-    display:flex;
-    position:fixed;
-    left:0; right:0; bottom:0;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    background: rgba(7,10,20,86);
-    border-top:1px solid rgba(42,58,106,7);
-    z-index: 120;
+    display:flex !important;
+    position:fixed !important;
+    left:0 !important; right:0 !important; bottom:0 !important;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)) !important;
+    background: rgba(7,10,20,.94) !important;
+    border-top:1px solid rgba(124,58,237,.25) !important;
+    z-index: 9000 !important;
     gap:10px;
     justify-content: space-between;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
-  .mobileBar .btn{ flex: 1 1 auto; padding: 10px 10px; }
-  body{ padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .mobileBar .btn{ flex: 1 1 auto; padding: 11px 10px; font-size:13px; font-weight:600; }
+  body{ padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
   .mobileDrawerOverlay.show{
     display:block;
     position:fixed;
@@ -12708,7 +12709,6 @@ label         { font-size: 14px !important; }
 
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">☰ Menu</button>
-    <button class="btn" id="mobileSettingsBarBtn" style="flex:0.6;" onclick="var s=document.getElementById('settingsBtn');if(s)s.click();">⚙️ Settings</button>
     <button class="btn" onclick="if(typeof openCommunityPanel==='function')openCommunityPanel()" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);">🏆 Community</button>
   </div>
 
