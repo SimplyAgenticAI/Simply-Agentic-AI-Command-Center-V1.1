@@ -5017,6 +5017,30 @@ tr:hover td{background:rgba(255,255,255,.02);}
 </div>
 
 <script>
+// ── Seat Manager CSRF helper ─────────────────────────────────────────────────
+// /admin/seats is a standalone page — it doesn't load the main app's global
+// fetch interceptor. This lightweight helper fetches the session CSRF token
+// once, caches it, and injects X-CSRF-Token on every mutating request.
+let _smCsrfToken = null;
+async function _smFetch(url, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase();
+  if (['POST','PUT','PATCH','DELETE'].includes(method)) {
+    if (!_smCsrfToken) {
+      try {
+        const r = await fetch('/api/csrf_token', {credentials: 'same-origin'});
+        const d = await r.json();
+        _smCsrfToken = d.csrf_token || '';
+      } catch(e) { _smCsrfToken = ''; }
+    }
+    opts.headers = opts.headers || {};
+    opts.headers['X-CSRF-Token'] = _smCsrfToken;
+    opts.credentials = opts.credentials || 'same-origin';
+  }
+  return fetch(url, opts);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 let allSeats = [];
 let editingCode = null;
 
@@ -5191,8 +5215,8 @@ async function saveEdit() {
       notes:        document.getElementById('seatEditNotes').value.trim(),
       status:       document.getElementById('seatEditStatus').value,
     };
-    const res = await fetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin', body: JSON.stringify(payload)
+    const res = await _smFetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
     });
     const d = await res.json();
     if (!d.ok) throw new Error(d.error || 'Save failed');
@@ -5208,7 +5232,7 @@ async function saveEdit() {
 
 async function toggleSeat(code, currentStatus) {
   const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-  const res = await fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
+  const res = await _smFetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
     method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
   });
   const d = await res.json();
@@ -5242,9 +5266,8 @@ async function doGenerate() {
   const email = document.getElementById('genEmail').value.trim();
   const plan  = document.getElementById('genPlan').value || 'starter';
   try {
-    const res = await fetch('/api/admin/seats/generate', {
+    const res = await _smFetch('/api/admin/seats/generate', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      credentials: 'same-origin',
       body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
     });
     const d = await res.json();
@@ -9023,6 +9046,586 @@ function startCheckout(plan){{
 def showcase_page():
     return SHOWCASE_HTML
 
+
+# =========================
+# AI TELEPROMPTER
+# =========================
+
+_TELEPROMPTER_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Teleprompter — Simply Agentic AI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#0a0f1e;--surface:#0f172a;--border:rgba(255,255,255,.1);
+  --purple:#7c3aed;--purple-light:#c4b5fd;--green:#34d399;
+  --text:#e2e8f0;--muted:#64748b;--danger:#f87171;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;overflow:hidden;}
+
+/* ── Layout ── */
+#app{display:flex;flex-direction:column;height:100dvh;position:relative;}
+
+/* ── Top bar ── */
+#topbar{
+  display:flex;align-items:center;gap:10px;padding:10px 16px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;gap:8px;
+}
+#topbar h1{font-size:15px;font-weight:700;color:var(--purple-light);margin-right:4px;white-space:nowrap;}
+.tb-btn{
+  background:rgba(255,255,255,.06);border:1px solid var(--border);
+  color:var(--text);padding:6px 13px;border-radius:8px;font-size:13px;
+  cursor:pointer;white-space:nowrap;transition:background .15s;
+}
+.tb-btn:hover{background:rgba(255,255,255,.12);}
+.tb-btn.active{background:rgba(124,58,237,.3);border-color:rgba(124,58,237,.6);color:var(--purple-light);}
+.tb-btn.danger{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:var(--danger);}
+#statusDot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+#statusDot.recording{background:var(--danger);box-shadow:0 0 6px var(--danger);animation:pulse 1.2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+#recTimer{font-size:13px;font-weight:700;color:var(--danger);font-variant-numeric:tabular-nums;display:none;}
+.spacer{flex:1;}
+
+/* ── Script area ── */
+#scriptWrap{
+  flex:1;overflow:hidden;position:relative;
+  display:flex;flex-direction:column;
+}
+#scriptBox{
+  flex:1;padding:28px 24px;overflow-y:auto;
+  font-size:clamp(22px,4vw,56px);
+  font-weight:700;line-height:1.45;
+  letter-spacing:.01em;color:rgba(255,255,255,.25);
+  scroll-behavior:smooth;
+  -ms-overflow-style:none;scrollbar-width:none;
+}
+#scriptBox::-webkit-scrollbar{display:none;}
+
+/* reading zone highlight */
+.word{
+  display:inline;
+  transition:color .12s, text-shadow .12s;
+  cursor:pointer;
+}
+.word:hover{color:rgba(255,255,255,.6);}
+.word.done{color:rgba(255,255,255,.18);}
+.word.active{
+  color:#fff;
+  text-shadow:0 0 40px rgba(124,58,237,.8);
+}
+.word.upcoming{color:rgba(255,255,255,.45);}
+
+/* focus line */
+#focusLine{
+  position:absolute;left:0;right:0;
+  height:3px;background:linear-gradient(90deg,transparent,var(--purple),transparent);
+  pointer-events:none;transition:top .1s;
+  display:none;
+}
+
+/* ── Bottom bar ── */
+#bottombar{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  background:var(--surface);border-top:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;
+}
+
+/* speed slider */
+#speedLabel{font-size:12px;color:var(--muted);white-space:nowrap;}
+#speedSlider{width:120px;accent-color:var(--purple);}
+
+/* font size */
+#fontLabel{font-size:12px;color:var(--muted);white-space:nowrap;}
+#fontSlider{width:90px;accent-color:var(--purple);}
+
+/* mirror toggle */
+#mirrorBtn{font-size:18px;line-height:1;}
+
+/* ── Edit overlay ── */
+#editOverlay{
+  position:absolute;inset:0;background:rgba(10,15,30,.97);
+  display:flex;flex-direction:column;z-index:20;padding:20px;gap:12px;
+}
+#editOverlay h2{font-size:16px;font-weight:600;color:var(--purple-light);}
+#scriptInput{
+  flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);
+  border-radius:10px;color:var(--text);font-size:16px;line-height:1.6;
+  padding:16px;resize:none;outline:none;font-family:inherit;
+}
+#scriptInput:focus{border-color:var(--purple);}
+#aiRow{display:flex;gap:8px;flex-wrap:wrap;}
+#aiPromptInput{
+  flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--border);
+  border-radius:8px;color:var(--text);font-size:14px;padding:8px 12px;outline:none;font-family:inherit;
+}
+#aiPromptInput:focus{border-color:var(--purple);}
+#aiPromptInput::placeholder{color:var(--muted);}
+#aiSpin{display:none;width:16px;height:16px;border:2px solid rgba(124,58,237,.3);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg);}}
+#editActions{display:flex;gap:8px;justify-content:flex-end;}
+
+/* ── Countdown overlay ── */
+#countdownOverlay{
+  position:absolute;inset:0;background:rgba(10,15,30,.92);
+  display:none;align-items:center;justify-content:center;z-index:30;
+  flex-direction:column;gap:12px;
+}
+#countdownNum{font-size:120px;font-weight:800;color:var(--purple-light);line-height:1;}
+#countdownLabel{font-size:16px;color:var(--muted);}
+
+/* ── Camera preview ── */
+#camWrap{
+  position:absolute;bottom:70px;right:16px;
+  width:160px;height:90px;border-radius:10px;
+  overflow:hidden;border:2px solid var(--border);
+  background:#000;display:none;z-index:10;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+  resize:both;
+}
+#camWrap.visible{display:block;}
+#camPreview{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+
+/* ── Mirror mode ── */
+body.mirrored #scriptBox{transform:scaleX(-1);}
+
+/* ── Mobile tweaks ── */
+@media(max-width:600px){
+  #topbar{padding:8px 12px;}
+  #speedSlider{width:80px;}
+  #fontSlider{width:70px;}
+  #camWrap{width:100px;height:56px;bottom:62px;right:10px;}
+}
+
+/* ── Dark overlay cue lines ── */
+#topFade,#botFade{
+  position:absolute;left:0;right:0;height:80px;pointer-events:none;z-index:5;
+}
+#topFade{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}
+#botFade{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <div id="topbar">
+    <h1>🎬 Teleprompter</h1>
+    <div id="statusDot"></div>
+    <div id="recTimer">0:00</div>
+    <button class="tb-btn" id="editBtn" onclick="openEdit()">✏️ Script</button>
+    <button class="tb-btn" id="recordBtn" onclick="toggleRecord()">⏺ Record</button>
+    <button class="tb-btn" id="camBtn" onclick="toggleCam()">📷 Camera</button>
+    <div class="spacer"></div>
+    <button class="tb-btn" id="resetBtn" onclick="resetScroll()" title="Back to top">↑ Reset</button>
+    <a href="/" class="tb-btn" style="text-decoration:none;">← Back</a>
+  </div>
+
+  <!-- Script display -->
+  <div id="scriptWrap">
+    <div id="topFade"></div>
+    <div id="scriptBox" id="scriptBox"></div>
+    <div id="focusLine"></div>
+    <div id="botFade"></div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div id="bottombar">
+    <span id="speedLabel">Speed: <b id="speedVal">5</b></span>
+    <input type="range" id="speedSlider" min="0" max="20" value="5" oninput="onSpeedChange(this.value)"/>
+    <span id="fontLabel">Size: <b id="fontVal">36</b>px</span>
+    <input type="range" id="fontSlider" min="18" max="80" value="36" oninput="onFontChange(this.value)"/>
+    <button class="tb-btn" id="mirrorBtn" onclick="toggleMirror()" title="Mirror for teleprompter glass">⇄ Mirror</button>
+    <div class="spacer"></div>
+    <span style="font-size:12px;color:var(--muted);" id="progressLabel">0%</span>
+  </div>
+
+  <!-- Camera preview -->
+  <div id="camWrap">
+    <video id="camPreview" autoplay muted playsinline></video>
+  </div>
+
+  <!-- Countdown overlay -->
+  <div id="countdownOverlay">
+    <div id="countdownNum">3</div>
+    <div id="countdownLabel">Get ready…</div>
+  </div>
+
+  <!-- Edit overlay -->
+  <div id="editOverlay" style="display:none;">
+    <h2>✏️ Your script</h2>
+    <textarea id="scriptInput" placeholder="Paste or type your script here. Or describe your video topic below and let AI write it for you…"></textarea>
+    <div id="aiRow">
+      <input id="aiPromptInput" placeholder="e.g. 60-second intro for my marketing agency…" />
+      <div id="aiSpin"></div>
+      <button class="tb-btn active" onclick="aiWrite()">✦ AI Write</button>
+      <button class="tb-btn active" onclick="aiRefine()">✦ Tighten</button>
+    </div>
+    <div id="editActions">
+      <button class="tb-btn danger" onclick="closeEdit(false)">Cancel</button>
+      <button class="tb-btn active" onclick="closeEdit(true)">▶ Start Reading</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let words = [];
+let currentIdx = 0;
+let scrollTimer = null;
+let recTimer = null;
+let recSeconds = 0;
+let isRecording = false;
+let mediaRec = null;
+let camStream = null;
+let camOn = false;
+let mirrored = false;
+let scrollSpeed = 5;
+let fontSize = 36;
+let autoScrolling = false;
+let chunks = [];
+
+const DEFAULT_SCRIPT = `Welcome to Simply Agentic AI — the command center for your business.
+
+Today I want to walk you through how our AI teammates work together to handle your marketing, sales outreach, and client communications — all in one place.
+
+No more switching between twenty different tools. No more dropped follow-ups. Just smart, consistent, automated work that sounds like you.
+
+Let me show you what that looks like in action.`;
+
+// ── Init ───────────────────────────────────────────────────────────────────
+function init() {
+  loadScript(localStorage.getItem('tp_script') || DEFAULT_SCRIPT);
+  const savedSpeed = localStorage.getItem('tp_speed');
+  const savedFont  = localStorage.getItem('tp_font');
+  if (savedSpeed) { scrollSpeed = +savedSpeed; document.getElementById('speedSlider').value = savedSpeed; document.getElementById('speedVal').textContent = savedSpeed; }
+  if (savedFont)  { fontSize = +savedFont; document.getElementById('fontSlider').value = savedFont; document.getElementById('fontVal').textContent = savedFont; applyFont(); }
+}
+
+// ── Script rendering ───────────────────────────────────────────────────────
+function loadScript(text) {
+  const box = document.getElementById('scriptBox');
+  words = text.trim().split(/\s+/).filter(Boolean);
+  currentIdx = 0;
+  box.innerHTML = words.map((w, i) =>
+    `<span class="word upcoming" id="w${i}" onclick="jumpTo(${i})">${escH(w)} </span>`
+  ).join('');
+  updateActive();
+  updateProgress();
+}
+
+function escH(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function updateActive() {
+  words.forEach((_, i) => {
+    const el = document.getElementById('w' + i);
+    if (!el) return;
+    el.className = 'word ' + (i < currentIdx ? 'done' : i === currentIdx ? 'active' : i < currentIdx + 8 ? 'upcoming' : '');
+  });
+  scrollToCurrent();
+  updateProgress();
+}
+
+function scrollToCurrent() {
+  const el = document.getElementById('w' + currentIdx);
+  if (!el) return;
+  const box = document.getElementById('scriptBox');
+  const boxRect = box.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const targetTop = box.scrollTop + (elRect.top - boxRect.top) - (boxRect.height * 0.35);
+  box.scrollTo({ top: targetTop, behavior: 'smooth' });
+}
+
+function updateProgress() {
+  const pct = words.length ? Math.round((currentIdx / words.length) * 100) : 0;
+  document.getElementById('progressLabel').textContent = pct + '%';
+}
+
+function jumpTo(i) {
+  currentIdx = i;
+  updateActive();
+}
+
+function resetScroll() {
+  currentIdx = 0;
+  updateActive();
+  document.getElementById('scriptBox').scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// ── Auto-scroll ────────────────────────────────────────────────────────────
+function startAutoScroll() {
+  if (scrollTimer) return;
+  autoScrolling = true;
+  // words per minute roughly: speed 1=30wpm, speed 20=300wpm
+  function tick() {
+    if (!autoScrolling) return;
+    if (currentIdx < words.length) {
+      currentIdx++;
+      updateActive();
+    } else {
+      stopAutoScroll();
+      return;
+    }
+    const wpm = 30 + (scrollSpeed * 13.5);
+    const msPerWord = 60000 / wpm;
+    scrollTimer = setTimeout(tick, msPerWord);
+  }
+  const wpm = 30 + (scrollSpeed * 13.5);
+  scrollTimer = setTimeout(tick, 60000 / wpm);
+}
+
+function stopAutoScroll() {
+  autoScrolling = false;
+  clearTimeout(scrollTimer);
+  scrollTimer = null;
+}
+
+function onSpeedChange(v) {
+  scrollSpeed = +v;
+  document.getElementById('speedVal').textContent = v;
+  localStorage.setItem('tp_speed', v);
+  if (autoScrolling) { stopAutoScroll(); startAutoScroll(); }
+}
+
+function onFontChange(v) {
+  fontSize = +v;
+  document.getElementById('fontVal').textContent = v;
+  localStorage.setItem('tp_font', v);
+  applyFont();
+}
+
+function applyFont() {
+  document.getElementById('scriptBox').style.fontSize = fontSize + 'px';
+}
+
+// ── Record ─────────────────────────────────────────────────────────────────
+async function toggleRecord() {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    await startRecording();
+  }
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+    chunks = [];
+    mediaRec = new MediaRecorder(stream);
+    mediaRec.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+    mediaRec.onstop = () => {
+      const blob = new Blob(chunks, {type: 'audio/webm'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'teleprompter-recording.webm'; a.click();
+      stream.getTracks().forEach(t => t.stop());
+    };
+    // countdown then start
+    await countdown(3);
+    mediaRec.start(1000);
+    isRecording = true;
+    recSeconds = 0;
+    document.getElementById('recTimer').style.display = 'block';
+    document.getElementById('statusDot').className = 'recording';
+    document.getElementById('recordBtn').textContent = '⏹ Stop';
+    document.getElementById('recordBtn').classList.add('danger');
+    recTimer = setInterval(() => {
+      recSeconds++;
+      const m = Math.floor(recSeconds/60), s = recSeconds%60;
+      document.getElementById('recTimer').textContent = m+':'+(s<10?'0':'')+s;
+    }, 1000);
+    startAutoScroll();
+  } catch(e) {
+    alert('Microphone access needed to record. ' + e.message);
+  }
+}
+
+function stopRecording() {
+  if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
+  isRecording = false;
+  clearInterval(recTimer);
+  stopAutoScroll();
+  document.getElementById('recTimer').style.display = 'none';
+  document.getElementById('statusDot').className = '';
+  document.getElementById('recordBtn').textContent = '⏺ Record';
+  document.getElementById('recordBtn').classList.remove('danger');
+}
+
+// ── Countdown ──────────────────────────────────────────────────────────────
+function countdown(n) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('countdownOverlay');
+    const numEl   = document.getElementById('countdownNum');
+    overlay.style.display = 'flex';
+    let i = n;
+    numEl.textContent = i;
+    const iv = setInterval(() => {
+      i--;
+      if (i <= 0) { clearInterval(iv); overlay.style.display = 'none'; resolve(); }
+      else numEl.textContent = i;
+    }, 1000);
+  });
+}
+
+// ── Camera ─────────────────────────────────────────────────────────────────
+async function toggleCam() {
+  if (camOn) {
+    if (camStream) camStream.getTracks().forEach(t => t.stop());
+    camStream = null; camOn = false;
+    document.getElementById('camWrap').classList.remove('visible');
+    document.getElementById('camBtn').classList.remove('active');
+  } else {
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
+      document.getElementById('camPreview').srcObject = camStream;
+      document.getElementById('camWrap').classList.add('visible');
+      document.getElementById('camBtn').classList.add('active');
+      camOn = true;
+    } catch(e) { alert('Camera access denied. ' + e.message); }
+  }
+}
+
+// ── Mirror ─────────────────────────────────────────────────────────────────
+function toggleMirror() {
+  mirrored = !mirrored;
+  document.body.classList.toggle('mirrored', mirrored);
+  document.getElementById('mirrorBtn').classList.toggle('active', mirrored);
+}
+
+// ── Edit overlay ───────────────────────────────────────────────────────────
+function openEdit() {
+  stopAutoScroll();
+  const raw = words.join(' ');
+  document.getElementById('scriptInput').value = raw;
+  document.getElementById('editOverlay').style.display = 'flex';
+}
+
+function closeEdit(save) {
+  document.getElementById('editOverlay').style.display = 'none';
+  if (save) {
+    const text = document.getElementById('scriptInput').value.trim();
+    if (text) {
+      localStorage.setItem('tp_script', text);
+      loadScript(text);
+    }
+  }
+}
+
+// ── AI write / refine ──────────────────────────────────────────────────────
+async function aiCall(systemPrompt, userMsg) {
+  const spin = document.getElementById('aiSpin');
+  spin.style.display = 'block';
+  try {
+    const res = await fetch('/api/teleprompter/ai', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({system: systemPrompt, message: userMsg})
+    });
+    const d = await res.json();
+    return d.text || '';
+  } catch(e) {
+    return '';
+  } finally {
+    spin.style.display = 'none';
+  }
+}
+
+async function aiWrite() {
+  const topic = document.getElementById('aiPromptInput').value.trim();
+  if (!topic) { document.getElementById('aiPromptInput').focus(); return; }
+  const sys = `You are a professional scriptwriter for video content creators. 
+Write a clear, natural-sounding teleprompter script based on the topic given.
+Rules:
+- Conversational tone, like the creator is speaking directly to camera
+- No stage directions, no [brackets], no headers — pure spoken words only
+- Use short sentences. One idea per sentence.
+- Aim for 90-150 words unless the user specifies otherwise
+- End with a clear call to action`;
+  const text = await aiCall(sys, topic);
+  if (text) document.getElementById('scriptInput').value = text;
+}
+
+async function aiRefine() {
+  const current = document.getElementById('scriptInput').value.trim();
+  if (!current) { alert('Write or paste a script first.'); return; }
+  const sys = `You are a professional script editor. Tighten the following teleprompter script:
+- Remove filler words and redundancy
+- Make sentences shorter and punchier
+- Keep the speaker's voice and key points
+- Return ONLY the improved script, no commentary`;
+  const text = await aiCall(sys, current);
+  if (text) document.getElementById('scriptInput').value = text;
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (document.getElementById('editOverlay').style.display !== 'none') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.code === 'Space') { e.preventDefault(); autoScrolling ? stopAutoScroll() : startAutoScroll(); }
+  if (e.code === 'ArrowRight' || e.code === 'ArrowDown') { e.preventDefault(); currentIdx = Math.min(currentIdx+1, words.length-1); updateActive(); }
+  if (e.code === 'ArrowLeft'  || e.code === 'ArrowUp')   { e.preventDefault(); currentIdx = Math.max(currentIdx-1, 0); updateActive(); }
+  if (e.code === 'KeyR') toggleRecord();
+  if (e.code === 'KeyM') toggleMirror();
+  if (e.code === 'Home') resetScroll();
+});
+
+// Touch swipe to advance/go back
+let touchStartX = 0;
+document.getElementById('scriptBox') && document.getElementById('scriptBox').addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, {passive:true});
+document.getElementById('scriptBox') && document.getElementById('scriptBox').addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  if (Math.abs(dx) > 50) {
+    if (dx < 0) { currentIdx = Math.min(currentIdx+3, words.length-1); }
+    else        { currentIdx = Math.max(currentIdx-3, 0); }
+    updateActive();
+  }
+}, {passive:true});
+
+init();
+</script>
+</body>
+</html>"""
+
+@app.get("/teleprompter")
+def teleprompter_page():
+    u = current_user()
+    if not u:
+        return redirect(url_for("login") + "?next=/teleprompter")
+    return _TELEPROMPTER_HTML
+
+@app.post("/api/teleprompter/ai")
+def api_teleprompter_ai():
+    """Lightweight AI endpoint for script writing and refinement."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p = request.get_json(silent=True) or {}
+    system  = (p.get("system") or "You are a helpful scriptwriter.").strip()
+    message = (p.get("message") or "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "No message"}), 400
+    try:
+        client = get_openai_client()
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": message},
+            ],
+            max_tokens=600,
+            temperature=0.7,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return jsonify({"ok": True, "text": text})
+    except Exception as e:
+        _capture_error(e, context="api_teleprompter_ai")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # =========================
 # TERMS OF SERVICE & PRIVACY POLICY
 # =========================
@@ -12149,6 +12752,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
+            <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
