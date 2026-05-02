@@ -133,7 +133,7 @@ def _capture_error(exc: Exception, context: str = "") -> None:
 # Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 # If not set, keys are stored as plaintext — a warning is printed at startup.
 try:
-    from cryptography.fernet import Fernet as _Fernet, InvalidToken as _InvalidToken
+    from cryptography.fernet import Fernet as _Fernet
     _ENC_KEY_RAW = (os.getenv("FIELD_ENCRYPTION_KEY") or "").strip().encode()
     if _ENC_KEY_RAW:
         _FERNET = _Fernet(_ENC_KEY_RAW)
@@ -190,6 +190,11 @@ MAX_INLINE_TEXT_BYTES = int(os.getenv("MAX_INLINE_TEXT_BYTES", "60000"))  # only
 # Vision (screen capture / images)
 MAX_INLINE_IMAGE_BYTES = int(os.getenv("MAX_INLINE_IMAGE_BYTES", str(1_500_000)))  # 1.5MB
 MAX_INLINE_IMAGES = int(os.getenv("MAX_INLINE_IMAGES", "2"))
+
+# Prompt/message length caps — protects against runaway OpenAI billing from huge inputs.
+# Override via env vars if you want to allow longer prompts on Pro plans.
+MAX_PROMPT_CHARS  = int(os.getenv("MAX_PROMPT_CHARS",  "32000"))   # convene / followup prompt
+MAX_MESSAGE_CHARS = int(os.getenv("MAX_MESSAGE_CHARS", "32000"))   # followup message field
 
 # SMTP
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -674,7 +679,7 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
 client = None  # lazy init to avoid import time crashes
 _CLIENT_LOCK = threading.Lock()
 
-def _get_global_openai_client():
+def _get_global_openai_client() -> "OpenAI":
     global client
     if client is None:
         with _CLIENT_LOCK:
@@ -684,7 +689,7 @@ def _get_global_openai_client():
                 client = OpenAI(api_key=(OPENAI_API_KEY or ""))
     return client
 
-def _get_claude_client_for_user(u):
+def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
     """Returns Anthropic client using ONLY the user's own saved claude_key. Never falls back to server."""
     if _anthropic_sdk is None:
         return None
@@ -695,10 +700,10 @@ def _get_claude_client_for_user(u):
         return None
     return _anthropic_sdk.Anthropic(api_key=key)
 
-def _is_claude_model(model):
+def _is_claude_model(model: Optional[str]) -> bool:
     return (model or "").lower().startswith("claude")
 
-def _resolve_model_for_user(defn, u=None):
+def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = None) -> str:
     """Priority: teammate preferred_model > user global_default_model > server MODEL."""
     tm = (defn.get("preferred_model") or "").strip()
     if tm:
@@ -1760,7 +1765,7 @@ def _csrf_valid() -> bool:
 
 
 @app.get("/health")
-def health_check():
+def health_check() -> Any:
     """Health check for Render and any uptime monitors.
     Returns 200 OK immediately — no auth, no DB calls, no overhead."""
     return jsonify({
@@ -1770,18 +1775,18 @@ def health_check():
     })
 
 @app.get("/ping")
-def ping():
+def ping() -> Any:
     """Alias for /health — some monitors use /ping."""
     return "pong", 200
 
 @app.get("/api/csrf_token")
-def api_csrf_token():
+def api_csrf_token() -> Any:
     """Issue (or return) the CSRF token for this session. Call before any POST."""
     token = _csrf_token_for_session()
     return jsonify({"ok": True, "csrf_token": token})
 
 @app.before_request
-def _auth_guard():
+def _auth_guard() -> Optional[Any]:
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
     if request.path.startswith("/static/"):
@@ -1832,7 +1837,7 @@ def _auth_guard():
 
     return None
 
-def get_openai_client():
+def get_openai_client() -> "OpenAI":
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
 
@@ -4129,8 +4134,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     if "model" in s and ("not found" in s or "does not exist" in s):
         model_hint = ""
         try:
-            import re as _re
-            m = _re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
+            m = re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
             if m:
                 model_hint = f" (model: {m.group(1)})"
         except Exception:
@@ -4208,7 +4212,6 @@ def _is_retryable_llm_error(e: Exception) -> bool:
 # URL CONTENT FETCHER (for teammates)
 # =========================
 import urllib.request as _urllib_req
-import urllib.error as _urllib_err
 
 def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     """Fetch and extract text content from a URL. Returns (text, error)."""
@@ -4236,9 +4239,8 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
                 tag.decompose()
             text = soup.get_text(separator=" ", strip=True)
         else:
-            import re as _re
-            text = _re.sub(r"<[^>]+>", " ", html)
-            text = _re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"<[^>]+>", " ", html)
+            text = re.sub(r"\s+", " ", text).strip()
         # Truncate
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n\n[Content truncated at {max_chars} chars]"
@@ -4248,8 +4250,7 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
 
 def _inject_url_content(message: str) -> str:
     """Detect URLs in message, fetch their content, and prepend to message."""
-    import re as _re
-    url_pattern = _re.compile(r"https?://\S+|www\.\S+", _re.IGNORECASE)
+    url_pattern = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
     urls = url_pattern.findall(message)
     if not urls:
         return message
@@ -6077,10 +6078,16 @@ def api_image_job_status(job_id: str):
 
 @app.post("/api/convene")
 def api_convene():
+    rl = _check_rate_limit("convene", 30)  # 30 AI requests/min per user
+    if rl:
+        return rl
     try:
         data = request.get_json(force=True) or {}
     except Exception:
         data = {}
+    prompt = (data.get("prompt") or "")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        return jsonify({"ok": False, "error": f"Prompt exceeds {MAX_PROMPT_CHARS:,} character limit."}), 400
     try:
         return _api_convene_impl(data)
     except Exception as e:
@@ -6242,10 +6249,16 @@ def _api_convene_impl(data):
 
 @app.post("/api/followup")
 def api_followup():
+    rl = _check_rate_limit("followup", 30)  # 30 AI requests/min per user
+    if rl:
+        return rl
     try:
         data = request.get_json(force=True) or {}
     except Exception:
         data = {}
+    msg = (data.get("message") or "")
+    if len(msg) > MAX_MESSAGE_CHARS:
+        return jsonify({"ok": False, "error": f"Message exceeds {MAX_MESSAGE_CHARS:,} character limit."}), 400
     try:
         return _api_followup_impl(data)
     except Exception as e:
@@ -10011,10 +10024,8 @@ def register_post():
 
     session["user"] = username
     session.permanent = True
+    _audit_log("register", {"email": email, "is_admin": is_first_user, "direct": True}, username=username)
     return redirect(url_for("index"))
-
-
-# ── Pending email verification storage ────────────────────────────────────────
 _PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
 
 def _load_pending_verifications() -> Dict[str, Any]:
@@ -10115,9 +10126,8 @@ def verify_email_post():
 
     session["user"] = username
     session.permanent = True
+    _audit_log("register", {"email": email, "is_admin": is_first}, username=username)
     return redirect(url_for("index"))
-
-@app.get("/verify/resend")
 def verify_resend():
     token = session.get("_pending_verify_token", "")
     if not token:
@@ -10619,6 +10629,7 @@ def reset_password_post():
     u["updated_at"] = now_iso()
     data["users"][username] = u
     save_users(data)
+    _audit_log("password_reset_completed", {}, username=username)
 
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
 
@@ -28236,7 +28247,7 @@ def api_account_delete():
     if errors:
         append_log("account_delete_partial", {"username": uname, "errors": errors})
 
-    append_log("account_deleted", {"username": uname, "at": now_iso()})
+    _audit_log("account_deleted", {"errors": errors}, username=uname)
     return jsonify({"ok": True, "message": "Account and data deleted successfully.", "errors": errors})
 
 
@@ -33962,10 +33973,10 @@ def api_webhook_receive(token: str):
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
 @app.post("/api/followup/stream")
 def api_followup_stream():
-    _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
-    if _rl: return _rl
     """SSE streaming followup — tokens arrive in real time instead of one big wait.
     Drops in alongside the existing /api/followup; same thread/logging semantics."""
+    _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
+    if _rl: return _rl
     from flask import Response, stream_with_context
 
     u = current_user()
@@ -33984,6 +33995,8 @@ def api_followup_stream():
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
+    if len(msg) > MAX_MESSAGE_CHARS:
+        return jsonify({"ok": False, "error": f"Message exceeds {MAX_MESSAGE_CHARS:,} character limit."}), 400
 
     reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
