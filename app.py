@@ -8141,7 +8141,7 @@ LOGIN_HTML = r"""
   .container{
     padding-left:12px !important;
     padding-right:12px !important;
-    padding-bottom:88px !important;
+    padding-bottom:16px !important;
   }
 
   .groupCard,
@@ -12054,10 +12054,11 @@ HTML = r"""
   .mobileBar{
     display:flex !important;
     position:fixed !important;
-    left:0 !important; right:0 !important; bottom:0 !important;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)) !important;
+    left:0 !important; right:0 !important; top:0 !important; bottom:auto !important;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px !important;
     background: rgba(7,10,20,.94) !important;
-    border-top:1px solid rgba(124,58,237,.25) !important;
+    border-bottom:1px solid rgba(124,58,237,.25) !important;
+    border-top:none !important;
     z-index: 9000 !important;
     gap:10px;
     justify-content: space-between;
@@ -12065,7 +12066,7 @@ HTML = r"""
     -webkit-backdrop-filter: blur(12px);
   }
   .mobileBar .btn{ flex: 1 1 auto; padding: 11px 10px; font-size:13px; font-weight:600; }
-  body{ padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  body{ padding-bottom: 0; padding-top: calc(58px + env(safe-area-inset-top)); }
   .mobileDrawerOverlay.show{
     display:block;
     position:fixed;
@@ -12109,12 +12110,12 @@ HTML = r"""
 @media (max-width: 640px){
   #diagFab{
     right: 12px !important;
-    bottom: calc(86px + env(safe-area-inset-bottom)) !important; /* sits above mobile action bar */
+    bottom: 16px !important;
   }
 }
 @media (max-width: 900px) and (orientation: landscape){
   #diagFab{
-    bottom: calc(86px + env(safe-area-inset-bottom)) !important;
+    bottom: 16px !important;
   }
 }
 #diagOverlay{
@@ -12570,7 +12571,7 @@ label         { font-size: 14px !important; }
   .opText { min-height: 72px !important; }
 
   /* Bottom padding above mobile action bar */
-  .container { padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+  .container { padding-bottom: 16px !important; }
 }
 
 /* ── MOBILE NAV ──────────────────────────────────────────────────────────────
