@@ -11995,16 +11995,20 @@ HTML = r"""
 .mobileBar{ display:none; }
 .mobileDrawerOverlay{ display:none; }
 .mobileDrawer{
-  position:absolute;
-  left:10px;
-  right:10px;
-  bottom: calc(66px + env(safe-area-inset-bottom));
-  background: rgba(10,14,30,96);
-  border:1px solid rgba(42,58,106,8);
-  border-radius:18px;
-  box-shadow: 0 18px 60px rgba(0,0,0,55), 0 0 26px rgba(124,58,237,12);
-  backdrop-filter: blur(10px);
-  overflow:hidden;
+  position:fixed;
+  left:0;
+  right:0;
+  top: calc(58px + env(safe-area-inset-top));
+  bottom:0;
+  background: rgba(10,14,30,.97);
+  border:none;
+  border-radius:0;
+  box-shadow: none;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow-y:auto;
+  overflow-x:hidden;
+  z-index:8999;
 }
 .mobileDrawerHead{
   display:flex;
@@ -12031,7 +12035,7 @@ HTML = r"""
 .mobileDrawerFoot .btn{ flex: 1 1 auto; }
 
 /* ── Accordion nav groups ── */
-.mdAccordion{ padding:10px 10px 4px; display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow-y:auto; }
+.mdAccordion{ padding:10px 10px 20px; display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
 .mdGroup{ border:1px solid rgba(42,58,106,.6); border-radius:12px; overflow:hidden; }
 .mdGroupHead{
   width:100%; display:flex; align-items:center; justify-content:space-between;
@@ -12066,13 +12070,15 @@ HTML = r"""
     -webkit-backdrop-filter: blur(12px);
   }
   .mobileBar .btn{ flex: 1 1 auto; padding: 11px 10px; font-size:13px; font-weight:600; }
-  body{ padding-bottom: 0; padding-top: calc(58px + env(safe-area-inset-top)); }
+  body{ padding-bottom: 0; padding-top: calc(58px + env(safe-area-inset-top)); overflow-x:hidden !important; }
+  html{ overflow-x:hidden !important; }
+  .stage, .arena, .container, .modalBody{ max-width:100vw; overflow-x:hidden; }
   .mobileDrawerOverlay.show{
     display:block;
     position:fixed;
     inset:0;
-    background: rgba(2,6,16,62);
-    z-index: 130;
+    background: rgba(2,6,16,.5);
+    z-index: 8998;
   }
 }
 
