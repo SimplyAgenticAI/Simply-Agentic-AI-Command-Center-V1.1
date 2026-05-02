@@ -12740,23 +12740,6 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
-          <!-- Notification Bell -->
-          <div style="position:relative;display:flex;align-items:center;">
-            <button class="saNavBtn" id="notifBellBtn" onclick="toggleNotifPanel()" title="Notifications" style="padding:6px 10px;font-size:16px;line-height:1;">
-              🔔
-              <span id="notifBadge" style="display:none;position:absolute;top:4px;right:6px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;">0</span>
-            </button>
-            <div id="notifPanel" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:9999;">
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
-                <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
-                <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
-              </div>
-              <div id="notifList" style="padding:8px 0;">
-                <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
-              </div>
-            </div>
-          </div>
-
           <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
             <span>Settings</span><span class="saChevron">&#9660;</span>
           </button>
@@ -12779,6 +12762,23 @@ label         { font-size: 14px !important; }
         <button class="saNavBtn" id="communityNavBtn" onclick="openCommunityPanel()" style="padding:7px 14px;background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.4);">
           🏆 Community<span id="communityPendingBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;margin-left:5px;font-weight:800;"></span>
         </button>
+
+        <!-- Notification Bell — after Community -->
+        <div style="position:relative;display:flex;align-items:center;">
+          <button class="saNavBtn" id="notifBellBtn" onclick="toggleNotifPanel()" title="Notifications" style="padding:6px 10px;font-size:16px;line-height:1;position:relative;">
+            🔔
+            <span id="notifBadge" style="display:none;position:absolute;top:2px;right:4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;">0</span>
+          </button>
+          <div id="notifPanel" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:9999;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
+              <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
+              <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
+            </div>
+            <div id="notifList" style="padding:8px 0;">
+              <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
+            </div>
+          </div>
+        </div>
 
       </div>
 
