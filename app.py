@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
@@ -335,6 +336,9 @@ def _plan_price_id(plan_key: str) -> str:
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
+# Module-level lock — shared across ALL calls. A new threading.Lock() inside
+# the function would create a different lock per call, providing zero protection.
+_FOUNDER_SEATS_LOCK = threading.Lock()
 
 def _load_founder_seats() -> Dict[str, Any]:
     """Return founder seat data: {claimed: int, claimants: [...]}"""
@@ -363,7 +367,7 @@ def _founder_seats_remaining() -> int:
 
 def _claim_founder_seat(username: str) -> bool:
     """Atomically claim one founder seat. Returns True if successful."""
-    with threading.Lock():
+    with _FOUNDER_SEATS_LOCK:
         d = _load_founder_seats()
         if d.get("claimed", 0) >= FOUNDER_SEATS_MAX:
             return False
@@ -594,7 +598,6 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
         return None, reason
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
     try:
-        import requests
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
@@ -622,7 +625,6 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
     if not ok:
         return None, reason
     try:
-        import requests
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
@@ -670,11 +672,16 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = None  # lazy init to avoid import time crashes
+_CLIENT_LOCK = threading.Lock()
 
 def _get_global_openai_client():
     global client
     if client is None:
-        client = OpenAI(api_key=(OPENAI_API_KEY or ""))
+        with _CLIENT_LOCK:
+            # Double-checked locking: re-test inside the lock in case another
+            # thread initialised it while we were waiting.
+            if client is None:
+                client = OpenAI(api_key=(OPENAI_API_KEY or ""))
     return client
 
 def _get_claude_client_for_user(u):
@@ -1143,7 +1150,7 @@ def _stripe_ready() -> bool:
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Minimal Stripe REST wrapper — no stripe-python dep required."""
-    import requests as _req
+    _req = requests
     url = f"https://api.stripe.com/v1{path}"
     headers = {"Authorization": f"Bearer {STRIPE_SECRET_KEY}"}
     try:
@@ -1838,14 +1845,6 @@ def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
-def load_json(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
-
 
 # Per-path threading locks so concurrent threads don't race on the same file.
 _JSON_FILE_LOCKS: Dict[str, threading.Lock] = {}
@@ -1857,6 +1856,18 @@ def _json_file_lock(path: Path) -> threading.Lock:
         if key not in _JSON_FILE_LOCKS:
             _JSON_FILE_LOCKS[key] = threading.Lock()
         return _JSON_FILE_LOCKS[key]
+
+def load_json(path: Path, default: Any) -> Any:
+    """Thread-safe JSON read. Holds the per-path lock so reads don't race
+    with concurrent atomic writes (tmp → rename)."""
+    if not path.exists():
+        return default
+    lock = _json_file_lock(path)
+    with lock:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return default
 
 def save_json(path: Path, payload: Any) -> None:
     """Thread-safe atomic JSON write.
@@ -3583,7 +3594,7 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
     return access_token, ""
 
 def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", use_meet: bool = False) -> Dict[str, Any]:
-    import requests, uuid as _uuid
+    _uuid = uuid
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     event: Dict[str, Any] = {
         "summary": title,
@@ -3613,7 +3624,6 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
 
 def _calendar_move_event(access_token: str, event_id: str, new_start_iso: str, new_end_iso: str, timezone: str, send_updates: str = "none") -> Dict[str, Any]:
     """PATCH an existing Google Calendar event to a new time — does NOT create a duplicate."""
-    import requests
     url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
     body = {
         "start": {"dateTime": new_start_iso, "timeZone": timezone},
@@ -3666,7 +3676,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     work calendars, Google Tasks, and any other secondary calendars.
     Now fetches everything the user has access to.
     """
-    import requests as _req
+    _req = requests
     headers = {"Authorization": f"Bearer {access_token}"}
     base_params = {
         "timeMin": time_min, "timeMax": time_max,
@@ -3777,7 +3787,6 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
     return access_token, ""
 
 def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
-    import requests
     # Build RFC 2822 message
     from_header = "me"
     if from_name:
@@ -6847,7 +6856,7 @@ def api_calendar_delete_event():
     if not event_id:
         return jsonify({"ok": False, "error": "Missing event_id"}), 400
     try:
-        import requests as _req
+        _req = requests
         r = _req.delete(
             f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -9167,7 +9176,7 @@ var isRec=false, isPlay=false, mRec=null, chunks=[];
 var cStream=null, camOn=false, camId=null, mir=false;
 var spd=6, fsz=38;
 
-var DEF = 'Welcome to Simply Agentic AI. Our AI teammates handle your marketing, sales, and client communication all in one place. No more switching between tools. No more dropped follow-ups. Just smart, consistent work that sounds like you.';
+var DEF = "Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication \u2014 all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nLet me show you what that looks like.";
 
 function ge(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'')
@@ -9480,14 +9489,9 @@ def teleprompter_page():
     u = current_user()
     if not u:
         return redirect(url_for("login") + "?next=/teleprompter")
-    import hashlib, time
-    etag = hashlib.md5(_TELEPROMPTER_HTML.encode()).hexdigest()[:16]
     resp = make_response(_TELEPROMPTER_HTML)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    resp.headers["ETag"] = f'"{etag}"'
-    resp.headers["Clear-Site-Data"] = '"cache"'
     return resp
 
 @app.post("/api/teleprompter/ai")
@@ -12632,7 +12636,7 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
-            <a class="saDropItem" href="/teleprompter?v=3" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
+            <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
@@ -12756,7 +12760,7 @@ label         { font-size: 14px !important; }
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
-            <a class="btn" href="/teleprompter?v=3" onclick="closeMobileDrawer()" style="text-decoration:none;display:block;text-align:left;">🎬 Teleprompter</a>
+            <a class="btn" href="/teleprompter" onclick="closeMobileDrawer()" style="text-decoration:none;display:block;text-align:left;">🎬 Teleprompter</a>
           </div>
         </div>
 
@@ -28544,7 +28548,6 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
         if not sid or not token or not from_num:
             return False, "Twilio missing SID/TOKEN/FROM."
-        import requests
         url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
         r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
         if r.status_code >= 400:
@@ -30051,7 +30054,6 @@ def _crm_guess_company(title: str, domain: str) -> str:
 
 def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
     try:
-        import requests
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         ctype = (r.headers.get("Content-Type") or "").lower()
@@ -30082,7 +30084,6 @@ def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, 
     results: List[Tuple[str, str]] = []
     def fetch_one(u: str) -> Tuple[str, str]:
         try:
-            import requests
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
             r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
             ctype = (r.headers.get("Content-Type") or "").lower()
@@ -30371,7 +30372,6 @@ def _crm_warm_reason(candidate: Dict[str, Any], niche: str, location: str) -> st
 
 def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
-        import requests
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=20)
         html = r.text or ""
@@ -30623,7 +30623,6 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
 
 def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
-        import requests
         from urllib.parse import quote_plus
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         url = "https://www.bing.com/search?q=" + quote_plus(query) + "&count=20"
@@ -33691,7 +33690,7 @@ def _execute_teammate_tool(
             cal_token, reason = _calendar_creds_for_user(u)
             if not cal_token:
                 return f"Calendar not connected: {reason}"
-            import requests as _req
+            _req = requests
             now_dt   = datetime.utcnow()
             time_min = now_dt.isoformat() + "Z"
             time_max = (now_dt + timedelta(days=days)).isoformat() + "Z"
