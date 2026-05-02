@@ -1092,6 +1092,48 @@ try:
 except Exception:
     pass
 
+
+# =========================
+# AUDIT LOG SYSTEM
+# =========================
+# Persistent per-user audit trail. Records who did what and when.
+# Stored as a single rolling JSON file per user. Capped at 1000 events.
+
+_AUDIT_LOCK = threading.Lock()
+_AUDIT_MAX  = 1000
+
+def _audit_log(action: str, detail: dict = None, username: str = None) -> None:
+    """Record an audit event. Safe to call from any route."""
+    try:
+        if not username:
+            try:
+                u = current_user()
+                username = (u.get("username") if isinstance(u, dict) else None) or "system"
+            except Exception:
+                username = "system"
+        record = {
+            "ts":     now_iso(),
+            "action": action,
+            "user":   username,
+            "ip":     (request.headers.get("X-Forwarded-For", request.remote_addr or "") if request else "").split(",")[0].strip(),
+            "detail": detail or {}
+        }
+        audit_path = Path(DATA_DIR) / f"audit_{username}.json"
+        with _AUDIT_LOCK:
+            try:
+                events = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path.exists() else []
+            except Exception:
+                events = []
+            events.append(record)
+            if len(events) > _AUDIT_MAX:
+                events = events[-_AUDIT_MAX:]
+            tmp = str(audit_path) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(events, f)
+            os.replace(tmp, str(audit_path))
+    except Exception:
+        pass
+
 # =========================
 # STARTUP MIGRATION: Fix saved teammate job titles
 
@@ -1329,34 +1371,59 @@ def _clear_login_failures(username: str) -> None:
 # =========================
 # Prevents runaway usage / API cost abuse. Limits: calls per minute per user.
 # These are intentionally generous for normal use but catch bots/loops.
-_RATE_LIMITS: Dict[str, Any] = {}  # { key -> {"count": int, "window_start": datetime} }
-_RATE_LIMITS_LOCK = threading.Lock()
-
 # Limits per 60-second window, by endpoint category
-RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))       # chat/followup per user/min
-RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))      # image gen per user/min
-RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))      # email sends per user/min
-RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))     # uploads per user/min
-RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))   # general API per user/min
+RATE_LIMIT_CHAT       = int(os.getenv("RATE_LIMIT_CHAT", "30"))
+RATE_LIMIT_IMAGE      = int(os.getenv("RATE_LIMIT_IMAGE", "10"))
+RATE_LIMIT_EMAIL      = int(os.getenv("RATE_LIMIT_EMAIL", "20"))
+RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))
+RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))
 RATE_LIMIT_WINDOW_SEC = 60
 
+# ── Persistent file-backed rate limiter ──────────────────────────────────────
+# Survives server restarts, Gunicorn reloads, and deploys.
+# Uses a single JSON file with per-key counters + window timestamps.
+_RATE_LIMITS_LOCK = threading.Lock()
+
+def _rl_file() -> str:
+    return os.path.join(DATA_DIR, "_rate_limits.json")
+
+def _rl_load() -> dict:
+    try:
+        with open(_rl_file(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _rl_save(data: dict) -> None:
+    try:
+        tmp = _rl_file() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, _rl_file())
+    except Exception:
+        pass
+
+def _rl_cleanup(data: dict, now_ts: float) -> dict:
+    """Remove expired keys to keep file small. Called on every write."""
+    cutoff = now_ts - RATE_LIMIT_WINDOW_SEC * 2
+    return {k: v for k, v in data.items() if v.get("window_start", 0) > cutoff}
+
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
-    """Returns (allowed, error_message). Thread-safe sliding-window counter."""
-    now = datetime.utcnow()
+    """Returns (allowed, error_message). Persistent across restarts."""
+    now_ts = datetime.utcnow().timestamp()
     with _RATE_LIMITS_LOCK:
-        rec = _RATE_LIMITS.get(key)
-        if rec is None:
-            _RATE_LIMITS[key] = {"count": 1, "window_start": now}
-            return True, ""
-        elapsed = (now - rec["window_start"]).total_seconds()
-        if elapsed > RATE_LIMIT_WINDOW_SEC:
-            # New window
-            _RATE_LIMITS[key] = {"count": 1, "window_start": now}
+        data = _rl_load()
+        rec = data.get(key)
+        if rec is None or (now_ts - rec.get("window_start", 0)) > RATE_LIMIT_WINDOW_SEC:
+            data[key] = {"count": 1, "window_start": now_ts}
+            _rl_save(_rl_cleanup(data, now_ts))
             return True, ""
         if rec["count"] >= limit:
-            wait = int(RATE_LIMIT_WINDOW_SEC - elapsed) + 1
+            wait = int(RATE_LIMIT_WINDOW_SEC - (now_ts - rec["window_start"])) + 1
             return False, f"Rate limit reached. Please wait {wait} second(s) before trying again."
         rec["count"] += 1
+        data[key] = rec
+        _rl_save(_rl_cleanup(data, now_ts))
         return True, ""
 
 def _get_rate_key(category: str) -> str:
@@ -5948,6 +6015,7 @@ def api_delete_teammate(n: str):
     except Exception:
         pass
     append_log("teammate_deleted", {"name": n, "deleted_by": uname, "at": now_iso()})
+    _notif_push(uname, "Teammate removed", f"{n} has been uninstalled.", ntype="info")
     return jsonify({"ok": True})
 
 
@@ -5983,6 +6051,7 @@ def api_create_teammate():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     append_log("teammate_created", {"name": t.get("name"), "job_title": t.get("job_title"), "version": t.get("version"), "created_at": now_iso()})
+    _notif_push(uname, "Teammate created", f"{t.get('name','')} is installed and ready.", ntype="success")
     return jsonify({"ok": True, "teammate": t})
 
 
@@ -9722,6 +9791,7 @@ def login_post():
     session.permanent = bool(remember)
     if remember:
         app.permanent_session_lifetime = timedelta(days=30)
+    _audit_log("login", {"remember": bool(remember)}, username=username)
 
     # Safe same-origin ?next= redirect (prevents open redirect attacks)
     next_url = (request.args.get("next") or request.form.get("next") or "").strip()
@@ -10154,6 +10224,10 @@ def verify_resend():
 
 @app.get("/logout")
 def logout():
+    try:
+        _audit_log("logout")
+    except Exception:
+        pass
     session.clear()
     return redirect(url_for("login"))
 
@@ -10544,6 +10618,7 @@ def reset_post():
 
     data["users"][username] = u
     save_users(data)
+    _audit_log("password_reset_requested", {}, username=username)
 
     # Try to email the token if the user has an email address on file
     user_email = (u.get("email") or "").strip()
@@ -12665,6 +12740,23 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
+          <!-- Notification Bell -->
+          <div style="position:relative;display:flex;align-items:center;">
+            <button class="saNavBtn" id="notifBellBtn" onclick="toggleNotifPanel()" title="Notifications" style="padding:6px 10px;font-size:16px;line-height:1;">
+              🔔
+              <span id="notifBadge" style="display:none;position:absolute;top:4px;right:6px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;">0</span>
+            </button>
+            <div id="notifPanel" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:9999;">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
+                <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
+                <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
+              </div>
+              <div id="notifList" style="padding:8px 0;">
+                <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
+              </div>
+            </div>
+          </div>
+
           <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
             <span>Settings</span><span class="saChevron">&#9660;</span>
           </button>
@@ -27329,6 +27421,80 @@ document.addEventListener("click", function(e) {
   }
 
   /* ─── INIT ────────────────────────────────────────────────────────────────── */
+
+  // ── Notification Bell ──────────────────────────────────────────────────────
+  window._notifOpen = false;
+  window.toggleNotifPanel = function() {
+    const panel = document.getElementById('notifPanel');
+    if (!panel) return;
+    window._notifOpen = !window._notifOpen;
+    panel.style.display = window._notifOpen ? 'block' : 'none';
+    if (window._notifOpen) loadNotifs();
+  };
+
+  async function loadNotifs() {
+    try {
+      const r = await fetch('/api/notifications', {credentials:'same-origin'});
+      const d = await r.json();
+      if (!d.ok) return;
+      const badge = document.getElementById('notifBadge');
+      const list  = document.getElementById('notifList');
+      if (badge) {
+        badge.style.display = d.unread > 0 ? 'block' : 'none';
+        badge.textContent = d.unread > 9 ? '9+' : d.unread;
+      }
+      if (list) {
+        if (!d.notifications || !d.notifications.length) {
+          list.innerHTML = '<div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>';
+        } else {
+          list.innerHTML = d.notifications.map(n => {
+            const col = n.type==='success'?'#34d399':n.type==='error'?'#f87171':n.type==='warning'?'#fbbf24':'#818cf8';
+            const dot = `<span style="width:7px;height:7px;border-radius:50%;background:${col};flex-shrink:0;margin-top:5px;"></span>`;
+            const readStyle = n.read ? 'opacity:.55;' : '';
+            return `<div style="display:flex;gap:10px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;${readStyle}" onclick="markNotifRead('${n.id}',this)">
+              ${dot}
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:${n.read?'400':'500'};color:#e2e8f0;margin-bottom:2px;">${n.title}</div>
+                ${n.body ? `<div style="font-size:12px;color:#64748b;line-height:1.45;">${n.body}</div>` : ''}
+                <div style="font-size:11px;color:#475569;margin-top:3px;">${n.ts ? n.ts.slice(0,16).replace('T',' ') : ''}</div>
+              </div>
+            </div>`;
+          }).join('');
+        }
+      }
+    } catch(e) {}
+  }
+
+  window.markNotifRead = async function(id, el) {
+    try {
+      await fetch('/api/notifications/read', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+      if (el) el.style.opacity = '.55';
+      loadNotifs();
+    } catch(e) {}
+  };
+
+  window.clearAllNotifs = async function() {
+    try {
+      await fetch('/api/notifications', {method:'DELETE',credentials:'same-origin'});
+      loadNotifs();
+    } catch(e) {}
+  };
+
+  // Poll for new notifications every 60 seconds
+  setInterval(loadNotifs, 60000);
+  // Initial load after page ready
+  setTimeout(loadNotifs, 2000);
+
+  // Close notif panel when clicking outside
+  document.addEventListener('click', function(e) {
+    const bell = document.getElementById('notifBellBtn');
+    const panel = document.getElementById('notifPanel');
+    if (bell && panel && !bell.contains(e.target) && !panel.contains(e.target)) {
+      panel.style.display = 'none';
+      window._notifOpen = false;
+    }
+  });
+  // ──────────────────────────────────────────────────────────────────────────
   document.addEventListener("DOMContentLoaded", function(){
     initStreamToggle();
     patchSendFollow();
@@ -34772,6 +34938,215 @@ def _community_is_admin(u: dict) -> bool:
     """Account owner (not a team-invited member) can moderate ideas."""
     if not u: return False
     return not u.get("owner")
+
+
+
+
+# =========================
+# IN-APP NOTIFICATION SYSTEM
+# =========================
+# Lightweight per-user notification feed. Stores last 50 notifications.
+# Surfaced via GET /api/notifications. Marked read via POST /api/notifications/read.
+
+_NOTIF_MAX = 50
+_NOTIF_LOCK = threading.Lock()
+
+def _notif_push(username: str, title: str, body: str = "", ntype: str = "info", link: str = "") -> None:
+    """Push a notification to a user's feed. Types: info, success, warning, error."""
+    try:
+        notif_path = Path(DATA_DIR) / f"notif_{username}.json"
+        record = {
+            "id":      "n_" + secrets.token_hex(6),
+            "ts":      now_iso(),
+            "title":   title,
+            "body":    body,
+            "type":    ntype,
+            "link":    link,
+            "read":    False
+        }
+        with _NOTIF_LOCK:
+            try:
+                notifs = json.loads(notif_path.read_text(encoding="utf-8")) if notif_path.exists() else []
+            except Exception:
+                notifs = []
+            notifs.append(record)
+            if len(notifs) > _NOTIF_MAX:
+                notifs = notifs[-_NOTIF_MAX:]
+            tmp = str(notif_path) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(notifs, f)
+            os.replace(tmp, str(notif_path))
+    except Exception:
+        pass
+
+@app.get("/api/notifications")
+def api_notifications_get():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    try:
+        notif_path = Path(DATA_DIR) / f"notif_{uname}.json"
+        notifs = json.loads(notif_path.read_text(encoding="utf-8")) if notif_path.exists() else []
+        unread = sum(1 for n in notifs if not n.get("read"))
+        return jsonify({"ok": True, "notifications": list(reversed(notifs[-30:])), "unread": unread})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/api/notifications/read")
+def api_notifications_mark_read():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    body = request.get_json(silent=True) or {}
+    notif_id = body.get("id")  # None = mark all read
+    try:
+        notif_path = Path(DATA_DIR) / f"notif_{uname}.json"
+        with _NOTIF_LOCK:
+            notifs = json.loads(notif_path.read_text(encoding="utf-8")) if notif_path.exists() else []
+            for n in notifs:
+                if notif_id is None or n.get("id") == notif_id:
+                    n["read"] = True
+            tmp = str(notif_path) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(notifs, f)
+            os.replace(tmp, str(notif_path))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.delete("/api/notifications")
+def api_notifications_clear():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    try:
+        notif_path = Path(DATA_DIR) / f"notif_{uname}.json"
+        if notif_path.exists(): notif_path.unlink()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# =========================
+# USER API KEY SYSTEM
+# =========================
+# Personal access tokens for integrating Simply Agentic AI with external tools.
+# Stored hashed in the user record. Shown once at creation.
+
+def _generate_api_key() -> str:
+    import secrets
+    return "sa_" + secrets.token_urlsafe(32)
+
+def _hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+@app.get("/api/user/api-keys")
+def api_user_keys_list():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    data = load_users()
+    user = (data.get("users") or {}).get(uname, {})
+    keys = user.get("api_keys") or []
+    # Return metadata only — never the raw key
+    safe = [{"id": k["id"], "label": k.get("label",""), "created_at": k.get("created_at",""), "last_used": k.get("last_used","")} for k in keys]
+    return jsonify({"ok": True, "keys": safe})
+
+@app.post("/api/user/api-keys")
+def api_user_keys_create():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    body = request.get_json(silent=True) or {}
+    label = (body.get("label") or "My API Key").strip()[:64]
+    raw_key = _generate_api_key()
+    key_id = "key_" + secrets.token_hex(8)
+    data = load_users()
+    users = data.get("users") or {}
+    if uname not in users: return jsonify({"ok": False, "error": "User not found"}), 404
+    users[uname].setdefault("api_keys", [])
+    users[uname]["api_keys"].append({
+        "id": key_id,
+        "label": label,
+        "hash": _hash_api_key(raw_key),
+        "created_at": now_iso(),
+        "last_used": ""
+    })
+    users[uname]["updated_at"] = now_iso()
+    data["users"] = users
+    save_users(data)
+    _audit_log("api_key_created", {"id": key_id, "label": label}, username=uname)
+    # Return raw key ONCE — never stored in plaintext
+    return jsonify({"ok": True, "key": raw_key, "id": key_id, "label": label,
+                    "message": "Save this key now — it will not be shown again."})
+
+@app.delete("/api/user/api-keys/<key_id>")
+def api_user_keys_delete(key_id: str):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    data = load_users()
+    users = data.get("users") or {}
+    if uname not in users: return jsonify({"ok": False, "error": "User not found"}), 404
+    keys = users[uname].get("api_keys") or []
+    users[uname]["api_keys"] = [k for k in keys if k["id"] != key_id]
+    users[uname]["updated_at"] = now_iso()
+    data["users"] = users
+    save_users(data)
+    _audit_log("api_key_deleted", {"id": key_id}, username=uname)
+    return jsonify({"ok": True})
+
+def _authenticate_api_key(raw_key: str):
+    """Validate a Bearer token API key. Returns user dict or None."""
+    if not raw_key or not raw_key.startswith("sa_"):
+        return None
+    key_hash = _hash_api_key(raw_key)
+    data = load_users()
+    for uname, user in (data.get("users") or {}).items():
+        for k in (user.get("api_keys") or []):
+            if k.get("hash") == key_hash:
+                # Update last_used timestamp
+                try:
+                    k["last_used"] = now_iso()
+                    save_users(data)
+                except Exception:
+                    pass
+                return user
+    return None
+
+# =========================
+# AUDIT LOG API
+# =========================
+
+@app.get("/api/audit/log")
+def api_audit_log():
+    """Return the current user's audit trail. Admins can query any user."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    target = request.args.get("user", uname)
+    # Only admins can view other users' logs
+    if target != uname and not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    try:
+        audit_path = Path(DATA_DIR) / f"audit_{target}.json"
+        events = json.loads(audit_path.read_text(encoding="utf-8")) if audit_path.exists() else []
+        limit = min(int(request.args.get("limit", 100)), 500)
+        return jsonify({"ok": True, "events": list(reversed(events[-limit:])), "total": len(events)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.delete("/api/audit/log")
+def api_audit_log_clear():
+    """Admin only: clear a user's audit log."""
+    u = current_user()
+    if not u or not _is_admin_user(u): return jsonify({"ok": False, "error": "Forbidden"}), 403
+    target = (request.get_json(silent=True) or {}).get("user", u.get("username",""))
+    try:
+        audit_path = Path(DATA_DIR) / f"audit_{target}.json"
+        if audit_path.exists(): audit_path.unlink()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ── Community API routes ────────────────────────────────────────────
 
