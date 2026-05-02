@@ -5375,35 +5375,38 @@ function closeGenModal() {
 }
 
 async function doGenerate() {
+  const btn = document.querySelector('#genBox .btn-primary') || document.querySelector('[onclick="doGenerate()"]');
   const resultEl = document.getElementById('genResult');
-  resultEl.style.color = '#94a3b8';
-  resultEl.style.fontSize = '13px';
-  resultEl.style.marginTop = '10px';
-  resultEl.innerText = '⏳ Generating…';
-  const count = parseInt(document.getElementById('genCount').value) || 1;
-  const name  = (document.getElementById('genName').value || '').trim();
-  const email = (document.getElementById('genEmail').value || '').trim();
-  const plan  = document.getElementById('genPlan').value || 'starter';
+  if(btn) btn.disabled = true;
+  resultEl.style.cssText = 'color:#94a3b8;font-size:13px;margin-top:10px;display:block;';
+  resultEl.innerText = '⏳ Generating seat code(s)…';
+  const count = parseInt((document.getElementById('genCount')||{}).value) || 1;
+  const name  = ((document.getElementById('genName')||{}).value || '').trim();
+  const email = ((document.getElementById('genEmail')||{}).value || '').trim();
+  const plan  = ((document.getElementById('genPlan')||{}).value) || 'starter';
   try {
     const res = await fetch('/api/admin/seats/generate', {
       method: 'POST',
       credentials: 'same-origin',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+      body: JSON.stringify({count: count, holder_name: name, holder_email: email, plan: plan})
     });
-    const d = await res.json();
+    const text = await res.text();
+    let d;
+    try { d = JSON.parse(text); } catch(e) { d = {ok: false, error: 'Bad response: ' + text.slice(0,100)}; }
     if (d.ok) {
       resultEl.style.color = '#6ee7b7';
       resultEl.innerText = '✓ Generated: ' + d.generated.join(', ');
-      closeGenModal();
-      await loadSeats();
+      setTimeout(function() { closeGenModal(); loadSeats(); }, 1200);
     } else {
       resultEl.style.color = '#f87171';
-      resultEl.innerText = '✗ Error: ' + (d.error || 'Unknown error') + ' (HTTP ' + res.status + ')';
+      resultEl.innerText = '✗ ' + (d.error || 'Unknown error') + ' [HTTP ' + res.status + ']';
     }
   } catch (err) {
     resultEl.style.color = '#f87171';
     resultEl.innerText = '✗ Network error: ' + err.message;
+  } finally {
+    if(btn) btn.disabled = false;
   }
 }
 
@@ -9178,6 +9181,8 @@ _TELEPROMPTER_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
 <title>Teleprompter</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -9569,7 +9574,10 @@ def teleprompter_page():
     u = current_user()
     if not u:
         return redirect(url_for("login") + "?next=/teleprompter")
-    return _TELEPROMPTER_HTML
+    resp = make_response(_TELEPROMPTER_HTML)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 @app.post("/api/teleprompter/ai")
 def api_teleprompter_ai():
@@ -12862,6 +12870,7 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👤 CRM</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var b=document.getElementById('notifBellBtn');if(b)b.click();},200);">🔔 Notifications</button>
           </div>
         </div>
 
