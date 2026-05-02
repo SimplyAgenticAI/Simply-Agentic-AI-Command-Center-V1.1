@@ -17354,7 +17354,18 @@ function makeSeat(defn, idx){
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      // Fall back to window.lastSeatAssistantText which the streaming IIFE writes to
+      // Toggle stream-TTS mode: speak first sentence as it arrives
+      window._streamTtsEnabled = !window._streamTtsEnabled;
+      if(window._streamTtsEnabled){
+        btn.classList.add("btnPrimary");
+        btn.textContent = "🔊 Auto-Speak: ON";
+        if(typeof showToast==="function") showToast("🔊 Auto-Speak on — teammates will speak as they respond");
+        return;
+      } else {
+        btn.classList.remove("btnPrimary");
+        btn.textContent = "🔊 Speak";
+        // Fall through to speak current text manually
+      }
       var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
       if(!text.trim()){
         if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
@@ -27088,6 +27099,8 @@ document.addEventListener("click", function(e) {
     // If already playing, stop
     if(window._saTtsPlaying){
       window._saTtsPlaying = false;
+window._streamTtsEnabled = false; // auto-speak mode: first sentence plays as it streams
+window._streamTtsFired = false;
       try{ window._saTtsAudio.pause(); }catch(_){}
       try{ speechSynthesis.cancel(); }catch(_){}
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
@@ -27257,6 +27270,7 @@ document.addEventListener("click", function(e) {
 
     if(msgEl) msgEl.value="";
     let fullText = "";
+    window._streamTtsFired = false; // reset per-message so first sentence speaks
 
     try{
       const response = await fetch("/api/followup/stream",{
@@ -27290,6 +27304,19 @@ document.addEventListener("click", function(e) {
             aBody.innerText = fullText;
             aBody.appendChild(aCursor);
             threadEl.scrollTop = threadEl.scrollHeight;
+            // ── Sentence-streaming TTS: speak first sentence ~1s after it arrives ──
+            if(window._streamTtsEnabled && !window._streamTtsFired){
+              var sentEnd = fullText.search(/[.!?][\s\n]/);
+              if(sentEnd > 20){
+                window._streamTtsFired = true;
+                var firstSent = fullText.slice(0, sentEnd+1).trim();
+                var _tmDef = (typeof _tm === "function") ? _tm(seat) : {};
+                var _voice = (_tmDef && _tmDef.tts_voice) || "alloy";
+                if(typeof window.saTtsSpeak === "function"){
+                  window.saTtsSpeak(firstSent, _voice, null);
+                }
+              }
+            }
           }
           if(parsed.error){ throw new Error(parsed.error); }
           if(parsed.done){
