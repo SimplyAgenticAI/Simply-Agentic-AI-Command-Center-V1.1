@@ -9167,7 +9167,7 @@ var isRec=false, isPlay=false, mRec=null, chunks=[];
 var cStream=null, camOn=false, camId=null, mir=false;
 var spd=6, fsz=38;
 
-var DEF = "Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication \u2014 all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nLet me show you what that looks like.";
+var DEF = 'Welcome to Simply Agentic AI. Our AI teammates handle your marketing, sales, and client communication all in one place. No more switching between tools. No more dropped follow-ups. Just smart, consistent work that sounds like you.';
 
 function ge(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'')
@@ -9480,9 +9480,14 @@ def teleprompter_page():
     u = current_user()
     if not u:
         return redirect(url_for("login") + "?next=/teleprompter")
+    import hashlib, time
+    etag = hashlib.md5(_TELEPROMPTER_HTML.encode()).hexdigest()[:16]
     resp = make_response(_TELEPROMPTER_HTML)
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    resp.headers["ETag"] = f'"{etag}"'
+    resp.headers["Clear-Site-Data"] = '"cache"'
     return resp
 
 @app.post("/api/teleprompter/ai")
@@ -12627,7 +12632,7 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
-            <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
+            <a class="saDropItem" href="/teleprompter?v=3" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
@@ -12751,7 +12756,7 @@ label         { font-size: 14px !important; }
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
-            <a class="btn" href="/teleprompter" onclick="closeMobileDrawer()" style="text-decoration:none;display:block;text-align:left;">🎬 Teleprompter</a>
+            <a class="btn" href="/teleprompter?v=3" onclick="closeMobileDrawer()" style="text-decoration:none;display:block;text-align:left;">🎬 Teleprompter</a>
           </div>
         </div>
 
