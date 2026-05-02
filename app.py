@@ -27346,7 +27346,7 @@ document.addEventListener("click", function(e) {
 <style>
 #communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;}
 #communityPanel.open{display:flex;}
-.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}@media(max-width:720px){#communityPanel{align-items:flex-start;justify-content:flex-start;padding-top:calc(58px + env(safe-area-inset-top));}.cpanel{width:100%;max-height:calc(100dvh - 58px - env(safe-area-inset-top));border-radius:0;border-left:none;border-right:none;border-top:1px solid rgba(124,58,237,.3);}}
+.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}
 .cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
 .cp-title{font-size:18px;font-weight:800;color:#f3e8ff;}
 .cp-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer;}
@@ -27419,6 +27419,12 @@ document.addEventListener("click", function(e) {
 .mod-ship{background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.3);color:#fcd34d;}
 </style>
 
+<style>
+@media(max-width:720px){
+  #communityPanel{align-items:flex-start !important;justify-content:flex-start !important;padding-top:calc(58px + env(safe-area-inset-top)) !important;}
+  .cpanel{width:100% !important;max-height:calc(100dvh - 58px - env(safe-area-inset-top)) !important;border-radius:0 !important;border-left:none !important;border-right:none !important;border-top:1px solid rgba(124,58,237,.3) !important;}
+}
+</style>
 <div id="communityPanel">
   <div class="cpanel">
     <div class="cp-header">
