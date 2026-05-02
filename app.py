@@ -7553,11 +7553,10 @@ AUTH_BASE_CSS = r"""
 .pill{ max-width: 100%; overflow:hidden; text-overflow: ellipsis; }
 
 
-/* ===== FINAL: Mobile Layout Lock v2 (no clipping, true centering, horizontal pan allowed) ===== */
+/* ===== FINAL: Mobile Layout Lock v2 ===== */
 @media (max-width: 640px){
-  /* Allow horizontal pan if anything still overflows */
-  html, body{ overflow-x: auto !important; }
-  .container{ overflow-x: auto !important; }
+  html, body{ overflow-x: hidden !important; }
+  .container{ max-width:100vw; overflow-x:hidden !important; }
 
   /* Force the round table region to behave like a centered block */
   .tableWrap{
@@ -7627,8 +7626,7 @@ AUTH_BASE_CSS = r"""
     scroll-snap-align: center;
   }
 
-  /* If any earlier rules hid horizontal overflow, undo it (user asked to pan if needed) */
-  html, body{ overflow-x: auto !important; }
+  html, body{ overflow-x: hidden !important; }
 }
 
 
@@ -27348,7 +27346,7 @@ document.addEventListener("click", function(e) {
 <style>
 #communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;}
 #communityPanel.open{display:flex;}
-.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}
+.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}@media(max-width:720px){#communityPanel{align-items:flex-start;justify-content:flex-start;padding-top:calc(58px + env(safe-area-inset-top));}.cpanel{width:100%;max-height:calc(100dvh - 58px - env(safe-area-inset-top));border-radius:0;border-left:none;border-right:none;border-top:1px solid rgba(124,58,237,.3);}}
 .cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
 .cp-title{font-size:18px;font-weight:800;color:#f3e8ff;}
 .cp-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer;}
