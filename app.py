@@ -185,13 +185,14 @@ else:
 # ── Critical env var validation ───────────────────────────────────────────────
 def _startup_check() -> None:
     """Print a clear checklist of critical configuration at startup."""
+    _pub_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     checks = [
-        ("SECRET_KEY",             bool(os.getenv("SECRET_KEY")),             "Flask sessions insecure — set SECRET_KEY"),
-        ("OPENAI_API_KEY",         bool(OPENAI_API_KEY),                      "AI features disabled — set OPENAI_API_KEY"),
-        ("PUBLIC_BASE_URL",        not PUBLIC_BASE_URL.startswith("http://localhost"), "Set PUBLIC_BASE_URL to your live domain for OAuth + emails"),
-        ("FIELD_ENCRYPTION_KEY",   bool(os.getenv("FIELD_ENCRYPTION_KEY")),   "API keys stored as plaintext — set FIELD_ENCRYPTION_KEY"),
-        ("STRIPE_SECRET_KEY",      bool(os.getenv("STRIPE_SECRET_KEY")),      "Billing disabled — set STRIPE_SECRET_KEY"),
-        ("STRIPE_WEBHOOK_SECRET",  bool(os.getenv("STRIPE_WEBHOOK_SECRET")),  "Stripe webhooks unverified — set STRIPE_WEBHOOK_SECRET"),
+        ("SECRET_KEY",            bool(os.getenv("SECRET_KEY")),             "Flask sessions insecure — set SECRET_KEY"),
+        ("OPENAI_API_KEY",        bool(os.getenv("OPENAI_API_KEY","")),      "AI features disabled — set OPENAI_API_KEY"),
+        ("PUBLIC_BASE_URL",       bool(_pub_url) and not _pub_url.startswith("http://localhost"), "Set PUBLIC_BASE_URL to your live domain for OAuth + emails"),
+        ("FIELD_ENCRYPTION_KEY",  bool(os.getenv("FIELD_ENCRYPTION_KEY")),   "API keys stored as plaintext — set FIELD_ENCRYPTION_KEY"),
+        ("STRIPE_SECRET_KEY",     bool(os.getenv("STRIPE_SECRET_KEY")),      "Billing disabled — set STRIPE_SECRET_KEY"),
+        ("STRIPE_WEBHOOK_SECRET", bool(os.getenv("STRIPE_WEBHOOK_SECRET")),  "Stripe webhooks unverified — set STRIPE_WEBHOOK_SECRET"),
     ]
     ok_count = sum(1 for _, v, _ in checks if v)
     print(f"\n[STARTUP] ── Configuration check ({ok_count}/{len(checks)} critical vars set) ──", flush=True)
