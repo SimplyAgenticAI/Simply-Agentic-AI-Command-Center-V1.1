@@ -257,8 +257,6 @@ STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
 STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "") or STRIPE_PRICE_ID or "price_1TNLaBKAWBo2NxJsK5bMQr4x"
 STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")
 STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWBo2NxJsur0jGGwR")
-# Team plan reuses the Growth Stripe price ID — same $97 price, same link
-STRIPE_PRICE_ID_TEAM    = os.getenv("STRIPE_PRICE_ID_TEAM",    STRIPE_PRICE_ID_GROWTH)
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
@@ -271,108 +269,97 @@ FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any
 # ── Central plan definitions — edit here, nowhere else ──────────────────────
 PLANS: Dict[str, Any] = {
     "founder": {
-        "name":                  "Founder",
-        "price":                 27,
-        "price_id":              STRIPE_PRICE_ID_FOUNDER,
-        "badge":                 "🔥 Founder",
-        "tagline":               "You found us early. Your loyalty is locked in forever.",
-        "custom_teammates":      None,   # unlimited
-        "crm_contacts":          2500,
-        "broadcast_recipients":  1000,
-        "team_seats":            2,
-        "founder":               True,
+        "name":             "Founder Access",
+        "price":            27,
+        "price_id":         STRIPE_PRICE_ID_FOUNDER,
+        "badge":            "🔥 Founder",
+        "tagline":          "Locked in forever at our lowest price — for the first believers.",
+        "custom_teammates": 3,
+        "crm_contacts":     2500,
+        "broadcast_recipients": 1000,
+        "team_seats":       2,
+        "founder":          True,
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
-            "Unlimited custom AI teammates — no ceiling",
-            "Full AI toolkit: Notepad, Analyser, Lead Lab, Social Studio, Offer Builder",
+            "3 custom AI teammates — build your bench",
+            "AI Notepad with Improve, Expand & Summarize",
+            "Website & landing page analyzer (scored 1–100)",
+            "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
-            "Calendar, tasks & Gmail sync",
             "2 team seats — bring a partner",
-            "Community ranking system — earn feature unlocks",
-            "Founding Contributor badge — permanent, visible everywhere",
-            "First access to every new feature before anyone else",
-            "Price locked forever — never increases, ever",
+            "Calendar, tasks & Gmail sync",
+            "Price locked forever — never increases",
         ],
     },
     "starter": {
-        "name":                  "Solo",
-        "price":                 47,
-        "price_id":              STRIPE_PRICE_ID_STARTER,
-        "badge":                 "Most Popular",
-        "tagline":               "The full AI command centre — built for the one-person operator.",
-        "custom_teammates":      3,
-        "crm_contacts":          500,
-        "broadcast_recipients":  250,
-        "team_seats":            1,
+        "name":             "Solo Operator",
+        "price":            47,
+        "price_id":         STRIPE_PRICE_ID_STARTER,
+        "badge":            None,
+        "tagline":          "The full AI command center — everything you need to run and grow solo.",
+        "custom_teammates": 0,
+        "crm_contacts":     500,
+        "broadcast_recipients": 250,
+        "team_seats":       1,
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
-            "3 custom AI teammates — build your specific bench",
-            "Full AI toolkit: Notepad, Analyser, Lead Lab, Social Studio, Offer Builder",
+            "AI Notepad with AI-powered writing actions",
+            "Website & landing page analyzer (1–100 score)",
+            "Lead Lab, Social Studio & Offer Builder — unlimited",
             "CRM + pipeline (up to 500 contacts)",
             "Email broadcast (up to 250 recipients) + SMS via Twilio",
             "Calendar, tasks & Gmail sync",
-            "1 seat — built for focused solo operators",
-            "Community ranking system — earn feature unlocks",
             "Dashboard & analytics",
         ],
     },
-    "team": {
-        "name":                  "Team",
-        "price":                 97,
-        "price_id":              STRIPE_PRICE_ID_TEAM,
-        "badge":                 None,
-        "tagline":               "Everything in Solo, multiplied across your whole crew.",
-        "custom_teammates":      None,   # unlimited
-        "crm_contacts":          2500,
-        "broadcast_recipients":  1000,
-        "team_seats":            5,
+    "growth": {
+        "name":             "Growth System",
+        "price":            97,
+        "price_id":         STRIPE_PRICE_ID_GROWTH,
+        "badge":            "Most Popular",
+        "tagline":          "Scale your pipeline, build your AI team, and bring in real humans too.",
+        "custom_teammates": 3,
+        "crm_contacts":     2500,
+        "broadcast_recipients": 1000,
+        "team_seats":       3,
         "features": [
-            "Everything in Solo",
-            "Unlimited custom AI teammates",
+            "Everything in Solo Operator",
+            "3 custom AI teammates — build your bench",
+            "AI Notepad + Website analyzer included",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
-            "5 team seats — you + 4 members with full access",
-            "Shared CRM and pipeline across all team members",
-            "Team activity dashboard",
-            "Community ranking system — earn feature unlocks",
+            "3 team seats — run with a crew",
+            "Advanced pipeline automation",
             "Priority support",
         ],
     },
-    # ── Legacy plans — kept so existing subscribers never break ──────────────
-    # These are NOT shown on the pricing page. Existing holders stay on them.
-    "growth": {
-        "name":                  "Growth System",
-        "price":                 97,
-        "price_id":              STRIPE_PRICE_ID_GROWTH,
-        "badge":                 None,
-        "tagline":               "Legacy plan.",
-        "custom_teammates":      3,
-        "crm_contacts":          2500,
-        "broadcast_recipients":  1000,
-        "team_seats":            3,
-        "features":              [],
-        "_legacy":               True,
-    },
     "pro": {
-        "name":                  "Operator Pro",
-        "price":                 197,
-        "price_id":              STRIPE_PRICE_ID_PRO,
-        "badge":                 None,
-        "tagline":               "Legacy plan.",
-        "custom_teammates":      None,
-        "crm_contacts":          None,
-        "broadcast_recipients":  None,
-        "team_seats":            10,
-        "features":              [],
-        "_legacy":               True,
+        "name":             "Operator Pro",
+        "price":            197,
+        "price_id":         STRIPE_PRICE_ID_PRO,
+        "badge":            "Unlimited",
+        "tagline":          "Full command. No ceilings. Built for operators running at scale.",
+        "custom_teammates": None,
+        "crm_contacts":     None,
+        "broadcast_recipients": None,
+        "team_seats":       10,
+        "features": [
+            "Everything in Growth",
+            "Unlimited custom AI teammates",
+            "Unlimited CRM contacts & broadcasts",
+            "10 team seats — bring your whole operation",
+            "Dedicated onboarding + strategy call",
+            "Early access to every new feature",
+            "Priority support — direct line, no queue",
+        ],
     },
 }
 
 def _plan_price_id(plan_key: str) -> str:
     """Return the Stripe price ID for a plan key, falling back to Starter."""
     p = PLANS.get(plan_key) or PLANS.get("starter") or {}
-    return (p.get("price_id") or STRIPE_PRICE_ID_TEAM or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+    return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
@@ -1186,7 +1173,7 @@ def _audit_log(action: str, detail: dict = None, username: str = None) -> None:
 
 def _stripe_ready() -> bool:
     # Ready if secret key + at least one plan price ID is configured
-    return bool(STRIPE_SECRET_KEY and (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID_TEAM or STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID))
+    return bool(STRIPE_SECRET_KEY and (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID))
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Minimal Stripe REST wrapper — no stripe-python dep required."""
@@ -1812,6 +1799,33 @@ def _csrf_valid() -> bool:
     )
     return bool(incoming) and hmac.compare_digest(expected, incoming)
 
+
+@app.get("/manifest.json")
+def pwa_manifest():
+    """PWA Web App Manifest — enables install to home screen."""
+    manifest = {
+        "name": APP_TITLE,
+        "short_name": "Simply Agentic",
+        "description": "Your AI-powered business command centre",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#090d19",
+        "theme_color": "#0f1629",
+        "orientation": "any",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ],
+        "categories": ["productivity", "business"],
+        "shortcuts": [
+            {"name": "Round Table", "url": "/", "description": "Open your AI team"},
+            {"name": "CRM", "url": "/?tool=crm", "description": "Open your CRM"},
+        ]
+    }
+    resp = make_response(json.dumps(manifest))
+    resp.headers["Content-Type"] = "application/manifest+json"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
 
 @app.get("/health")
 def health_check() -> Any:
@@ -5095,11 +5109,10 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="genEmail" placeholder="jane@example.com">
     <label>Plan</label>
     <select id="genPlan">
-      <option value="starter">Solo ($47)</option>
-      <option value="team">Team ($97)</option>
-      <option value="founder">Founder ($27)</option>
-      <option value="growth">Growth — Legacy</option>
-      <option value="pro">Pro — Legacy</option>
+      <option value="starter">Starter Operator</option>
+      <option value="growth">Growth System</option>
+      <option value="pro">Operator Pro</option>
+      <option value="founder">Founder</option>
     </select>
     <div class="msg" id="genMsg"></div>
     <div class="modal-actions">
@@ -5118,11 +5131,10 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="editEmail">
     <label>Plan</label>
     <select id="editPlan">
-      <option value="starter">Solo ($47)</option>
-      <option value="team">Team ($97)</option>
-      <option value="founder">Founder ($27)</option>
-      <option value="growth">Growth — Legacy</option>
-      <option value="pro">Pro — Legacy</option>
+      <option value="starter">Starter Operator</option>
+      <option value="growth">Growth System</option>
+      <option value="pro">Operator Pro</option>
+      <option value="founder">Founder</option>
     </select>
     <label>Status</label>
     <select id="editStatus">
@@ -6648,6 +6660,21 @@ def api_thread(name: str):
         "branch_count": branch_count,
         "has_branches": branch_count > 0,
     })
+
+@app.post("/api/onboarding/first_ai_interaction")
+def api_onboarding_first_interaction() -> Any:
+    """Called after the very first AI response — marks the aha moment reached."""
+    u = current_user()
+    if not u: return jsonify({"ok": False}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    users_data = load_users()
+    user_rec = (users_data.get("users") or {}).get(uname)
+    if user_rec and not user_rec.get("first_ai_interaction_at"):
+        user_rec["first_ai_interaction_at"] = now_iso()
+        users_data["users"][uname] = user_rec
+        save_users(users_data)
+        _award_points(uname, "First AI interaction", 25)
+    return jsonify({"ok": True})
 
 @app.post("/api/thread/<name>/clear")
 def api_thread_clear(name: str) -> Any:
@@ -8710,7 +8737,7 @@ function startStripeCheckout() {
   spinner.style.display = 'inline';
   cardIcon.style.display = 'none';
 
-  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter'; // 'starter' = Solo internally
+  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter';
 
   fetch('/stripe/create_checkout', {
     method: 'POST',
@@ -8974,27 +9001,27 @@ def pricing_page():
             </button>"""
     )
 
-    # Build Solo and Team cards only (3-plan layout)
-    active_plan_keys = ["starter", "team"]
     cards_html = ""
-    for key in active_plan_keys:
-        p = PLANS.get(key, {})
+    for key, p in PLANS.items():
+        if key == "founder":
+            continue
         badge         = p.get("badge")
-        is_featured   = key == "starter"
+        is_growth     = key == "growth"
         badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        rec_cls       = " plan-card-featured" if is_featured else ""
+        rec_cls       = " plan-card-featured" if is_growth else ""
+        team_seats    = p.get("team_seats", 1)
         features_html = "".join(
             f"<li><span class='pfc'>&#10003;</span>{f}</li>"
             for f in p.get("features", [])
         )
-        trial_html  = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
-        cta_label   = "Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
-        cards_html += f"""
+        trial_html    = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
+        cta_label     = f"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
+        cards_html   += f"""
         <div class='plan-card{rec_cls}'>
           {badge_html}
-          <div class='plan-name'>{p.get('name','')}</div>
-          <div class='plan-price'><span class='plan-dollar'>$</span>{p.get('price','')}<span class='plan-per'>/mo</span></div>
-          <div class='plan-tagline'>{p.get('tagline','')}</div>
+          <div class='plan-name'>{p['name']}</div>
+          <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
+          <div class='plan-tagline'>{p['tagline']}</div>
           <ul class='plan-features'>{features_html}</ul>
           <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
@@ -9021,29 +9048,41 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 
 /* ══ FOUNDER CARD ══════════════════════════════════ */
 .f-wrap{{max-width:720px;margin:0 auto 48px;}}
-.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}\n.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
+.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+
+/* ── Ribbon pulse animation ── */
 .f-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
 @keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0),0 0 12px rgba(251,191,36,.35);}}50%{{box-shadow:0 0 0 7px rgba(251,191,36,.12),0 0 36px rgba(251,191,36,.75);}}}}
+
 .f-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
 .f-left{{flex:1;min-width:200px;}}
 .f-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
 .f-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
+
+/* ── Price breathe ── */
 .f-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
 .f-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
 .f-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
 .f-price .num{{display:inline-block;animation:priceBreathe 3s ease-in-out infinite;}}
 @keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 28px rgba(251,191,36,.6),0 0 56px rgba(251,191,36,.25);}}}}
+
+/* ── Lock badge pulse ── */
 .f-locked{{font-size:12px;color:#fbbf24;margin-top:5px;animation:lockPulse 2.8s ease-in-out infinite;}}
 @keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
+
 .f-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
 .f-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
 .seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
 .seats-num{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
 .seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
 .seats-bar{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
+
+/* ── Bar shimmer ── */
 .seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);position:relative;overflow:hidden;}}
 .seats-bar-fill::after{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:barShimmer 2.8s ease-in-out infinite;}}
 @keyframes barShimmer{{0%{{left:-80%;}}65%,100%{{left:160%;}}}}
+
 .cd-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
 .cd-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
 .cd-row{{display:flex;gap:10px;align-items:center;}}
@@ -9051,12 +9090,17 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
 .cd-sub{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
 .cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:10px;}}
+
+/* ── Digit flip ── */
 .cd-flip{{animation:digitFlip .35s ease-out;}}
 @keyframes digitFlip{{0%{{transform:scaleY(0);opacity:0;}}55%{{transform:scaleY(1.08);}}100%{{transform:scaleY(1);opacity:1;}}}}
+
 .f-feats{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
 .f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
 .f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
 .pfc{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
+
+/* ── CTA + button shimmer ── */
 .f-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
 .f-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;}}
 .f-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);animation:btnShimmer 2.4s ease-in-out infinite;}}
@@ -9066,16 +9110,20 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .f-btn-out{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
 .f-note{{font-size:12px;color:#78716c;line-height:1.5;}}
 .f-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
+
+/* ── Floating particles ── */
 .f-particles{{position:absolute;inset:0;pointer-events:none;overflow:hidden;}}
 .f-particle{{position:absolute;border-radius:50%;background:rgba(251,191,36,.55);animation:floatUp linear infinite;}}
 @keyframes floatUp{{0%{{transform:translateY(0) scale(1);opacity:.55;}}100%{{transform:translateY(-140px) scale(0);opacity:0;}}}}
+
+/* ══ DIVIDER ══ */
 .divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
 .divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
 .divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
 
 /* ══ STANDARD PLAN CARDS ══ */
 .plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
-.plan-card{{flex:1;min-width:285px;max-width:370px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
+.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
 .plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
 .plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
 .plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
@@ -9099,69 +9147,68 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .pg-footer a{{color:#7c3aed;text-decoration:none;}}
 .already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
 .already a{{color:#a78bfa;text-decoration:none;}}
-.btn-spinner{{display:inline-flex;align-items:center;}}
-@media(max-width:640px){{
-  .f-top{{flex-direction:column;gap:18px;}}
-  .plans{{flex-direction:column;align-items:center;}}
-  .plan-card{{max-width:100%;min-width:0;}}
+.already a:hover{{text-decoration:underline;}}
+@media(max-width:600px){{
+  .f-top{{flex-direction:column;gap:16px;}}
+  .f-price{{font-size:42px;}}
+  .f-cta{{flex-direction:column;align-items:stretch;}}
+  .f-btn,.f-btn-out{{width:100%;text-align:center;}}
+  .cd-row{{gap:6px;}}
+  .cd-num{{font-size:18px;min-width:26px;}}
+  .f-feat-grid{{grid-template-columns:1fr;}}
 }}
 </style>
-</head>
-<body>
-
+</head><body>
 <div class='brand'><div class='dot'></div>{APP_TITLE}</div>
-
 <div class='pg-header'>
   <h1>Every feature. Every AI teammate.</h1>
   <p>You get the full platform on every plan. You scale, we scale with you.</p>
-  {f"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 {FREE_TRIAL_DAYS}-day free trial — no credit card needed until day {FREE_TRIAL_DAYS + 1}</div>" if FREE_TRIAL_DAYS > 0 else ""}
+  {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
 
-<!-- FOUNDER -->
 <div class='f-wrap'>
   <div class='f-card'>
-    <div class='f-ribbon'>Founder</div>
     <div class='f-particles' id='particles'></div>
-
+    <div class='f-ribbon'>LIMITED</div>
     <div class='f-top'>
       <div class='f-left'>
         <div class='f-badge'>🔥 Founder Access</div>
-        <div class='f-name'>Founder</div>
-        <div class='f-price'>
-          <span class='dol'>$</span><span class='num'>{fp.get("price", 27)}</span><span class='per'>/mo</span>
-        </div>
-        <div class='f-locked'>🔒 Price locked forever — never increases</div>
+        <div class='f-name'>{fp.get("name","Founder Access")}</div>
+        <div class='f-price'><span class='dol'>$</span><span class='num'>27</span><span class='per'>/mo</span></div>
+        <div class='f-locked'>🔒 Price locked in forever — never increases</div>
         <div class='f-tagline'>{fp.get("tagline","")}</div>
       </div>
-
       <div class='f-right'>
         <div>
-          <div class='seats-lbl'>Founder Seats Remaining</div>
-          <div class='seats-num'>{founder_remain}</div>
-          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder seats</div>
+          <div class='seats-lbl'>Founder seats remaining</div>
+          <div class='seats-num' id='seatsRemain'>{founder_remain}</div>
+          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
           <div class='seats-bar'>
-            <div class='seats-bar-fill' style='width:{seats_bar_pct}%'></div>
+            <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
           </div>
+        </div>
+        <div class='cd-wrap'>
+          <div class='cd-lbl'>Founder pricing availability</div>
+          <div style='margin-top:10px;font-size:15px;font-weight:700;color:var(--gold);letter-spacing:.5px;'>
+            {"&#127525; Only " + str(founder_remain) + " spots left — claim yours before they're gone." if founder_remain <= 20 else "&#128293; Limited founder seats — price locked forever once claimed."}
+          </div>
+          <div style='margin-top:6px;font-size:12px;color:rgba(247,211,106,.65);'>First {FOUNDER_SEATS_MAX} customers only &nbsp;&#183;&nbsp; Never increases</div>
         </div>
       </div>
     </div>
-
     <div class='f-feats'>
       <ul class='f-feat-grid'>{founder_features_html}</ul>
     </div>
-
-    {sold_out_msg}
     <div class='f-cta'>
       {founder_btn}
-      <div class='f-note'>No contracts · Cancel anytime{"<br/>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included" if FREE_TRIAL_DAYS > 0 else ""}</div>
+      <div class='f-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
     </div>
+    {sold_out_msg}
+    {"<div class='f-soldout'>This founder price is sold out — choose a standard plan below.</div>" if sold_out_param else ""}
   </div>
 </div>
 
-<!-- DIVIDER -->
 <div class='divider'><hr/><span>Or choose a standard plan</span><hr/></div>
-
-<!-- SOLO + TEAM CARDS -->
 <div class='plans'>{cards_html}</div>
 
 <div class='api-note'>
@@ -9172,44 +9219,54 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 </div>
 <div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
 <div class='pg-footer' style='margin-top:24px;'>
-  {f"All plans start with a {FREE_TRIAL_DAYS}-day free trial — your card is collected but not charged until day {FREE_TRIAL_DAYS + 1}. Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+  {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
 
 <script>
-// Floating particles
 (function(){{
   var pc = document.getElementById('particles');
-  if(!pc) return;
-  for(var i=0;i<18;i++){{
-    var p=document.createElement('div');
-    p.className='f-particle';
-    var sz=Math.random()*5+2;
-    p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+Math.random()*30+'%;animation-duration:'+(Math.random()*8+5)+'s;animation-delay:'+(Math.random()*6)+'s;';
-    pc.appendChild(p);
+  if(pc){{
+    for(var i=0;i<14;i++){{
+      var p=document.createElement('div');
+      p.className='f-particle';
+      var sz=Math.random()*4+2;
+      p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+(Math.random()*25)+'%;animation-duration:'+(Math.random()*4+3)+'s;animation-delay:'+Math.random()*5+'s';
+      pc.appendChild(p);
+    }}
   }}
+
+  var secs={founder_timer["total_seconds"]};
+  function pad(n){{return String(n).padStart(2,'0');}}
+  function flip(id,val){{
+    var el=document.getElementById(id);if(!el)return;
+    var v=pad(val);
+    if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
+  }}
+  setInterval(function(){{
+    if(secs<=0) return;  // freeze at zero — no reload
+    secs--;
+    flip('cdD',Math.floor(secs/86400));
+    flip('cdH',Math.floor((secs%86400)/3600));
+    flip('cdM',Math.floor((secs%3600)/60));
+    flip('cdS',secs%60);
+  }},1000);
+
+  setInterval(function(){{
+    fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
+      var r=document.getElementById('seatsRemain'),b=document.getElementById('seatsBar'),btn=document.getElementById('planBtn-founder');
+      if(r)r.textContent=d.remaining;
+      if(b)b.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
+      if(d.sold_out&&btn){{btn.disabled=true;btn.textContent='Sold Out';btn.className='f-btn-out';}}
+    }}).catch(function(){{}});
+  }},30000);
 }})();
 
 function startCheckout(plan){{
-  var btn=document.getElementById('planBtn-'+plan);
-  var spin=document.getElementById('spin-'+plan);
-  if(btn){{btn.disabled=true;}}
-  if(spin){{spin.style.display='inline';}}
-  fetch('/stripe/create_checkout',{{
-    method:'POST',
-    headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{plan:plan}})
-  }}).then(function(r){{return r.json();}}).then(function(d){{
-    if(d.url){{window.location.href=d.url;}}
-    else{{
-      alert(d.error||'Checkout error — please try again.');
-      if(btn){{btn.disabled=false;}}
-      if(spin){{spin.style.display='none';}}
-    }}
-  }}).catch(function(e){{
-    alert('Network error — please try again.');
-    if(btn){{btn.disabled=false;}}
-    if(spin){{spin.style.display='none';}}
-  }});
+  var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
+  if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
+  var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
+  var inp=document.createElement('input');inp.type='hidden';inp.name='plan';inp.value=plan;
+  form.appendChild(inp);document.body.appendChild(form);form.submit();
 }}
 </script>
 </body></html>"""
@@ -10087,6 +10144,8 @@ def _invite_code_value() -> str:
 
 @app.get("/register")
 def register_get():
+    _ref = (request.args.get("ref") or "").strip()
+    if _ref: session["_ref_code"] = _ref
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
@@ -10233,6 +10292,13 @@ def register_post():
     session["user"] = username
     session.permanent = True
     _audit_log("register", {"email": email, "is_admin": is_first_user, "direct": True}, username=username)
+    # Referral credit
+    _ref = (session.pop("_ref_code", None) or "").strip()
+    if _ref:
+        _referrer = _find_referrer_by_code(_ref)
+        if _referrer and _referrer != username:
+            _record_referral(_referrer, email or username)
+            _award_points(username, "Joined via referral", 50)
     return redirect(url_for("index"))
 _PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
 
@@ -10578,9 +10644,7 @@ def stripe_create_checkout():
     if not checkout_url:
         return jsonify({"ok": False, "error": "No checkout URL returned by Stripe."}), 500
 
-    # Return JSON so the fetch()-based frontend can redirect to the Stripe URL.
-    # Flask's redirect() doesn't work cross-origin from a fetch call.
-    return jsonify({"ok": True, "url": checkout_url})
+    return redirect(checkout_url, 303)
 
 
 @app.post("/stripe/webhook")
@@ -10967,6 +11031,11 @@ HTML = r"""
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
   <meta name="description" content="Simply Agentic AI — a full team of specialised AI teammates, built-in CRM, broadcasts, calendar sync, Lead Lab, and more. One interface, zero juggling."/>
   <meta name="theme-color" content="#0f1629"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Simply Agentic"/>
+  <link rel="manifest" href="/manifest.json"/>
   <meta property="og:type"        content="website"/>
   <meta property="og:title"       content="{{app_title}}"/>
   <meta property="og:description" content="Your AI-powered business operating system. Specialised teammates, CRM, email broadcasts, calendar, and community — all in one place."/>
@@ -15159,6 +15228,8 @@ input[type="range"]::-moz-range-progress {
                 <button class="btn btnMini" id="lightingModeBtn">Direct mode</button>
                 <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
                 <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f7d36a;border-color:rgba(247,211,106,.35);">New session</button>
+                <button class="btn btnMini" id="orchestraBtn" style="display:none;border-color:rgba(124,58,237,.6);color:#c4b5fd;" title="Orchestra Mode — each teammate adds their expertise to one unified output">🎵 Orchestra</button>
+                <button class="btn btnMini" id="fusionBtn" style="display:none;border-color:rgba(59,130,246,.6);color:#93c5fd;" title="Fusion Mode — GPT-4o + Claude simultaneously, then synthesised into one answer">⚡ Fusion</button>
                 <button class="btn btnPrimary" id="conveneAll">Send to all</button>
               </div>
             </div>
@@ -15260,6 +15331,7 @@ input[type="range"]::-moz-range-progress {
             <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
             <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
             <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
+            <button class="btn btnMini" id="deepDiveBtn" style="display:none;border-color:rgba(245,158,11,.5);color:#fbbf24;" title="Deep Dive — 3 rounds of self-critique for a much deeper answer">🔬 Deep Dive</button>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
             <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
           </div>
@@ -18528,6 +18600,8 @@ async function pollImageJob(jobId, seatName){
         setOpStatus("Complete");
         $("followMsg").value = "";
         await refreshThread();
+        // Mark first AI interaction for onboarding value moment tracking
+        try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
       }
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
 
@@ -28915,707 +28989,556 @@ document.addEventListener('click',e=>{
 </script>
 
 
-<style id="sa-vfx">
-/* ══════════════════════════════════════════════════════════════════
-   SIMPLY AGENTIC — 10 VISUAL EFFECTS  (injected at end of HTML)
-══════════════════════════════════════════════════════════════════ */
+<!-- ═══ CHANGELOG / WHAT'S NEW MODAL ═══ -->
+<div id="changelogModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)_saCloseModal('changelogModal')">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(580px,94vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
+      <div style="font-size:16px;font-weight:800;color:#c4b5fd;">🚀 What's New</div>
+      <button onclick="_saCloseModal('changelogModal');_saMarkChangelogSeen()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div id="changelogContent" style="flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:18px;"></div>
+  </div>
+</div>
 
-/* ── 1. RANK-UP BURST ─────────────────────────────────────────── */
-#saConfettiCanvas{position:fixed;inset:0;pointer-events:none;z-index:999999;}
-
-/* ── 2. AI THINKING STREAM ───────────────────────────────────── */
-@keyframes saNeural{
-  0%{background-position:200% center;}
-  100%{background-position:-200% center;}
-}
-.sa-neural-stream{
-  background:linear-gradient(90deg,
-    transparent 0%,rgba(124,58,237,.0) 30%,
-    rgba(124,58,237,.6) 48%,rgba(167,139,250,.9) 50%,
-    rgba(124,58,237,.6) 52%,rgba(124,58,237,.0) 70%,transparent 100%);
-  background-size:200% 100%;
-  animation:saNeural 1.4s linear infinite;
-  position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:0 0 14px 14px;
-  pointer-events:none;z-index:10;
-}
-
-/* ── 3. MESSAGE SEND RIPPLE ──────────────────────────────────── */
-@keyframes saRipple{
-  0%{transform:scale(0);opacity:.7;}
-  100%{transform:scale(1);opacity:0;}
-}
-.sa-ripple-ring{
-  position:fixed;border-radius:50%;
-  border:2px solid rgba(124,58,237,.8);
-  pointer-events:none;z-index:99990;
-  animation:saRipple .65s cubic-bezier(.2,.6,.4,1) forwards;
-}
-
-/* ── 4. FUSION DUAL-BEAM ─────────────────────────────────────── */
-#saFusionOverlay{
-  position:fixed;inset:0;pointer-events:none;z-index:99995;
-  display:none;
-}
-@keyframes saBeamLeft{
-  0%{transform:translateX(-100%);opacity:1;}
-  45%{transform:translateX(calc(50vw - 80px));opacity:1;}
-  55%{transform:translateX(calc(50vw - 80px));opacity:0;}
-  100%{transform:translateX(calc(50vw - 80px));opacity:0;}
-}
-@keyframes saBeamRight{
-  0%{transform:translateX(100%);opacity:1;}
-  45%{transform:translateX(calc(-50vw + 80px));opacity:1;}
-  55%{transform:translateX(calc(-50vw + 80px));opacity:0;}
-  100%{transform:translateX(calc(-50vw + 80px));opacity:0;}
-}
-@keyframes saFusionFlash{
-  0%,40%{opacity:0;}45%{opacity:1;}55%{opacity:1;}60%,100%{opacity:0;}
-}
-@keyframes saFusionOut{
-  0%,50%{opacity:0;transform:scaleY(0);}
-  55%{opacity:1;transform:scaleY(1);}
-  90%{opacity:1;}100%{opacity:0;}
-}
-.sa-beam-left{
-  position:absolute;top:50%;left:0;height:3px;width:120px;margin-top:-1px;
-  background:linear-gradient(90deg,transparent,#3b82f6,#60a5fa);
-  border-radius:2px;animation:saBeamLeft 1.4s ease-in-out forwards;
-}
-.sa-beam-right{
-  position:absolute;top:50%;right:0;height:3px;width:120px;margin-top:-1px;
-  background:linear-gradient(270deg,transparent,#f97316,#fb923c);
-  border-radius:2px;animation:saBeamRight 1.4s ease-in-out forwards;
-}
-.sa-fusion-flash{
-  position:absolute;top:50%;left:50%;width:60px;height:60px;
-  margin:-30px 0 0 -30px;border-radius:50%;
-  background:radial-gradient(circle,rgba(255,255,255,.95),rgba(167,139,250,.8),transparent 70%);
-  animation:saFusionFlash 1.4s ease-in-out forwards;
-}
-.sa-fusion-beam-out{
-  position:absolute;top:0;left:50%;width:2px;
-  height:50%;transform-origin:bottom center;
-  background:linear-gradient(to top,rgba(167,139,250,.9),transparent);
-  animation:saFusionOut 1.4s ease-in-out forwards;
-}
-
-/* ── 5. ORCHESTRA WAVE ────────────────────────────────────────── */
-@keyframes saOrchestraWave{
-  0%{transform:scaleX(0);opacity:1;}
-  60%{transform:scaleX(1);opacity:1;}
-  100%{transform:scaleX(1);opacity:0;}
-}
-.sa-orchestra-wave{
-  position:absolute;bottom:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,#7c3aed,#a78bfa,#7c3aed);
-  transform-origin:left;
-  animation:saOrchestraWave .5s ease-out forwards;
-  border-radius:0 0 14px 14px;pointer-events:none;
-}
-@keyframes saOrchCheck{
-  0%{transform:scale(0);opacity:1;}
-  60%{transform:scale(1.3);opacity:1;}
-  100%{transform:scale(1);opacity:0;}
-}
-.sa-orch-check{
-  position:absolute;top:-18px;right:8px;font-size:13px;
-  animation:saOrchCheck .45s cubic-bezier(.34,1.56,.64,1) forwards;
-  pointer-events:none;z-index:20;
-}
-
-/* ── 6. POINTS TICKER ────────────────────────────────────────── */
-@keyframes saPointsArc{
-  0%{opacity:1;transform:translate(0,0) scale(1);}
-  40%{opacity:1;}
-  100%{opacity:0;transform:var(--sa-pts-end) scale(.6);}
-}
-.sa-pts-ticker{
-  position:fixed;z-index:99999;pointer-events:none;
-  font-size:13px;font-weight:700;color:#a78bfa;
-  background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);
-  border-radius:20px;padding:2px 10px;white-space:nowrap;
-  animation:saPointsArc .9s cubic-bezier(.4,0,.2,1) forwards;
-}
-
-/* ── 7. CRM PIPELINE SPRING LAND ─────────────────────────────── */
-@keyframes saSpringLand{
-  0%{transform:scale(1);}
-  25%{transform:scale(1.06,0.94);}
-  50%{transform:scale(0.97,1.03);}
-  75%{transform:scale(1.02,0.98);}
-  100%{transform:scale(1);}
-}
-@keyframes saColPulse{
-  0%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.0);}
-  40%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.7);}
-  100%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.0);}
-}
-.sa-spring-land{ animation:saSpringLand .45s cubic-bezier(.34,1.56,.64,1); }
-.sa-col-pulse{ animation:saColPulse .6s ease-out forwards; }
-
-/* ── 8. SEAT ACTIVATION HALO ─────────────────────────────────── */
-@keyframes saHaloExpand{
-  0%{transform:scale(.85);opacity:.9;}
-  100%{transform:scale(2.2);opacity:0;}
-}
-.sa-seat-halo{
-  position:absolute;inset:0;border-radius:14px;
-  border:2px solid rgba(167,139,250,.8);
-  pointer-events:none;z-index:5;
-  animation:saHaloExpand .5s cubic-bezier(.2,.6,.4,1) forwards;
-}
-
-/* ── 9. STACK PROGRESS TRAIL ─────────────────────────────────── */
-@keyframes saTrailIn{
-  0%{transform:scaleX(0);opacity:1;}
-  100%{transform:scaleX(1);opacity:1;}
-}
-@keyframes saTrailFade{
-  0%{opacity:1;}
-  100%{opacity:.3;}
-}
-@keyframes saStepStamp{
-  0%{transform:scale(0) rotate(-15deg);opacity:1;}
-  70%{transform:scale(1.2) rotate(3deg);opacity:1;}
-  100%{transform:scale(1) rotate(0deg);opacity:1;}
-}
-.sa-trail-wire{
-  height:2px;background:linear-gradient(90deg,rgba(124,58,237,.8),rgba(167,139,250,.9));
-  transform-origin:left;border-radius:2px;margin:4px 0;
-  animation:saTrailIn .3s ease-out forwards, saTrailFade .6s .3s ease forwards;
-}
-.sa-step-stamp{
-  display:inline-block;color:#6ee7b7;font-weight:700;font-size:12px;
-  animation:saStepStamp .35s cubic-bezier(.34,1.56,.64,1) forwards;
-}
-
-/* ── 10. COMPASS ORB ─────────────────────────────────────────── */
-@keyframes saOrbBreathe{
-  0%,100%{box-shadow:0 0 8px 2px rgba(124,58,237,.35);}
-  50%{box-shadow:0 0 18px 6px rgba(124,58,237,.65);}
-}
-@keyframes saOrbPulse{
-  0%,100%{box-shadow:0 0 12px 3px rgba(167,139,250,.6);}
-  50%{box-shadow:0 0 28px 10px rgba(167,139,250,.9);}
-}
-@keyframes saOrbBurst{
-  0%{box-shadow:0 0 0 0 rgba(167,139,250,.9);}
-  50%{box-shadow:0 0 0 14px rgba(167,139,250,.0);}
-  100%{box-shadow:0 0 8px 2px rgba(124,58,237,.35);}
-}
-.sa-orb-idle{ animation:saOrbBreathe 3s ease-in-out infinite; }
-.sa-orb-thinking{ animation:saOrbPulse .8s ease-in-out infinite; }
-.sa-orb-burst{ animation:saOrbBurst .5s ease-out forwards; }
-</style>
-
-<canvas id="saConfettiCanvas" aria-hidden="true"></canvas>
-<div id="saFusionOverlay" aria-hidden="true">
-  <div class="sa-beam-left" id="saBeamLeft" style="display:none;"></div>
-  <div class="sa-beam-right" id="saBeamRight" style="display:none;"></div>
-  <div class="sa-fusion-flash" id="saFusionFlash" style="display:none;"></div>
-  <div class="sa-fusion-beam-out" id="saFusionBeamOut" style="display:none;"></div>
+<!-- ═══ REFERRAL SHARE MODAL ═══ -->
+<div id="referralModal" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)_saCloseModal('referralModal')">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(29,158,117,.4);border-radius:18px;width:min(520px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(29,158,117,.07);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#6ee7b7;">🎁 Refer &amp; Earn</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">+200 pts for you · +50 pts for them · compounding rewards</div>
+      </div>
+      <button onclick="_saCloseModal('referralModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px;">
+      <div style="background:rgba(29,158,117,.08);border:1px solid rgba(29,158,117,.25);border-radius:12px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">Your Referral Link</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="referralLinkInput" readonly style="flex:1;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.6);color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:12px;font-family:monospace;" value="Loading…"/>
+          <button onclick="_saCopyReferral()" style="padding:8px 14px;background:rgba(29,158,117,.2);border:1px solid rgba(29,158,117,.45);color:#6ee7b7;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;">📋 Copy</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:12px;text-align:center;">
+          <div id="refTotalCount" style="font-size:28px;font-weight:800;color:#6ee7b7;">0</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px;">Operators referred</div>
+        </div>
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:12px;text-align:center;">
+          <div id="refPtsEarned" style="font-size:28px;font-weight:800;color:#a78bfa;">0</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px;">Points earned</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#475569;text-align:center;line-height:1.6;">
+        Share your link anywhere — social, email, DM.<br/>When they sign up, you both earn immediately.
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-/* ── SIMPLY AGENTIC VFX ENGINE ──────────────────────────────────
-   All 10 effects. Self-contained, zero dependencies.
-   ─────────────────────────────────────────────────────────────── */
+/* ── CHANGELOG + REFERRAL UI ───────────────────────────────────── */
 (function(){
   'use strict';
+  function ge(id){ return document.getElementById(id); }
 
-  /* ── UTILITY ─────────────────────────────────────────────────── */
-  function el(id){ return document.getElementById(id); }
-  function raf(fn){ return requestAnimationFrame(fn); }
+  /* ── CHANGELOG ── */
+  var _changelogLoaded = false;
 
-  /* ════════════════════════════════════════════════════════════════
-     1. RANK-UP BURST  — canvas confetti + rank badge spring-in
-  ════════════════════════════════════════════════════════════════ */
-  var _confCanvas = el('saConfettiCanvas');
-  var _confCtx = _confCanvas ? _confCanvas.getContext('2d') : null;
-  var _confParts = [];
-  var _confRunning = false;
-
-  function _confResize(){
-    if(!_confCanvas) return;
-    _confCanvas.width  = window.innerWidth;
-    _confCanvas.height = window.innerHeight;
-  }
-  window.addEventListener('resize', _confResize, {passive:true});
-  _confResize();
-
-  function _confSpawn(n){
-    var colors = ['#a78bfa','#7c3aed','#c4b5fd','#6ee7b7','#fcd34d','#f472b6','#60a5fa'];
-    for(var i=0;i<n;i++){
-      _confParts.push({
-        x: window.innerWidth/2 + (Math.random()-0.5)*200,
-        y: window.innerHeight/2 - 100 + (Math.random()-0.5)*60,
-        vx: (Math.random()-0.5)*14,
-        vy: Math.random()*-12 - 4,
-        r: Math.random()*5 + 3,
-        color: colors[Math.floor(Math.random()*colors.length)],
-        rot: Math.random()*360,
-        drot: (Math.random()-0.5)*8,
-        alpha: 1,
-        shape: Math.random()>.5?'rect':'circle',
-        w: Math.random()*10+5, h: Math.random()*5+4
-      });
-    }
-  }
-
-  function _confTick(){
-    if(!_confCtx) return;
-    _confCanvas.width = _confCanvas.width; // clear
-    var alive = false;
-    for(var i=0;i<_confParts.length;i++){
-      var p = _confParts[i];
-      p.x  += p.vx;
-      p.y  += p.vy;
-      p.vy += 0.35;
-      p.vx *= 0.99;
-      p.rot+= p.drot;
-      p.alpha -= 0.012;
-      if(p.alpha<=0) continue;
-      alive = true;
-      _confCtx.save();
-      _confCtx.globalAlpha = Math.max(0,p.alpha);
-      _confCtx.translate(p.x,p.y);
-      _confCtx.rotate(p.rot*Math.PI/180);
-      _confCtx.fillStyle = p.color;
-      if(p.shape==='circle'){
-        _confCtx.beginPath();
-        _confCtx.arc(0,0,p.r,0,Math.PI*2);
-        _confCtx.fill();
-      } else {
-        _confCtx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
-      }
-      _confCtx.restore();
-    }
-    _confParts = _confParts.filter(function(p){ return p.alpha>0; });
-    if(alive) raf(_confTick);
-    else _confRunning = false;
-  }
-
-  window.saVFX_rankUpBurst = function(rankName, rankEmoji){
-    _confSpawn(160);
-    if(!_confRunning){ _confRunning=true; raf(_confTick); }
-    // Floating rank badge
-    var badge = document.createElement('div');
-    badge.style.cssText = [
-      'position:fixed;left:50%;top:45%;transform:translate(-50%,-50%) scale(0);',
-      'background:linear-gradient(135deg,rgba(124,58,237,.95),rgba(109,40,217,.98));',
-      'border:2px solid rgba(167,139,250,.7);border-radius:20px;',
-      'padding:18px 36px;text-align:center;z-index:999998;',
-      'box-shadow:0 24px 80px rgba(0,0,0,.8),0 0 60px rgba(124,58,237,.6);',
-      'transition:transform .5s cubic-bezier(.34,1.56,.64,1),opacity .3s;',
-    ].join('');
-    badge.innerHTML = '<div style="font-size:36px;margin-bottom:6px;">'+(rankEmoji||'🎉')+'</div>'
-      +'<div style="font-size:11px;font-weight:700;color:rgba(196,181,253,.8);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">RANK UP</div>'
-      +'<div style="font-size:20px;font-weight:800;color:#fff;">'+(rankName||'New Rank')+'</div>';
-    document.body.appendChild(badge);
-    raf(function(){ badge.style.transform='translate(-50%,-50%) scale(1)'; });
-    setTimeout(function(){
-      badge.style.opacity='0';
-      badge.style.transform='translate(-50%,-60%) scale(.9)';
-      setTimeout(function(){ try{document.body.removeChild(badge);}catch(e){} }, 350);
-    }, 2800);
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     2. AI THINKING STREAM  — neural pulse on seat card bottom edge
-  ════════════════════════════════════════════════════════════════ */
-  var _neuralStreams = {};
-
-  window.saVFX_thinkStart = function(seatName){
-    saVFX_thinkStop(seatName);
-    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
-    if(!seat) return;
-    seat.style.position = 'relative';
-    var bar = document.createElement('div');
-    bar.className = 'sa-neural-stream';
-    bar.setAttribute('data-sa-neural','1');
-    seat.appendChild(bar);
-    _neuralStreams[seatName] = bar;
-  };
-
-  window.saVFX_thinkStop = function(seatName){
-    var bar = _neuralStreams[seatName];
-    if(bar){ try{bar.parentNode.removeChild(bar);}catch(e){} delete _neuralStreams[seatName]; }
-    // Also remove any orphaned bars on this seat
-    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
-    if(seat) seat.querySelectorAll('[data-sa-neural]').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     3. MESSAGE SEND RIPPLE  — concentric rings from send button
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_sendRipple = function(originEl){
-    var rect = originEl
-      ? originEl.getBoundingClientRect()
-      : {left: window.innerWidth/2, top: window.innerHeight-80, width:0, height:0};
-    var cx = rect.left + rect.width/2;
-    var cy = rect.top  + rect.height/2;
-    var maxR = Math.hypot(window.innerWidth, window.innerHeight);
-    [0, 80, 180].forEach(function(delay){
-      var ring = document.createElement('div');
-      ring.className = 'sa-ripple-ring';
-      var size = maxR * 2;
-      ring.style.cssText = 'left:'+(cx-size/2)+'px;top:'+(cy-size/2)+'px;'
-        +'width:'+size+'px;height:'+size+'px;'
-        +'animation-delay:'+delay+'ms;';
-      document.body.appendChild(ring);
-      setTimeout(function(){ try{document.body.removeChild(ring);}catch(e){}; }, delay+700);
-    });
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     4. FUSION DUAL-BEAM  — GPT beam + Claude beam → flash → output
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_fusionBeam = function(){
-    var overlay = el('saFusionOverlay');
-    if(!overlay) return;
-    overlay.style.display = 'block';
-    // Reset and show each element
-    ['saBeamLeft','saBeamRight','saFusionFlash','saFusionBeamOut'].forEach(function(id){
-      var e = el(id); if(!e) return;
-      // Restart animation by clone trick
-      var clone = e.cloneNode(true);
-      clone.style.display = '';
-      e.parentNode.replaceChild(clone, e);
-    });
-    setTimeout(function(){
-      overlay.style.display = 'none';
-      // Re-hide children for next run
-      ['saBeamLeft','saBeamRight','saFusionFlash','saFusionBeamOut'].forEach(function(id){
-        var e = el(id); if(e) e.style.display = 'none';
-      });
-    }, 1600);
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     5. ORCHESTRA WAVE  — wave travels clockwise seat-by-seat
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_orchestraPass = function(seatName, passIndex, totalPasses){
-    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
-    if(!seat) return;
-    seat.style.position = 'relative';
-    // Remove old wave
-    seat.querySelectorAll('.sa-orchestra-wave,.sa-orch-check').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
-    // Add wave bar
-    var wave = document.createElement('div');
-    wave.className = 'sa-orchestra-wave';
-    seat.appendChild(wave);
-    // Add check badge
-    var check = document.createElement('div');
-    check.className = 'sa-orch-check';
-    check.textContent = '✓';
-    seat.appendChild(check);
-    // Clean up after animation
-    setTimeout(function(){
-      try{wave.parentNode.removeChild(wave);}catch(e){}
-    }, 600);
-    setTimeout(function(){
-      try{check.parentNode.removeChild(check);}catch(e){}
-    }, 1200);
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     6. POINTS TICKER  — floating +N pts arcs toward rank badge
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_pointsTicker = function(pts, originEl){
-    var badge = el('navLevelBadge') || el('notifBellBtn');
-    var destRect = badge ? badge.getBoundingClientRect() : {left:window.innerWidth-60, top:12, width:30, height:20};
-    var srcRect  = originEl
-      ? originEl.getBoundingClientRect()
-      : {left:window.innerWidth/2, top:window.innerHeight/2, width:0, height:0};
-
-    var ticker = document.createElement('div');
-    ticker.className = 'sa-pts-ticker';
-    ticker.textContent = '+' + pts + ' pts ⚡';
-    var startX = srcRect.left + srcRect.width/2;
-    var startY = srcRect.top  + srcRect.height/2;
-    var endDX = (destRect.left + destRect.width/2  - startX) + 'px';
-    var endDY = (destRect.top  + destRect.height/2 - startY - 30) + 'px';
-    ticker.style.left = startX + 'px';
-    ticker.style.top  = startY + 'px';
-    ticker.style.setProperty('--sa-pts-end', 'translate('+endDX+','+endDY+')');
-    document.body.appendChild(ticker);
-    setTimeout(function(){ try{document.body.removeChild(ticker);}catch(e){}; }, 950);
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     7. CRM PIPELINE SPRING LAND  — spring bounce + column pulse
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_pipelineSpring = function(clientCardEl, columnEl){
-    if(clientCardEl){
-      clientCardEl.classList.remove('sa-spring-land');
-      void clientCardEl.offsetWidth; // reflow
-      clientCardEl.classList.add('sa-spring-land');
-      setTimeout(function(){ clientCardEl.classList.remove('sa-spring-land'); }, 500);
-    }
-    if(columnEl){
-      columnEl.classList.remove('sa-col-pulse');
-      void columnEl.offsetWidth;
-      columnEl.classList.add('sa-col-pulse');
-      setTimeout(function(){ columnEl.classList.remove('sa-col-pulse'); }, 700);
-    }
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     8. SEAT ACTIVATION HALO  — ring expands from seat on click
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_seatHalo = function(seatName){
-    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
-    if(!seat) return;
-    seat.style.position = 'relative';
-    seat.querySelectorAll('.sa-seat-halo').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
-    var halo = document.createElement('div');
-    halo.className = 'sa-seat-halo';
-    seat.appendChild(halo);
-    setTimeout(function(){ try{halo.parentNode.removeChild(halo);}catch(e){}; }, 550);
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     9. STACK PROGRESS TRAIL  — wire + stamp per step completion
-  ════════════════════════════════════════════════════════════════ */
-  window.saVFX_stackStepComplete = function(stepIndex){
-    // Wire between step cards
-    var prevRow = el('smRow_' + (stepIndex-1));
-    var thisRow = el('smRow_' + stepIndex);
-    if(prevRow && thisRow && stepIndex > 0){
-      var wire = document.createElement('div');
-      wire.className = 'sa-trail-wire';
-      prevRow.parentNode.insertBefore(wire, thisRow);
-      setTimeout(function(){ try{wire.parentNode.removeChild(wire);}catch(e){}; }, 1200);
-    }
-    // Stamp on the step header
-    if(thisRow){
-      var header = thisRow.querySelector('span');
-      if(header){
-        var stamp = document.createElement('span');
-        stamp.className = 'sa-step-stamp';
-        stamp.style.marginLeft = '6px';
-        stamp.textContent = ' ✓';
-        header.appendChild(stamp);
-      }
-    }
-  };
-
-  /* ════════════════════════════════════════════════════════════════
-     10. COMPASS ORB  — idle breathe → pulse when thinking → burst on reply
-  ════════════════════════════════════════════════════════════════ */
-  var _compassBtn = document.querySelector('button[onclick="openScoutPanel()"]');
-
-  function _saOrbApply(cls){
-    if(!_compassBtn) return;
-    _compassBtn.classList.remove('sa-orb-idle','sa-orb-thinking','sa-orb-burst');
-    if(cls) _compassBtn.classList.add(cls);
-  }
-
-  window.saVFX_compassIdle    = function(){ _saOrbApply('sa-orb-idle'); };
-  window.saVFX_compassThink   = function(){ _saOrbApply('sa-orb-thinking'); };
-  window.saVFX_compassBurst   = function(){
-    _saOrbApply('sa-orb-burst');
-    setTimeout(saVFX_compassIdle, 600);
-  };
-
-  // Start idle immediately
-  setTimeout(saVFX_compassIdle, 500);
-
-  /* ════════════════════════════════════════════════════════════════
-     INTEGRATION HOOKS  — wire effects into existing app actions
-  ════════════════════════════════════════════════════════════════ */
-
-  // Hook: sendFollow → ripple + points ticker
-  var _origSendFollow = window.sendFollow;
-  if(typeof _origSendFollow === 'function'){
-    window.sendFollow = async function(){
-      var sendBtn = document.querySelector('#followMsg');
-      saVFX_sendRipple(sendBtn);
-      if(window.selectedSeat) saVFX_thinkStart(window.selectedSeat);
-      var result = await _origSendFollow.apply(this, arguments);
-      if(window.selectedSeat) saVFX_thinkStop(window.selectedSeat);
-      saVFX_pointsTicker(3, sendBtn);
-      return result;
-    };
-  }
-
-  // Hook: selectSeat → halo
-  var _origSelectSeat = window.selectSeat;
-  if(typeof _origSelectSeat === 'function'){
-    window.selectSeat = async function(name){
-      saVFX_seatHalo(name);
-      return _origSelectSeat.apply(this, arguments);
-    };
-  }
-
-  // Hook: notification poll → rank-up burst when rank_up type arrives
-  var _lastNotifIds = new Set();
-  var _origLoadNotifs = window._saOrigLoadNotifs || null;
-
-  function _hookNotifPoll(){
-    // Patch the notif fetch response to detect rank_up type
-    var _origFetch = window.fetch;
-    window.fetch = function(url, opts){
-      var p = _origFetch.apply(this, arguments);
-      if(typeof url === 'string' && url.includes('/api/notifications')){
-        p.then(function(resp){ return resp.clone().json(); }).then(function(d){
-          if(!d.ok || !d.notifications) return;
-          d.notifications.forEach(function(n){
-            if(n.type === 'rank_up' && !_lastNotifIds.has(n.id)){
-              _lastNotifIds.add(n.id);
-              // Parse emoji + name from title e.g. "🎉 Rank Up! You are now 🔥 Command Ready"
-              var m = (n.title||'').match(/now\s+(\S+)\s+(.+)$/);
-              var emoji = m ? m[1] : '🎉';
-              var rname = m ? m[2] : '';
-              setTimeout(function(){ saVFX_rankUpBurst(rname, emoji); }, 400);
-            }
-          });
-        }).catch(function(){});
-      }
-      return p;
-    };
-  }
-  _hookNotifPoll();
-
-  // Hook: pipeline drop → spring + column pulse
-  // We patch the drop event via a MutationObserver watching the pipeline board
-  var _pipelineObserver = null;
-  function _hookPipelineDrop(){
-    var board = document.getElementById('crmPipelineBoard');
-    if(!board){
-      // Pipeline not visible yet — retry
-      setTimeout(_hookPipelineDrop, 2000);
-      return;
-    }
-    board.addEventListener('drop', function(ev){
-      var col = ev.target.closest('[data-stage-drop]');
-      setTimeout(function(){
-        // Find the first card that just landed in this column
-        if(col){
-          var card = col.querySelector('[data-client-drag]');
-          saVFX_pipelineSpring(card, col);
-        }
-      }, 80); // after crmRenderPipelineBoard has run
-    }, true);
-  }
-  _hookPipelineDrop();
-
-  // Hook: stack run → step-by-step trail animation
-  var _origSmShowResults = window._smShowResultsOrig || null;
-  // We patch the internal function via a wrapper called after each step reveal
-  function _hookStackSteps(){
-    var _origStackRun = window.stackRun;
-    if(typeof _origStackRun !== 'function') return;
-    window.stackRun = function(){
-      // Intercept step reveals by watching DOM mutations on #stackSteps
-      var stepsEl = document.getElementById('stackSteps');
-      if(stepsEl && !stepsEl._saTrailHooked){
-        stepsEl._saTrailHooked = true;
-        var obs = new MutationObserver(function(muts){
-          muts.forEach(function(m){
-            m.addedNodes.forEach(function(node){
-              if(node.nodeType===1 && node.id && node.id.startsWith('smRow_')){
-                var idx = parseInt(node.id.replace('smRow_',''),10);
-                if(!isNaN(idx) && idx > 0) saVFX_stackStepComplete(idx);
-              }
-            });
-            // Also watch result reveals inside existing rows
-            if(m.target && m.target.id && m.target.id.startsWith('smResult_')){
-              var idx2 = parseInt(m.target.id.replace('smResult_',''),10);
-              if(!isNaN(idx2)) saVFX_stackStepComplete(idx2);
-            }
-          });
+  window.openChangelogModal = function(){
+    if(!_changelogLoaded){
+      fetch('/api/changelog').then(function(r){return r.json();}).then(function(d){
+        if(!d.ok) return;
+        var box = ge('changelogContent');
+        if(!box) return;
+        box.innerHTML = '';
+        (d.changelog||[]).forEach(function(entry){
+          var section = document.createElement('div');
+          section.innerHTML = '<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:6px;">v'+entry.version+' — '+entry.title+'<span style="font-size:10px;color:#475569;font-weight:400;margin-left:8px;">'+entry.date+'</span></div>'
+            + '<ul style="list-style:none;display:flex;flex-direction:column;gap:5px;">'
+            + (entry.highlights||[]).map(function(h){
+              return '<li style="display:flex;gap:8px;font-size:12px;color:#94a3b8;line-height:1.5;"><span style="color:#6ee7b7;flex-shrink:0;">✓</span>'+h+'</li>';
+            }).join('')
+            + '</ul>';
+          box.appendChild(section);
         });
-        obs.observe(stepsEl, {childList:true, subtree:true, attributes:false});
-      }
-      return _origStackRun.apply(this, arguments);
-    };
-  }
-  setTimeout(_hookStackSteps, 1500);
+        _changelogLoaded = true;
+      }).catch(function(){});
+    }
+    ge('changelogModal').style.display = 'flex';
+  };
 
-  // Hook: stack complete → points ticker
-  var _origStackRunFn = window.stackRun;
-  // Points ticker fires from the toast hook
-  var _origShowToast = window.showToast;
-  if(typeof _origShowToast === 'function'){
-    window.showToast = function(msg, type){
-      var result = _origShowToast.apply(this, arguments);
-      // Points ticker for known point events
-      var ptMatch = String(msg).match(/\+(\d+)\s*pts/);
-      if(ptMatch){
-        var pts = parseInt(ptMatch[1],10);
-        var activeEl = document.activeElement || document.body;
-        setTimeout(function(){ saVFX_pointsTicker(pts, activeEl); }, 80);
+  window._saMarkChangelogSeen = function(){
+    fetch('/api/changelog').then(function(r){return r.json();}).then(function(d){
+      if(d.ok && d.latest_version){
+        fetch('/api/changelog/seen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:d.latest_version})});
       }
-      return result;
-    };
-  }
+    }).catch(function(){});
+  };
 
-  // Hook: Compass thinking state
-  var _scoutInput = document.getElementById('scoutInput');
-  var _scoutSendBtn = document.querySelector('#scoutPanel button');
-  // Watch for compass requests via fetch
-  var _compassFetchOrig = window.fetch;
-  window.fetch = (function(origFetch){
-    return function(url, opts){
-      var p = origFetch.apply(this, arguments);
-      if(typeof url === 'string' && url.includes('/api/scout_ask')){
-        saVFX_compassThink();
-        p.then(function(){ setTimeout(saVFX_compassBurst, 100); })
-         .catch(function(){ setTimeout(saVFX_compassIdle, 100); });
+  // Check for new updates on load — show badge on nav if unseen
+  setTimeout(function(){
+    fetch('/api/changelog').then(function(r){return r.json();}).then(function(d){
+      if(d.ok && d.has_new){
+        var newBtn = document.createElement('button');
+        newBtn.id = 'changelogNavBtn';
+        newBtn.style.cssText = 'background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;position:relative;';
+        newBtn.innerHTML = '🚀 What\'s New <span style="position:absolute;top:-4px;right:-4px;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;font-weight:700;">NEW</span>';
+        newBtn.onclick = function(){ openChangelogModal(); _saMarkChangelogSeen(); newBtn.querySelector('span').style.display='none'; };
+        var compassBtn = document.querySelector('button[onclick="openScoutPanel()"]');
+        if(compassBtn && compassBtn.parentNode){
+          compassBtn.parentNode.insertBefore(newBtn, compassBtn);
+        }
       }
-      return p;
-    };
-  })(window.fetch);
+    }).catch(function(){});
+  }, 3000);
 
-  // Hook: Orchestra run → per-pass wave
-  var _origOrchestraRun = window.orchestraRun || null;
-  // Expose a callable for the orchestra API response handler
-  window.saVFX_orchestraSequence = function(passes){
-    if(!passes || !passes.length) return;
-    passes.forEach(function(pass, i){
-      setTimeout(function(){
-        saVFX_orchestraPass(pass.teammate, i, passes.length);
-      }, i * 600);
+  /* ── REFERRAL ── */
+  window.openReferralModal = function(){
+    ge('referralModal').style.display = 'flex';
+    fetch('/api/referral/my_code').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok) return;
+      var inp = ge('referralLinkInput');
+      if(inp) inp.value = d.link || '';
+      var tc = ge('refTotalCount');
+      var pe = ge('refPtsEarned');
+      if(tc) tc.innerText = d.total_referred || 0;
+      if(pe) pe.innerText = ((d.total_referred || 0) * 200).toLocaleString();
+    }).catch(function(){});
+  };
+
+  window._saCopyReferral = function(){
+    var inp = ge('referralLinkInput');
+    if(!inp) return;
+    navigator.clipboard.writeText(inp.value).then(function(){
+      try{ showToast('Referral link copied! Share it to earn 200 pts per signup 🎁'); }catch(e){}
     });
   };
 
-  // Hook: Fusion run button
-  var _origFusionRun = window.fusionRun;
-  if(!_origFusionRun){
-    // Patch api/fusion/run fetch instead
-    window.fetch = (function(prevFetch){
-      return function(url, opts){
-        var p = prevFetch.apply(this, arguments);
-        if(typeof url === 'string' && url.includes('/api/fusion/run')){
-          saVFX_fusionBeam();
-        }
-        return p;
-      };
-    })(window.fetch);
-  }
-
-  // Expose seat data attribute helper so halo + stream can find seats by name
-  // Wire into makeSeat's rendered DOM: add data-name to each seat card
-  var _seatObserver = new MutationObserver(function(muts){
-    muts.forEach(function(m){
-      m.addedNodes.forEach(function(node){
-        if(node.nodeType===1 && node.classList && node.classList.contains('seat')){
-          // Try to read name from title child
-          var titleEl = node.querySelector('.seatName, [class*="seatName"], .seatTitle');
-          if(!titleEl) titleEl = node.querySelector('div div');
-          if(titleEl && !node.getAttribute('data-name')){
-            node.setAttribute('data-name', titleEl.textContent.trim());
-          }
-        }
-      });
-    });
-  });
-  var tableWrap = document.getElementById('tableWrap');
-  if(tableWrap) _seatObserver.observe(tableWrap, {childList:true, subtree:true});
+  // Add referral button to nav
+  setTimeout(function(){
+    var logoutBtn = document.querySelector('a.saNavBtn[href="/logout"]');
+    if(logoutBtn && logoutBtn.parentNode){
+      var refBtn = document.createElement('button');
+      refBtn.style.cssText = 'background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;';
+      refBtn.innerHTML = '🎁 Refer';
+      refBtn.onclick = openReferralModal;
+      logoutBtn.parentNode.insertBefore(refBtn, logoutBtn);
+    }
+  }, 2500);
 
 })();
 </script>
+<!-- ═══ END CHANGELOG + REFERRAL ═══ -->
+
+<!-- ═══ ORCHESTRA MODE MODAL ═══ -->
+<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('orchestraModal')">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#c4b5fd;">🎵 Orchestra Mode</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate applies their expertise — one unified output</div>
+      </div>
+      <button onclick="_saCloseModal('orchestraModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:18px 22px;">
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px;">Teammate order <span style="color:#475569;">(clockwise from selected — drag to reorder)</span></div>
+      <div id="orchOrderList" style="display:flex;flex-wrap:wrap;gap:8px;min-height:40px;margin-bottom:14px;padding:10px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:10px;"></div>
+      <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px;">Prompt</label>
+      <textarea id="orchPrompt" placeholder="What should the team work on together?" rows="4"
+        style="width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;resize:vertical;font-family:inherit;"></textarea>
+    </div>
+    <div style="padding:0 22px 18px;display:flex;gap:10px;">
+      <button onclick="_saCloseModal('orchestraModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
+      <button id="orchRunBtn" onclick="_saRunOrchestra()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">🎵 Run Orchestra</button>
+    </div>
+    <div id="orchResults" style="display:none;padding:0 22px 20px;">
+      <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;margin-bottom:10px;font-size:13px;font-weight:700;color:#c4b5fd;">📋 Result</div>
+      <div id="orchPassLog" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
+      <div id="orchFinalOutput" style="background:rgba(9,12,24,.7);border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:14px;font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;max-height:320px;overflow-y:auto;"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button onclick="_saOrchCopyFinal()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy Result</button>
+        <button onclick="_saOrchSendToThread()" style="flex:1;padding:8px;border:1px solid rgba(124,58,237,.4);border-radius:8px;background:rgba(124,58,237,.12);color:#c4b5fd;font-size:12px;cursor:pointer;">→ Send to Thread</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DEEP DIVE MODAL ═══ -->
+<div id="deepDiveModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('deepDiveModal')">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(245,158,11,.06);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#fbbf24;">🔬 Deep Dive Mode</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">3 automatic rounds — draft → self-critique → definitive final</div>
+      </div>
+      <button onclick="_saCloseModal('deepDiveModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:18px 22px;">
+      <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:16px;line-height:1.5;">
+        Teammate: <strong id="deepDiveTeammateName" style="color:#fbbf24;"></strong> will write a first draft, then brutally critique its own answer, then produce a definitive final that addresses every gap.
+      </div>
+      <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px;">What do you want to go deep on?</label>
+      <textarea id="deepDivePrompt" placeholder="Ask anything that deserves a truly thorough answer..." rows="4"
+        style="width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;resize:vertical;font-family:inherit;"></textarea>
+    </div>
+    <div style="padding:0 22px 18px;display:flex;gap:10px;">
+      <button onclick="_saCloseModal('deepDiveModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
+      <button id="deepDiveRunBtn" onclick="_saRunDeepDive()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#d97706,#b45309);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">🔬 Run Deep Dive</button>
+    </div>
+    <div id="deepDiveResults" style="display:none;padding:0 22px 20px;">
+      <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <details style="background:rgba(9,12,24,.6);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:12px;">
+            <summary style="font-size:12px;font-weight:700;color:#64748b;cursor:pointer;">Round 1 — First Draft</summary>
+            <div id="ddRound1" style="margin-top:10px;font-size:12px;color:#94a3b8;white-space:pre-wrap;line-height:1.6;"></div>
+          </details>
+          <details style="background:rgba(9,12,24,.6);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:12px;">
+            <summary style="font-size:12px;font-weight:700;color:#64748b;cursor:pointer;">Round 2 — Self-Critique</summary>
+            <div id="ddRound2" style="margin-top:10px;font-size:12px;color:#94a3b8;white-space:pre-wrap;line-height:1.6;"></div>
+          </details>
+          <div style="background:rgba(14,22,48,.8);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:14px;">
+            <div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:8px;">✓ Round 3 — Definitive Final</div>
+            <div id="ddRound3" style="font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;max-height:300px;overflow-y:auto;"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button onclick="_saDDCopyFinal()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy Final</button>
+          <button onclick="_saDDSendToThread()" style="flex:1;padding:8px;border:1px solid rgba(245,158,11,.4);border-radius:8px;background:rgba(245,158,11,.1);color:#fbbf24;font-size:12px;cursor:pointer;">→ Send to Thread</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FUSION MODE MODAL ═══ -->
+<div id="fusionModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('fusionModal')">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(59,130,246,.4);border-radius:18px;width:min(700px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(59,130,246,.07);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#93c5fd;">⚡ Fusion Mode</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">GPT-4o + Claude run simultaneously — synthesised into one answer</div>
+      </div>
+      <button onclick="_saCloseModal('fusionModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:18px 22px;">
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div style="flex:1;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:10px 12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:3px;">🔵</div>
+          <div style="font-size:11px;font-weight:700;color:#93c5fd;">GPT-4o</div>
+          <div style="font-size:10px;color:#475569;">OpenAI</div>
+        </div>
+        <div style="display:flex;align-items:center;font-size:18px;color:#475569;">+</div>
+        <div style="flex:1;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25);border-radius:10px;padding:10px 12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:3px;">🟠</div>
+          <div style="font-size:11px;font-weight:700;color:#fb923c;">Claude</div>
+          <div style="font-size:10px;color:#475569;">Anthropic</div>
+        </div>
+        <div style="display:flex;align-items:center;font-size:18px;color:#475569;">=</div>
+        <div style="flex:1;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.35);border-radius:10px;padding:10px 12px;text-align:center;">
+          <div style="font-size:18px;margin-bottom:3px;">⚡</div>
+          <div style="font-size:11px;font-weight:700;color:#c4b5fd;">Fusion</div>
+          <div style="font-size:10px;color:#475569;">Best of both</div>
+        </div>
+      </div>
+      <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px;">Your prompt</label>
+      <textarea id="fusionPrompt" placeholder="Ask anything — both models will answer, then their best ideas are merged..." rows="4"
+        style="width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;resize:vertical;font-family:inherit;"></textarea>
+    </div>
+    <div style="padding:0 22px 18px;display:flex;gap:10px;">
+      <button onclick="_saCloseModal('fusionModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
+      <button id="fusionRunBtn" onclick="_saRunFusion()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">⚡ Run Fusion</button>
+    </div>
+    <div id="fusionResults" style="display:none;padding:0 22px 20px;">
+      <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <details style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px;">
+            <summary style="font-size:11px;font-weight:700;color:#60a5fa;cursor:pointer;">🔵 GPT-4o Response</summary>
+            <div id="fusionGPT" style="margin-top:8px;font-size:12px;color:#94a3b8;white-space:pre-wrap;line-height:1.6;max-height:200px;overflow-y:auto;"></div>
+          </details>
+          <details style="background:rgba(249,115,22,.06);border:1px solid rgba(249,115,22,.2);border-radius:10px;padding:12px;">
+            <summary style="font-size:11px;font-weight:700;color:#fb923c;cursor:pointer;">🟠 Claude Response</summary>
+            <div id="fusionClaude" style="margin-top:8px;font-size:12px;color:#94a3b8;white-space:pre-wrap;line-height:1.6;max-height:200px;overflow-y:auto;"></div>
+          </details>
+        </div>
+        <div style="background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(124,58,237,.1));border:1px solid rgba(124,58,237,.4);border-radius:12px;padding:16px;">
+          <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">⚡ Fusion — Synthesised Answer</div>
+          <div id="fusionFinal" style="font-size:13px;color:#e2e8f0;white-space:pre-wrap;line-height:1.65;max-height:320px;overflow-y:auto;"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="_saFusionCopy()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy Fusion</button>
+          <button onclick="_saFusionSendToThread()" style="flex:1;padding:8px;border:1px solid rgba(59,130,246,.4);border-radius:8px;background:rgba(59,130,246,.1);color:#93c5fd;font-size:12px;cursor:pointer;">→ Send to Thread</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── ORCHESTRA / DEEP DIVE / FUSION  UI ENGINE ───────────────────────────── */
+(function(){
+  'use strict';
+
+  function ge(id){ return document.getElementById(id); }
+  function _eHTML(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(String(s||''))); return d.innerHTML; }
+
+  /* ── shared modal helpers ── */
+  window._saCloseModal = function(id){
+    var m = ge(id); if(m) m.style.display='none';
+  };
+  function _saOpenModal(id){
+    var m = ge(id); if(!m) return;
+    m.style.display='flex';
+    m.scrollTop=0;
+  }
+
+  function _setBusy(btnId, busy, label){
+    var b=ge(btnId); if(!b) return;
+    b.disabled=busy;
+    if(busy) b.innerText='⏳ Running…';
+    else b.innerText=label;
+  }
+
+  /* ── show toast from outer scope ── */
+  function _toast(msg, type){ try{ showToast(msg, type||'success'); }catch(e){} }
+
+  /* ══════════════════════════════════════════════════════════════════
+     ORCHESTRA MODE
+  ══════════════════════════════════════════════════════════════════ */
+  window._saOpenOrchestra = function(){
+    // Populate teammate order from installed seats
+    var orderEl = ge('orchOrderList');
+    if(orderEl){
+      orderEl.innerHTML = '';
+      try{
+        var installed = (window.state && window.state.installed) ? Object.keys(window.state.installed) : [];
+        // Start clockwise from selected seat if possible
+        var sel = window.selectedSeat || '';
+        if(sel && installed.includes(sel)){
+          var idx = installed.indexOf(sel);
+          installed = installed.slice(idx).concat(installed.slice(0, idx));
+        }
+        installed.forEach(function(name){
+          var chip = document.createElement('div');
+          chip.dataset.name = name;
+          chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
+          chip.innerText = name;
+          chip.draggable = true;
+          chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
+          chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
+          chip.addEventListener('dragover', function(e){ e.preventDefault(); });
+          chip.addEventListener('drop', function(e){
+            e.preventDefault();
+            var draggedName = e.dataTransfer.getData('text/plain');
+            var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
+            if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
+          });
+          orderEl.appendChild(chip);
+        });
+      } catch(e){ orderEl.innerText='No teammates installed.'; }
+    }
+    // Pre-fill prompt from current followMsg
+    try{
+      var fm = ge('followMsg');
+      if(fm && fm.value.trim()) ge('orchPrompt').value = fm.value.trim();
+    } catch(e){}
+    ge('orchResults').style.display = 'none';
+    _saOpenModal('orchestraModal');
+  };
+
+  window._saRunOrchestra = function(){
+    var prompt = (ge('orchPrompt').value||'').trim();
+    if(!prompt){ _toast('Enter a prompt', 'error'); return; }
+    var orderEl = ge('orchOrderList');
+    var chips = orderEl ? Array.from(orderEl.querySelectorAll('[data-name]')) : [];
+    var order = chips.map(function(c){ return c.dataset.name; }).filter(Boolean);
+    if(!order.length){ _toast('No teammates found', 'error'); return; }
+    _setBusy('orchRunBtn', true, '🎵 Run Orchestra');
+    ge('orchResults').style.display = 'none';
+    fetch('/api/orchestra/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({prompt:prompt, teammate_order:order})
+    }).then(function(r){return r.json();}).then(function(d){
+      _setBusy('orchRunBtn', false, '🎵 Run Orchestra');
+      if(!d.ok){ _toast(d.error||'Orchestra failed', 'error'); return; }
+      // Render passes
+      var passLog = ge('orchPassLog');
+      passLog.innerHTML = '';
+      (d.passes||[]).forEach(function(p, i){
+        var chip = document.createElement('div');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:6px;font-size:11px;color:#a78bfa;';
+        chip.innerText = '✓ '+_eHTML(p.teammate||('Step '+(i+1)));
+        passLog.appendChild(chip);
+        if(typeof saVFX_orchestraPass === 'function') saVFX_orchestraPass(p.teammate, i, (d.passes||[]).length);
+      });
+      ge('orchFinalOutput').innerText = d.final || '';
+      ge('orchResults').style.display = '';
+      _toast('Orchestra complete! +50 pts 🎵');
+      if(typeof refreshThread === 'function') try{ refreshThread(); }catch(e){}
+    }).catch(function(e){ _setBusy('orchRunBtn', false, '🎵 Run Orchestra'); _toast('Network error', 'error'); });
+  };
+
+  window._saOrchCopyFinal = function(){
+    var t = (ge('orchFinalOutput')||{}).innerText||'';
+    navigator.clipboard.writeText(t).then(function(){ _toast('Copied'); });
+  };
+
+  window._saOrchSendToThread = function(){
+    var t = (ge('orchFinalOutput')||{}).innerText||'';
+    var fm = ge('followMsg'); if(fm){ fm.value = t; fm.focus(); }
+    _saCloseModal('orchestraModal');
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     DEEP DIVE MODE
+  ══════════════════════════════════════════════════════════════════ */
+  window._saOpenDeepDive = function(){
+    var name = window.selectedSeat || '';
+    if(!name){ _toast('Select a teammate first', 'error'); return; }
+    var nameEl = ge('deepDiveTeammateName');
+    if(nameEl) nameEl.innerText = name;
+    // Pre-fill from followMsg
+    try{
+      var fm = ge('followMsg');
+      if(fm && fm.value.trim()) ge('deepDivePrompt').value = fm.value.trim();
+    } catch(e){}
+    ge('deepDiveResults').style.display = 'none';
+    _saOpenModal('deepDiveModal');
+  };
+
+  window._saRunDeepDive = function(){
+    var teammate = window.selectedSeat || '';
+    var prompt   = (ge('deepDivePrompt').value||'').trim();
+    if(!teammate){ _toast('Select a teammate first', 'error'); return; }
+    if(!prompt){ _toast('Enter a prompt', 'error'); return; }
+    _setBusy('deepDiveRunBtn', true, '🔬 Run Deep Dive');
+    ge('deepDiveResults').style.display = 'none';
+    fetch('/api/deepdive/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({teammate:teammate, prompt:prompt})
+    }).then(function(r){return r.json();}).then(function(d){
+      _setBusy('deepDiveRunBtn', false, '🔬 Run Deep Dive');
+      if(!d.ok){ _toast(d.error||'Deep Dive failed', 'error'); return; }
+      ge('ddRound1').innerText = d.draft   || '';
+      ge('ddRound2').innerText = d.critique|| '';
+      ge('ddRound3').innerText = d.final   || '';
+      ge('deepDiveResults').style.display = '';
+      _toast('Deep Dive complete! +45 pts 🔬');
+      if(typeof refreshThread === 'function') try{ refreshThread(); }catch(e){}
+    }).catch(function(){ _setBusy('deepDiveRunBtn', false, '🔬 Run Deep Dive'); _toast('Network error', 'error'); });
+  };
+
+  window._saDDCopyFinal = function(){
+    var t = (ge('ddRound3')||{}).innerText||'';
+    navigator.clipboard.writeText(t).then(function(){ _toast('Copied'); });
+  };
+
+  window._saDDSendToThread = function(){
+    var t = (ge('ddRound3')||{}).innerText||'';
+    var fm = ge('followMsg'); if(fm){ fm.value = t; fm.focus(); }
+    _saCloseModal('deepDiveModal');
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     FUSION MODE
+  ══════════════════════════════════════════════════════════════════ */
+  window._saOpenFusion = function(){
+    // Pre-fill from opPrompt (group console)
+    try{
+      var op = ge('opPrompt');
+      if(op && op.value.trim()) ge('fusionPrompt').value = op.value.trim();
+    } catch(e){}
+    ge('fusionResults').style.display = 'none';
+    _saOpenModal('fusionModal');
+  };
+
+  window._saRunFusion = function(){
+    var prompt = (ge('fusionPrompt').value||'').trim();
+    if(!prompt){ _toast('Enter a prompt', 'error'); return; }
+    _setBusy('fusionRunBtn', true, '⚡ Run Fusion');
+    ge('fusionResults').style.display = 'none';
+    if(typeof saVFX_fusionBeam === 'function') saVFX_fusionBeam();
+    fetch('/api/fusion/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({prompt:prompt})
+    }).then(function(r){return r.json();}).then(function(d){
+      _setBusy('fusionRunBtn', false, '⚡ Run Fusion');
+      if(!d.ok){ _toast(d.error||'Fusion failed', 'error'); return; }
+      ge('fusionGPT').innerText    = d.gpt_response    || '(not available)';
+      ge('fusionClaude').innerText = d.claude_response || '(not available)';
+      ge('fusionFinal').innerText  = d.fusion          || '';
+      ge('fusionResults').style.display = '';
+      _toast('Fusion complete! +80 pts ⚡');
+    }).catch(function(){ _setBusy('fusionRunBtn', false, '⚡ Run Fusion'); _toast('Network error', 'error'); });
+  };
+
+  window._saFusionCopy = function(){
+    var t = (ge('fusionFinal')||{}).innerText||'';
+    navigator.clipboard.writeText(t).then(function(){ _toast('Copied'); });
+  };
+
+  window._saFusionSendToThread = function(){
+    var t = (ge('fusionFinal')||{}).innerText||'';
+    var op = ge('opPrompt'); if(op){ op.value = t; op.focus(); }
+    _saCloseModal('fusionModal');
+  };
+
+  /* ══════════════════════════════════════════════════════════════════
+     WIRE BUTTONS after loadState sets _SA_UNLOCKS
+  ══════════════════════════════════════════════════════════════════ */
+  function _wireUnlockedButtons(){
+    var unlocks = window._SA_UNLOCKS || [];
+
+    // Deep Dive — shows in DM area
+    var ddBtn = ge('deepDiveBtn');
+    if(ddBtn){
+      if(unlocks.indexOf('deep_dive') !== -1){
+        ddBtn.style.display = '';
+        ddBtn.onclick = function(){ _saOpenDeepDive(); };
+      } else {
+        ddBtn.style.display = 'none';
+      }
+    }
+
+    // Orchestra — shows in group console
+    var orchBtn = ge('orchestraBtn');
+    if(orchBtn){
+      if(unlocks.indexOf('orchestra') !== -1){
+        orchBtn.style.display = '';
+        orchBtn.onclick = function(){ _saOpenOrchestra(); };
+      } else {
+        orchBtn.style.display = 'none';
+      }
+    }
+
+    // Fusion — shows in group console
+    var fusBtn = ge('fusionBtn');
+    if(fusBtn){
+      if(unlocks.indexOf('fusion') !== -1){
+        fusBtn.style.display = '';
+        fusBtn.onclick = function(){ _saOpenFusion(); };
+      } else {
+        fusBtn.style.display = 'none';
+      }
+    }
+  }
+
+  // Wire immediately and re-wire after loadState (which sets _SA_UNLOCKS)
+  _wireUnlockedButtons();
+  var _origLoadState = window.loadState;
+  if(typeof _origLoadState === 'function'){
+    window.loadState = async function(){
+      var result = await _origLoadState.apply(this, arguments);
+      _wireUnlockedButtons();
+      return result;
+    };
+  }
+  // Also fire after a short delay in case loadState already ran
+  setTimeout(_wireUnlockedButtons, 2000);
+
+})();
+</script>
+<!-- ═══ END ORCHESTRA / DEEP DIVE / FUSION ═══ -->
+
 </body>
 </html>
 """
@@ -30342,7 +30265,7 @@ def api_crm_clients_create():
         current_count = len(crm.get("clients") or {})
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
-            upgrade_to = "Team ($97/mo)"
+            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
             return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts."}), 403
 
     cid = _crm_new_id("c")
@@ -30715,6 +30638,7 @@ def api_crm_broadcast_email():
     dry_run = bool(payload.get("dry_run"))
     if not dry_run:
         _award_points(uname, "Sent an email broadcast", 30)
+        _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": 0, "subject": (payload.get("subject") or "")[:80]})
 
     if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
@@ -30754,7 +30678,7 @@ def api_crm_broadcast_email():
         max_recipients = plan_info.get("broadcast_recipients")  # None = unlimited
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name   = plan_info.get("name", "your plan")
-            upgrade_to  = "Team ($97/mo)"
+            upgrade_to  = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
@@ -30843,7 +30767,7 @@ def api_crm_broadcast_sms():
         max_recipients = plan_info.get("broadcast_recipients")
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name  = plan_info.get("name", "your plan")
-            upgrade_to = "Team ($97/mo)"
+            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
@@ -36410,6 +36334,7 @@ def _check_rank_up_and_notify(username: str, old_total: int, new_total: int) -> 
         new_tier = _get_user_rank(new_total)["tier"]
         if new_tier > old_tier:
             new_rank = _get_user_rank(new_total)
+            _fire_outbound_webhooks(username, "rank_up", {"tier": new_rank.get("tier"), "name": new_rank.get("name","")})
             _notif_push(
                 username,
                 title=f"🎉 Rank Up! You are now {new_rank['emoji']} {new_rank['name']}",
@@ -37137,6 +37062,361 @@ def api_fusion_run():
         _capture_error(e, context="api_fusion_run")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+
+# =============================================================================
+# REFERRAL SYSTEM
+# =============================================================================
+
+_REFERRAL_DIR = DATA / "referrals"
+_REFERRAL_DIR.mkdir(parents=True, exist_ok=True)
+
+def _referral_path(username: str) -> Path:
+    return _REFERRAL_DIR / f"{_safe_name(username or 'anon')}.json"
+
+def _referral_code_for_user(username: str) -> str:
+    """Get or create a stable referral code for a user."""
+    p = _referral_path(username)
+    data = load_json(p, {})
+    if not data.get("code"):
+        import hashlib
+        code = hashlib.sha256(f"{username}-{SECRET_KEY}".encode()).hexdigest()[:10].upper()
+        data = {"code": code, "username": username, "referrals": [], "total_referred": 0}
+        save_json(p, data)
+    return data["code"]
+
+def _find_referrer_by_code(code: str) -> Optional[str]:
+    """Find the username who owns this referral code."""
+    try:
+        for p in _REFERRAL_DIR.glob("*.json"):
+            d = load_json(p, {})
+            if (d.get("code") or "").upper() == code.upper():
+                return d.get("username")
+    except Exception:
+        pass
+    return None
+
+def _record_referral(referrer: str, referred_email: str) -> None:
+    """Record a successful referral and award points + notification."""
+    try:
+        p = _referral_path(referrer)
+        data = load_json(p, {"code": _referral_code_for_user(referrer), "username": referrer, "referrals": [], "total_referred": 0})
+        data.setdefault("referrals", []).append({"email": referred_email, "at": now_iso()})
+        data["total_referred"] = len(data["referrals"])
+        save_json(p, data)
+        _award_points(referrer, f"Referred {referred_email}", 200)
+        _notif_push(referrer,
+            title="Referral reward!",
+            body=f"{referred_email} just joined using your referral link. +200 points!",
+            ntype="success")
+    except Exception:
+        pass
+
+@app.get("/api/referral/my_code")
+def api_referral_my_code():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    code = _referral_code_for_user(uname)
+    p = _referral_path(uname)
+    data = load_json(p, {})
+    base = PUBLIC_BASE_URL or ""
+    return jsonify({
+        "ok": True,
+        "code": code,
+        "link": f"{base}/register?ref={code}",
+        "total_referred": data.get("total_referred", 0),
+        "referrals": (data.get("referrals") or [])[-10:],
+    })
+
+
+# =============================================================================
+# OUTBOUND WEBHOOKS — fire to external URLs on key platform events
+# Users configure webhook URLs in settings; we POST JSON on each event.
+# Supported events: new_lead, broadcast_sent, rank_up, idea_shipped,
+#                   stack_complete, contact_stage_changed
+# =============================================================================
+
+_WEBHOOKS_DIR = DATA / "webhooks"
+_WEBHOOKS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _webhooks_path(username: str) -> Path:
+    return _WEBHOOKS_DIR / f"{_safe_name(username or 'anon')}.json"
+
+def _load_user_webhooks(username: str) -> List[Dict[str, Any]]:
+    return load_json(_webhooks_path(username), [])
+
+def _save_user_webhooks(username: str, hooks: List[Dict[str, Any]]) -> None:
+    save_json(_webhooks_path(username), hooks)
+
+def _fire_outbound_webhooks(username: str, event: str, payload: Dict[str, Any]) -> None:
+    """Fire all matching outbound webhooks for a user. Non-blocking."""
+    def _fire():
+        try:
+            hooks = _load_user_webhooks(username)
+            for hook in hooks:
+                if not hook.get("url") or not hook.get("active", True): continue
+                events = hook.get("events") or []
+                if events and event not in events: continue
+                try:
+                    requests.post(hook["url"], json={
+                        "event": event, "username": username,
+                        "at": now_iso(), "data": payload
+                    }, timeout=8, headers={"Content-Type": "application/json",
+                                            "X-Simply-Agentic-Event": event})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    threading.Thread(target=_fire, daemon=True).start()
+
+@app.get("/api/user/webhooks")
+def api_get_webhooks():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    return jsonify({"ok": True, "webhooks": _load_user_webhooks(uname)})
+
+@app.post("/api/user/webhooks")
+def api_save_webhook():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    p = request.get_json(force=True, silent=True) or {}
+    url = (p.get("url") or "").strip()
+    if not url.startswith("http"): return jsonify({"ok": False, "error": "Invalid URL"}), 400
+    hooks = _load_user_webhooks(uname)
+    hook = {
+        "id": secrets.token_hex(8),
+        "url": url[:500],
+        "label": (p.get("label") or url)[:80],
+        "events": p.get("events") or [],
+        "active": True,
+        "created_at": now_iso(),
+    }
+    hooks.append(hook)
+    _save_user_webhooks(uname, hooks)
+    return jsonify({"ok": True, "hook": hook})
+
+@app.delete("/api/user/webhooks/<hook_id>")
+def api_delete_webhook(hook_id: str):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    hooks = [h for h in _load_user_webhooks(uname) if h.get("id") != hook_id]
+    _save_user_webhooks(uname, hooks)
+    return jsonify({"ok": True})
+
+
+# =============================================================================
+# CHANGELOG / WHAT'S NEW — in-app release notes
+# =============================================================================
+
+CHANGELOG: List[Dict[str, Any]] = [
+    {
+        "version": "1.11",
+        "date": "2025-05",
+        "title": "The Big Polish",
+        "highlights": [
+            "Referral system — share your link and earn 200 pts per signup",
+            "Orchestra Mode — team collaborates on one unified output",
+            "Deep Dive Mode — 3-round self-critique for much deeper answers",
+            "Fusion Mode — GPT-4o + Claude simultaneously, then synthesised",
+            "10 new visual effects including rank-up burst, send ripple, compass orb",
+            "3-plan pricing: Founder, Solo, Team",
+            "6-tier community ranking with real feature unlocks",
+            "Action Stacks with chained step support",
+            "25 tiered prompt packs (Tier 2-6)",
+            "In-app password change, comprehensive startup checklist",
+        ],
+    },
+    {
+        "version": "1.10",
+        "date": "2025-04",
+        "title": "Community & Ranking",
+        "highlights": [
+            "6-tier rank system: Operator in Training → Legendary",
+            "Points system with 17 earning actions",
+            "Community leaderboard and ideas board",
+            "Rank-up notifications",
+            "Tiered prompt library unlocks",
+        ],
+    },
+]
+
+@app.get("/api/changelog")
+def api_changelog():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    # Mark as seen
+    users_data = load_users()
+    user_rec = (users_data.get("users") or {}).get(uname) or {}
+    last_seen = user_rec.get("changelog_seen_version", "")
+    latest_version = CHANGELOG[0]["version"] if CHANGELOG else ""
+    has_new = last_seen != latest_version
+    return jsonify({"ok": True, "changelog": CHANGELOG, "has_new": has_new, "latest_version": latest_version})
+
+@app.post("/api/changelog/seen")
+def api_changelog_seen():
+    u = current_user()
+    if not u: return jsonify({"ok": False}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    version = (request.get_json(silent=True) or {}).get("version", "")
+    users_data = load_users()
+    if uname in (users_data.get("users") or {}):
+        users_data["users"][uname]["changelog_seen_version"] = version
+        save_users(users_data)
+    return jsonify({"ok": True})
+
+
+# =============================================================================
+# EMAIL OPEN TRACKING — 1x1 pixel endpoint
+# Broadcasts embed ?/api/track/open?id={broadcast_id}&contact={contact_id}
+# =============================================================================
+
+_TRACKING_DIR = DATA / "email_tracking"
+_TRACKING_DIR.mkdir(parents=True, exist_ok=True)
+
+@app.get("/api/track/open")
+def api_track_email_open():
+    """1x1 tracking pixel — records email open event."""
+    bid = (request.args.get("id") or "").strip()
+    cid = (request.args.get("contact") or "").strip()
+    uid = (request.args.get("u") or "").strip()
+    if bid and uid:
+        try:
+            tp = _TRACKING_DIR / f"{_safe_name(uid)}.json"
+            data = load_json(tp, {})
+            data.setdefault(bid, {"opens": [], "contacts": {}})
+            data[bid]["opens"].append(now_iso())
+            if cid:
+                data[bid]["contacts"][cid] = data[bid]["contacts"].get(cid, 0) + 1
+            save_json(tp, data)
+        except Exception:
+            pass
+    # Return transparent 1x1 GIF
+    import base64
+    gif = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+    resp = make_response(gif)
+    resp.headers["Content-Type"]  = "image/gif"
+    resp.headers["Cache-Control"] = "no-store, no-cache"
+    resp.headers["Pragma"]        = "no-cache"
+    return resp
+
+@app.get("/api/broadcast/stats/<broadcast_id>")
+def api_broadcast_stats(broadcast_id: str):
+    """Return open stats for a given broadcast."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    tp = _TRACKING_DIR / f"{_safe_name(uname)}.json"
+    data = load_json(tp, {})
+    entry = data.get(broadcast_id, {})
+    return jsonify({
+        "ok": True,
+        "broadcast_id": broadcast_id,
+        "total_opens": len(entry.get("opens", [])),
+        "unique_contacts": len(entry.get("contacts", {})),
+        "contacts": entry.get("contacts", {}),
+        "last_open": entry["opens"][-1] if entry.get("opens") else None,
+    })
+
+
+# =============================================================================
+# SCHEDULED BROADCASTS — queue a broadcast for future delivery
+# =============================================================================
+
+_SCHED_BROADCAST_DIR = DATA / "scheduled_broadcasts"
+_SCHED_BROADCAST_DIR.mkdir(parents=True, exist_ok=True)
+
+def _sched_broadcast_path(username: str) -> Path:
+    return _SCHED_BROADCAST_DIR / f"{_safe_name(username or 'anon')}.json"
+
+@app.post("/api/crm/broadcast/schedule")
+def api_crm_broadcast_schedule():
+    """Schedule a broadcast for future delivery."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    p = request.get_json(force=True, silent=True) or {}
+    send_at = (p.get("send_at") or "").strip()  # ISO datetime string
+    if not send_at:
+        return jsonify({"ok": False, "error": "send_at (ISO datetime) required"}), 400
+    scheduled = {
+        "id": secrets.token_hex(8),
+        "send_at": send_at,
+        "payload": p.get("payload") or {},
+        "created_at": now_iso(),
+        "status": "pending",
+    }
+    path = _sched_broadcast_path(uname)
+    data = load_json(path, [])
+    data.append(scheduled)
+    save_json(path, data)
+    return jsonify({"ok": True, "scheduled": scheduled})
+
+@app.get("/api/crm/broadcast/scheduled")
+def api_crm_broadcast_scheduled():
+    """List all scheduled broadcasts for the current user."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    data = load_json(_sched_broadcast_path(uname), [])
+    return jsonify({"ok": True, "scheduled": data})
+
+@app.delete("/api/crm/broadcast/scheduled/<sched_id>")
+def api_crm_broadcast_schedule_delete(sched_id: str):
+    """Cancel a scheduled broadcast."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    path = _sched_broadcast_path(uname)
+    data = [s for s in load_json(path, []) if s.get("id") != sched_id]
+    save_json(path, data)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/analytics")
+def api_admin_analytics():
+    """Basic platform analytics for admin — feature adoption + conversion signals."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    try:
+        users_data = load_users()
+        users = list((users_data.get("users") or {}).values())
+        total_users = len(users)
+        verified  = sum(1 for u in users if u.get("email_verified"))
+        has_first_ai = sum(1 for u in users if u.get("first_ai_interaction_at"))
+        # Plan breakdown
+        plans: Dict[str, int] = {}
+        for seat_file in DATA.glob("seats/*.json"):
+            try:
+                seat = load_json(seat_file, {})
+                plan = seat.get("plan") or "unknown"
+                plans[plan] = plans.get(plan, 0) + 1
+            except Exception:
+                pass
+        # Community rank distribution
+        pt_data = _community_load_points()
+        rank_dist: Dict[str, int] = {}
+        for uname, ud in pt_data.items():
+            rank = _get_user_rank((ud or {}).get("total", 0))
+            rname = rank.get("name", "Unknown")
+            rank_dist[rname] = rank_dist.get(rname, 0) + 1
+        return jsonify({
+            "ok": True,
+            "total_users": total_users,
+            "email_verified": verified,
+            "reached_aha_moment": has_first_ai,
+            "aha_rate_pct": round(100 * has_first_ai / max(1, total_users), 1),
+            "plan_breakdown": plans,
+            "rank_distribution": rank_dist,
+            "generated_at": now_iso(),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ── Compass ─────────────────────────────────────────────────────────────
 @app.post("/api/scout_ask")
