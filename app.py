@@ -182,6 +182,27 @@ else:
     _hint = "sk-..." + _startup_key[-4:] if len(_startup_key) >= 4 else "???"
     print(f"[STARTUP] OPENAI_API_KEY present: {_hint} (len={len(_startup_key)})", flush=True)
 
+# ── Critical env var validation ───────────────────────────────────────────────
+def _startup_check() -> None:
+    """Print a clear checklist of critical configuration at startup."""
+    checks = [
+        ("SECRET_KEY",             bool(os.getenv("SECRET_KEY")),             "Flask sessions insecure — set SECRET_KEY"),
+        ("OPENAI_API_KEY",         bool(OPENAI_API_KEY),                      "AI features disabled — set OPENAI_API_KEY"),
+        ("PUBLIC_BASE_URL",        not PUBLIC_BASE_URL.startswith("http://localhost"), "Set PUBLIC_BASE_URL to your live domain for OAuth + emails"),
+        ("FIELD_ENCRYPTION_KEY",   bool(os.getenv("FIELD_ENCRYPTION_KEY")),   "API keys stored as plaintext — set FIELD_ENCRYPTION_KEY"),
+        ("STRIPE_SECRET_KEY",      bool(os.getenv("STRIPE_SECRET_KEY")),      "Billing disabled — set STRIPE_SECRET_KEY"),
+        ("STRIPE_WEBHOOK_SECRET",  bool(os.getenv("STRIPE_WEBHOOK_SECRET")),  "Stripe webhooks unverified — set STRIPE_WEBHOOK_SECRET"),
+    ]
+    ok_count = sum(1 for _, v, _ in checks if v)
+    print(f"\n[STARTUP] ── Configuration check ({ok_count}/{len(checks)} critical vars set) ──", flush=True)
+    for name, ok, warn in checks:
+        status = "✅" if ok else "⚠️ "
+        msg    = "" if ok else f"  ({warn})"
+        print(f"[STARTUP]   {status} {name}{msg}", flush=True)
+    print("[STARTUP] ─────────────────────────────────────────────────────────\n", flush=True)
+
+_startup_check()
+
 # Uploads
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "12"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -1190,6 +1211,14 @@ def _stripe_verify_webhook(payload: bytes, sig_header: str) -> Tuple[bool, Dict[
         ).hexdigest()
         if not hmac.compare_digest(expected, v1):
             return False, {}
+        # Replay attack protection: reject webhooks older than 5 minutes
+        try:
+            ts_age = abs(time.time() - int(ts))
+            if ts_age > 300:
+                print(f"[SECURITY] Stripe webhook rejected: timestamp too old ({ts_age:.0f}s)", flush=True)
+                return False, {}
+        except Exception:
+            return False, {}
         return True, json.loads(payload.decode("utf-8"))
     except Exception:
         return False, {}
@@ -1477,6 +1506,8 @@ def has_any_user() -> bool:
 def _clean_username(u: str) -> str:
     u = (u or "").strip().lower()
     u = re.sub(r"[^a-z0-9_\.\-]+", "", u)
+    u = u.strip(".-_")   # No leading/trailing dots, dashes, underscores
+    u = u[:40]  # Hard cap — prevents absurdly long usernames
     return u
 
 def _find_user_by_login(identifier: str) -> Optional[Dict[str, Any]]:
@@ -1585,6 +1616,10 @@ def _add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]     = "geolocation=(), camera=(self), microphone=(self)"
+    # Prevent sensitive API responses from being cached by browsers/proxies
+    if request.path.startswith("/api/") and request.method in ("GET", "POST"):
+        if not response.headers.get("Cache-Control"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     if PUBLIC_BASE_URL.startswith("https://"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     # Content Security Policy — tightened for production
@@ -5297,18 +5332,37 @@ def api_me():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname    = u.get("username", "")
     settings = (u.get("settings") or {})
-    smtp = (settings.get("smtp") or {})
+    smtp     = (settings.get("smtp") or {})
+    # Include rank info so any page can show the user's tier without a separate call
+    try:
+        pt_data  = _community_load_points()
+        pt_total = (pt_data.get(uname) or {}).get("total", 0)
+        rank     = _get_user_rank(pt_total)
+    except Exception:
+        rank = _get_user_rank(0)
     return jsonify({
         "ok": True,
         "user": {
-            "username": u.get("username", ""),
-            "email": u.get("email", "")
+            "username": uname,
+            "email":    u.get("email", ""),
+            "plan":     _get_user_plan(uname),
         },
         "has_openai_key": bool(_decrypt_field((settings.get("openai_key") or "").strip())),
-        "has_smtp": bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
+        "has_claude_key": bool(_decrypt_field((settings.get("claude_key") or "").strip())),
+        "has_smtp":       bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip()),
         "has_gmail_oauth": bool((settings.get("gmail_oauth") or {})),
         "is_admin": _is_admin_user(u),
+        "rank": {
+            "tier":           rank["tier"],
+            "name":           rank["name"],
+            "emoji":          rank["emoji"],
+            "points":         rank["points"],
+            "progress_pct":   rank["progress_pct"],
+            "points_to_next": rank["points_to_next"],
+            "unlocks":        rank["unlocks"],
+        },
     })
 
 
@@ -5433,14 +5487,42 @@ def api_get_user_settings():
 
 
 
-@app.post("/api/user/settings")
-def api_set_user_settings():
+@app.post("/api/user/change_password")
+def api_change_password():
+    """In-app password change — requires current password for verification."""
+    rl = _check_rate_limit("change_password", 5)  # 5 attempts/min — brute-force protection
+    if rl: return rl
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    p = request.get_json(force=True, silent=True) or {}
+    current_pw = (p.get("current_password") or "").strip()
+    new_pw     = (p.get("new_password")     or "").strip()
+    confirm_pw = (p.get("confirm_password") or "").strip()
+    if not current_pw or not new_pw:
+        return jsonify({"ok": False, "error": "Current and new password are required."}), 400
+    if new_pw != confirm_pw:
+        return jsonify({"ok": False, "error": "New passwords do not match."}), 400
+    ok, msg = _validate_password_strength(new_pw)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    data = load_users()
+    user_rec = (data.get("users") or {}).get(uname)
+    if not user_rec:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+    if not check_password_hash(user_rec.get("password_hash", ""), current_pw):
+        return jsonify({"ok": False, "error": "Current password is incorrect."}), 403
+    user_rec["password_hash"] = generate_password_hash(new_pw)
+    user_rec["updated_at"] = now_iso()
+    data["users"][uname] = user_rec
+    save_users(data)
+    _audit_log("password_changed", {}, username=uname)
+    return jsonify({"ok": True, "message": "Password updated successfully."})
 
-    data = request.get_json(force=True) or {}
-    openai_key = (data.get("openai_key") or "").strip()
+
+@app.post("/api/user/settings")
+def api_set_user_settings():
     claude_key = (data.get("claude_key") or "").strip()
     global_default_model = (data.get("global_default_model") or "").strip()
 
@@ -5701,41 +5783,65 @@ def _save_user_prompt_data(username: str, data: Dict[str, Any]) -> None:
     save_json(_prompt_library_path(username), data)
 
 def _build_prompt_response(username: str, teammate_filter: str = "") -> Dict[str, Any]:
-    """Merge built-ins with user usage counts and custom prompts, optionally filter by teammate."""
+    """Merge built-ins + tiered packs (rank-gated) + user customs, optionally filter by teammate."""
     user_data = _load_user_prompt_data(username)
     usage     = user_data.get("usage") or {}
     custom    = user_data.get("custom") or []
 
+    # Determine user tier for unlock gating
+    try:
+        pt_data   = _community_load_points()
+        pt_total  = (pt_data.get(username) or {}).get("total", 0)
+        user_tier = _get_user_rank(pt_total)["tier"]
+    except Exception:
+        user_tier = 1
+
     result: Dict[str, Any] = {}
 
+    # Build a merged list of all prompts per teammate
+    all_prompts: Dict[str, List[Dict[str, Any]]] = {}
     for tm, prompts in PROMPT_LIBRARY.items():
         if teammate_filter and tm != teammate_filter:
             continue
-        # Group built-ins by category with usage counts merged in
+        all_prompts.setdefault(tm, [])
+        for p in prompts:
+            all_prompts[tm].append({**p, "builtin": True, "min_tier": 1, "locked": False})
+
+    # Add tiered prompt packs — visible to all but locked above user's tier
+    for p in TIERED_PROMPT_PACKS:
+        tm = p.get("teammate", "")
+        if teammate_filter and tm != teammate_filter:
+            continue
+        min_t = p.get("min_tier", 1)
+        locked = user_tier < min_t
+        all_prompts.setdefault(tm, []).append({**p, "builtin": True, "locked": locked})
+
+    for tm, prompts in all_prompts.items():
         by_category: Dict[str, List[Dict[str, Any]]] = {}
         for p in prompts:
-            cat = p.get("category", "General")
+            cat   = p.get("category", "General")
             entry = dict(p)
-            entry["builtin"]   = True
             entry["teammate"]  = tm
-            entry["use_count"] = int(usage.get(p["id"], 0))
+            entry["use_count"] = int(usage.get(p.get("id",""), 0))
             by_category.setdefault(cat, []).append(entry)
 
-        # Attach user customs for this teammate
         tm_customs = [c for c in custom if c.get("teammate") == tm]
         for c in tm_customs:
-            cat = c.get("category", "Custom")
+            cat   = c.get("category", "Custom")
             entry = dict(c)
-            entry["use_count"] = int(usage.get(c["id"], 0))
+            entry["use_count"] = int(usage.get(c.get("id",""), 0))
+            entry.setdefault("locked", False)
             by_category.setdefault(cat, []).append(entry)
 
         result[tm] = {
             "teammate":   tm,
             "categories": by_category,
             "total":      len(prompts) + len(tm_customs),
+            "user_tier":  user_tier,
         }
 
     return result
+
 
 
 @app.get("/api/prompts")
@@ -6464,6 +6570,20 @@ def api_thread(name: str):
         "branch_count": branch_count,
         "has_branches": branch_count > 0,
     })
+
+@app.post("/api/thread/<name>/clear")
+def api_thread_clear(name: str) -> Any:
+    """Clear a single teammate's conversation thread."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    reg = load_registry(uname)
+    if name not in reg.get("installed", {}):
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    save_thread(name, [], uname)
+    append_log("thread_cleared", {"teammate": name, "by": uname})
+    return jsonify({"ok": True, "teammate": name})
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
@@ -9750,6 +9870,7 @@ def login_post():
         session["_2fa_next"] = (request.args.get("next") or request.form.get("next") or "").strip()
         return redirect(url_for("verify_2fa"))
 
+    session.clear()  # Prevent session fixation — regenerate session on login
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
@@ -9817,6 +9938,7 @@ def verify_2fa_post():
     remember = session.pop("_2fa_remember", False)
     next_url = session.pop("_2fa_next", "")
     session.pop("_2fa_pending_user", None)
+    session.clear()  # Prevent session fixation — regenerate session on 2FA verify
     session["user"] = pending
     session.permanent = bool(remember)
     if remember:
@@ -9954,6 +10076,14 @@ def register_get():
 def register_post():
     if not _signup_enabled():
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
+    # Rate limit registration attempts by IP — prevents spam account creation
+    _ip_reg = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+    _reg_ok, _reg_msg = _rate_limit_check(f"register:{_ip_reg}", 10)
+    if not _reg_ok:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE,
+            error="Too many registration attempts. Please wait before trying again.",
+            ok=None, require_code=True, stripe_code=None, stripe_email=None,
+            stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     username = _clean_username(request.form.get("username",""))
     email = (request.form.get("email","") or "").strip()
     pw = (request.form.get("password","") or "").strip()
@@ -9961,6 +10091,10 @@ def register_post():
 
     if not username or len(username) < 3:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+    if len(username) > 40:
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+    if email and not EMAIL_RE.match(email):
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
     _pw_ok, _pw_err = _validate_password_strength(pw)
     if not _pw_ok:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
@@ -10324,10 +10458,19 @@ def admin_exit_impersonation():
     admin_uname = session.get("_admin_user") or session.get("user")
     if isinstance(admin_uname, dict):
         admin_uname = admin_uname.get("username")
+    was_impersonating = session.get("_impersonating_as") or ""
     session.pop("_impersonating_as", None)
     session.pop("_admin_user", None)
     if admin_uname:
         session["user"] = admin_uname
+    try:
+        append_log("admin_exit_impersonation", {
+            "admin": admin_uname,
+            "was_impersonating": was_impersonating,
+            "at": now_iso(),
+        })
+    except Exception:
+        pass
     return redirect(url_for("admin_users_page"))
 
 
@@ -10568,7 +10711,10 @@ def reset_post():
     data = load_users()
     u = (data.get("users") or {}).get(username)
     if not u:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
+        # Return same message regardless of whether username exists (prevents enumeration)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE,
+            ok="If that username exists, a reset link has been sent to the associated email.",
+            error=None, token=None)
 
     token = _make_token()
     u.setdefault("reset", {})
@@ -10628,7 +10774,8 @@ def reset_password_post():
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
-    if not th or _hash_token(token) != th:
+    computed = _hash_token(token)
+    if not th or not hmac.compare_digest(computed, th):
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token.", token=None, ok=None)
 
     # Token expires after 1 hour
@@ -10764,6 +10911,15 @@ HTML = r"""
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+  <meta name="description" content="Simply Agentic AI — a full team of specialised AI teammates, built-in CRM, broadcasts, calendar sync, Lead Lab, and more. One interface, zero juggling."/>
+  <meta name="theme-color" content="#0f1629"/>
+  <meta property="og:type"        content="website"/>
+  <meta property="og:title"       content="{{app_title}}"/>
+  <meta property="og:description" content="Your AI-powered business operating system. Specialised teammates, CRM, email broadcasts, calendar, and community — all in one place."/>
+  <meta property="og:image"       content="{{PUBLIC_BASE_URL}}/static/og-image.png"/>
+  <meta name="twitter:card"       content="summary_large_image"/>
+  <meta name="twitter:title"      content="{{app_title}}"/>
+  <meta name="twitter:description" content="Your AI-powered business operating system."/>
   <title>{{app_title}}</title>
   <style>
     :root{ --text:#eef2ff; --muted:#d4dcffee; --surface:#1a2040; --card:#1e2548; --border:rgba(80,110,200,.35); }
@@ -13235,6 +13391,23 @@ label         { font-size: 14px !important; }
                   <button class="btn btnPrimary" id="saveSettingsExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="settingsStatus" style="margin-top:10px;text-align:center;"></div>
+
+                <!-- ── Change Password ───────────────────────────────────── -->
+                <details style="margin-top:20px;border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:2px 14px;">
+                  <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#94a3b8;padding:10px 0;user-select:none;">🔑 Change Password</summary>
+                  <div style="padding:10px 0 14px;display:flex;flex-direction:column;gap:10px;">
+                    <input type="password" id="pwCurrent" placeholder="Current password" autocomplete="current-password"
+                      style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;"/>
+                    <input type="password" id="pwNew" placeholder="New password (min 8 chars)" autocomplete="new-password"
+                      style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;"/>
+                    <input type="password" id="pwConfirm" placeholder="Confirm new password" autocomplete="new-password"
+                      style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;"/>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <button class="btn btnPrimary" id="changePwBtn" style="font-size:12px;padding:7px 16px;">Update Password</button>
+                      <div id="changePwStatus" style="font-size:12px;color:#64748b;"></div>
+                    </div>
+                  </div>
+                </details>
                 </div>
               </div>
             </div>
@@ -18807,6 +18980,8 @@ Challenge weak assumptions. Surface risks.`;
       renderPlCards(tm);
     };
 
+    const _TIER_NAMES = {2:'Field Agent',3:'Command Ready',4:'Senior Operator',5:'Elite Operator',6:'Legendary'};
+
     function renderPlCards(tm){
       const container  = $("plCards");
       const titleEl    = $("plTeammateTitle");
@@ -18826,21 +19001,33 @@ Challenge weak assumptions. Surface risks.`;
         total += prompts.length;
         html += `<div class="plCat">${escapeHtml(cat)}</div>`;
         for(const p of prompts){
-          const delBtn = p.builtin ? "" : `<button class="plDelBtn" onclick="plDelete('${p.id}',event)">✕ Delete</button>`;
-          const uses   = p.use_count > 0 ? `<span class="plUseBadge">Used ${p.use_count}×</span>` : "";
+          const locked  = !!p.locked;
+          const minTier = p.min_tier || 1;
+          const tierName = _TIER_NAMES[minTier] || ('Tier ' + minTier);
+          const delBtn  = (!p.builtin && !locked) ? `<button class="plDelBtn" onclick="plDelete('${p.id}',event)">✕ Delete</button>` : "";
+          const uses    = (!locked && p.use_count > 0) ? `<span class="plUseBadge">Used ${p.use_count}×</span>` : "";
+          const lockBadge = locked
+            ? `<span style="font-size:10px;padding:2px 8px;border-radius:6px;background:rgba(124,58,237,.15);color:#7c3aed;border:1px solid rgba(124,58,237,.3);">🔒 ${escapeHtml(tierName)}</span>`
+            : (minTier > 1 ? `<span style="font-size:10px;padding:2px 8px;border-radius:6px;background:rgba(110,231,183,.1);color:#6ee7b7;border:1px solid rgba(110,231,183,.25);">✓ Unlocked</span>` : "");
+          const cardStyle = locked ? 'opacity:0.55;pointer-events:none;' : '';
+          const promptPreview = locked ? '🔒 Unlock this prompt by reaching ' + tierName + ' rank in the community.' : escapeHtml(p.prompt||"");
           html += `
-          <div class="plCard">
-            <div class="plCardBody" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">
+          <div class="plCard" style="${cardStyle}">
+            <div class="plCardBody" onclick="${locked?'':("plUse('"+p.id+"','"+escapeHtml(tm)+"',event)")}">
               <div class="plCardTitle">${escapeHtml(p.title)}</div>
-              <div class="plCardText">${escapeHtml(p.prompt||"")}</div>
+              <div class="plCardText">${promptPreview}</div>
               <div class="plCardMeta">
                 <span class="plCatBadge">${escapeHtml(p.category||"")}</span>
                 ${uses}
+                ${lockBadge}
               </div>
             </div>
             <div class="plCardBtns">
-              <button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>
-              <button class="plCopyBtn" onclick="plCopy('${p.id}',event)">📋 Copy</button>
+              ${locked
+                ? `<button class="plUseBtn" style="opacity:.4;cursor:not-allowed;" onclick="showToast('Reach ${escapeHtml(tierName)} to unlock this prompt','error')">🔒 Locked</button>`
+                : `<button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>`
+              }
+              ${!locked ? `<button class="plCopyBtn" onclick="plCopy('${p.id}',event)">📋 Copy</button>` : ""}
               ${delBtn}
             </div>
           </div>`;
@@ -23537,6 +23724,37 @@ try{
 $("settingsBtn").onclick = () => showSettingsModal();
     $("cancelSettings").onclick = () => hideModal();
 
+    // ── In-app password change ─────────────────────────────────────────────
+    const _changePwBtn = document.getElementById("changePwBtn");
+    if(_changePwBtn){
+      _changePwBtn.onclick = async function(){
+        const cur  = (document.getElementById("pwCurrent")?.value || "").trim();
+        const nw   = (document.getElementById("pwNew")?.value     || "").trim();
+        const conf = (document.getElementById("pwConfirm")?.value  || "").trim();
+        const st   = document.getElementById("changePwStatus");
+        if(!cur || !nw){ if(st) st.innerText = "All fields required."; return; }
+        if(nw !== conf){ if(st) st.innerText = "Passwords don't match."; return; }
+        if(st){ st.style.color="#64748b"; st.innerText = "Updating…"; }
+        try{
+          const r = await fetch("/api/user/change_password", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({current_password:cur, new_password:nw, confirm_password:conf})
+          });
+          const d = await r.json();
+          if(d.ok){
+            if(st){ st.style.color="#6ee7b7"; st.innerText = "✅ Password updated!"; }
+            document.getElementById("pwCurrent").value = "";
+            document.getElementById("pwNew").value     = "";
+            document.getElementById("pwConfirm").value = "";
+          } else {
+            if(st){ st.style.color="#f87171"; st.innerText = d.error || "Update failed."; }
+          }
+        } catch(_){
+          if(st){ st.style.color="#f87171"; st.innerText = "Network error."; }
+        }
+      };
+    }
+
     // ── Save API Keys button — saves ONLY the key fields, ignores blank fields ──
     (function(){
       const btn = document.getElementById("saveApiKeysBtn");
@@ -27500,8 +27718,12 @@ window._streamTtsFired = false;
     } catch(e) {}
   };
 
-  // Poll for new notifications every 60 seconds
-  setInterval(loadNotifs, 60000);
+  // Poll for notifications — pause when tab is hidden to save resources
+  var _notifTimer = setInterval(loadNotifs, 90000);
+  document.addEventListener('visibilitychange', function(){
+    clearInterval(_notifTimer);
+    if(!document.hidden){ loadNotifs(); _notifTimer = setInterval(loadNotifs, 90000); }
+  });
   // Initial load after page ready
   setTimeout(loadNotifs, 2000);
 
@@ -28742,7 +28964,7 @@ def api_account_delete():
 def index():
     _uname = _get_session_username()
     _trial_banner = _trial_banner_html(_uname) if FREE_TRIAL_DAYS > 0 else ""
-    return render_template_string(HTML, app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner)
+    return render_template_string(HTML, app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL)
 
 
 
@@ -31730,7 +31952,17 @@ def _handle_404(e):
             return jsonify({"ok": False, "error": "Endpoint not found"}), 404
     except Exception:
         pass
-    return "<h1>404 Not Found</h1>", 404
+    # Branded 404 — consistent with _error_404 above
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>404 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>404</h1><h2>Page not found</h2>"
+        f"<p>The page you're looking for doesn't exist or has moved.</p>"
+        f"<a href='/'>← Back to {APP_TITLE}</a></div></body></html>"
+    )
+    return page, 404
 
 @app.errorhandler(500)
 def _handle_500(e):
@@ -31739,7 +31971,16 @@ def _handle_500(e):
             return jsonify({"ok": False, "error": "Internal server error"}), 500
     except Exception:
         pass
-    return "<h1>500 Internal Server Error</h1>", 500
+    page = (
+        f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<title>500 — {APP_TITLE}</title>"
+        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
+        f"<div class='box'>"
+        f"<h1>500</h1><h2>Something went wrong</h2>"
+        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
+        f"<a href='/'>← Back to {APP_TITLE}</a></div></body></html>"
+    )
+    return page, 500
 
 
 
@@ -33047,6 +33288,9 @@ def api_os_intent_route():
 
 @app.get("/api/os/stack_templates")
 def api_os_stack_templates():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     return jsonify({"ok": True, "templates": list(STACK_TEMPLATES.values())})
 
 
@@ -35395,12 +35639,13 @@ def _check_rank_up_and_notify(username: str, old_total: int, new_total: int) -> 
         new_tier = _get_user_rank(new_total)["tier"]
         if new_tier > old_tier:
             new_rank = _get_user_rank(new_total)
-            _push_notification(username, {
-                "type":    "rank_up",
-                "title":   f"🎉 Rank Up! You're now {new_rank['emoji']} {new_rank['name']}",
-                "body":    f"You've unlocked: {', '.join(new_rank['unlocks']) if new_rank['unlocks'] else 'new prompts'}. Keep going!",
-                "action":  "/",
-            })
+            _notif_push(
+                username,
+                title=f"🎉 Rank Up! You are now {new_rank['emoji']} {new_rank['name']}",
+                body=f"You've unlocked: {', '.join(new_rank['unlocks']) if new_rank['unlocks'] else 'new prompts'}. Keep going!",
+                ntype="success",
+                link="/",
+            )
     except Exception:
         pass
 
@@ -35753,6 +35998,8 @@ def api_community_ideas_list():
 def api_community_ideas_post():
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    rl = _check_rate_limit("idea_submit", 5)
+    if rl: return rl
     uname   = u.get("username", "")
     payload = request.get_json(silent=True) or {}
     title   = (payload.get("title") or "").strip()[:120]
@@ -35774,6 +36021,8 @@ def api_community_ideas_post():
 def api_community_idea_vote(idea_id: str):
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    rl = _check_rate_limit("idea_vote", 30)
+    if rl: return rl
     uname = u.get("username", "")
     ideas = _community_load_ideas()
     for idea in ideas:
