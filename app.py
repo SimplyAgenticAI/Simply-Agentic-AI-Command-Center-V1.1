@@ -257,6 +257,8 @@ STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
 STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "") or STRIPE_PRICE_ID or "price_1TNLaBKAWBo2NxJsK5bMQr4x"
 STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")
 STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWBo2NxJsur0jGGwR")
+# Team plan reuses the Growth Stripe price ID — same $97 price, same link
+STRIPE_PRICE_ID_TEAM    = os.getenv("STRIPE_PRICE_ID_TEAM",    STRIPE_PRICE_ID_GROWTH)
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Set STRIPE_PRICE_ID_FOUNDER in Render → Environment with the price ID from
@@ -269,97 +271,108 @@ FOUNDER_TIMER_EPOCH      = os.getenv("FOUNDER_TIMER_EPOCH", "2024-01-01")  # any
 # ── Central plan definitions — edit here, nowhere else ──────────────────────
 PLANS: Dict[str, Any] = {
     "founder": {
-        "name":             "Founder Access",
-        "price":            27,
-        "price_id":         STRIPE_PRICE_ID_FOUNDER,
-        "badge":            "🔥 Founder",
-        "tagline":          "Locked in forever at our lowest price — for the first believers.",
-        "custom_teammates": 3,
-        "crm_contacts":     2500,
-        "broadcast_recipients": 1000,
-        "team_seats":       2,
-        "founder":          True,
+        "name":                  "Founder",
+        "price":                 27,
+        "price_id":              STRIPE_PRICE_ID_FOUNDER,
+        "badge":                 "🔥 Founder",
+        "tagline":               "You found us early. Your loyalty is locked in forever.",
+        "custom_teammates":      None,   # unlimited
+        "crm_contacts":          2500,
+        "broadcast_recipients":  1000,
+        "team_seats":            2,
+        "founder":               True,
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
-            "3 custom AI teammates — build your bench",
-            "AI Notepad with Improve, Expand & Summarize",
-            "Website & landing page analyzer (scored 1–100)",
-            "Lead Lab, Social Studio & Offer Builder — unlimited",
+            "Unlimited custom AI teammates — no ceiling",
+            "Full AI toolkit: Notepad, Analyser, Lead Lab, Social Studio, Offer Builder",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
-            "2 team seats — bring a partner",
             "Calendar, tasks & Gmail sync",
-            "Price locked forever — never increases",
+            "2 team seats — bring a partner",
+            "Community ranking system — earn feature unlocks",
+            "Founding Contributor badge — permanent, visible everywhere",
+            "First access to every new feature before anyone else",
+            "Price locked forever — never increases, ever",
         ],
     },
     "starter": {
-        "name":             "Solo Operator",
-        "price":            47,
-        "price_id":         STRIPE_PRICE_ID_STARTER,
-        "badge":            None,
-        "tagline":          "The full AI command center — everything you need to run and grow solo.",
-        "custom_teammates": 0,
-        "crm_contacts":     500,
-        "broadcast_recipients": 250,
-        "team_seats":       1,
+        "name":                  "Solo",
+        "price":                 47,
+        "price_id":              STRIPE_PRICE_ID_STARTER,
+        "badge":                 "Most Popular",
+        "tagline":               "The full AI command centre — built for the one-person operator.",
+        "custom_teammates":      3,
+        "crm_contacts":          500,
+        "broadcast_recipients":  250,
+        "team_seats":            1,
         "features": [
             "All 7 built-in AI teammates (GPT-4o + Claude)",
-            "AI Notepad with AI-powered writing actions",
-            "Website & landing page analyzer (1–100 score)",
-            "Lead Lab, Social Studio & Offer Builder — unlimited",
+            "3 custom AI teammates — build your specific bench",
+            "Full AI toolkit: Notepad, Analyser, Lead Lab, Social Studio, Offer Builder",
             "CRM + pipeline (up to 500 contacts)",
             "Email broadcast (up to 250 recipients) + SMS via Twilio",
             "Calendar, tasks & Gmail sync",
+            "1 seat — built for focused solo operators",
+            "Community ranking system — earn feature unlocks",
             "Dashboard & analytics",
         ],
     },
-    "growth": {
-        "name":             "Growth System",
-        "price":            97,
-        "price_id":         STRIPE_PRICE_ID_GROWTH,
-        "badge":            "Most Popular",
-        "tagline":          "Scale your pipeline, build your AI team, and bring in real humans too.",
-        "custom_teammates": 3,
-        "crm_contacts":     2500,
-        "broadcast_recipients": 1000,
-        "team_seats":       3,
+    "team": {
+        "name":                  "Team",
+        "price":                 97,
+        "price_id":              STRIPE_PRICE_ID_TEAM,
+        "badge":                 None,
+        "tagline":               "Everything in Solo, multiplied across your whole crew.",
+        "custom_teammates":      None,   # unlimited
+        "crm_contacts":          2500,
+        "broadcast_recipients":  1000,
+        "team_seats":            5,
         "features": [
-            "Everything in Solo Operator",
-            "3 custom AI teammates — build your bench",
-            "AI Notepad + Website analyzer included",
+            "Everything in Solo",
+            "Unlimited custom AI teammates",
             "CRM + pipeline (up to 2,500 contacts)",
             "Email broadcast (up to 1,000 recipients) + SMS via Twilio",
-            "3 team seats — run with a crew",
-            "Advanced pipeline automation",
+            "5 team seats — you + 4 members with full access",
+            "Shared CRM and pipeline across all team members",
+            "Team activity dashboard",
+            "Community ranking system — earn feature unlocks",
             "Priority support",
         ],
     },
+    # ── Legacy plans — kept so existing subscribers never break ──────────────
+    # These are NOT shown on the pricing page. Existing holders stay on them.
+    "growth": {
+        "name":                  "Growth System",
+        "price":                 97,
+        "price_id":              STRIPE_PRICE_ID_GROWTH,
+        "badge":                 None,
+        "tagline":               "Legacy plan.",
+        "custom_teammates":      3,
+        "crm_contacts":          2500,
+        "broadcast_recipients":  1000,
+        "team_seats":            3,
+        "features":              [],
+        "_legacy":               True,
+    },
     "pro": {
-        "name":             "Operator Pro",
-        "price":            197,
-        "price_id":         STRIPE_PRICE_ID_PRO,
-        "badge":            "Unlimited",
-        "tagline":          "Full command. No ceilings. Built for operators running at scale.",
-        "custom_teammates": None,
-        "crm_contacts":     None,
-        "broadcast_recipients": None,
-        "team_seats":       10,
-        "features": [
-            "Everything in Growth",
-            "Unlimited custom AI teammates",
-            "Unlimited CRM contacts & broadcasts",
-            "10 team seats — bring your whole operation",
-            "Dedicated onboarding + strategy call",
-            "Early access to every new feature",
-            "Priority support — direct line, no queue",
-        ],
+        "name":                  "Operator Pro",
+        "price":                 197,
+        "price_id":              STRIPE_PRICE_ID_PRO,
+        "badge":                 None,
+        "tagline":               "Legacy plan.",
+        "custom_teammates":      None,
+        "crm_contacts":          None,
+        "broadcast_recipients":  None,
+        "team_seats":            10,
+        "features":              [],
+        "_legacy":               True,
     },
 }
 
 def _plan_price_id(plan_key: str) -> str:
     """Return the Stripe price ID for a plan key, falling back to Starter."""
     p = PLANS.get(plan_key) or PLANS.get("starter") or {}
-    return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
+    return (p.get("price_id") or STRIPE_PRICE_ID_TEAM or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
@@ -1173,7 +1186,7 @@ def _audit_log(action: str, detail: dict = None, username: str = None) -> None:
 
 def _stripe_ready() -> bool:
     # Ready if secret key + at least one plan price ID is configured
-    return bool(STRIPE_SECRET_KEY and (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID))
+    return bool(STRIPE_SECRET_KEY and (STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID_TEAM or STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID))
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Minimal Stripe REST wrapper — no stripe-python dep required."""
@@ -5082,10 +5095,11 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="genEmail" placeholder="jane@example.com">
     <label>Plan</label>
     <select id="genPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
-      <option value="founder">Founder</option>
+      <option value="starter">Solo ($47)</option>
+      <option value="team">Team ($97)</option>
+      <option value="founder">Founder ($27)</option>
+      <option value="growth">Growth — Legacy</option>
+      <option value="pro">Pro — Legacy</option>
     </select>
     <div class="msg" id="genMsg"></div>
     <div class="modal-actions">
@@ -5104,10 +5118,11 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="editEmail">
     <label>Plan</label>
     <select id="editPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
-      <option value="founder">Founder</option>
+      <option value="starter">Solo ($47)</option>
+      <option value="team">Team ($97)</option>
+      <option value="founder">Founder ($27)</option>
+      <option value="growth">Growth — Legacy</option>
+      <option value="pro">Pro — Legacy</option>
     </select>
     <label>Status</label>
     <select id="editStatus">
@@ -8695,7 +8710,7 @@ function startStripeCheckout() {
   spinner.style.display = 'inline';
   cardIcon.style.display = 'none';
 
-  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter';
+  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter'; // 'starter' = Solo internally
 
   fetch('/stripe/create_checkout', {
     method: 'POST',
@@ -8939,48 +8954,57 @@ def pricing_page():
     stripe_on      = _stripe_ready()
     founder_remain = _founder_seats_remaining()
     founder_sold   = founder_remain <= 0
-    founder_timer  = _founder_weekly_timer()
-    sold_out_param = request.args.get("founder_sold_out", "")
     fp             = PLANS.get("founder", {})
+    seats_bar_pct  = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
+    trial_label    = f"{FREE_TRIAL_DAYS}-day free trial — cancel anytime" if FREE_TRIAL_DAYS > 0 else ""
+    cta_label      = "Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
 
-    founder_features_html = "".join(
+    # Founder CTA
+    if founder_sold:
+        founder_btn = "<button class='f-btn-out' disabled>All Founder Seats Claimed</button>"
+    else:
+        founder_btn = f"""<button class='f-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
+          <span class='btn-spinner' id='spin-founder' style='display:none'>
+            <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
+          </span>
+          Claim My Founder Spot →
+        </button>"""
+
+    # Founder features
+    founder_feats = "".join(
         f"<li><span class='pfc'>&#10003;</span>{f}</li>"
         for f in fp.get("features", [])
     )
-    seats_bar_pct = int((1 - founder_remain / max(1, FOUNDER_SEATS_MAX)) * 100)
-    sold_out_msg  = "<div class='f-soldout'>All 100 founder seats have been claimed.</div>" if founder_sold else ""
-    founder_btn   = (
-        "<button class='f-btn-out' disabled>Sold Out</button>" if founder_sold else
-        f"""<button class='f-btn' onclick="startCheckout('founder')" id='planBtn-founder'>
-              <span class='btn-spinner' id='spin-founder' style='display:none'>
-                <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
-              </span>
-              Claim My Founder Spot
-            </button>"""
-    )
 
+    # Build Solo and Team cards
+    active_plans = [("starter", PLANS["starter"]), ("team", PLANS["team"])]
     cards_html = ""
-    for key, p in PLANS.items():
-        if key == "founder":
-            continue
+    for key, p in active_plans:
+        is_featured   = key == "starter"
+        featured_cls  = " plan-card-featured" if is_featured else ""
         badge         = p.get("badge")
-        is_growth     = key == "growth"
         badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        rec_cls       = " plan-card-featured" if is_growth else ""
-        team_seats    = p.get("team_seats", 1)
-        features_html = "".join(
-            f"<li><span class='pfc'>&#10003;</span>{f}</li>"
-            for f in p.get("features", [])
-        )
-        trial_html    = f"<div class='trial-note'>🎉 {FREE_TRIAL_DAYS}-day free trial — cancel anytime</div>" if FREE_TRIAL_DAYS > 0 else ""
-        cta_label     = f"Start Free Trial" if FREE_TRIAL_DAYS > 0 else "Get Started"
-        cards_html   += f"""
-        <div class='plan-card{rec_cls}'>
+        feats         = "".join(f"<li><span class='pfc'>&#10003;</span>{f}</li>" for f in p.get("features", []))
+        trial_html    = f"<div class='trial-note'>🎉 {trial_label}</div>" if trial_label else ""
+        seats         = p.get("team_seats", 1)
+        seats_label   = f"{seats} seat{'s' if seats > 1 else ''}"
+        custom_tm     = p.get("custom_teammates")
+        tm_label      = "Unlimited" if custom_tm is None else str(custom_tm)
+        contacts      = p.get("crm_contacts", 0)
+        contacts_label = f"{contacts:,}" if contacts else "Unlimited"
+
+        cards_html += f"""
+        <div class='plan-card{featured_cls}'>
           {badge_html}
           <div class='plan-name'>{p['name']}</div>
           <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
           <div class='plan-tagline'>{p['tagline']}</div>
-          <ul class='plan-features'>{features_html}</ul>
+          <div class='plan-limits'>
+            <div class='limit-pill'><span>👥</span> {seats_label}</div>
+            <div class='limit-pill'><span>🤖</span> {tm_label} custom AI</div>
+            <div class='limit-pill'><span>📇</span> {contacts_label} contacts</div>
+          </div>
+          <ul class='plan-features'>{feats}</ul>
           <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><circle cx='12' cy='12' r='10' stroke-opacity='.3'/><path d='M12 2a10 10 0 0 1 10 10' stroke-linecap='round'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.75s' repeatCount='indefinite'/></path></svg>
@@ -8991,240 +9015,246 @@ def pricing_page():
         </div>"""
 
     page = f"""<!doctype html>
-<html><head>
+<html lang='en'><head>
 <meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
-<title>Pricing - {APP_TITLE}</title>
+<meta name='description' content='Simply Agentic AI pricing — Founder, Solo, and Team plans starting at $27/mo.'/>
+<title>Pricing — {APP_TITLE}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0;}}
-body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(247,211,106,.13),transparent 56%),radial-gradient(1200px 900px at 50% 38%,rgba(124,58,237,.22),transparent 58%),linear-gradient(180deg,#090d19 0%,#0a1022 38%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 80px;}}
-.pg-header{{text-align:center;margin-bottom:48px;}}
-.pg-header h1{{font-size:36px;font-weight:900;color:#f3e8ff;margin-bottom:12px;}}
-.pg-header p{{color:#94a3b8;font-size:16px;max-width:560px;margin:0 auto;line-height:1.7;}}
-.brand{{display:flex;align-items:center;justify-content:center;gap:10px;font-size:20px;font-weight:800;color:#c4b5fd;margin-bottom:32px;}}
-.dot{{width:13px;height:13px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);}}
+body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(124,58,237,.18),transparent 56%),linear-gradient(180deg,#090d19 0%,#0a1022 40%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 100px;}}
 
-/* ══ FOUNDER CARD ══════════════════════════════════ */
-.f-wrap{{max-width:720px;margin:0 auto 48px;}}
-.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07) 0%,rgba(249,115,22,.05) 50%,rgba(14,20,46,.95) 100%);border:2px solid rgba(251,191,36,.45);border-radius:24px;padding:32px 32px 28px;position:relative;overflow:hidden;box-shadow:0 0 60px rgba(251,191,36,.10),0 20px 60px rgba(0,0,0,.4);}}
-.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 10% 0%,rgba(251,191,36,.12),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(249,115,22,.08),transparent 55%);pointer-events:none;}}
+/* ── NAV ── */
+.pg-nav{{display:flex;align-items:center;justify-content:space-between;max-width:1100px;margin:0 auto 48px;padding:0 8px;}}
+.pg-brand{{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;color:#c4b5fd;text-decoration:none;}}
+.pg-dot{{width:11px;height:11px;border-radius:999px;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,#7c3aed 72%);flex-shrink:0;}}
+.pg-nav-links{{display:flex;gap:20px;align-items:center;}}
+.pg-nav-links a{{color:#64748b;font-size:14px;text-decoration:none;transition:color .15s;}}
+.pg-nav-links a:hover{{color:#c4b5fd;}}
+.pg-nav-cta{{background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.45);color:#c4b5fd !important;padding:7px 16px;border-radius:8px;font-weight:700 !important;}}
 
-/* ── Ribbon pulse animation ── */
-.f-ribbon{{position:absolute;top:20px;right:-32px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 48px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
-@keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0),0 0 12px rgba(251,191,36,.35);}}50%{{box-shadow:0 0 0 7px rgba(251,191,36,.12),0 0 36px rgba(251,191,36,.75);}}}}
+/* ── HEADER ── */
+.pg-header{{text-align:center;margin-bottom:56px;}}
+.pg-eyebrow{{font-size:12px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px;}}
+.pg-header h1{{font-size:42px;font-weight:900;color:#f3e8ff;margin-bottom:14px;line-height:1.1;}}
+.pg-header h1 em{{font-style:normal;background:linear-gradient(135deg,#a78bfa,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}}
+.pg-header p{{color:#94a3b8;font-size:16px;max-width:520px;margin:0 auto;line-height:1.7;}}
 
-.f-top{{display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;position:relative;}}
-.f-left{{flex:1;min-width:200px;}}
-.f-badge{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.18),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.4);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
-.f-name{{font-size:24px;font-weight:900;color:#fef3c7;margin-bottom:4px;}}
-
-/* ── Price breathe ── */
-.f-price{{font-size:52px;font-weight:900;color:#fef3c7;line-height:1;margin-bottom:4px;}}
-.f-price .dol{{font-size:24px;color:#fcd34d;vertical-align:top;margin-top:12px;display:inline-block;}}
-.f-price .per{{font-size:16px;font-weight:400;color:#92400e;}}
-.f-price .num{{display:inline-block;animation:priceBreathe 3s ease-in-out infinite;}}
-@keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 28px rgba(251,191,36,.6),0 0 56px rgba(251,191,36,.25);}}}}
-
-/* ── Lock badge pulse ── */
-.f-locked{{font-size:12px;color:#fbbf24;margin-top:5px;animation:lockPulse 2.8s ease-in-out infinite;}}
-@keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.5;}}}}
-
-.f-tagline{{color:#a16207;font-size:13px;margin-top:8px;line-height:1.5;}}
-.f-right{{flex:1;min-width:210px;display:flex;flex-direction:column;gap:14px;}}
-.seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;}}
-.seats-num{{font-size:30px;font-weight:900;color:#fef3c7;line-height:1;}}
-.seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
-.seats-bar{{background:rgba(0,0,0,.3);border-radius:999px;height:10px;overflow:hidden;margin-top:8px;}}
-
-/* ── Bar shimmer ── */
+/* ── FOUNDER CARD ── */
+.f-wrap{{max-width:780px;margin:0 auto 44px;}}
+.f-card{{background:linear-gradient(135deg,rgba(251,191,36,.07),rgba(249,115,22,.05),rgba(14,20,46,.97));border:2px solid rgba(251,191,36,.5);border-radius:24px;padding:34px 36px 30px;position:relative;overflow:hidden;box-shadow:0 0 80px rgba(251,191,36,.1),0 24px 60px rgba(0,0,0,.5);}}
+.f-card::before{{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 0% 0%,rgba(251,191,36,.13),transparent 55%),radial-gradient(ellipse at 100% 100%,rgba(249,115,22,.09),transparent 55%);pointer-events:none;}}
+.f-ribbon{{position:absolute;top:22px;right:-34px;background:linear-gradient(90deg,#f59e0b,#ef4444);color:#fff;font-size:11px;font-weight:800;padding:5px 52px;transform:rotate(35deg);letter-spacing:.08em;text-transform:uppercase;animation:ribbonPulse 2.2s ease-in-out infinite;}}
+@keyframes ribbonPulse{{0%,100%{{box-shadow:0 0 0 0 rgba(251,191,36,0);}}50%{{box-shadow:0 0 0 8px rgba(251,191,36,.12),0 0 40px rgba(251,191,36,.7);}}}}
+.f-body{{display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap;position:relative;}}
+.f-left{{flex:1;min-width:220px;}}
+.f-badge-pill{{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,rgba(251,191,36,.2),rgba(249,115,22,.12));border:1px solid rgba(251,191,36,.45);border-radius:999px;padding:4px 14px;font-size:11px;font-weight:800;color:#fcd34d;letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px;}}
+.f-name{{font-size:28px;font-weight:900;color:#fef3c7;margin-bottom:6px;}}
+.f-tagline{{font-size:13px;color:#a16207;line-height:1.55;margin-bottom:16px;}}
+.f-price-row{{display:flex;align-items:baseline;gap:4px;margin-bottom:6px;}}
+.f-price-num{{font-size:56px;font-weight:900;color:#fef3c7;line-height:1;animation:priceBreathe 3s ease-in-out infinite;}}
+@keyframes priceBreathe{{0%,100%{{text-shadow:0 0 0 transparent;}}50%{{text-shadow:0 0 32px rgba(251,191,36,.65),0 0 60px rgba(251,191,36,.25);}}}}
+.f-price-dol{{font-size:26px;color:#fcd34d;margin-top:8px;}}
+.f-price-per{{font-size:16px;font-weight:400;color:#92400e;}}
+.f-lock{{font-size:12px;color:#fbbf24;margin-top:4px;animation:lockPulse 2.8s ease-in-out infinite;}}
+@keyframes lockPulse{{0%,100%{{opacity:1;}}50%{{opacity:.45;}}}}
+.f-right{{flex:1;min-width:220px;display:flex;flex-direction:column;gap:16px;}}
+.f-seats-box{{background:rgba(0,0,0,.28);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 18px;}}
+.f-seats-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;}}
+.f-seats-num{{font-size:32px;font-weight:900;color:#fef3c7;line-height:1;}}
+.f-seats-sub{{font-size:12px;color:#92400e;margin-top:2px;}}
+.seats-bar{{background:rgba(0,0,0,.35);border-radius:999px;height:10px;overflow:hidden;margin-top:10px;}}
 .seats-bar-fill{{height:100%;border-radius:999px;background:linear-gradient(90deg,#34d399,#fbbf24 60%,#ef4444);position:relative;overflow:hidden;}}
 .seats-bar-fill::after{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:barShimmer 2.8s ease-in-out infinite;}}
 @keyframes barShimmer{{0%{{left:-80%;}}65%,100%{{left:160%;}}}}
-
-.cd-wrap{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.2);border-radius:14px;padding:14px 16px;}}
-.cd-lbl{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;}}
-.cd-row{{display:flex;gap:10px;align-items:center;}}
-.cd-unit{{text-align:center;}}
-.cd-num{{font-size:22px;font-weight:900;color:#fef3c7;line-height:1;font-variant-numeric:tabular-nums;min-width:32px;display:inline-block;}}
-.cd-sub{{font-size:10px;color:#92400e;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
-.cd-sep{{font-size:18px;color:#92400e;font-weight:300;margin-bottom:10px;}}
-
-/* ── Digit flip ── */
-.cd-flip{{animation:digitFlip .35s ease-out;}}
-@keyframes digitFlip{{0%{{transform:scaleY(0);opacity:0;}}55%{{transform:scaleY(1.08);}}100%{{transform:scaleY(1);opacity:1;}}}}
-
-.f-feats{{margin-top:20px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);}}
-.f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px 18px;list-style:none;}}
-.f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.4;}}
+.f-limits{{display:flex;gap:10px;flex-wrap:wrap;}}
+.f-limit-pill{{background:rgba(0,0,0,.25);border:1px solid rgba(251,191,36,.18);border-radius:8px;padding:6px 12px;font-size:12px;color:#d4d4a8;}}
+.f-feats{{margin-top:22px;padding-top:18px;border-top:1px solid rgba(251,191,36,.15);position:relative;}}
+.f-feats-title{{font-size:11px;font-weight:700;color:#fcd34d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;}}
+.f-feat-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:7px 20px;list-style:none;}}
+.f-feat-grid li{{display:flex;align-items:flex-start;gap:7px;font-size:13px;color:#d4d4a8;line-height:1.45;}}
 .pfc{{color:#fbbf24;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;}}
-
-/* ── CTA + button shimmer ── */
-.f-cta{{margin-top:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}}
-.f-btn{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;}}
+.f-cta-row{{margin-top:22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}}
+.f-btn{{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;box-shadow:0 6px 24px rgba(245,158,11,.45);transition:opacity .15s,transform .1s;display:inline-flex;align-items:center;gap:8px;position:relative;overflow:hidden;}}
 .f-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);animation:btnShimmer 2.4s ease-in-out infinite;}}
 @keyframes btnShimmer{{0%{{left:-80%;}}55%,100%{{left:150%;}}}}
 .f-btn:hover{{opacity:.88;transform:translateY(-2px);}}
-.f-btn:active{{transform:translateY(0);}}
-.f-btn-out{{padding:14px 30px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
+.f-btn-out{{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:800;background:rgba(100,100,100,.2);color:#6b7280;border:1px solid rgba(100,100,100,.3);cursor:not-allowed;}}
 .f-note{{font-size:12px;color:#78716c;line-height:1.5;}}
-.f-soldout{{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-top:12px;}}
-
-/* ── Floating particles ── */
 .f-particles{{position:absolute;inset:0;pointer-events:none;overflow:hidden;}}
 .f-particle{{position:absolute;border-radius:50%;background:rgba(251,191,36,.55);animation:floatUp linear infinite;}}
 @keyframes floatUp{{0%{{transform:translateY(0) scale(1);opacity:.55;}}100%{{transform:translateY(-140px) scale(0);opacity:0;}}}}
 
-/* ══ DIVIDER ══ */
-.divider{{text-align:center;margin:0 auto 36px;max-width:720px;display:flex;align-items:center;gap:14px;}}
-.divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.08);}}
-.divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
+/* ── DIVIDER ── */
+.pg-divider{{max-width:780px;margin:0 auto 40px;display:flex;align-items:center;gap:16px;}}
+.pg-divider hr{{flex:1;border:none;border-top:1px solid rgba(255,255,255,.07);}}
+.pg-divider span{{color:#475569;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap;}}
 
-/* ══ STANDARD PLAN CARDS ══ */
-.plans{{display:flex;gap:22px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:1080px;margin:0 auto;}}
-.plan-card{{flex:1;min-width:285px;max-width:330px;background:rgba(14,20,46,.92);border:1px solid rgba(80,100,180,.3);border-radius:20px;padding:32px 28px 28px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
-.plan-card:hover{{transform:translateY(-4px);box-shadow:0 20px 60px rgba(0,0,0,.4);}}
-.plan-card-featured{{border-color:rgba(124,58,237,.7);background:rgba(20,16,54,.96);box-shadow:0 0 0 1px rgba(124,58,237,.35),0 24px 60px rgba(124,58,237,.18);}}
-.plan-badge{{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 16px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 16px rgba(124,58,237,.4);}}
-.plan-name{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
-.plan-price{{font-size:48px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:6px;}}
-.plan-dollar{{font-size:24px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
+/* ── PLAN CARDS ── */
+.plans{{display:flex;gap:24px;justify-content:center;align-items:stretch;flex-wrap:wrap;max-width:820px;margin:0 auto;}}
+.plan-card{{flex:1;min-width:300px;max-width:370px;background:rgba(14,20,46,.94);border:1px solid rgba(80,100,180,.28);border-radius:22px;padding:34px 28px 30px;display:flex;flex-direction:column;position:relative;transition:transform .2s,box-shadow .2s;}}
+.plan-card:hover{{transform:translateY(-5px);box-shadow:0 24px 60px rgba(0,0,0,.45);}}
+.plan-card-featured{{border-color:rgba(124,58,237,.75);background:rgba(18,14,52,.97);box-shadow:0 0 0 1px rgba(124,58,237,.3),0 24px 60px rgba(124,58,237,.2);}}
+.plan-badge{{position:absolute;top:-15px;left:50%;transform:translateX(-50%);background:linear-gradient(90deg,#7c3aed,#6d28d9);color:#f3e8ff;font-size:11px;font-weight:800;padding:4px 18px;border-radius:999px;white-space:nowrap;letter-spacing:.06em;text-transform:uppercase;box-shadow:0 4px 18px rgba(124,58,237,.45);}}
+.plan-name{{font-size:22px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
+.plan-price{{font-size:52px;font-weight:900;color:#f3e8ff;line-height:1;margin-bottom:8px;}}
+.plan-dollar{{font-size:26px;vertical-align:top;margin-top:10px;display:inline-block;color:#94a3b8;}}
 .plan-per{{font-size:16px;font-weight:400;color:#64748b;}}
-.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:22px;line-height:1.5;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:16px;}}
+.plan-tagline{{color:#64748b;font-size:13px;margin-bottom:16px;line-height:1.55;}}
+.plan-limits{{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.06);}}
+.limit-pill{{background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.22);border-radius:8px;padding:5px 10px;font-size:11px;color:#a78bfa;font-weight:600;}}
 .plan-features{{list-style:none;display:flex;flex-direction:column;gap:9px;margin-bottom:26px;flex:1;}}
-.plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#cbd5e1;line-height:1.4;}}
+.plan-features li{{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:#cbd5e1;line-height:1.45;}}
 .plan-features .pfc{{color:#a78bfa;}}
-.plan-btn{{width:100%;padding:13px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;position:relative;overflow:hidden;}}
+.plan-btn{{width:100%;padding:14px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 4px 20px rgba(124,58,237,.4);transition:opacity .15s,transform .1s;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:auto;position:relative;overflow:hidden;}}
 .plan-btn::before{{content:'';position:absolute;top:0;left:-100%;width:55%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent);animation:btnShimmer 3s ease-in-out infinite;animation-delay:.6s;}}
 .plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
-.trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
-.api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
-.api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
-.api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
-.api-note-text strong{{color:#c4b5fd;}}
-.pg-footer{{text-align:center;margin-top:32px;color:#475569;font-size:13px;}}
-.pg-footer a{{color:#7c3aed;text-decoration:none;}}
-.already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
-.already a{{color:#a78bfa;text-decoration:none;}}
-.already a:hover{{text-decoration:underline;}}
+.trial-note{{font-size:12px;color:#7c3aed;text-align:center;margin-top:8px;}}
+
+/* ── RANK UNLOCK CALLOUT ── */
+.rank-callout{{max-width:780px;margin:56px auto 0;background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(109,40,217,.08));border:1px solid rgba(124,58,237,.3);border-radius:20px;padding:28px 32px;text-align:center;}}
+.rank-callout h3{{font-size:18px;font-weight:800;color:#c4b5fd;margin-bottom:8px;}}
+.rank-callout p{{font-size:14px;color:#64748b;line-height:1.65;max-width:520px;margin:0 auto 18px;}}
+.rank-tiers{{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}}
+.rank-tier-pill{{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:8px 14px;font-size:12px;color:#a78bfa;font-weight:600;}}
+
+/* ── FOOTER ── */
+.pg-footer{{text-align:center;margin-top:60px;font-size:12px;color:#334155;}}
+.pg-footer a{{color:#475569;text-decoration:none;}}
+.pg-footer a:hover{{color:#c4b5fd;}}
+
 @media(max-width:600px){{
-  .f-top{{flex-direction:column;gap:16px;}}
-  .f-price{{font-size:42px;}}
-  .f-cta{{flex-direction:column;align-items:stretch;}}
-  .f-btn,.f-btn-out{{width:100%;text-align:center;}}
-  .cd-row{{gap:6px;}}
-  .cd-num{{font-size:18px;min-width:26px;}}
-  .f-feat-grid{{grid-template-columns:1fr;}}
+  .pg-header h1{{font-size:28px;}}
+  .f-card{{padding:22px 18px;}}
+  .f-body{{gap:20px;}}
+  .f-price-num{{font-size:42px;}}
+  .plans{{flex-direction:column;align-items:center;}}
+  .plan-card{{max-width:100%;}}
+  .pg-nav-links a:not(.pg-nav-cta){{display:none;}}
 }}
 </style>
-</head><body>
-<div class='brand'><div class='dot'></div>{APP_TITLE}</div>
+</head>
+<body>
+
+<nav class='pg-nav'>
+  <a href='/' class='pg-brand'><div class='pg-dot'></div>{APP_TITLE}</a>
+  <div class='pg-nav-links'>
+    <a href='/'>Home</a>
+    <a href='/login'>Sign In</a>
+    <a href='/register' class='pg-nav-cta'>Get Started →</a>
+  </div>
+</nav>
+
 <div class='pg-header'>
-  <h1>Every feature. Every AI teammate.</h1>
-  <p>You get the full platform on every plan. You scale, we scale with you.</p>
-  {"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial — no credit card needed until day " + str(FREE_TRIAL_DAYS + 1) + "</div>" if FREE_TRIAL_DAYS > 0 else ""}
+  <div class='pg-eyebrow'>Simple, honest pricing</div>
+  <h1>One platform.<br/><em>Three straightforward plans.</em></h1>
+  <p>Every plan includes the full Simply Agentic toolkit. You pay for scale — contacts, broadcasts, seats. You <strong style='color:#c4b5fd;'>earn</strong> features by levelling up in the community.</p>
 </div>
 
+<!-- FOUNDER CARD -->
 <div class='f-wrap'>
   <div class='f-card'>
+    <div class='f-ribbon'>Founder</div>
     <div class='f-particles' id='particles'></div>
-    <div class='f-ribbon'>LIMITED</div>
-    <div class='f-top'>
+    <div class='f-body'>
       <div class='f-left'>
-        <div class='f-badge'>🔥 Founder Access</div>
-        <div class='f-name'>{fp.get("name","Founder Access")}</div>
-        <div class='f-price'><span class='dol'>$</span><span class='num'>27</span><span class='per'>/mo</span></div>
-        <div class='f-locked'>🔒 Price locked in forever — never increases</div>
-        <div class='f-tagline'>{fp.get("tagline","")}</div>
+        <div class='f-badge-pill'>🔥 Founder Access</div>
+        <div class='f-name'>Founder</div>
+        <div class='f-tagline'>You found us early. This price is locked in forever — a reward for the first believers.</div>
+        <div class='f-price-row'>
+          <span class='f-price-dol'>$</span>
+          <span class='f-price-num'>{fp.get("price", 27)}</span>
+          <span class='f-price-per'>/mo</span>
+        </div>
+        <div class='f-lock'>🔒 Price locked forever — never increases</div>
       </div>
       <div class='f-right'>
-        <div>
-          <div class='seats-lbl'>Founder seats remaining</div>
-          <div class='seats-num' id='seatsRemain'>{founder_remain}</div>
-          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder spots</div>
-          <div class='seats-bar'>
-            <div class='seats-bar-fill' id='seatsBar' style='width:{seats_bar_pct}%'></div>
-          </div>
+        <div class='f-seats-box'>
+          <div class='f-seats-lbl'>Founder Seats Remaining</div>
+          <div class='f-seats-num'>{founder_remain}</div>
+          <div class='f-seats-sub'>of {FOUNDER_SEATS_MAX} total</div>
+          <div class='seats-bar'><div class='seats-bar-fill' style='width:{seats_bar_pct}%'></div></div>
         </div>
-        <div class='cd-wrap'>
-          <div class='cd-lbl'>Founder pricing availability</div>
-          <div style='margin-top:10px;font-size:15px;font-weight:700;color:var(--gold);letter-spacing:.5px;'>
-            {"&#127525; Only " + str(founder_remain) + " spots left — claim yours before they're gone." if founder_remain <= 20 else "&#128293; Limited founder seats — price locked forever once claimed."}
-          </div>
-          <div style='margin-top:6px;font-size:12px;color:rgba(247,211,106,.65);'>First {FOUNDER_SEATS_MAX} customers only &nbsp;&#183;&nbsp; Never increases</div>
+        <div class='f-limits'>
+          <div class='f-limit-pill'>👥 2 team seats</div>
+          <div class='f-limit-pill'>🤖 Unlimited custom AI</div>
+          <div class='f-limit-pill'>📇 2,500 contacts</div>
+          <div class='f-limit-pill'>📢 1,000 broadcasts</div>
         </div>
       </div>
     </div>
     <div class='f-feats'>
-      <ul class='f-feat-grid'>{founder_features_html}</ul>
+      <div class='f-feats-title'>Everything included</div>
+      <ul class='f-feat-grid'>{founder_feats}</ul>
     </div>
-    <div class='f-cta'>
+    <div class='f-cta-row'>
       {founder_btn}
-      <div class='f-note'>{"🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial included · " if FREE_TRIAL_DAYS > 0 else ""}Cancel anytime · Price locked for life</div>
+      <div class='f-note'>No contracts · Cancel anytime{"<br/>🎉 " + str(FREE_TRIAL_DAYS) + "-day free trial" if FREE_TRIAL_DAYS > 0 else ""}</div>
     </div>
-    {sold_out_msg}
-    {"<div class='f-soldout'>This founder price is sold out — choose a standard plan below.</div>" if sold_out_param else ""}
   </div>
 </div>
 
-<div class='divider'><hr/><span>Or choose a standard plan</span><hr/></div>
-<div class='plans'>{cards_html}</div>
+<!-- SOLO + TEAM DIVIDER -->
+<div class='pg-divider'>
+  <hr/><span>Or choose a standard plan</span><hr/>
+</div>
 
-<div class='api-note'>
-  <div class='api-note-icon'>🔑</div>
-  <div class='api-note-text'>
-    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
+<!-- SOLO + TEAM CARDS -->
+<div class='plans'>
+  {cards_html}
+</div>
+
+<!-- RANK UNLOCK CALLOUT -->
+<div class='rank-callout'>
+  <h3>⚡ Features you earn, not buy</h3>
+  <p>Every plan includes the community ranking system. Use the platform, earn points, level up — and unlock powerful features automatically. No upsells, no paywalls on features.</p>
+  <div class='rank-tiers'>
+    <div class='rank-tier-pill'>🌱 Operator in Training — Core access</div>
+    <div class='rank-tier-pill'>⚡ Field Agent — Personal Action Stacks</div>
+    <div class='rank-tier-pill'>🔥 Command Ready — Orchestra Mode</div>
+    <div class='rank-tier-pill'>💎 Senior Operator — Deep Dive Mode</div>
+    <div class='rank-tier-pill'>🚀 Elite Operator — Fusion Mode</div>
+    <div class='rank-tier-pill'>👑 Legendary — Founding badge + Tier 6 prompts</div>
   </div>
 </div>
-<div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
-<div class='pg-footer' style='margin-top:24px;'>
-  {"All plans start with a " + str(FREE_TRIAL_DAYS) + "-day free trial — your card is collected but not charged until day " + str(FREE_TRIAL_DAYS + 1) + ". Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
+
+<div class='pg-footer'>
+  <a href='/'>← Back to {APP_TITLE}</a> &nbsp;·&nbsp;
+  <a href='/terms'>Terms</a> &nbsp;·&nbsp;
+  <a href='/privacy'>Privacy</a> &nbsp;·&nbsp;
+  <a href='mailto:SimplyAgenticAI@gmail.com'>Support</a>
 </div>
 
 <script>
+// Floating particles on founder card
 (function(){{
   var pc = document.getElementById('particles');
-  if(pc){{
-    for(var i=0;i<14;i++){{
-      var p=document.createElement('div');
-      p.className='f-particle';
-      var sz=Math.random()*4+2;
-      p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+(Math.random()*25)+'%;animation-duration:'+(Math.random()*4+3)+'s;animation-delay:'+Math.random()*5+'s';
-      pc.appendChild(p);
-    }}
+  if(!pc) return;
+  for(var i=0;i<18;i++){{
+    var p=document.createElement('div');
+    p.className='f-particle';
+    var sz=Math.random()*5+2;
+    p.style.cssText='width:'+sz+'px;height:'+sz+'px;left:'+Math.random()*100+'%;bottom:'+Math.random()*30+'%;animation-duration:'+(Math.random()*8+5)+'s;animation-delay:'+(Math.random()*6)+'s;';
+    pc.appendChild(p);
   }}
-
-  var secs={founder_timer["total_seconds"]};
-  function pad(n){{return String(n).padStart(2,'0');}}
-  function flip(id,val){{
-    var el=document.getElementById(id);if(!el)return;
-    var v=pad(val);
-    if(el.textContent!==v){{el.textContent=v;el.classList.remove('cd-flip');void el.offsetWidth;el.classList.add('cd-flip');}}
-  }}
-  setInterval(function(){{
-    if(secs<=0) return;  // freeze at zero — no reload
-    secs--;
-    flip('cdD',Math.floor(secs/86400));
-    flip('cdH',Math.floor((secs%86400)/3600));
-    flip('cdM',Math.floor((secs%3600)/60));
-    flip('cdS',secs%60);
-  }},1000);
-
-  setInterval(function(){{
-    fetch('/api/founder/status').then(function(r){{return r.json();}}).then(function(d){{
-      var r=document.getElementById('seatsRemain'),b=document.getElementById('seatsBar'),btn=document.getElementById('planBtn-founder');
-      if(r)r.textContent=d.remaining;
-      if(b)b.style.width=Math.round((1-d.remaining/{FOUNDER_SEATS_MAX})*100)+'%';
-      if(d.sold_out&&btn){{btn.disabled=true;btn.textContent='Sold Out';btn.className='f-btn-out';}}
-    }}).catch(function(){{}});
-  }},30000);
 }})();
 
+// Checkout handler
 function startCheckout(plan){{
-  var btn=document.getElementById('planBtn-'+plan),spin=document.getElementById('spin-'+plan);
-  if(btn)btn.disabled=true;if(spin)spin.style.display='inline-flex';
-  var form=document.createElement('form');form.method='POST';form.action='/stripe/create_checkout';form.style.display='none';
-  var inp=document.createElement('input');inp.type='hidden';inp.name='plan';inp.value=plan;
-  form.appendChild(inp);document.body.appendChild(form);form.submit();
+  var btn=document.getElementById('planBtn-'+plan);
+  var spin=document.getElementById('spin-'+plan);
+  if(btn){{btn.disabled=true;}}
+  if(spin){{spin.style.display='inline';}}
+  fetch('/stripe/create_checkout',{{
+    method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{plan:plan}})
+  }}).then(function(r){{return r.json();}}).then(function(d){{
+    if(d.url){{window.location=d.url;}}
+    else{{alert(d.error||'Checkout failed — please try again.');if(btn){{btn.disabled=false;}}if(spin){{spin.style.display='none';}}}}
+  }}).catch(function(){{
+    alert('Network error — please try again.');
+    if(btn){{btn.disabled=false;}}if(spin){{spin.style.display='none';}}
+  }});
 }}
 </script>
 </body></html>"""
@@ -30355,7 +30385,7 @@ def api_crm_clients_create():
         current_count = len(crm.get("clients") or {})
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
-            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            upgrade_to = "Team ($97/mo)"
             return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts."}), 403
 
     cid = _crm_new_id("c")
@@ -30767,7 +30797,7 @@ def api_crm_broadcast_email():
         max_recipients = plan_info.get("broadcast_recipients")  # None = unlimited
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name   = plan_info.get("name", "your plan")
-            upgrade_to  = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            upgrade_to  = "Team ($97/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
@@ -30856,7 +30886,7 @@ def api_crm_broadcast_sms():
         max_recipients = plan_info.get("broadcast_recipients")
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name  = plan_info.get("name", "your plan")
-            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            upgrade_to = "Team ($97/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
