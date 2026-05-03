@@ -4731,6 +4731,7 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     run = _init_run(u=uname, teammate=teammate, stack_name=stack_name, steps=steps, user_input=user_input)
     _persist_run(run)
     run2 = _run_action_stack_engine(run)
+    _award_points(uname, f"Ran Action Stack: {stack_name}", 40)
     return jsonify({"ok": True, "run": run2})
 
 @app.post("/api/action_stack_runs/<run_id>/resume")
@@ -5375,6 +5376,7 @@ def api_onboarding_dismiss():
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
     _dismiss_onboarding(username, dismissed)
+    _award_points(username, "Completed an onboarding step", 25)
     return jsonify({"ok": True, "dismissed": dismissed})
 
 @app.get("/api/user/settings")
@@ -6006,6 +6008,8 @@ def api_upload():
     try:
         u = current_user()
         owner = (u.get("username") if isinstance(u, dict) else None) or ""
+        if owner:
+            _award_points(owner, "Uploaded a file", 20)
     except Exception:
         owner = ""
     rec = {
@@ -6823,6 +6827,7 @@ def api_calendar_create_event():
     try:
         created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location, use_meet=use_meet)
         append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
+        _award_points(u.get("username",""), "Booked a calendar event", 15)
         return jsonify({"ok": True, "event": created})
     except Exception as e:
         append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
@@ -27566,17 +27571,27 @@ window._streamTtsFired = false;
     </div>
     <div class="cp-tabs">
       <div class="cp-tab active" id="cpTab-leaderboard" onclick="cpSwitchTab('leaderboard')">🏆 Leaderboard</div>
-      <div class="cp-tab" id="cpTab-ideas" onclick="cpSwitchTab('ideas')">💡 Idea Board</div>
-      <div class="cp-tab" id="cpTab-stats" onclick="cpSwitchTab('stats')">📊 My Stats</div>
+      <div class="cp-tab" id="cpTab-unlocks"     onclick="cpSwitchTab('unlocks')">🔓 Unlocks</div>
+      <div class="cp-tab" id="cpTab-ideas"       onclick="cpSwitchTab('ideas')">💡 Ideas</div>
+      <div class="cp-tab" id="cpTab-stats"       onclick="cpSwitchTab('stats')">📊 My Stats</div>
       <div class="cp-tab" id="cpTab-moderate" style="display:none;" onclick="cpSwitchTab('moderate')">🔧 Moderate <span id="cpModBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 6px;margin-left:3px;"></span></div>
     </div>
+
+    <!-- LEADERBOARD -->
     <div class="cp-body" id="cpLeaderboard">
       <div class="lb-toggle">
-        <button class="lb-btn active" id="lbAllBtn" onclick="cpShowLB('all')">🌍 All-Time</button>
-        <button class="lb-btn" id="lbWeekBtn" onclick="cpShowLB('week')">📅 This Week</button>
+        <button class="lb-btn active" id="lbAllBtn"  onclick="cpShowLB('all')">🌍 All-Time</button>
+        <button class="lb-btn"        id="lbWeekBtn" onclick="cpShowLB('week')">📅 This Week</button>
       </div>
       <div id="lbList"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading leaderboard...</div></div>
     </div>
+
+    <!-- UNLOCKS -->
+    <div class="cp-body" id="cpUnlocks" style="display:none;">
+      <div id="unlocksContent"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading...</div></div>
+    </div>
+
+    <!-- IDEAS -->
     <div class="cp-body" id="cpIdeas" style="display:none;">
       <div class="idea-form">
         <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">💡 Submit a Feature Idea <span class="tiny" style="color:#475569;font-weight:400;">(+20 points)</span></div>
@@ -27590,9 +27605,13 @@ window._streamTtsFired = false;
       </div>
       <div id="ideasList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading ideas...</div></div>
     </div>
+
+    <!-- STATS -->
     <div class="cp-body" id="cpStats" style="display:none;">
       <div id="statsContent"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading your stats...</div></div>
     </div>
+
+    <!-- MODERATE -->
     <div class="cp-body" id="cpModerate" style="display:none;">
       <div style="font-size:14px;font-weight:700;color:#fcd34d;margin-bottom:14px;">🔧 Pending Ideas — Review Queue</div>
       <div id="modList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading...</div></div>
@@ -27602,7 +27621,7 @@ window._streamTtsFired = false;
 
 <script>
 (function(){
-  var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:''};
+  var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:'', myRank:null};
 
   window.openCommunityPanel = function(tab){
     document.getElementById('communityPanel').classList.add('open');
@@ -27616,15 +27635,16 @@ window._streamTtsFired = false;
 
   window.cpSwitchTab = function(tab){
     _cp.activeTab = tab;
-    ['leaderboard','ideas','stats','moderate'].forEach(function(t){
+    ['leaderboard','unlocks','ideas','stats','moderate'].forEach(function(t){
       var b=document.getElementById('cpTab-'+t), p=document.getElementById('cp'+t.charAt(0).toUpperCase()+t.slice(1));
       if(b) b.classList.toggle('active', t===tab);
       if(p) p.style.display = t===tab ? '' : 'none';
     });
     if(tab==='leaderboard') _cpLoadLB();
-    if(tab==='ideas') _cpLoadIdeas();
-    if(tab==='stats') _cpLoadStats();
-    if(tab==='moderate') _cpLoadMod();
+    if(tab==='unlocks')     _cpLoadUnlocks();
+    if(tab==='ideas')       _cpLoadIdeas();
+    if(tab==='stats')       _cpLoadStats();
+    if(tab==='moderate')    _cpLoadMod();
   };
 
   window.cpShowLB = function(mode){
@@ -27634,6 +27654,7 @@ window._streamTtsFired = false;
     _renderLB();
   };
 
+  /* ── LEADERBOARD ── */
   function _cpLoadLB(){
     if(_cp.lb){_renderLB();return;}
     fetch('/api/community/leaderboard').then(function(r){return r.json();}).then(function(d){if(d.ok){_cp.lb=d;_renderLB();}}).catch(function(){});
@@ -27657,6 +27678,86 @@ window._streamTtsFired = false;
     box.innerHTML=html;
   }
 
+  /* ── UNLOCKS ── */
+  var _TIERS = [
+    {tier:1, name:'Operator in Training', emoji:'🌱', min:0,     next:100,   unlocks:[], desc:'Core app + standard prompts'},
+    {tier:2, name:'Field Agent',          emoji:'⚡', min:100,   next:500,   unlocks:['Personal Action Stacks'], desc:'Build and run your own prompt queues per teammate. Chained by default — each step builds on the last.'},
+    {tier:3, name:'Command Ready',        emoji:'🔥', min:500,   next:1500,  unlocks:['Orchestra Mode','Teammate Memory Boost'], desc:'Orchestra: your team collaborates on one piece of content, each applying their domain. Memory Boost: your operator profile auto-injected into every conversation.'},
+    {tier:4, name:'Senior Operator',      emoji:'💎', min:1500,  next:5000,  unlocks:['Deep Dive Mode','Persona Export/Import'], desc:'Deep Dive: 3 automatic rounds — draft, self-critique, definitive final. Persona Export: share your custom teammates with other operators.'},
+    {tier:5, name:'Elite Operator',       emoji:'🚀', min:5000,  next:15000, unlocks:['Fusion Mode','Compass Pro'], desc:'Fusion: GPT-4o + Claude run simultaneously, synthesized into one answer. Compass Pro: full CRM & calendar context in every Compass response.'},
+    {tier:6, name:'Legendary',            emoji:'👑', min:15000, next:null,  unlocks:['Founding Contributor Badge','Tier 6 Prompt Pack'], desc:'Permanent Founding Contributor badge across all community surfaces. Exclusive Tier 6 prompt library — the rarest and most powerful prompts in the platform.'},
+  ];
+
+  function _cpLoadUnlocks(){
+    fetch('/api/community/my_unlocks').then(function(r){return r.json();}).then(function(d){
+      if(d.ok) _renderUnlocks(d.rank);
+    }).catch(function(){});
+  }
+
+  function _renderUnlocks(rank){
+    var box=document.getElementById('unlocksContent'); if(!box)return;
+    var userTier = rank ? rank.tier : 1;
+    var userPts  = rank ? rank.points : 0;
+    var html='';
+    html+='<div style="text-align:center;padding:16px 0 10px;">';
+    html+='<div style="font-size:32px;margin-bottom:4px;">'+(rank?rank.emoji:'🌱')+'</div>';
+    html+='<div style="font-size:15px;font-weight:700;color:#c4b5fd;">'+(rank?rank.name:'Operator in Training')+'</div>';
+    html+='<div style="font-size:12px;color:#475569;margin-top:3px;">'+userPts.toLocaleString()+' points earned</div>';
+    html+='</div>';
+
+    _TIERS.forEach(function(t){
+      var unlocked = userTier >= t.tier;
+      var isCurrent = userTier === t.tier;
+      var ptsNeeded = Math.max(0, t.min - userPts);
+      var borderCol = unlocked ? 'rgba(124,58,237,.45)' : 'rgba(42,58,106,.3)';
+      var bgCol     = unlocked ? 'rgba(124,58,237,.08)' : 'rgba(14,22,48,.5)';
+      var opacity   = unlocked ? '1' : '0.55';
+      html+='<div style="margin-bottom:10px;padding:13px 15px;border-radius:12px;border:1px solid '+borderCol+';background:'+bgCol+';opacity:'+opacity+';">';
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+      html+='<span style="font-size:18px;">'+t.emoji+'</span>';
+      html+='<span style="font-size:13px;font-weight:700;color:'+(unlocked?'#c4b5fd':'#64748b')+';">'+_e(t.name)+'</span>';
+      if(isCurrent) html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(124,58,237,.25);color:#c4b5fd;margin-left:auto;">YOU ARE HERE</span>';
+      else if(unlocked) html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(110,231,183,.12);color:#6ee7b7;margin-left:auto;">✓ UNLOCKED</span>';
+      else html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(71,85,105,.2);color:#475569;margin-left:auto;">'+ptsNeeded.toLocaleString()+' pts away</span>';
+      html+='</div>';
+      if(t.unlocks.length){
+        html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px;">';
+        t.unlocks.forEach(function(u){
+          html+='<span style="font-size:11px;padding:2px 9px;border-radius:6px;background:'+(unlocked?'rgba(124,58,237,.18)':'rgba(42,58,106,.2)')+';color:'+(unlocked?'#a78bfa':'#475569')+';">'+_e(u)+'</span>';
+        });
+        html+='</div>';
+      }
+      html+='<div style="font-size:11px;color:'+(unlocked?'#94a3b8':'#334155')+';">'+_e(t.desc)+'</div>';
+      if(!unlocked && t.min>0){
+        var pct=Math.min(100,Math.round((userPts/t.min)*100));
+        html+='<div style="margin-top:8px;height:4px;border-radius:2px;background:rgba(42,58,106,.4);overflow:hidden;">';
+        html+='<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#7c3aed,#6d28d9);border-radius:2px;transition:width .4s;"></div></div>';
+        html+='<div style="font-size:10px;color:#334155;margin-top:3px;">'+userPts.toLocaleString()+' / '+t.min.toLocaleString()+' pts</div>';
+      }
+      html+='</div>';
+    });
+
+    html+='<div style="margin-top:14px;padding:12px;border-radius:10px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.4);">';
+    html+='<div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:8px;">⚡ How to earn points</div>';
+    var ways=[
+      ['Chat with a teammate','3 pts'],['Add a CRM contact','5 pts'],
+      ['Move a contact through pipeline','10 pts'],['Upload a file','20 pts'],
+      ['Book a calendar event','15 pts'],['Send a broadcast','30 pts'],
+      ['Run an Action Stack','40 pts'],['Run Deep Dive Mode','45 pts'],
+      ['Run Orchestra Mode','50 pts'],['Run Fusion Mode','80 pts'],
+      ['Submit an idea','20 pts'],['Idea gets approved','75 pts'],
+      ['Idea gets upvoted','5 pts each'],['Idea gets shipped','200 pts'],
+      ['Complete onboarding step','25 pts'],['Run Lead Lab','10–60 pts'],
+    ];
+    ways.forEach(function(w){
+      html+='<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(42,58,106,.2);">';
+      html+='<span style="color:#94a3b8;">'+_e(w[0])+'</span><span style="color:#c4b5fd;font-weight:600;">'+_e(w[1])+'</span></div>';
+    });
+    html+='</div>';
+    box.innerHTML=html;
+  }
+
+  /* ── IDEAS ── */
   function _cpLoadIdeas(){
     fetch('/api/community/ideas').then(function(r){return r.json();}).then(function(d){if(d.ok){_renderIdeas(d.ideas);}}).catch(function(){});
   }
@@ -27702,13 +27803,15 @@ window._streamTtsFired = false;
       }).catch(function(){if(st)st.innerText='Network error.';});
   };
 
+  /* ── STATS ── */
   function _cpLoadStats(){
     fetch('/api/community/my_stats').then(function(r){return r.json();}).then(function(d){
       if(!d.ok)return;
       _cp.me = d.username||_cp.me||'';
+      _cp.myRank = d.rank_info || null;
       _renderStats(d);
       var nb=document.getElementById('navLevelBadge');
-      if(nb){nb.style.display='';nb.innerText=d.level.emoji+' '+d.level.name;}
+      if(nb){nb.style.display='';nb.innerText=(d.rank_info?d.rank_info.emoji:d.level.emoji)+' '+(d.rank_info?d.rank_info.name:d.level.name);}
       if(d.is_admin){
         var mt=document.getElementById('cpTab-moderate');if(mt)mt.style.display='';
         if(d.pending_count>0){
@@ -27721,43 +27824,39 @@ window._streamTtsFired = false;
 
   function _renderStats(d){
     var box=document.getElementById('statsContent');if(!box)return;
-    var lvl=d.level||{},total=d.total||0,weekly=d.weekly||0;
-    var nextPts=lvl.next||null,minPts=lvl.min||0;
-    var pct=nextPts?Math.min(100,Math.round(((total-minPts)/(nextPts-minPts))*100)):100;
-    var levHtml='<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">';
-    [{emoji:'🌱',name:'Recruit',min:0},{emoji:'⚡',name:'Operator',min:500},{emoji:'🔥',name:'Commander',min:1500},{emoji:'💎',name:'Elite',min:4000},{emoji:'👑',name:'Legend',min:10000}].forEach(function(l){
-      var done=total>=l.min;
-      levHtml+='<div style="font-size:11px;padding:3px 9px;border-radius:6px;'+(done?'background:rgba(124,58,237,.18);color:#c4b5fd;border:1px solid rgba(124,58,237,.3);':'color:#334155;border:1px solid rgba(42,58,106,.3);')+'">'+l.emoji+' '+l.name+'</div>';
-    });
-    levHtml+='</div>';
+    var ri=d.rank_info||{};
+    var total=d.total||0, weekly=d.weekly||0;
+    var pct=ri.progress_pct||0, ptn=ri.points_to_next||0;
     var histHtml='';
     if(d.history&&d.history.length){
-      histHtml='<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">📋 Recent Activity</div>';
+      histHtml='<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:16px 0 10px;">📋 Recent Activity</div>';
       d.history.forEach(function(h){histHtml+='<div class="hist-item"><span class="hist-event">'+_e(h.event)+'</span><span class="hist-pts">+'+h.amount+'</span></div>';});
     }
+    var nextLabel = ri.next ? ri.next.toLocaleString()+' pts' : '🏆 MAX';
     box.innerHTML=
       '<div class="stats-hero">'+
-        '<div class="stats-lvl-emoji">'+lvl.emoji+'</div>'+
-        '<div class="stats-lvl-name">'+_e(lvl.name)+'</div>'+
+        '<div class="stats-lvl-emoji">'+(ri.emoji||'🌱')+'</div>'+
+        '<div class="stats-lvl-name">'+_e(ri.name||'Operator in Training')+'</div>'+
         '<div class="stats-pts">'+total.toLocaleString()+' total points</div>'+
         '<div class="stats-rank">Rank #'+d.rank+' of '+d.total_users+' operators</div>'+
-        (nextPts?'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
-        '<div class="progress-label"><span>'+_e(lvl.emoji)+' '+_e(lvl.name)+'</span><span>'+total.toLocaleString()+' / '+nextPts.toLocaleString()+' XP to next level</span></div>':
-        '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum level reached!</div>')+
-        levHtml+
+        (ri.next
+          ? '<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
+            '<div class="progress-label"><span>'+pct+'% to '+_e(ri.next?_TIERS.find(function(t){return t.tier===(ri.tier||0)+1;})||{}:{})+'</span><span>'+ptn.toLocaleString()+' pts to next rank</span></div>'
+          : '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum rank reached — Legendary!</div>')+
       '</div>'+
       '<div class="stats-grid">'+
         '<div class="stat-box"><div class="stat-box-n">'+total.toLocaleString()+'</div><div class="stat-box-l">All-Time Points</div></div>'+
         '<div class="stat-box"><div class="stat-box-n">'+weekly.toLocaleString()+'</div><div class="stat-box-l">This Week</div></div>'+
         '<div class="stat-box"><div class="stat-box-n">#'+d.rank+'</div><div class="stat-box-l">Your Rank</div></div>'+
-        '<div class="stat-box"><div class="stat-box-n">'+pct+'%</div><div class="stat-box-l">To Next Level</div></div>'+
+        '<div class="stat-box"><div class="stat-box-n">'+pct+'%</div><div class="stat-box-l">To Next Rank</div></div>'+
       '</div>'+
-      '<div style="margin-bottom:14px;padding:12px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#64748b;">'+
-        '<strong style="color:#c4b5fd;">How to earn points:</strong> Chat with teammates (+3), add CRM contacts (+5), run Lead Lab (+10-60), generate content (+10), submit ideas (+20), get ideas upvoted (+5 each), get an idea shipped (+200).'+
+      '<div style="margin:10px 0;padding:10px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#64748b;cursor:pointer;" onclick="cpSwitchTab(\'unlocks\')">'+
+        '<strong style="color:#c4b5fd;">🔓 See all rank unlocks →</strong> Track what you\'ve earned and what\'s coming next.'+
       '</div>'+
       histHtml;
   }
 
+  /* ── MODERATE ── */
   function _cpLoadMod(){
     fetch('/api/community/pending_ideas').then(function(r){return r.json();}).then(function(d){if(d.ok)_renderMod(d.ideas);}).catch(function(){});
   }
@@ -27771,17 +27870,16 @@ window._streamTtsFired = false;
         (idea.body?'<div class="mod-body-txt">'+_e(idea.body)+'</div>':'')+
         '<div class="mod-by">From: '+_e(idea.submitted_by)+'</div>'+
         '<div class="mod-btns">'+
-          '<button class="mod-btn mod-approve" onclick="cpMod(\''+_e(idea.id)+'\',\'approved\')">✅ Approve</button>'+
+          '<button class="mod-btn mod-approve"  onclick="cpMod(\''+_e(idea.id)+'\',\'approved\')">✅ Approve</button>'+
           '<button class="mod-btn mod-consider" onclick="cpMod(\''+_e(idea.id)+'\',\'considering\')">💭 Considering</button>'+
-          '<button class="mod-btn mod-inprog" onclick="cpMod(\''+_e(idea.id)+'\',\'in_progress\')">🚀 In Progress</button>'+
-          '<button class="mod-btn mod-ship" onclick="cpMod(\''+_e(idea.id)+'\',\'shipped\')">📦 Ship It (+200 pts!)</button>'+
-          '<button class="mod-btn mod-reject" onclick="cpMod(\''+_e(idea.id)+'\',\'rejected\')">❌ Reject</button>'+
+          '<button class="mod-btn mod-inprog"   onclick="cpMod(\''+_e(idea.id)+'\',\'in_progress\')">🚀 In Progress</button>'+
+          '<button class="mod-btn mod-ship"     onclick="cpMod(\''+_e(idea.id)+'\',\'shipped\')">📦 Ship It (+200 pts!)</button>'+
+          '<button class="mod-btn mod-reject"   onclick="cpMod(\''+_e(idea.id)+'\',\'rejected\')">❌ Reject</button>'+
         '</div></div>';
     });
     box.innerHTML=html;
   }
-
-  window.cpMod = function(id, status){
+  window.cpMod = function(id,status){
     fetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){var el=document.getElementById('mc-'+id);if(el)el.remove();_cpLoadStats();_cp.lb=null;}
@@ -28932,7 +29030,10 @@ def api_crm_clients_update(client_id: str):
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
         if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
+            old_stage = c.get("pipeline_stage", "")
             c["pipeline_stage"] = stage
+            if stage != old_stage and old_stage:
+                _award_points(uname, f"Moved contact to {stage}", 10)
     if "tags" in payload:
         tags_in = payload.get("tags") or []
         if isinstance(tags_in, str):
@@ -29230,6 +29331,8 @@ def api_crm_broadcast_email():
     subject = (payload.get("subject") or "").strip()
     body_t = (payload.get("body") or "").strip()
     dry_run = bool(payload.get("dry_run"))
+    if not dry_run:
+        _award_points(uname, "Sent an email broadcast", 30)
 
     if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
@@ -32266,6 +32369,9 @@ def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
                 "retries": max(0, min(3, int(s.get("retries") or 0))),
                 "fallback_teammate": (s.get("fallback_teammate") or "").strip()[:64],
                 "continue_on_error": bool(s.get("continue_on_error")),
+                # chained=True (default): previous step output is automatically
+                # injected as context. Set False for a fully independent step.
+                "chained": bool(s.get("chained", True)),
             })
     return out
 
@@ -32392,8 +32498,13 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                             _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm, "attempt": attempt})
                         else:
                             p = _safe_render(step.get("prompt") or "", ctx)
+                            # Chained mode (default): automatically prepend previous
+                            # output as context if the prompt doesn't already use {{last}}
+                            is_chained = step.get("chained", True)
+                            if is_chained and last_output and "{{last}}" not in (step.get("prompt") or ""):
+                                p = f"Previous step output:\n{last_output}\n\n---\n\n{p}"
                             out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
-                            _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", ""), "attempt": attempt})
+                            _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", ""), "attempt": attempt, "chained": is_chained})
                             _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", ""), "attempt": attempt})
                         break
                     except Exception as inner:
@@ -34815,19 +34926,94 @@ def api_tts():
 COMMUNITY_POINTS_FILE = DATA / "community_points.json"
 COMMUNITY_IDEAS_FILE  = DATA / "community_ideas.json"
 
-COMMUNITY_LEVELS = [
-    {"name": "Recruit",   "emoji": "🌱", "min": 0,     "next": 500},
-    {"name": "Operator",  "emoji": "⚡", "min": 500,   "next": 1500},
-    {"name": "Commander", "emoji": "🔥", "min": 1500,  "next": 4000},
-    {"name": "Elite",     "emoji": "💎", "min": 4000,  "next": 10000},
-    {"name": "Legend",    "emoji": "👑", "min": 10000, "next": None},
+# ── Rank Tiers ─────────────────────────────────────────────────────────────
+# Single source of truth. "unlocks" lists feature keys gated to this tier+.
+RANK_TIERS: List[Dict[str, Any]] = [
+    {
+        "tier": 1, "name": "Operator in Training", "emoji": "🌱",
+        "min": 0,     "next": 100,
+        "unlocks": [],
+    },
+    {
+        "tier": 2, "name": "Field Agent", "emoji": "⚡",
+        "min": 100,   "next": 500,
+        "unlocks": ["action_stacks"],
+    },
+    {
+        "tier": 3, "name": "Command Ready", "emoji": "🔥",
+        "min": 500,   "next": 1500,
+        "unlocks": ["action_stacks", "orchestra", "memory_boost"],
+    },
+    {
+        "tier": 4, "name": "Senior Operator", "emoji": "💎",
+        "min": 1500,  "next": 5000,
+        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export"],
+    },
+    {
+        "tier": 5, "name": "Elite Operator", "emoji": "🚀",
+        "min": 5000,  "next": 15000,
+        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export", "fusion", "compass_pro"],
+    },
+    {
+        "tier": 6, "name": "Legendary", "emoji": "👑",
+        "min": 15000, "next": None,
+        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export", "fusion", "compass_pro", "legendary_badge"],
+    },
 ]
 
-def _community_level(points: int) -> dict:
-    for lvl in reversed(COMMUNITY_LEVELS):
-        if points >= lvl["min"]:
-            return lvl
-    return COMMUNITY_LEVELS[0]
+def _get_user_rank(points: int) -> Dict[str, Any]:
+    """Return the full rank tier dict for a given point total, plus progress info."""
+    tier = RANK_TIERS[0]
+    for t in reversed(RANK_TIERS):
+        if points >= t["min"]:
+            tier = t
+            break
+    nxt = tier["next"]
+    if nxt is None:
+        progress_pct = 100
+        points_to_next = 0
+    else:
+        span = nxt - tier["min"]
+        earned = points - tier["min"]
+        progress_pct = min(100, int((earned / span) * 100)) if span > 0 else 100
+        points_to_next = max(0, nxt - points)
+    return {
+        **tier,
+        "points":         points,
+        "progress_pct":   progress_pct,
+        "points_to_next": points_to_next,
+    }
+
+# Legacy alias so existing callers don't break
+def _community_level(points: int) -> Dict[str, Any]:
+    r = _get_user_rank(points)
+    return {"name": r["name"], "emoji": r["emoji"], "min": r["min"], "next": r["next"]}
+
+def _user_has_unlock(username: str, feature_key: str) -> bool:
+    """Return True if the user's current rank includes the given feature unlock."""
+    try:
+        data  = _community_load_points()
+        total = (data.get(username) or {}).get("total", 0)
+        rank  = _get_user_rank(total)
+        return feature_key in rank.get("unlocks", [])
+    except Exception:
+        return False
+
+def _check_rank_up_and_notify(username: str, old_total: int, new_total: int) -> None:
+    """Fire a notification if the user just crossed into a new tier."""
+    try:
+        old_tier = _get_user_rank(old_total)["tier"]
+        new_tier = _get_user_rank(new_total)["tier"]
+        if new_tier > old_tier:
+            new_rank = _get_user_rank(new_total)
+            _push_notification(username, {
+                "type":    "rank_up",
+                "title":   f"🎉 Rank Up! You're now {new_rank['emoji']} {new_rank['name']}",
+                "body":    f"You've unlocked: {', '.join(new_rank['unlocks']) if new_rank['unlocks'] else 'new prompts'}. Keep going!",
+                "action":  "/",
+            })
+    except Exception:
+        pass
 
 def _community_week_key() -> str:
     from datetime import datetime
@@ -34865,13 +35051,24 @@ def _award_points(username: str, event: str, amount: int) -> int:
             u["daily_chat"] = {d: v for d, v in daily.items()
                                if d >= (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")}
 
-        u["total"] = u.get("total", 0) + amount
+        old_total = u.get("total", 0)
+        u["total"] = old_total + amount
         u.setdefault("weeks", {})[week] = u["weeks"].get(week, 0) + amount
         hist = u.setdefault("history", [])
         hist.insert(0, {"event": event, "amount": amount, "ts": now_iso()})
         u["history"] = hist[:100]
         _community_save_points(data)
-        return u["total"]
+        new_total = u["total"]
+        # Fire rank-up notification in background so it never blocks the caller
+        try:
+            threading.Thread(
+                target=_check_rank_up_and_notify,
+                args=(username, old_total, new_total),
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+        return new_total
     except Exception:
         return 0
 
@@ -34881,15 +35078,17 @@ def _community_get_user_stats(username: str) -> dict:
     ud = data.get(username, {"total": 0, "weeks": {}, "history": []})
     total  = ud.get("total", 0)
     weekly = ud.get("weeks", {}).get(week, 0)
-    lvl    = _community_level(total)
-    # rank (1-based)
+    rank_info = _get_user_rank(total)
+    # leaderboard position (1-based)
     totals = sorted([v.get("total", 0) for v in data.values()], reverse=True)
-    rank   = totals.index(total) + 1 if total in totals else len(totals) + 1
+    lb_rank = totals.index(total) + 1 if total in totals else len(totals) + 1
     return {
         "total": total, "weekly": weekly,
-        "level": lvl, "rank": rank,
-        "total_users": len(data),
-        "history": ud.get("history", [])[:15],
+        "level":          {"name": rank_info["name"], "emoji": rank_info["emoji"], "min": rank_info["min"], "next": rank_info["next"]},
+        "rank_info":      rank_info,   # full tier data including unlocks + progress
+        "rank":           lb_rank,
+        "total_users":    len(data),
+        "history":        ud.get("history", [])[:15],
     }
 
 def _community_load_ideas() -> list:
@@ -35253,6 +35452,281 @@ def api_community_pending_ideas():
     ideas   = _community_load_ideas()
     pending = [i for i in ideas if i.get("status") == "pending"]
     return jsonify({"ok": True, "ideas": pending})
+
+
+
+# =============================================================================
+# RANK UNLOCKS — feature gate check endpoint
+# =============================================================================
+
+@app.get("/api/community/my_unlocks")
+def api_my_unlocks():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    data  = _community_load_points()
+    total = (data.get(uname) or {}).get("total", 0)
+    rank  = _get_user_rank(total)
+    return jsonify({"ok": True, "rank": rank, "unlocks": rank["unlocks"]})
+
+
+# =============================================================================
+# ORCHESTRA MODE  (Tier 3 — Command Ready)
+# Each teammate applies their domain lens in clockwise order from the selected
+# one. Output is a single unified document. Each pass is logged so the user
+# can see exactly what changed.
+# =============================================================================
+
+# Per-teammate conductor instructions — what each one should (and shouldn't) do.
+_ORCHESTRA_ROLES: Dict[str, str] = {
+    "Luna":     "Apply creative voice, vivid language, metaphor, and emotional resonance. Do NOT touch structure, CTAs, or factual content.",
+    "Orion":    "Apply logical flow and strategic structure. Add frameworks or hierarchy where missing. Do NOT touch voice, tone, or CTAs.",
+    "Sunshine": "Sharpen the hook, strengthen the CTA, and add urgency or persuasion where appropriate. Do NOT rewrite body copy or change structure.",
+    "Willow":   "Fix clarity, grammar, sentence rhythm, and concision. Do NOT change meaning, add new ideas, or alter tone.",
+    "Alex":     "Ensure brand consistency and professional polish. Tighten messaging and remove fluff. Do NOT add new ideas.",
+    "Atlis":    "Add data-driven reasoning, specificity, and evidence where claims are vague. Do NOT change voice or structure.",
+    "Nova":     "Optimise for the target audience. Add empathy and relatability. Do NOT change factual content.",
+}
+_ORCHESTRA_DEFAULT_ROLE = "Apply your expertise to improve this content. Preserve everything outside your domain."
+
+def _orchestra_run(uname: str, prompt: str, teammate_order: List[str]) -> Dict[str, Any]:
+    """Run prompt through teammates in order, each applying their domain lens."""
+    current_doc = ""
+    passes: List[Dict[str, Any]] = []
+    reg      = load_registry(uname)
+    installed = reg.get("installed") or {}
+
+    for i, name in enumerate(teammate_order):
+        defn = installed.get(name)
+        if not defn:
+            continue
+        role_instruction = _ORCHESTRA_ROLES.get(name, _ORCHESTRA_DEFAULT_ROLE)
+        is_first = (i == 0)
+        if is_first:
+            conductor = (
+                f"You are {name}. You are opening an Orchestra session.\n\n"
+                f"Original request: {prompt}\n\n"
+                f"Your role: {role_instruction}\n\n"
+                f"Produce the first draft. Write the complete document."
+            )
+        else:
+            conductor = (
+                f"You are {name}. You are part of an Orchestra — a team working on one document together.\n\n"
+                f"Original request: {prompt}\n\n"
+                f"Current document:\n{current_doc}\n\n"
+                f"Your role: {role_instruction}\n\n"
+                f"IMPORTANT: Do NOT rewrite, summarise, or start over. Apply ONLY your expertise. "
+                f"Return the full improved document. Make your changes feel like they were always there."
+            )
+        sys_prompt = teammate_system_prompt(defn, lighting_mode=False)
+        result = call_llm(sys_prompt, [{"role": "user", "content": conductor}], temperature=0.6)
+        passes.append({"teammate": name, "role": role_instruction, "output": result})
+        current_doc = result
+
+    return {"final": current_doc, "passes": passes}
+
+@app.post("/api/orchestra/run")
+def api_orchestra_run():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    if not _user_has_unlock(uname, "orchestra"):
+        return jsonify({"ok": False, "error": "Orchestra Mode unlocks at Tier 3 — Command Ready."}), 403
+    rl = _check_rate_limit("orchestra", 20)
+    if rl: return rl
+    p = request.get_json(silent=True) or {}
+    prompt         = (p.get("prompt") or "").strip()[:MAX_PROMPT_CHARS]
+    teammate_order = p.get("teammate_order") or []
+    if not prompt:
+        return jsonify({"ok": False, "error": "Prompt required"}), 400
+    if not teammate_order or not isinstance(teammate_order, list):
+        return jsonify({"ok": False, "error": "teammate_order list required"}), 400
+    teammate_order = [str(t).strip() for t in teammate_order[:8]]
+    try:
+        result = _orchestra_run(uname, prompt, teammate_order)
+        _award_points(uname, "Ran Orchestra Mode", 50)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        _capture_error(e, context="api_orchestra_run")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# DEEP DIVE MODE  (Tier 4 — Senior Operator)
+# Runs 3 automatic rounds: draft → self-critique → deeper pass → synthesis.
+# The teammate challenges its own first answer and goes deeper each round.
+# =============================================================================
+
+def _deep_dive_run(uname: str, teammate_name: str, prompt: str) -> Dict[str, Any]:
+    reg     = load_registry(uname)
+    defn    = (reg.get("installed") or {}).get(teammate_name)
+    if not defn:
+        return {"error": f"Teammate {teammate_name} not found"}
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=False)
+
+    # Round 1 — initial response
+    r1 = call_llm(sys_prompt, [{"role": "user", "content": prompt}], temperature=0.65)
+
+    # Round 2 — self-critique
+    critique_prompt = (
+        f"You just wrote this response:\n\n{r1}\n\n"
+        f"Now critically review it. What's missing? What's too surface-level? "
+        f"What assumptions did you make? What would make this genuinely more valuable? "
+        f"Be specific and ruthless."
+    )
+    r2 = call_llm(sys_prompt, [
+        {"role": "user",      "content": prompt},
+        {"role": "assistant", "content": r1},
+        {"role": "user",      "content": critique_prompt},
+    ], temperature=0.5)
+
+    # Round 3 — deeper pass incorporating the critique
+    deeper_prompt = (
+        f"Original request: {prompt}\n\n"
+        f"Your first response:\n{r1}\n\n"
+        f"Your critique of it:\n{r2}\n\n"
+        f"Now write the definitive version — deeper, more specific, more valuable. "
+        f"Address every gap you identified. This is the final answer."
+    )
+    r3 = call_llm(sys_prompt, [{"role": "user", "content": deeper_prompt}], temperature=0.6)
+
+    return {"draft": r1, "critique": r2, "final": r3, "rounds": 3}
+
+@app.post("/api/deepdive/run")
+def api_deepdive_run():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    if not _user_has_unlock(uname, "deep_dive"):
+        return jsonify({"ok": False, "error": "Deep Dive Mode unlocks at Tier 4 — Senior Operator."}), 403
+    rl = _check_rate_limit("deepdive", 15)
+    if rl: return rl
+    p = request.get_json(silent=True) or {}
+    teammate = (p.get("teammate") or "").strip()
+    prompt   = (p.get("prompt")   or "").strip()[:MAX_PROMPT_CHARS]
+    if not teammate or not prompt:
+        return jsonify({"ok": False, "error": "teammate and prompt required"}), 400
+    try:
+        result = _deep_dive_run(uname, teammate, prompt)
+        _award_points(uname, "Ran Deep Dive Mode", 45)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        _capture_error(e, context="api_deepdive_run")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# FUSION MODE  (Tier 5 — Elite Operator)
+# Runs the same prompt through GPT-4o AND Claude simultaneously, then a
+# third synthesis pass merges the best of both into one unified answer.
+# =============================================================================
+
+def _fusion_run(uname: str, prompt: str, system: str = "") -> Dict[str, Any]:
+    """Run prompt through GPT-4o and Claude in parallel, then synthesise."""
+    sys_msg = system or "You are a world-class expert. Give the best possible answer."
+    gpt_result    = ""
+    claude_result = ""
+    gpt_err       = ""
+    claude_err    = ""
+
+    def _run_gpt() -> None:
+        nonlocal gpt_result, gpt_err
+        try:
+            client = get_openai_client()
+            resp = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
+                max_tokens=2000, temperature=0.65,
+            )
+            gpt_result = (resp.choices[0].message.content or "").strip()
+        except Exception as e:
+            gpt_err = str(e)
+
+    def _run_claude() -> None:
+        nonlocal claude_result, claude_err
+        try:
+            u_data = (load_users().get("users") or {}).get(uname) or {}
+            cl = _get_claude_client_for_user(u_data)
+            if not cl:
+                # Fall back to server ANTHROPIC_API_KEY if user hasn't set their own
+                if _anthropic_sdk and ANTHROPIC_API_KEY:
+                    cl = _anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
+            if not cl:
+                claude_err = "No Anthropic API key configured."
+                return
+            resp = cl.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                system=sys_msg,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            claude_result = (resp.content[0].text if resp.content else "").strip()
+        except Exception as e:
+            claude_err = str(e)
+
+    # Run both in parallel
+    t1 = threading.Thread(target=_run_gpt,    daemon=True)
+    t2 = threading.Thread(target=_run_claude, daemon=True)
+    t1.start(); t2.start()
+    t1.join(timeout=45); t2.join(timeout=45)
+
+    if not gpt_result and not claude_result:
+        return {"error": f"Both models failed. GPT: {gpt_err} | Claude: {claude_err}"}
+
+    # Synthesis pass — merge the best of both
+    if gpt_result and claude_result:
+        synthesis_prompt = (
+            f"Original request: {prompt}\n\n"
+            f"Response A (GPT-4o):\n{gpt_result}\n\n"
+            f"Response B (Claude):\n{claude_result}\n\n"
+            f"You are a master synthesiser. Merge these two responses into one definitive answer "
+            f"that takes the strongest elements from each. Do not mention that two models were used. "
+            f"Write as a single cohesive, expert response."
+        )
+        fusion = call_llm(
+            "You are a world-class expert synthesiser.",
+            [{"role": "user", "content": synthesis_prompt}],
+            temperature=0.5,
+        )
+    else:
+        # Only one model succeeded — return it as the fusion
+        fusion = gpt_result or claude_result
+
+    return {
+        "gpt_response":    gpt_result,
+        "claude_response": claude_result,
+        "fusion":          fusion,
+        "gpt_error":       gpt_err,
+        "claude_error":    claude_err,
+    }
+
+@app.post("/api/fusion/run")
+def api_fusion_run():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    if not _user_has_unlock(uname, "fusion"):
+        return jsonify({"ok": False, "error": "Fusion Mode unlocks at Tier 5 — Elite Operator."}), 403
+    rl = _check_rate_limit("fusion", 10)
+    if rl: return rl
+    p = request.get_json(silent=True) or {}
+    prompt = (p.get("prompt") or "").strip()[:MAX_PROMPT_CHARS]
+    system = (p.get("system") or "").strip()[:2000]
+    if not prompt:
+        return jsonify({"ok": False, "error": "Prompt required"}), 400
+    try:
+        result = _fusion_run(uname, prompt, system)
+        if "error" in result:
+            return jsonify({"ok": False, "error": result["error"]}), 500
+        _award_points(uname, "Ran Fusion Mode", 80)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        _capture_error(e, context="api_fusion_run")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Compass ─────────────────────────────────────────────────────────────
