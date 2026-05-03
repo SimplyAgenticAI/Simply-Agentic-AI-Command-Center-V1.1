@@ -13042,7 +13042,7 @@ label         { font-size: 14px !important; }
 
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
-        <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
+        <div id="navLevelBadge" style="display:none;"></div>
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Compass</button>
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
@@ -16944,8 +16944,25 @@ function makeSeat(defn, idx){
         const ulData = await ulRes.json();
         window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
       } catch(_){ window._SA_UNLOCKS = []; }
-      // Gate tier-locked buttons immediately after unlocks are known
-      if(typeof window._wireUnlockedButtons === 'function') window._wireUnlockedButtons();
+      // Gate tier-locked feature buttons inline — no dependency on external scripts
+      (function(){
+        var unlocks = window._SA_UNLOCKS || [];
+        var ids = {
+          orchestraBtn: 'orchestra',
+          fusionBtn:    'fusion',
+          deepDiveBtn:  'deep_dive',
+          stackBtn:     'action_stacks',
+        };
+        Object.keys(ids).forEach(function(btnId){
+          var btn = document.getElementById(btnId);
+          if(!btn) return;
+          if(unlocks.indexOf(ids[btnId]) !== -1){
+            btn.style.display = '';
+          } else {
+            btn.style.display = 'none';
+          }
+        });
+      })();
       renderTable();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
@@ -29116,17 +29133,7 @@ document.addEventListener('click',e=>{
     });
   };
 
-  // Add referral button to nav
-  setTimeout(function(){
-    var logoutBtn = document.querySelector('a.saNavBtn[href="/logout"]');
-    if(logoutBtn && logoutBtn.parentNode){
-      var refBtn = document.createElement('button');
-      refBtn.style.cssText = 'background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;';
-      refBtn.innerHTML = '🎁 Refer';
-      refBtn.onclick = openReferralModal;
-      logoutBtn.parentNode.insertBefore(refBtn, logoutBtn);
-    }
-  }, 2500);
+  // Referral button hidden until launched — backend ready, UI suppressed
 
 })();
 </script>
@@ -29524,14 +29531,8 @@ document.addEventListener('click',e=>{
     }
   }
 
-  // Expose globally so loadState can call it directly after _SA_UNLOCKS is set
+  // Expose as a fallback — loadState handles the primary gate inline now
   window._wireUnlockedButtons = _wireUnlockedButtons;
-
-  // Run once on script load — all unlocks default to hidden until loadState confirms them
-  _wireUnlockedButtons();
-
-  // DO NOT wrap window.loadState here — that race condition is what caused the bug.
-  // loadState now calls window._wireUnlockedButtons() directly after fetching unlocks.
 
 })();
 </script>
