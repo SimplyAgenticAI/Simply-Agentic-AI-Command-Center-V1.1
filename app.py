@@ -16944,6 +16944,8 @@ function makeSeat(defn, idx){
         const ulData = await ulRes.json();
         window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
       } catch(_){ window._SA_UNLOCKS = []; }
+      // Gate tier-locked buttons immediately after unlocks are known
+      if(typeof window._wireUnlockedButtons === 'function') window._wireUnlockedButtons();
       renderTable();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
@@ -29522,18 +29524,14 @@ document.addEventListener('click',e=>{
     }
   }
 
-  // Wire immediately and re-wire after loadState (which sets _SA_UNLOCKS)
+  // Expose globally so loadState can call it directly after _SA_UNLOCKS is set
+  window._wireUnlockedButtons = _wireUnlockedButtons;
+
+  // Run once on script load — all unlocks default to hidden until loadState confirms them
   _wireUnlockedButtons();
-  var _origLoadState = window.loadState;
-  if(typeof _origLoadState === 'function'){
-    window.loadState = async function(){
-      var result = await _origLoadState.apply(this, arguments);
-      _wireUnlockedButtons();
-      return result;
-    };
-  }
-  // Also fire after a short delay in case loadState already ran
-  setTimeout(_wireUnlockedButtons, 2000);
+
+  // DO NOT wrap window.loadState here — that race condition is what caused the bug.
+  // loadState now calls window._wireUnlockedButtons() directly after fetching unlocks.
 
 })();
 </script>
