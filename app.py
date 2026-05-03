@@ -9092,6 +9092,13 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 .plan-btn:hover{{opacity:.88;transform:translateY(-1px);}}
 .trial-note{{font-size:12px;color:#6d28d9;text-align:center;margin-top:8px;}}
 .api-note{{max-width:640px;margin:40px auto 0;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:14px;padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}}
+.api-note-icon{{font-size:22px;flex-shrink:0;line-height:1;}}
+.api-note-text{{font-size:13.5px;color:#94a3b8;line-height:1.65;}}
+.api-note-text strong{{color:#c4b5fd;}}
+.pg-footer{{text-align:center;margin-top:32px;color:#475569;font-size:13px;}}
+.pg-footer a{{color:#7c3aed;text-decoration:none;}}
+.already{{text-align:center;margin-top:20px;font-size:14px;color:#64748b;}}
+.already a{{color:#a78bfa;text-decoration:none;}}
 .btn-spinner{{display:inline-flex;align-items:center;}}
 @media(max-width:640px){{
   .f-top{{flex-direction:column;gap:18px;}}
@@ -9105,8 +9112,9 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <div class='brand'><div class='dot'></div>{APP_TITLE}</div>
 
 <div class='pg-header'>
-  <h1>Simple, powerful pricing</h1>
-  <p>Everything you need to run your business with AI — teammates, CRM, broadcasts, calendar, and more. No hidden fees.</p>
+  <h1>Every feature. Every AI teammate.</h1>
+  <p>You get the full platform on every plan. You scale, we scale with you.</p>
+  {f"<div style='margin-top:14px;display:inline-block;background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(109,40,217,.18));border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:8px 22px;font-size:14px;font-weight:700;color:#e9d5ff;'>🎉 {FREE_TRIAL_DAYS}-day free trial — no credit card needed until day {FREE_TRIAL_DAYS + 1}</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
 
 <!-- FOUNDER -->
@@ -9157,18 +9165,14 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <div class='plans'>{cards_html}</div>
 
 <div class='api-note'>
-  <div style='font-size:22px;flex-shrink:0;'>🔑</div>
-  <div>
-    <div style='font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:4px;'>Bring your own API keys</div>
-    <div style='font-size:13px;color:#64748b;line-height:1.6;'>Connect your own OpenAI and Anthropic keys in Settings to use your own billing. Simply Agentic never marks up API usage.</div>
+  <div class='api-note-icon'>🔑</div>
+  <div class='api-note-text'>
+    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
   </div>
 </div>
-
-<div style='text-align:center;margin-top:40px;font-size:13px;color:#334155;'>
-  <a href='/' style='color:#475569;text-decoration:none;'>← Back to {APP_TITLE}</a> &nbsp;·&nbsp;
-  <a href='/terms' style='color:#475569;text-decoration:none;'>Terms</a> &nbsp;·&nbsp;
-  <a href='/privacy' style='color:#475569;text-decoration:none;'>Privacy</a> &nbsp;·&nbsp;
-  <a href='mailto:SimplyAgenticAI@gmail.com' style='color:#475569;text-decoration:none;'>Support</a>
+<div class='already'><a href='/login'>Already have an account? Sign in</a> &nbsp;·&nbsp; <a href='/register'>Have an access code? Register</a></div>
+<div class='pg-footer' style='margin-top:24px;'>
+  {f"All plans start with a {FREE_TRIAL_DAYS}-day free trial — your card is collected but not charged until day {FREE_TRIAL_DAYS + 1}. Cancel anytime." if FREE_TRIAL_DAYS > 0 else "All plans billed monthly. Cancel anytime."} &nbsp;·&nbsp; <a href='/terms'>Terms of Service</a>
 </div>
 
 <script>
