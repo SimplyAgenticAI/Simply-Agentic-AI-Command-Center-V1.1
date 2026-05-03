@@ -11153,6 +11153,16 @@ HTML = r"""
       background: rgba(22,34,72,.78);
       border-color: rgba(124,58,237,.55);
     }
+    .seatStackBtn{
+      color: #a78bfa;
+      border-color: rgba(124,58,237,.5);
+      background: rgba(124,58,237,.1);
+    }
+    .seatStackBtn:hover{
+      background: rgba(124,58,237,.22);
+      border-color: rgba(124,58,237,.75);
+      color: #c4b5fd;
+    }
 
     .side{
       position: sticky;
@@ -16160,6 +16170,19 @@ function makeSeat(defn, idx){
 
       tools.appendChild(editBtn);
 
+      if(window._SA_UNLOCKS && window._SA_UNLOCKS.indexOf('action_stacks') !== -1){
+        const stackBtn = document.createElement("button");
+        stackBtn.className = "seatToolBtn seatStackBtn";
+        stackBtn.innerText = "⚡ Stack";
+        stackBtn.title = "Build & run an Action Stack for this teammate";
+        stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
+        stackBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openStackModal(defn.name);
+        });
+        tools.appendChild(stackBtn);
+      }
 
       seat.appendChild(tools);
 
@@ -16597,6 +16620,13 @@ function makeSeat(defn, idx){
       // smtpStatus hidden — Gmail OAuth handles email connection
 
       setEmailFrom(selectedSeat || "");
+      // Fetch rank unlocks before rendering seats so makeSeat() can
+      // conditionally show tier-gated buttons without a flicker.
+      try{
+        const ulRes = await fetch('/api/community/my_unlocks');
+        const ulData = await ulRes.json();
+        window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
+      } catch(_){ window._SA_UNLOCKS = []; }
       renderTable();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
@@ -27893,6 +27923,342 @@ window._streamTtsFired = false;
 })();
 </script>
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
+
+<!-- ═══ ACTION STACK MODAL ═══ -->
+<div id="stackModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.80);backdrop-filter:blur(5px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)closeStackModal()">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(640px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
+      <div>
+        <div id="stackModalTitle" style="font-size:16px;font-weight:800;color:#c4b5fd;">⚡ Action Stack</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">Queue up prompts — teammate works through them one by one</div>
+      </div>
+      <button onclick="closeStackModal()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Stack Name -->
+    <div style="padding:14px 22px 0;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="font-size:12px;color:#64748b;white-space:nowrap;">Stack name:</label>
+        <input id="stackNameInput" maxlength="60" placeholder="My Stack"
+          style="flex:1;min-width:140px;background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:8px;padding:6px 12px;font-size:13px;outline:none;"/>
+        <div style="font-size:11px;color:#334155;" id="stackStepCount">0 / 10 steps</div>
+      </div>
+    </div>
+
+    <!-- Saved stacks picker -->
+    <div id="savedStacksRow" style="padding:8px 22px 0;display:none;">
+      <div style="font-size:11px;color:#475569;margin-bottom:5px;">Saved stacks for this teammate:</div>
+      <div id="savedStacksList" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+
+    <!-- Prompt Steps -->
+    <div id="stackSteps" style="padding:14px 22px;display:flex;flex-direction:column;gap:10px;max-height:50vh;overflow-y:auto;"></div>
+
+    <!-- Add step -->
+    <div style="padding:0 22px 14px;">
+      <button id="stackAddBtn" onclick="stackAddStep()"
+        style="width:100%;padding:9px;border:1px dashed rgba(124,58,237,.35);border-radius:10px;background:transparent;color:#7c3aed;font-size:13px;cursor:pointer;transition:all .15s;">
+        + Add Prompt Step
+      </button>
+    </div>
+
+    <!-- Actions -->
+    <div style="display:flex;gap:10px;padding:14px 22px;border-top:1px solid rgba(42,58,106,.5);flex-wrap:wrap;">
+      <button onclick="stackSave(false)" id="stackSaveBtn"
+        style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">
+        💾 Save Stack
+      </button>
+      <button onclick="stackRun()" id="stackRunBtn"
+        style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">
+        ▶ Run Stack
+      </button>
+    </div>
+
+    <!-- Results -->
+    <div id="stackResults" style="display:none;padding:0 22px 20px;">
+      <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:12px;padding-top:4px;border-top:1px solid rgba(42,58,106,.4);">📋 Results</div>
+      <div id="stackResultsList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  var _sm = { teammate:'', steps:[], running:false };
+  var MAX_STEPS = 10;
+
+  window.openStackModal = function(tmName){
+    _sm.teammate = tmName;
+    _sm.steps = [];
+    _sm.running = false;
+    document.getElementById('stackModalTitle').innerText = '⚡ ' + tmName + ' — Action Stack';
+    document.getElementById('stackNameInput').value = '';
+    document.getElementById('stackResults').style.display = 'none';
+    document.getElementById('stackResultsList').innerHTML = '';
+    document.getElementById('stackSteps').innerHTML = '';
+    _smUpdateCount();
+    // Start with 1 empty step
+    _smAddStep();
+    // Load saved stacks
+    _smLoadSaved(tmName);
+    var m = document.getElementById('stackModal');
+    m.style.display = 'flex';
+  };
+
+  window.closeStackModal = function(){
+    if(_sm.running) return; // block close during run
+    document.getElementById('stackModal').style.display = 'none';
+  };
+
+  function _smLoadSaved(tmName){
+    var row = document.getElementById('savedStacksRow');
+    var list = document.getElementById('savedStacksList');
+    if(row) row.style.display = 'none';
+    fetch('/api/teammates/' + encodeURIComponent(tmName) + '/stacks')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.ok || !d.stacks || !Object.keys(d.stacks).length) return;
+        var names = Object.keys(d.stacks);
+        var html = '';
+        names.forEach(function(n){
+          html += '<button onclick="smLoadStack(' + JSON.stringify(n) + ')" '
+            + 'style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(124,58,237,.35);background:rgba(124,58,237,.1);color:#a78bfa;cursor:pointer;">'
+            + _smE(n) + '</button>';
+        });
+        if(list) list.innerHTML = html;
+        if(row) row.style.display = '';
+      }).catch(function(){});
+  }
+
+  window.smLoadStack = function(name){
+    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.ok || !d.stack) return;
+        var stack = d.stack;
+        document.getElementById('stackNameInput').value = stack.name || name;
+        var steps = stack.steps || [];
+        document.getElementById('stackSteps').innerHTML = '';
+        _sm.steps = [];
+        steps.forEach(function(s){
+          _smAddStep(s.prompt || '', s.chained !== false);
+        });
+        document.getElementById('stackResults').style.display = 'none';
+      }).catch(function(){});
+  };
+
+  window.stackAddStep = function(){ _smAddStep('', true); };
+
+  function _smAddStep(prompt, chained){
+    if(_sm.steps.length >= MAX_STEPS) {
+      if(typeof showToast === 'function') showToast('Maximum ' + MAX_STEPS + ' steps reached', 'error');
+      return;
+    }
+    var idx = _sm.steps.length;
+    _sm.steps.push({ prompt: prompt || '', chained: chained !== false });
+
+    var container = document.getElementById('stackSteps');
+    var row = document.createElement('div');
+    row.id = 'smRow_' + idx;
+    row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid rgba(42,58,106,.6);border-radius:12px;background:rgba(14,22,48,.5);position:relative;';
+
+    // Row header: step number + chained toggle + delete
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'display:flex;align-items:center;gap:8px;';
+
+    var stepNum = document.createElement('span');
+    stepNum.style.cssText = 'font-size:11px;font-weight:700;color:#475569;min-width:52px;';
+    stepNum.innerText = 'STEP ' + (idx + 1);
+    hdr.appendChild(stepNum);
+
+    // Chained toggle
+    var chainWrap = document.createElement('label');
+    chainWrap.style.cssText = 'display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;';
+    var chainCheck = document.createElement('input');
+    chainCheck.type = 'checkbox';
+    chainCheck.checked = (chained !== false);
+    chainCheck.style.cssText = 'accent-color:#7c3aed;width:13px;height:13px;cursor:pointer;';
+    chainCheck.title = 'Chained: previous step output is automatically passed as context';
+    var chainLabel = document.createElement('span');
+    chainLabel.style.cssText = 'font-size:11px;color:#64748b;';
+    chainLabel.innerText = 'Chained';
+    chainWrap.appendChild(chainCheck);
+    chainWrap.appendChild(chainLabel);
+    hdr.appendChild(chainWrap);
+
+    // Chain help tooltip
+    var chainHelp = document.createElement('span');
+    chainHelp.style.cssText = 'font-size:10px;color:#334155;';
+    chainHelp.title = 'When chained, the previous step\'s output is automatically sent as context. Turn off for a completely fresh prompt.';
+    chainHelp.innerText = '?';
+    hdr.appendChild(chainHelp);
+
+    var spacer = document.createElement('div'); spacer.style.flex = '1';
+    hdr.appendChild(spacer);
+
+    // Delete button (don't show if only 1 step)
+    var delBtn = document.createElement('button');
+    delBtn.style.cssText = 'background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#f87171;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;';
+    delBtn.innerText = '✕ Remove';
+    delBtn.onclick = function(){ _smRemoveStep(idx); };
+    hdr.appendChild(delBtn);
+    row.appendChild(hdr);
+
+    // Textarea
+    var ta = document.createElement('textarea');
+    ta.id = 'smPrompt_' + idx;
+    ta.placeholder = 'Enter prompt for step ' + (idx + 1) + '…';
+    ta.value = prompt || '';
+    ta.rows = 3;
+    ta.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;line-height:1.5;resize:vertical;font-family:inherit;outline:none;';
+    ta.addEventListener('input', function(){ _sm.steps[idx].prompt = ta.value; });
+    chainCheck.addEventListener('change', function(){ _sm.steps[idx].chained = chainCheck.checked; });
+    row.appendChild(ta);
+
+    // Result area (hidden until run)
+    var resultArea = document.createElement('div');
+    resultArea.id = 'smResult_' + idx;
+    resultArea.style.display = 'none';
+    row.appendChild(resultArea);
+
+    container.appendChild(row);
+    _smUpdateCount();
+    ta.focus();
+  }
+
+  function _smRemoveStep(removeIdx){
+    if(_sm.steps.length <= 1) return;
+    _sm.steps.splice(removeIdx, 1);
+    // Re-render all steps
+    var prompts = [];
+    var chains  = [];
+    for(var i = 0; i < _sm.steps.length; i++){
+      var ta = document.getElementById('smPrompt_' + i);
+      var ch = document.querySelector('#smRow_' + i + ' input[type=checkbox]');
+      prompts.push(ta ? ta.value : _sm.steps[i].prompt || '');
+      chains.push(ch ? ch.checked : _sm.steps[i].chained !== false);
+    }
+    document.getElementById('stackSteps').innerHTML = '';
+    _sm.steps = [];
+    for(var j = 0; j < prompts.length; j++){
+      _smAddStep(prompts[j], chains[j]);
+    }
+  }
+
+  function _smUpdateCount(){
+    var el = document.getElementById('stackStepCount');
+    if(el) el.innerText = _sm.steps.length + ' / ' + MAX_STEPS + ' steps';
+    var addBtn = document.getElementById('stackAddBtn');
+    if(addBtn) addBtn.style.opacity = _sm.steps.length >= MAX_STEPS ? '0.35' : '1';
+  }
+
+  function _smCollectSteps(){
+    var out = [];
+    for(var i = 0; i < _sm.steps.length; i++){
+      var ta = document.getElementById('smPrompt_' + i);
+      var ch = document.querySelector('#smRow_' + i + ' input[type=checkbox]');
+      var p = ta ? ta.value.trim() : '';
+      if(!p) continue; // skip empty
+      out.push({ type:'prompt', label:'Step '+(i+1), prompt:p, chained: ch ? ch.checked : true });
+    }
+    return out;
+  }
+
+  window.stackSave = function(silent){
+    var name = (document.getElementById('stackNameInput').value || '').trim() || ('Stack ' + new Date().toLocaleDateString());
+    var steps = _smCollectSteps();
+    if(!steps.length){ if(!silent && typeof showToast==='function') showToast('Add at least one prompt step', 'error'); return; }
+    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({steps: steps})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        if(!silent && typeof showToast==='function') showToast('Stack saved!', 'success');
+        _smLoadSaved(_sm.teammate);
+      }
+    }).catch(function(){});
+  };
+
+  window.stackRun = function(){
+    var name = (document.getElementById('stackNameInput').value || '').trim() || ('Quick Stack');
+    var steps = _smCollectSteps();
+    if(!steps.length){ if(typeof showToast==='function') showToast('Add at least one prompt step', 'error'); return; }
+    if(_sm.running) return;
+
+    // Save first, then run
+    _sm.running = true;
+    var runBtn = document.getElementById('stackRunBtn');
+    var saveBtn = document.getElementById('stackSaveBtn');
+    if(runBtn){ runBtn.disabled = true; runBtn.innerText = '⏳ Running…'; }
+    if(saveBtn){ saveBtn.disabled = true; }
+
+    // Show result placeholders inline in each step card
+    for(var i = 0; i < steps.length; i++){
+      var ra = document.getElementById('smResult_' + i);
+      if(ra){ ra.style.display=''; ra.innerHTML='<div style="font-size:11px;color:#475569;padding:6px 0;">⏳ Waiting…</div>'; }
+    }
+    document.getElementById('stackResults').style.display = '';
+    document.getElementById('stackResultsList').innerHTML = '<div style="font-size:12px;color:#64748b;padding:6px 0;">Running stack…</div>';
+
+    // Save then run
+    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({steps: steps})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok) throw new Error(d.error || 'Save failed');
+      return fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name) + '/run', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({input:''})
+      });
+    }).then(function(r){return r.json();}).then(function(d){
+      _sm.running = false;
+      if(runBtn){ runBtn.disabled=false; runBtn.innerText='▶ Run Stack'; }
+      if(saveBtn){ saveBtn.disabled=false; }
+      if(!d.ok){ throw new Error(d.error || 'Run failed'); }
+      _smShowResults(d.run, steps);
+      _smLoadSaved(_sm.teammate);
+      if(typeof showToast==='function') showToast('Stack complete! +40 pts', 'success');
+    }).catch(function(err){
+      _sm.running = false;
+      if(runBtn){ runBtn.disabled=false; runBtn.innerText='▶ Run Stack'; }
+      if(saveBtn){ saveBtn.disabled=false; }
+      if(typeof showToast==='function') showToast('Stack error: ' + err.message, 'error');
+      document.getElementById('stackResultsList').innerHTML = '<div style="color:#f87171;font-size:12px;">Error: ' + _smE(err.message) + '</div>';
+    });
+  };
+
+  function _smShowResults(run, steps){
+    var outputs = run.outputs || {};
+    var resultsList = document.getElementById('stackResultsList');
+    var listHtml = '';
+
+    for(var i = 0; i < steps.length; i++){
+      var out = outputs[String(i)] || outputs[i] || '';
+      // Update inline result in the step card
+      var ra = document.getElementById('smResult_' + i);
+      if(ra){
+        ra.style.display = '';
+        ra.innerHTML = '<div style="margin-top:4px;border-top:1px solid rgba(42,58,106,.4);padding-top:8px;">'
+          + '<div style="font-size:10px;color:#6ee7b7;font-weight:700;margin-bottom:4px;">✓ OUTPUT</div>'
+          + '<div style="font-size:12px;color:#cbd5e1;white-space:pre-wrap;line-height:1.6;max-height:160px;overflow-y:auto;background:rgba(9,12,24,.6);border-radius:6px;padding:8px 10px;">'
+          + _smE(out) + '</div></div>';
+      }
+      // Also build the summary results section
+      listHtml += '<div style="border:1px solid rgba(42,58,106,.5);border-radius:10px;overflow:hidden;">'
+        + '<div style="padding:8px 12px;background:rgba(124,58,237,.08);border-bottom:1px solid rgba(42,58,106,.4);font-size:12px;font-weight:700;color:#a78bfa;">Step ' + (i+1) + (steps[i].label ? ' — ' + _smE(steps[i].label) : '') + (steps[i].chained ? ' · <span style="color:#475569;font-weight:400;">chained</span>' : ' · <span style="color:#475569;font-weight:400;">independent</span>') + '</div>'
+        + '<div style="padding:10px 12px;font-size:12px;color:#cbd5e1;white-space:pre-wrap;line-height:1.6;max-height:200px;overflow-y:auto;">' + _smE(out || '(no output)') + '</div>'
+        + '</div>';
+    }
+    if(resultsList) resultsList.innerHTML = listHtml;
+  }
+
+  function _smE(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(String(s||''))); return d.innerHTML; }
+})();
+</script>
+<!-- ═══ END ACTION STACK MODAL ═══ -->
 
 <!-- ═══ SCOUT ═══ -->
 <div id="scoutOverlay" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeScoutPanel()">
