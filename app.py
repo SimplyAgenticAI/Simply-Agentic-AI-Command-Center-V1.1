@@ -23988,11 +23988,9 @@ $("settingsBtn").onclick = () => showSettingsModal();
           body: JSON.stringify({ theme: window._saThemePrefs || {} })
         });
         const d = await res.json();
-        if (d.ok) {
-          if (typeof showToast === "function") showToast("✓ Theme saved");
-          hideModal();
-        }
-      } catch(e) { hideModal(); }
+        if (typeof showToast === "function") showToast(d.ok ? "✓ Theme saved" : "Theme save failed — changes may not persist");
+      } catch(e) {}
+      hideModal();  // Always close — don't gate exit on save success
     };
 
     // Wire Cancel button
@@ -28929,6 +28927,708 @@ document.addEventListener('click',e=>{
 })();
 </script>
 
+
+<style id="sa-vfx">
+/* ══════════════════════════════════════════════════════════════════
+   SIMPLY AGENTIC — 10 VISUAL EFFECTS  (injected at end of HTML)
+══════════════════════════════════════════════════════════════════ */
+
+/* ── 1. RANK-UP BURST ─────────────────────────────────────────── */
+#saConfettiCanvas{position:fixed;inset:0;pointer-events:none;z-index:999999;}
+
+/* ── 2. AI THINKING STREAM ───────────────────────────────────── */
+@keyframes saNeural{
+  0%{background-position:200% center;}
+  100%{background-position:-200% center;}
+}
+.sa-neural-stream{
+  background:linear-gradient(90deg,
+    transparent 0%,rgba(124,58,237,.0) 30%,
+    rgba(124,58,237,.6) 48%,rgba(167,139,250,.9) 50%,
+    rgba(124,58,237,.6) 52%,rgba(124,58,237,.0) 70%,transparent 100%);
+  background-size:200% 100%;
+  animation:saNeural 1.4s linear infinite;
+  position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:0 0 14px 14px;
+  pointer-events:none;z-index:10;
+}
+
+/* ── 3. MESSAGE SEND RIPPLE ──────────────────────────────────── */
+@keyframes saRipple{
+  0%{transform:scale(0);opacity:.7;}
+  100%{transform:scale(1);opacity:0;}
+}
+.sa-ripple-ring{
+  position:fixed;border-radius:50%;
+  border:2px solid rgba(124,58,237,.8);
+  pointer-events:none;z-index:99990;
+  animation:saRipple .65s cubic-bezier(.2,.6,.4,1) forwards;
+}
+
+/* ── 4. FUSION DUAL-BEAM ─────────────────────────────────────── */
+#saFusionOverlay{
+  position:fixed;inset:0;pointer-events:none;z-index:99995;
+  display:none;
+}
+@keyframes saBeamLeft{
+  0%{transform:translateX(-100%);opacity:1;}
+  45%{transform:translateX(calc(50vw - 80px));opacity:1;}
+  55%{transform:translateX(calc(50vw - 80px));opacity:0;}
+  100%{transform:translateX(calc(50vw - 80px));opacity:0;}
+}
+@keyframes saBeamRight{
+  0%{transform:translateX(100%);opacity:1;}
+  45%{transform:translateX(calc(-50vw + 80px));opacity:1;}
+  55%{transform:translateX(calc(-50vw + 80px));opacity:0;}
+  100%{transform:translateX(calc(-50vw + 80px));opacity:0;}
+}
+@keyframes saFusionFlash{
+  0%,40%{opacity:0;}45%{opacity:1;}55%{opacity:1;}60%,100%{opacity:0;}
+}
+@keyframes saFusionOut{
+  0%,50%{opacity:0;transform:scaleY(0);}
+  55%{opacity:1;transform:scaleY(1);}
+  90%{opacity:1;}100%{opacity:0;}
+}
+.sa-beam-left{
+  position:absolute;top:50%;left:0;height:3px;width:120px;margin-top:-1px;
+  background:linear-gradient(90deg,transparent,#3b82f6,#60a5fa);
+  border-radius:2px;animation:saBeamLeft 1.4s ease-in-out forwards;
+}
+.sa-beam-right{
+  position:absolute;top:50%;right:0;height:3px;width:120px;margin-top:-1px;
+  background:linear-gradient(270deg,transparent,#f97316,#fb923c);
+  border-radius:2px;animation:saBeamRight 1.4s ease-in-out forwards;
+}
+.sa-fusion-flash{
+  position:absolute;top:50%;left:50%;width:60px;height:60px;
+  margin:-30px 0 0 -30px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.95),rgba(167,139,250,.8),transparent 70%);
+  animation:saFusionFlash 1.4s ease-in-out forwards;
+}
+.sa-fusion-beam-out{
+  position:absolute;top:0;left:50%;width:2px;
+  height:50%;transform-origin:bottom center;
+  background:linear-gradient(to top,rgba(167,139,250,.9),transparent);
+  animation:saFusionOut 1.4s ease-in-out forwards;
+}
+
+/* ── 5. ORCHESTRA WAVE ────────────────────────────────────────── */
+@keyframes saOrchestraWave{
+  0%{transform:scaleX(0);opacity:1;}
+  60%{transform:scaleX(1);opacity:1;}
+  100%{transform:scaleX(1);opacity:0;}
+}
+.sa-orchestra-wave{
+  position:absolute;bottom:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#7c3aed,#a78bfa,#7c3aed);
+  transform-origin:left;
+  animation:saOrchestraWave .5s ease-out forwards;
+  border-radius:0 0 14px 14px;pointer-events:none;
+}
+@keyframes saOrchCheck{
+  0%{transform:scale(0);opacity:1;}
+  60%{transform:scale(1.3);opacity:1;}
+  100%{transform:scale(1);opacity:0;}
+}
+.sa-orch-check{
+  position:absolute;top:-18px;right:8px;font-size:13px;
+  animation:saOrchCheck .45s cubic-bezier(.34,1.56,.64,1) forwards;
+  pointer-events:none;z-index:20;
+}
+
+/* ── 6. POINTS TICKER ────────────────────────────────────────── */
+@keyframes saPointsArc{
+  0%{opacity:1;transform:translate(0,0) scale(1);}
+  40%{opacity:1;}
+  100%{opacity:0;transform:var(--sa-pts-end) scale(.6);}
+}
+.sa-pts-ticker{
+  position:fixed;z-index:99999;pointer-events:none;
+  font-size:13px;font-weight:700;color:#a78bfa;
+  background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);
+  border-radius:20px;padding:2px 10px;white-space:nowrap;
+  animation:saPointsArc .9s cubic-bezier(.4,0,.2,1) forwards;
+}
+
+/* ── 7. CRM PIPELINE SPRING LAND ─────────────────────────────── */
+@keyframes saSpringLand{
+  0%{transform:scale(1);}
+  25%{transform:scale(1.06,0.94);}
+  50%{transform:scale(0.97,1.03);}
+  75%{transform:scale(1.02,0.98);}
+  100%{transform:scale(1);}
+}
+@keyframes saColPulse{
+  0%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.0);}
+  40%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.7);}
+  100%{box-shadow:inset 0 0 0 2px rgba(124,58,237,.0);}
+}
+.sa-spring-land{ animation:saSpringLand .45s cubic-bezier(.34,1.56,.64,1); }
+.sa-col-pulse{ animation:saColPulse .6s ease-out forwards; }
+
+/* ── 8. SEAT ACTIVATION HALO ─────────────────────────────────── */
+@keyframes saHaloExpand{
+  0%{transform:scale(.85);opacity:.9;}
+  100%{transform:scale(2.2);opacity:0;}
+}
+.sa-seat-halo{
+  position:absolute;inset:0;border-radius:14px;
+  border:2px solid rgba(167,139,250,.8);
+  pointer-events:none;z-index:5;
+  animation:saHaloExpand .5s cubic-bezier(.2,.6,.4,1) forwards;
+}
+
+/* ── 9. STACK PROGRESS TRAIL ─────────────────────────────────── */
+@keyframes saTrailIn{
+  0%{transform:scaleX(0);opacity:1;}
+  100%{transform:scaleX(1);opacity:1;}
+}
+@keyframes saTrailFade{
+  0%{opacity:1;}
+  100%{opacity:.3;}
+}
+@keyframes saStepStamp{
+  0%{transform:scale(0) rotate(-15deg);opacity:1;}
+  70%{transform:scale(1.2) rotate(3deg);opacity:1;}
+  100%{transform:scale(1) rotate(0deg);opacity:1;}
+}
+.sa-trail-wire{
+  height:2px;background:linear-gradient(90deg,rgba(124,58,237,.8),rgba(167,139,250,.9));
+  transform-origin:left;border-radius:2px;margin:4px 0;
+  animation:saTrailIn .3s ease-out forwards, saTrailFade .6s .3s ease forwards;
+}
+.sa-step-stamp{
+  display:inline-block;color:#6ee7b7;font-weight:700;font-size:12px;
+  animation:saStepStamp .35s cubic-bezier(.34,1.56,.64,1) forwards;
+}
+
+/* ── 10. COMPASS ORB ─────────────────────────────────────────── */
+@keyframes saOrbBreathe{
+  0%,100%{box-shadow:0 0 8px 2px rgba(124,58,237,.35);}
+  50%{box-shadow:0 0 18px 6px rgba(124,58,237,.65);}
+}
+@keyframes saOrbPulse{
+  0%,100%{box-shadow:0 0 12px 3px rgba(167,139,250,.6);}
+  50%{box-shadow:0 0 28px 10px rgba(167,139,250,.9);}
+}
+@keyframes saOrbBurst{
+  0%{box-shadow:0 0 0 0 rgba(167,139,250,.9);}
+  50%{box-shadow:0 0 0 14px rgba(167,139,250,.0);}
+  100%{box-shadow:0 0 8px 2px rgba(124,58,237,.35);}
+}
+.sa-orb-idle{ animation:saOrbBreathe 3s ease-in-out infinite; }
+.sa-orb-thinking{ animation:saOrbPulse .8s ease-in-out infinite; }
+.sa-orb-burst{ animation:saOrbBurst .5s ease-out forwards; }
+</style>
+
+<canvas id="saConfettiCanvas" aria-hidden="true"></canvas>
+<div id="saFusionOverlay" aria-hidden="true">
+  <div class="sa-beam-left" id="saBeamLeft" style="display:none;"></div>
+  <div class="sa-beam-right" id="saBeamRight" style="display:none;"></div>
+  <div class="sa-fusion-flash" id="saFusionFlash" style="display:none;"></div>
+  <div class="sa-fusion-beam-out" id="saFusionBeamOut" style="display:none;"></div>
+</div>
+
+<script>
+/* ── SIMPLY AGENTIC VFX ENGINE ──────────────────────────────────
+   All 10 effects. Self-contained, zero dependencies.
+   ─────────────────────────────────────────────────────────────── */
+(function(){
+  'use strict';
+
+  /* ── UTILITY ─────────────────────────────────────────────────── */
+  function el(id){ return document.getElementById(id); }
+  function raf(fn){ return requestAnimationFrame(fn); }
+
+  /* ════════════════════════════════════════════════════════════════
+     1. RANK-UP BURST  — canvas confetti + rank badge spring-in
+  ════════════════════════════════════════════════════════════════ */
+  var _confCanvas = el('saConfettiCanvas');
+  var _confCtx = _confCanvas ? _confCanvas.getContext('2d') : null;
+  var _confParts = [];
+  var _confRunning = false;
+
+  function _confResize(){
+    if(!_confCanvas) return;
+    _confCanvas.width  = window.innerWidth;
+    _confCanvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', _confResize, {passive:true});
+  _confResize();
+
+  function _confSpawn(n){
+    var colors = ['#a78bfa','#7c3aed','#c4b5fd','#6ee7b7','#fcd34d','#f472b6','#60a5fa'];
+    for(var i=0;i<n;i++){
+      _confParts.push({
+        x: window.innerWidth/2 + (Math.random()-0.5)*200,
+        y: window.innerHeight/2 - 100 + (Math.random()-0.5)*60,
+        vx: (Math.random()-0.5)*14,
+        vy: Math.random()*-12 - 4,
+        r: Math.random()*5 + 3,
+        color: colors[Math.floor(Math.random()*colors.length)],
+        rot: Math.random()*360,
+        drot: (Math.random()-0.5)*8,
+        alpha: 1,
+        shape: Math.random()>.5?'rect':'circle',
+        w: Math.random()*10+5, h: Math.random()*5+4
+      });
+    }
+  }
+
+  function _confTick(){
+    if(!_confCtx) return;
+    _confCanvas.width = _confCanvas.width; // clear
+    var alive = false;
+    for(var i=0;i<_confParts.length;i++){
+      var p = _confParts[i];
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.vy += 0.35;
+      p.vx *= 0.99;
+      p.rot+= p.drot;
+      p.alpha -= 0.012;
+      if(p.alpha<=0) continue;
+      alive = true;
+      _confCtx.save();
+      _confCtx.globalAlpha = Math.max(0,p.alpha);
+      _confCtx.translate(p.x,p.y);
+      _confCtx.rotate(p.rot*Math.PI/180);
+      _confCtx.fillStyle = p.color;
+      if(p.shape==='circle'){
+        _confCtx.beginPath();
+        _confCtx.arc(0,0,p.r,0,Math.PI*2);
+        _confCtx.fill();
+      } else {
+        _confCtx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+      }
+      _confCtx.restore();
+    }
+    _confParts = _confParts.filter(function(p){ return p.alpha>0; });
+    if(alive) raf(_confTick);
+    else _confRunning = false;
+  }
+
+  window.saVFX_rankUpBurst = function(rankName, rankEmoji){
+    _confSpawn(160);
+    if(!_confRunning){ _confRunning=true; raf(_confTick); }
+    // Floating rank badge
+    var badge = document.createElement('div');
+    badge.style.cssText = [
+      'position:fixed;left:50%;top:45%;transform:translate(-50%,-50%) scale(0);',
+      'background:linear-gradient(135deg,rgba(124,58,237,.95),rgba(109,40,217,.98));',
+      'border:2px solid rgba(167,139,250,.7);border-radius:20px;',
+      'padding:18px 36px;text-align:center;z-index:999998;',
+      'box-shadow:0 24px 80px rgba(0,0,0,.8),0 0 60px rgba(124,58,237,.6);',
+      'transition:transform .5s cubic-bezier(.34,1.56,.64,1),opacity .3s;',
+    ].join('');
+    badge.innerHTML = '<div style="font-size:36px;margin-bottom:6px;">'+(rankEmoji||'🎉')+'</div>'
+      +'<div style="font-size:11px;font-weight:700;color:rgba(196,181,253,.8);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">RANK UP</div>'
+      +'<div style="font-size:20px;font-weight:800;color:#fff;">'+(rankName||'New Rank')+'</div>';
+    document.body.appendChild(badge);
+    raf(function(){ badge.style.transform='translate(-50%,-50%) scale(1)'; });
+    setTimeout(function(){
+      badge.style.opacity='0';
+      badge.style.transform='translate(-50%,-60%) scale(.9)';
+      setTimeout(function(){ try{document.body.removeChild(badge);}catch(e){} }, 350);
+    }, 2800);
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     2. AI THINKING STREAM  — neural pulse on seat card bottom edge
+  ════════════════════════════════════════════════════════════════ */
+  var _neuralStreams = {};
+
+  window.saVFX_thinkStart = function(seatName){
+    saVFX_thinkStop(seatName);
+    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
+    if(!seat) return;
+    seat.style.position = 'relative';
+    var bar = document.createElement('div');
+    bar.className = 'sa-neural-stream';
+    bar.setAttribute('data-sa-neural','1');
+    seat.appendChild(bar);
+    _neuralStreams[seatName] = bar;
+  };
+
+  window.saVFX_thinkStop = function(seatName){
+    var bar = _neuralStreams[seatName];
+    if(bar){ try{bar.parentNode.removeChild(bar);}catch(e){} delete _neuralStreams[seatName]; }
+    // Also remove any orphaned bars on this seat
+    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
+    if(seat) seat.querySelectorAll('[data-sa-neural]').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     3. MESSAGE SEND RIPPLE  — concentric rings from send button
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_sendRipple = function(originEl){
+    var rect = originEl
+      ? originEl.getBoundingClientRect()
+      : {left: window.innerWidth/2, top: window.innerHeight-80, width:0, height:0};
+    var cx = rect.left + rect.width/2;
+    var cy = rect.top  + rect.height/2;
+    var maxR = Math.hypot(window.innerWidth, window.innerHeight);
+    [0, 80, 180].forEach(function(delay){
+      var ring = document.createElement('div');
+      ring.className = 'sa-ripple-ring';
+      var size = maxR * 2;
+      ring.style.cssText = 'left:'+(cx-size/2)+'px;top:'+(cy-size/2)+'px;'
+        +'width:'+size+'px;height:'+size+'px;'
+        +'animation-delay:'+delay+'ms;';
+      document.body.appendChild(ring);
+      setTimeout(function(){ try{document.body.removeChild(ring);}catch(e){}; }, delay+700);
+    });
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     4. FUSION DUAL-BEAM  — GPT beam + Claude beam → flash → output
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_fusionBeam = function(){
+    var overlay = el('saFusionOverlay');
+    if(!overlay) return;
+    overlay.style.display = 'block';
+    // Reset and show each element
+    ['saBeamLeft','saBeamRight','saFusionFlash','saFusionBeamOut'].forEach(function(id){
+      var e = el(id); if(!e) return;
+      // Restart animation by clone trick
+      var clone = e.cloneNode(true);
+      clone.style.display = '';
+      e.parentNode.replaceChild(clone, e);
+    });
+    setTimeout(function(){
+      overlay.style.display = 'none';
+      // Re-hide children for next run
+      ['saBeamLeft','saBeamRight','saFusionFlash','saFusionBeamOut'].forEach(function(id){
+        var e = el(id); if(e) e.style.display = 'none';
+      });
+    }, 1600);
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     5. ORCHESTRA WAVE  — wave travels clockwise seat-by-seat
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_orchestraPass = function(seatName, passIndex, totalPasses){
+    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
+    if(!seat) return;
+    seat.style.position = 'relative';
+    // Remove old wave
+    seat.querySelectorAll('.sa-orchestra-wave,.sa-orch-check').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
+    // Add wave bar
+    var wave = document.createElement('div');
+    wave.className = 'sa-orchestra-wave';
+    seat.appendChild(wave);
+    // Add check badge
+    var check = document.createElement('div');
+    check.className = 'sa-orch-check';
+    check.textContent = '✓';
+    seat.appendChild(check);
+    // Clean up after animation
+    setTimeout(function(){
+      try{wave.parentNode.removeChild(wave);}catch(e){}
+    }, 600);
+    setTimeout(function(){
+      try{check.parentNode.removeChild(check);}catch(e){}
+    }, 1200);
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     6. POINTS TICKER  — floating +N pts arcs toward rank badge
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_pointsTicker = function(pts, originEl){
+    var badge = el('navLevelBadge') || el('notifBellBtn');
+    var destRect = badge ? badge.getBoundingClientRect() : {left:window.innerWidth-60, top:12, width:30, height:20};
+    var srcRect  = originEl
+      ? originEl.getBoundingClientRect()
+      : {left:window.innerWidth/2, top:window.innerHeight/2, width:0, height:0};
+
+    var ticker = document.createElement('div');
+    ticker.className = 'sa-pts-ticker';
+    ticker.textContent = '+' + pts + ' pts ⚡';
+    var startX = srcRect.left + srcRect.width/2;
+    var startY = srcRect.top  + srcRect.height/2;
+    var endDX = (destRect.left + destRect.width/2  - startX) + 'px';
+    var endDY = (destRect.top  + destRect.height/2 - startY - 30) + 'px';
+    ticker.style.left = startX + 'px';
+    ticker.style.top  = startY + 'px';
+    ticker.style.setProperty('--sa-pts-end', 'translate('+endDX+','+endDY+')');
+    document.body.appendChild(ticker);
+    setTimeout(function(){ try{document.body.removeChild(ticker);}catch(e){}; }, 950);
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     7. CRM PIPELINE SPRING LAND  — spring bounce + column pulse
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_pipelineSpring = function(clientCardEl, columnEl){
+    if(clientCardEl){
+      clientCardEl.classList.remove('sa-spring-land');
+      void clientCardEl.offsetWidth; // reflow
+      clientCardEl.classList.add('sa-spring-land');
+      setTimeout(function(){ clientCardEl.classList.remove('sa-spring-land'); }, 500);
+    }
+    if(columnEl){
+      columnEl.classList.remove('sa-col-pulse');
+      void columnEl.offsetWidth;
+      columnEl.classList.add('sa-col-pulse');
+      setTimeout(function(){ columnEl.classList.remove('sa-col-pulse'); }, 700);
+    }
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     8. SEAT ACTIVATION HALO  — ring expands from seat on click
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_seatHalo = function(seatName){
+    var seat = document.querySelector('.seat[data-name="'+seatName+'"]');
+    if(!seat) return;
+    seat.style.position = 'relative';
+    seat.querySelectorAll('.sa-seat-halo').forEach(function(n){ try{n.parentNode.removeChild(n);}catch(e){}; });
+    var halo = document.createElement('div');
+    halo.className = 'sa-seat-halo';
+    seat.appendChild(halo);
+    setTimeout(function(){ try{halo.parentNode.removeChild(halo);}catch(e){}; }, 550);
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     9. STACK PROGRESS TRAIL  — wire + stamp per step completion
+  ════════════════════════════════════════════════════════════════ */
+  window.saVFX_stackStepComplete = function(stepIndex){
+    // Wire between step cards
+    var prevRow = el('smRow_' + (stepIndex-1));
+    var thisRow = el('smRow_' + stepIndex);
+    if(prevRow && thisRow && stepIndex > 0){
+      var wire = document.createElement('div');
+      wire.className = 'sa-trail-wire';
+      prevRow.parentNode.insertBefore(wire, thisRow);
+      setTimeout(function(){ try{wire.parentNode.removeChild(wire);}catch(e){}; }, 1200);
+    }
+    // Stamp on the step header
+    if(thisRow){
+      var header = thisRow.querySelector('span');
+      if(header){
+        var stamp = document.createElement('span');
+        stamp.className = 'sa-step-stamp';
+        stamp.style.marginLeft = '6px';
+        stamp.textContent = ' ✓';
+        header.appendChild(stamp);
+      }
+    }
+  };
+
+  /* ════════════════════════════════════════════════════════════════
+     10. COMPASS ORB  — idle breathe → pulse when thinking → burst on reply
+  ════════════════════════════════════════════════════════════════ */
+  var _compassBtn = document.querySelector('button[onclick="openScoutPanel()"]');
+
+  function _saOrbApply(cls){
+    if(!_compassBtn) return;
+    _compassBtn.classList.remove('sa-orb-idle','sa-orb-thinking','sa-orb-burst');
+    if(cls) _compassBtn.classList.add(cls);
+  }
+
+  window.saVFX_compassIdle    = function(){ _saOrbApply('sa-orb-idle'); };
+  window.saVFX_compassThink   = function(){ _saOrbApply('sa-orb-thinking'); };
+  window.saVFX_compassBurst   = function(){
+    _saOrbApply('sa-orb-burst');
+    setTimeout(saVFX_compassIdle, 600);
+  };
+
+  // Start idle immediately
+  setTimeout(saVFX_compassIdle, 500);
+
+  /* ════════════════════════════════════════════════════════════════
+     INTEGRATION HOOKS  — wire effects into existing app actions
+  ════════════════════════════════════════════════════════════════ */
+
+  // Hook: sendFollow → ripple + points ticker
+  var _origSendFollow = window.sendFollow;
+  if(typeof _origSendFollow === 'function'){
+    window.sendFollow = async function(){
+      var sendBtn = document.querySelector('#followMsg');
+      saVFX_sendRipple(sendBtn);
+      if(window.selectedSeat) saVFX_thinkStart(window.selectedSeat);
+      var result = await _origSendFollow.apply(this, arguments);
+      if(window.selectedSeat) saVFX_thinkStop(window.selectedSeat);
+      saVFX_pointsTicker(3, sendBtn);
+      return result;
+    };
+  }
+
+  // Hook: selectSeat → halo
+  var _origSelectSeat = window.selectSeat;
+  if(typeof _origSelectSeat === 'function'){
+    window.selectSeat = async function(name){
+      saVFX_seatHalo(name);
+      return _origSelectSeat.apply(this, arguments);
+    };
+  }
+
+  // Hook: notification poll → rank-up burst when rank_up type arrives
+  var _lastNotifIds = new Set();
+  var _origLoadNotifs = window._saOrigLoadNotifs || null;
+
+  function _hookNotifPoll(){
+    // Patch the notif fetch response to detect rank_up type
+    var _origFetch = window.fetch;
+    window.fetch = function(url, opts){
+      var p = _origFetch.apply(this, arguments);
+      if(typeof url === 'string' && url.includes('/api/notifications')){
+        p.then(function(resp){ return resp.clone().json(); }).then(function(d){
+          if(!d.ok || !d.notifications) return;
+          d.notifications.forEach(function(n){
+            if(n.type === 'rank_up' && !_lastNotifIds.has(n.id)){
+              _lastNotifIds.add(n.id);
+              // Parse emoji + name from title e.g. "🎉 Rank Up! You are now 🔥 Command Ready"
+              var m = (n.title||'').match(/now\s+(\S+)\s+(.+)$/);
+              var emoji = m ? m[1] : '🎉';
+              var rname = m ? m[2] : '';
+              setTimeout(function(){ saVFX_rankUpBurst(rname, emoji); }, 400);
+            }
+          });
+        }).catch(function(){});
+      }
+      return p;
+    };
+  }
+  _hookNotifPoll();
+
+  // Hook: pipeline drop → spring + column pulse
+  // We patch the drop event via a MutationObserver watching the pipeline board
+  var _pipelineObserver = null;
+  function _hookPipelineDrop(){
+    var board = document.getElementById('crmPipelineBoard');
+    if(!board){
+      // Pipeline not visible yet — retry
+      setTimeout(_hookPipelineDrop, 2000);
+      return;
+    }
+    board.addEventListener('drop', function(ev){
+      var col = ev.target.closest('[data-stage-drop]');
+      setTimeout(function(){
+        // Find the first card that just landed in this column
+        if(col){
+          var card = col.querySelector('[data-client-drag]');
+          saVFX_pipelineSpring(card, col);
+        }
+      }, 80); // after crmRenderPipelineBoard has run
+    }, true);
+  }
+  _hookPipelineDrop();
+
+  // Hook: stack run → step-by-step trail animation
+  var _origSmShowResults = window._smShowResultsOrig || null;
+  // We patch the internal function via a wrapper called after each step reveal
+  function _hookStackSteps(){
+    var _origStackRun = window.stackRun;
+    if(typeof _origStackRun !== 'function') return;
+    window.stackRun = function(){
+      // Intercept step reveals by watching DOM mutations on #stackSteps
+      var stepsEl = document.getElementById('stackSteps');
+      if(stepsEl && !stepsEl._saTrailHooked){
+        stepsEl._saTrailHooked = true;
+        var obs = new MutationObserver(function(muts){
+          muts.forEach(function(m){
+            m.addedNodes.forEach(function(node){
+              if(node.nodeType===1 && node.id && node.id.startsWith('smRow_')){
+                var idx = parseInt(node.id.replace('smRow_',''),10);
+                if(!isNaN(idx) && idx > 0) saVFX_stackStepComplete(idx);
+              }
+            });
+            // Also watch result reveals inside existing rows
+            if(m.target && m.target.id && m.target.id.startsWith('smResult_')){
+              var idx2 = parseInt(m.target.id.replace('smResult_',''),10);
+              if(!isNaN(idx2)) saVFX_stackStepComplete(idx2);
+            }
+          });
+        });
+        obs.observe(stepsEl, {childList:true, subtree:true, attributes:false});
+      }
+      return _origStackRun.apply(this, arguments);
+    };
+  }
+  setTimeout(_hookStackSteps, 1500);
+
+  // Hook: stack complete → points ticker
+  var _origStackRunFn = window.stackRun;
+  // Points ticker fires from the toast hook
+  var _origShowToast = window.showToast;
+  if(typeof _origShowToast === 'function'){
+    window.showToast = function(msg, type){
+      var result = _origShowToast.apply(this, arguments);
+      // Points ticker for known point events
+      var ptMatch = String(msg).match(/\+(\d+)\s*pts/);
+      if(ptMatch){
+        var pts = parseInt(ptMatch[1],10);
+        var activeEl = document.activeElement || document.body;
+        setTimeout(function(){ saVFX_pointsTicker(pts, activeEl); }, 80);
+      }
+      return result;
+    };
+  }
+
+  // Hook: Compass thinking state
+  var _scoutInput = document.getElementById('scoutInput');
+  var _scoutSendBtn = document.querySelector('#scoutPanel button');
+  // Watch for compass requests via fetch
+  var _compassFetchOrig = window.fetch;
+  window.fetch = (function(origFetch){
+    return function(url, opts){
+      var p = origFetch.apply(this, arguments);
+      if(typeof url === 'string' && url.includes('/api/scout_ask')){
+        saVFX_compassThink();
+        p.then(function(){ setTimeout(saVFX_compassBurst, 100); })
+         .catch(function(){ setTimeout(saVFX_compassIdle, 100); });
+      }
+      return p;
+    };
+  })(window.fetch);
+
+  // Hook: Orchestra run → per-pass wave
+  var _origOrchestraRun = window.orchestraRun || null;
+  // Expose a callable for the orchestra API response handler
+  window.saVFX_orchestraSequence = function(passes){
+    if(!passes || !passes.length) return;
+    passes.forEach(function(pass, i){
+      setTimeout(function(){
+        saVFX_orchestraPass(pass.teammate, i, passes.length);
+      }, i * 600);
+    });
+  };
+
+  // Hook: Fusion run button
+  var _origFusionRun = window.fusionRun;
+  if(!_origFusionRun){
+    // Patch api/fusion/run fetch instead
+    window.fetch = (function(prevFetch){
+      return function(url, opts){
+        var p = prevFetch.apply(this, arguments);
+        if(typeof url === 'string' && url.includes('/api/fusion/run')){
+          saVFX_fusionBeam();
+        }
+        return p;
+      };
+    })(window.fetch);
+  }
+
+  // Expose seat data attribute helper so halo + stream can find seats by name
+  // Wire into makeSeat's rendered DOM: add data-name to each seat card
+  var _seatObserver = new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      m.addedNodes.forEach(function(node){
+        if(node.nodeType===1 && node.classList && node.classList.contains('seat')){
+          // Try to read name from title child
+          var titleEl = node.querySelector('.seatName, [class*="seatName"], .seatTitle');
+          if(!titleEl) titleEl = node.querySelector('div div');
+          if(titleEl && !node.getAttribute('data-name')){
+            node.setAttribute('data-name', titleEl.textContent.trim());
+          }
+        }
+      });
+    });
+  });
+  var tableWrap = document.getElementById('tableWrap');
+  if(tableWrap) _seatObserver.observe(tableWrap, {childList:true, subtree:true});
+
+})();
+</script>
 </body>
 </html>
 """
