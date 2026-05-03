@@ -16947,19 +16947,22 @@ function makeSeat(defn, idx){
       // Gate tier-locked feature buttons inline — no dependency on external scripts
       (function(){
         var unlocks = window._SA_UNLOCKS || [];
-        var ids = {
-          orchestraBtn: 'orchestra',
-          fusionBtn:    'fusion',
-          deepDiveBtn:  'deep_dive',
-          stackBtn:     'action_stacks',
+        var btnMap = {
+          orchestraBtn: { key: 'orchestra',     fn: function(){ if(typeof _saOpenOrchestra==='function') _saOpenOrchestra(); } },
+          fusionBtn:    { key: 'fusion',         fn: function(){ if(typeof _saOpenFusion==='function')    _saOpenFusion();    } },
+          deepDiveBtn:  { key: 'deep_dive',      fn: function(){ if(typeof _saOpenDeepDive==='function')  _saOpenDeepDive();  } },
+          stackBtn:     { key: 'action_stacks',  fn: function(){ if(typeof openStackModal==='function')   openStackModal(window.selectedSeat||''); } },
         };
-        Object.keys(ids).forEach(function(btnId){
+        Object.keys(btnMap).forEach(function(btnId){
           var btn = document.getElementById(btnId);
           if(!btn) return;
-          if(unlocks.indexOf(ids[btnId]) !== -1){
+          var entry = btnMap[btnId];
+          if(unlocks.indexOf(entry.key) !== -1){
             btn.style.display = '';
+            btn.onclick = entry.fn;
           } else {
             btn.style.display = 'none';
+            btn.onclick = null;
           }
         });
       })();
