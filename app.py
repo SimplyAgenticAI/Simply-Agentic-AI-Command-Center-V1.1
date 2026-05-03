@@ -15241,19 +15241,19 @@ input[type="range"]::-moz-range-progress {
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
               <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
-              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+
             </div>
 
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
-              <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
-              <div class="tiny" id="uploadHint">Attach files or use Share screen to capture a screenshot.</div>
+              <button class="btn btnMini" id="pickGroupFiles" title="Attach files or use Share screen to capture a screenshot.">Upload files</button>
+              <div class="tiny" id="uploadHint" style="display:none;"></div>
             </div>
             <div id="groupAttachList" class="pillRow"></div>
 
             <div class="opRow">
-              <div class="tiny" id="opStatus">Ready</div>
-              <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
+              <div class="tiny" id="opStatus"></div>
+              <div class="tiny" id="opHint" title="Say a teammate name to switch. Box clears on each switch." style="display:none;"></div>
             </div>
             <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
@@ -16490,7 +16490,7 @@ function makeSeat(defn, idx){
       if(window._SA_UNLOCKS && window._SA_UNLOCKS.indexOf('action_stacks') !== -1){
         const stackBtn = document.createElement("button");
         stackBtn.className = "seatToolBtn seatStackBtn";
-        stackBtn.innerText = "⚡ Stack";
+        stackBtn.innerText = "Stack";
         stackBtn.title = "Build & run an Action Stack for this teammate";
         stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
         stackBtn.addEventListener("click", (e) => {
@@ -28396,7 +28396,7 @@ window._streamTtsFired = false;
     _sm.teammate = tmName;
     _sm.steps = [];
     _sm.running = false;
-    document.getElementById('stackModalTitle').innerText = '⚡ ' + tmName + ' — Action Stack';
+    document.getElementById('stackModalTitle').innerText = tmName + ' — Action Stack';
     document.getElementById('stackNameInput').value = '';
     document.getElementById('stackResults').style.display = 'none';
     document.getElementById('stackResultsList').innerHTML = '';
