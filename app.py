@@ -4731,6 +4731,23 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     run = _init_run(u=uname, teammate=teammate, stack_name=stack_name, steps=steps, user_input=user_input)
     _persist_run(run)
     run2 = _run_action_stack_engine(run)
+    # Write each step prompt + output to the teammate's thread so they
+    # appear in the chat window on the right just like a regular message.
+    try:
+        thread = load_thread(teammate, uname)
+        outputs = run2.get("outputs") or {}
+        for i, step in enumerate(steps):
+            prompt_text = (step.get("prompt") or "").strip()
+            output_text = (outputs.get(str(i)) or outputs.get(i) or "").strip()
+            if prompt_text and output_text:
+                label = f"[Stack: {stack_name} — Step {i+1}] {prompt_text}"
+                thread = thread + [
+                    {"role": "user",      "content": label},
+                    {"role": "assistant", "content": output_text},
+                ]
+        save_thread(teammate, thread, uname)
+    except Exception:
+        pass  # thread write is best-effort; never block the run response
     _award_points(uname, f"Ran Action Stack: {stack_name}", 40)
     return jsonify({"ok": True, "run": run2})
 
@@ -16998,6 +17015,7 @@ function makeSeat(defn, idx){
     }
 
     $("refreshThread").onclick = refreshThread;
+    window.refreshThread = refreshThread; // expose globally for stack modal
 
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
@@ -28020,8 +28038,9 @@ window._streamTtsFired = false;
     fetch('/api/teammates/' + encodeURIComponent(tmName) + '/stacks')
       .then(function(r){return r.json();})
       .then(function(d){
-        if(!d.ok || !d.stacks || !Object.keys(d.stacks).length) return;
-        var names = Object.keys(d.stacks);
+        // API returns {ok, stacks: ["name1","name2"]} — stacks is an array of names
+        if(!d.ok || !d.stacks || !d.stacks.length) return;
+        var names = d.stacks; // already an array of name strings
         var html = '';
         names.forEach(function(n){
           html += '<button onclick="smLoadStack(' + JSON.stringify(n) + ')" '
@@ -28220,7 +28239,11 @@ window._streamTtsFired = false;
       if(!d.ok){ throw new Error(d.error || 'Run failed'); }
       _smShowResults(d.run, steps);
       _smLoadSaved(_sm.teammate);
-      if(typeof showToast==='function') showToast('Stack complete! +40 pts', 'success');
+      if(typeof showToast==='function') showToast('Stack complete! +40 pts ⚡', 'success');
+      // Refresh the teammate chat window so stack outputs appear in the thread
+      try{
+        if(window.refreshThread) window.refreshThread();
+      } catch(_){}
     }).catch(function(err){
       _sm.running = false;
       if(runBtn){ runBtn.disabled=false; runBtn.innerText='▶ Run Stack'; }
