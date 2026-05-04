@@ -1671,32 +1671,6 @@ def _compress_response(response):
     response.headers.add("Vary", "Accept-Encoding")
     return response
 
-@app.errorhandler(404)
-def _error_404(e):
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>404 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'>"
-        f"<h1>404</h1><h2>Page not found</h2>"
-        f"<p>The page you're looking for doesn't exist or has moved.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 404
-
-@app.errorhandler(500)
-def _error_500(e):
-    page = (
-        f"<!doctype html><html><head><meta charset='utf-8'/>"
-        f"<title>500 — {APP_TITLE}</title>"
-        f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
-        f"<div class='box'>"
-        f"<h1>500</h1><h2>Something went wrong</h2>"
-        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
-        f"<a href='/'>← Back to app</a></div></body></html>"
-    )
-    return page, 500
-
 
 # =========================
 # CSRF PROTECTION
