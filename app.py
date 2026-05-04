@@ -9389,13 +9389,22 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
 <body>
 <div id="app">
 
+<!-- Under Construction Banner -->
+<div style="background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(234,88,12,.08));border-bottom:1px solid rgba(245,158,11,.35);padding:9px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+  <span style="font-size:18px;flex-shrink:0;">🚧</span>
+  <div>
+    <span style="font-size:12px;font-weight:700;color:#fbbf24;">Under Construction — Coming Soon</span>
+    <span style="font-size:11px;color:#92400e;margin-left:8px;">Script editing and AI writing work great. Recording coming in the next update.</span>
+  </div>
+</div>
+
 <!-- Top bar -->
 <div id="top">
   <h1>&#127916; Teleprompter</h1>
   <div id="dot"></div>
   <div id="tmr">0:00</div>
   <button class="tb" id="btnScript">&#9999;&#65039; Script</button>
-  <button class="tb rec-btn" id="btnRec">&#9210; Record</button>
+  <button class="tb rec-btn" id="btnRec" disabled title="Recording coming soon" style="opacity:.4;cursor:not-allowed;">&#9210; Record</button>
   <button class="tb" id="btnCam">&#128247; Camera</button>
   <div class="sp"></div>
   <button class="tb" id="btnReset">&#8593; Reset</button>
