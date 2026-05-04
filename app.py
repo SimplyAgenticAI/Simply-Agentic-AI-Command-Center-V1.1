@@ -37927,14 +37927,6 @@ def api_extension_auth():
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
-@app.options("/api/extension/auth")
-def api_extension_auth_preflight():
-    resp = make_response("", 204)
-    resp.headers["Access-Control-Allow-Origin"]  = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    return resp
-
 
 @app.post("/api/extension/import_lead")
 def api_extension_import_lead():
