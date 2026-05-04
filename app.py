@@ -4191,9 +4191,9 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """Returns (http_status, friendly_user_message). Never exposes raw tracebacks."""
     s = (str(e) or "").lower()
     if "incorrect api key" in s or "invalid api key" in s or "authentication" in s or ("401" in s and "api" in s):
-        return 401, "Your OpenAI API key appears to be invalid. Go to Settings and double-check it."
-    if "quota" in s or "insufficient_quota" in s or "exceeded your current quota" in s or "billing" in s:
-        return 402, "Your OpenAI account has hit its usage limit or a billing issue. Check your OpenAI dashboard."
+        return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+    if "insufficient_quota" in s or "exceeded your current quota" in s or ("quota" in s and "billing" in s):
+        return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
     if "model" in s and ("not found" in s or "does not exist" in s):
         model_hint = ""
         try:
@@ -4211,7 +4211,9 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         return 400, "Your conversation is too long. Clear the thread and start a new one."
     if "content_policy" in s or "content filter" in s or "safety" in s:
         return 400, "The AI declined this request due to content policy. Try rephrasing."
-    return 500, "An unexpected error occurred with the AI service. Please try again."
+    # Unknown error — surface the raw message so it can be diagnosed
+    short = s[:200] if len(s) > 200 else s
+    return 500, f"AI service error: {short}"
 
 
 # =========================
