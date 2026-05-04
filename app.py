@@ -37824,14 +37824,23 @@ def extension_download():
     u = current_user()
     if not u: return redirect(url_for("login") + "?next=/extension/download")
     try:
+        def _fix(s):
+            # json.dumps stores emoji as UTF-16 surrogate pairs.
+            # Round-trip through utf-16 restores proper Unicode code points.
+            try:
+                s.encode('utf-8')   # already clean — no surrogates
+                return s
+            except UnicodeEncodeError:
+                return s.encode('utf-16', 'surrogatepass').decode('utf-16')
+
         buf = _io.BytesIO()
         with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("manifest.json",  _EXT_MANIFEST)
-            zf.writestr("background.js",  _EXT_BACKGROUND)
-            zf.writestr("content.css",    _EXT_CONTENT_CSS)
-            zf.writestr("content.js",     _EXT_CONTENT_JS)
-            zf.writestr("popup.html",     _EXT_POPUP_HTML)
-            zf.writestr("popup.js",       _EXT_POPUP_JS)
+            zf.writestr("manifest.json",  _fix(_EXT_MANIFEST))
+            zf.writestr("background.js",  _fix(_EXT_BACKGROUND))
+            zf.writestr("content.css",    _fix(_EXT_CONTENT_CSS))
+            zf.writestr("content.js",     _fix(_EXT_CONTENT_JS))
+            zf.writestr("popup.html",     _fix(_EXT_POPUP_HTML))
+            zf.writestr("popup.js",       _fix(_EXT_POPUP_JS))
         buf.seek(0)
         resp = make_response(buf.read())
         resp.headers["Content-Type"]        = "application/zip"
