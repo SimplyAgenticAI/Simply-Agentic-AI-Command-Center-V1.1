@@ -37894,16 +37894,22 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {{
 }});
 """
 
-        # Personalise popup.js too — inject credentials at the top so popup works immediately
+        # Build personalised manifest with SA server in host_permissions
+        import json as _json
+        manifest_obj = _json.loads(_fix(_EXT_MANIFEST))
+        manifest_obj["host_permissions"].append(base_url + "/*")
+        personalised_manifest = _json.dumps(manifest_obj, indent=2)
+
+        # Personalise popup.js — inject credentials at the top
         personalised_popup = f"""// Auto-configured for {uname}
-var SA_PRESET_URL = {json.dumps(base_url)};
-var SA_PRESET_KEY = {json.dumps(api_key)};
-var SA_PRESET_USER = {json.dumps(uname)};
+var SA_PRESET_URL = {_json.dumps(base_url)};
+var SA_PRESET_KEY = {_json.dumps(api_key)};
+var SA_PRESET_USER = {_json.dumps(uname)};
 """ + _fix(_EXT_POPUP_JS)
 
         buf = _io.BytesIO()
         with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("manifest.json",  _fix(_EXT_MANIFEST))
+            zf.writestr("manifest.json",  personalised_manifest)
             zf.writestr("background.js",  config_js)
             zf.writestr("content.css",    _fix(_EXT_CONTENT_CSS))
             zf.writestr("content.js",     _fix(_EXT_CONTENT_JS))
