@@ -29317,41 +29317,57 @@ document.addEventListener('click',e=>{
      ORCHESTRA MODE
   ══════════════════════════════════════════════════════════════════ */
   window._saOpenOrchestra = function(){
-    // Populate teammate order from installed seats
     var orderEl = ge('orchOrderList');
     if(orderEl){
       orderEl.innerHTML = '';
       try{
-        var installed = (window.state && window.state.installed) ? Object.keys(window.state.installed) : [];
-        // Start clockwise from selected seat if possible
+        // Try multiple sources for installed teammates
+        var installed = [];
+        if(window.state && window.state.installed && typeof window.state.installed === 'object'){
+          installed = Object.keys(window.state.installed);
+        }
+        // Fallback: read from the rendered seat cards in the DOM
+        if(!installed.length){
+          document.querySelectorAll('.seat[data-name]').forEach(function(s){
+            var n = s.dataset.name;
+            if(n && n !== 'Operator' && !installed.includes(n)) installed.push(n);
+          });
+        }
+        // Start clockwise from selected seat
         var sel = window.selectedSeat || '';
-        if(sel && installed.includes(sel)){
+        if(sel && installed.indexOf(sel) !== -1){
           var idx = installed.indexOf(sel);
           installed = installed.slice(idx).concat(installed.slice(0, idx));
         }
-        installed.forEach(function(name){
-          var chip = document.createElement('div');
-          chip.dataset.name = name;
-          chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
-          chip.innerText = name;
-          chip.draggable = true;
-          chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
-          chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
-          chip.addEventListener('dragover', function(e){ e.preventDefault(); });
-          chip.addEventListener('drop', function(e){
-            e.preventDefault();
-            var draggedName = e.dataTransfer.getData('text/plain');
-            var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
-            if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
+        if(!installed.length){
+          orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">No teammates found. Select a seat at the round table first.</div>';
+        } else {
+          installed.forEach(function(name){
+            var chip = document.createElement('div');
+            chip.dataset.name = name;
+            chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
+            chip.innerText = name;
+            chip.draggable = true;
+            chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
+            chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
+            chip.addEventListener('dragover', function(e){ e.preventDefault(); });
+            chip.addEventListener('drop', function(e){
+              e.preventDefault();
+              var draggedName = e.dataTransfer.getData('text/plain');
+              var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
+              if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
+            });
+            orderEl.appendChild(chip);
           });
-          orderEl.appendChild(chip);
-        });
-      } catch(e){ orderEl.innerText='No teammates installed.'; }
+        }
+      } catch(e){ orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">Error loading teammates: '+e.message+'</div>'; }
     }
-    // Pre-fill prompt from current followMsg
+    // Pre-fill prompt — try group console first, then DM box
     try{
+      var op = ge('opPrompt');
       var fm = ge('followMsg');
-      if(fm && fm.value.trim()) ge('orchPrompt').value = fm.value.trim();
+      var prefill = (op && op.value.trim()) ? op.value.trim() : (fm && fm.value.trim() ? fm.value.trim() : '');
+      if(prefill) ge('orchPrompt').value = prefill;
     } catch(e){}
     ge('orchResults').style.display = 'none';
     _saOpenModal('orchestraModal');
