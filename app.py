@@ -13032,6 +13032,7 @@ label         { font-size: 14px !important; }
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;"></div>
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Compass</button>
+        <button onclick="openExtensionPanel()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🔌 Extension</button>
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
         <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
@@ -29726,6 +29727,124 @@ document.addEventListener('click',e=>{
 </script>
 <!-- ═══ END ORCHESTRA / DEEP DIVE / FUSION ═══ -->
 
+<!-- ═══ EXTENSION PANEL ═══ -->
+<div id="extensionPanel" style="display:none;position:fixed;inset:0;z-index:99993;background:rgba(0,0,0,.8);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeExtensionPanel()">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(16,185,129,.4);border-radius:20px;width:min(540px,94vw);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.5);background:rgba(16,185,129,.07);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#6ee7b7;">🔌 Simply Agentic for Facebook</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">Chrome extension — import leads &amp; draft messages directly from Facebook</div>
+      </div>
+      <button onclick="closeExtensionPanel()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Step 1: Download -->
+    <div style="padding:20px 22px;border-bottom:1px solid rgba(42,58,106,.4);">
+      <div style="display:flex;align-items:flex-start;gap:14px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">1</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:4px;">Download the extension</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:12px;">Click below to download your personalised Simply Agentic extension ZIP file.</div>
+          <a href="/extension/download" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border-radius:10px;text-decoration:none;font-size:14px;font-weight:700;box-shadow:0 4px 20px rgba(124,58,237,.4);">
+            ⬇ Download Extension ZIP
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Install -->
+    <div style="padding:20px 22px;border-bottom:1px solid rgba(42,58,106,.4);">
+      <div style="display:flex;align-items:flex-start;gap:14px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#0891b2,#0e7490);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">2</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:4px;">Install in Chrome</div>
+          <div style="font-size:12px;color:#64748b;line-height:1.7;">
+            1. Unzip the downloaded file<br>
+            2. Open Chrome → go to <code style="background:rgba(14,22,48,.8);padding:1px 6px;border-radius:4px;color:#94a3b8;">chrome://extensions</code><br>
+            3. Enable <strong style="color:#94a3b8;">Developer mode</strong> (top right toggle)<br>
+            4. Click <strong style="color:#94a3b8;">Load unpacked</strong> → select the unzipped folder<br>
+            5. The Simply Agentic icon appears in your Chrome toolbar
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Connect -->
+    <div style="padding:20px 22px;border-bottom:1px solid rgba(42,58,106,.4);">
+      <div style="display:flex;align-items:flex-start;gap:14px;">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#059669,#047857);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">3</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:4px;">Connect your account</div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:10px;">Click the button below — it opens a page that auto-connects the extension to your account. Or copy your API key manually into the extension popup.</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <a href="/extension/connect" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:9px 18px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;border-radius:10px;text-decoration:none;font-size:13px;font-weight:700;">
+              🔗 Auto-Connect Extension
+            </a>
+            <button onclick="copyExtKey()" style="padding:9px 18px;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.6);color:#94a3b8;border-radius:10px;font-size:13px;cursor:pointer;">
+              📋 Copy API Key
+            </button>
+          </div>
+          <div id="extKeyDisplay" style="margin-top:8px;font-size:11px;font-family:monospace;color:#475569;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.5);border-radius:6px;padding:6px 10px;word-break:break-all;display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- What it does -->
+    <div style="padding:18px 22px;">
+      <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">What the extension does</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:10px 12px;">
+          <div style="font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">⊕ Import profiles</div>
+          <div style="font-size:11px;color:#475569;line-height:1.5;">One-click import from any Facebook profile, group, or comment into your CRM</div>
+        </div>
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:10px 12px;">
+          <div style="font-size:12px;font-weight:600;color:#6ee7b7;margin-bottom:3px;">✦ Draft messages</div>
+          <div style="font-size:11px;color:#475569;line-height:1.5;">Sunshine writes personalised outreach on Messenger — you review and send</div>
+        </div>
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:10px 12px;">
+          <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:3px;">⊕ Batch import groups</div>
+          <div style="font-size:11px;color:#475569;line-height:1.5;">Import all visible group members or friends list with one click</div>
+        </div>
+        <div style="background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.4);border-radius:10px;padding:10px 12px;">
+          <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:3px;">📇 Auto-enriched CRM</div>
+          <div style="font-size:11px;color:#475569;line-height:1.5;">Every import lands in your CRM pipeline with +5 pts and AI enrichment</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  window.openExtensionPanel = function(){
+    var p = document.getElementById('extensionPanel');
+    if(p){ p.style.display='flex'; }
+    // Load the API key
+    fetch('/api/extension/my_key').then(function(r){return r.json();}).then(function(d){
+      if(d.ok){
+        var kd = document.getElementById('extKeyDisplay');
+        if(kd) kd.dataset.key = d.key;
+      }
+    }).catch(function(){});
+  };
+  window.closeExtensionPanel = function(){
+    var p = document.getElementById('extensionPanel');
+    if(p) p.style.display='none';
+  };
+  window.copyExtKey = function(){
+    var kd = document.getElementById('extKeyDisplay');
+    var key = kd ? kd.dataset.key : '';
+    if(!key){ fetch('/api/extension/my_key').then(r=>r.json()).then(function(d){ if(d.ok){ navigator.clipboard.writeText(d.key).then(function(){ try{showToast('API key copied!');}catch(e){alert('Key copied: '+d.key);} }); } }); return; }
+    navigator.clipboard.writeText(key).then(function(){
+      try{showToast('API key copied — paste it in the extension popup');}catch(e){}
+      if(kd){ kd.style.display=''; kd.textContent = key.substring(0,8)+'…'+key.substring(key.length-6); }
+    });
+  };
+})();
+</script>
+
 </body>
 </html>
 """
@@ -37615,6 +37734,195 @@ def api_admin_analytics():
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# =============================================================================
+# CHROME EXTENSION — Simply Agentic for Facebook
+# =============================================================================
+import io as _io, zipfile as _zipfile, struct as _struct, zlib as _zlib
+
+_EXT_MANIFEST = "{\n  \"manifest_version\": 3,\n  \"name\": \"Simply Agentic for Facebook\",\n  \"version\": \"1.0.0\",\n  \"description\": \"Import Facebook leads and draft AI messages directly into Simply Agentic CRM.\",\n  \"permissions\": [\"storage\", \"activeTab\"],\n  \"host_permissions\": [\"https://*.facebook.com/*\", \"https://*.messenger.com/*\"],\n  \"action\": { \"default_popup\": \"popup.html\", \"default_title\": \"Simply Agentic\" },\n  \"content_scripts\": [{\n    \"matches\": [\"https://*.facebook.com/*\", \"https://*.messenger.com/*\"],\n    \"js\": [\"content.js\"], \"css\": [\"content.css\"], \"run_at\": \"document_idle\"\n  }],\n  \"background\": { \"service_worker\": \"background.js\" }\n}\n"
+_EXT_BACKGROUND = "// Simply Agentic \u2014 Background Service Worker\nchrome.runtime.onInstalled.addListener(function() {\n  console.log('[SA] Simply Agentic extension installed');\n});\nchrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {\n  if (msg.type === 'GET_CONFIG') {\n    chrome.storage.local.get(['sa_url', 'sa_key', 'sa_user'], function(r) {\n      sendResponse({ url: r.sa_url || '', key: r.sa_key || '', user: r.sa_user || '' });\n    });\n    return true;\n  }\n  if (msg.type === 'SAVE_CONFIG') {\n    chrome.storage.local.set({ sa_url: msg.url, sa_key: msg.key }, function() {\n      sendResponse({ ok: true });\n    });\n    return true;\n  }\n});\n"
+_EXT_CONTENT_CSS = "/* Simply Agentic \u2014 Facebook Content Script Styles */\n.sa-btn {\n  display: inline-flex; align-items: center; gap: 6px;\n  padding: 8px 16px;\n  background: linear-gradient(135deg, #7c3aed, #6d28d9);\n  color: #fff !important; border: none; border-radius: 8px;\n  font-size: 13px; font-weight: 700; cursor: pointer;\n  font-family: system-ui, sans-serif; white-space: nowrap;\n  box-shadow: 0 2px 12px rgba(124,58,237,.4);\n  transition: opacity .15s, transform .1s;\n  text-decoration: none !important; line-height: 1;\n}\n.sa-btn:hover { opacity: .88; transform: translateY(-1px); }\n.sa-btn:active { transform: translateY(0); }\n.sa-btn-sm { padding: 5px 10px !important; font-size: 11px !important; }\n.sa-btn-ghost {\n  background: rgba(124,58,237,.12) !important;\n  border: 1.5px solid rgba(124,58,237,.5) !important;\n  color: #c4b5fd !important; box-shadow: none !important;\n}\n.sa-toast {\n  position: fixed; bottom: 24px; right: 24px;\n  background: rgba(10,14,30,.97); color: #e2e8f0;\n  border: 1px solid rgba(124,58,237,.5); border-radius: 12px;\n  padding: 12px 18px; font-size: 13px;\n  font-family: system-ui, sans-serif; z-index: 99999;\n  box-shadow: 0 8px 32px rgba(0,0,0,.5);\n  display: flex; align-items: center; gap: 10px; max-width: 320px;\n  animation: saSlideIn .3s ease-out;\n}\n.sa-inject-wrap {\n  display: flex; align-items: center; gap: 8px;\n  flex-wrap: wrap; margin: 8px 0; padding: 4px 0;\n}\n.sa-group-bar {\n  position: sticky; top: 0; z-index: 100;\n  padding: 8px 14px;\n  background: rgba(10,14,30,.97);\n  border-bottom: 1px solid rgba(124,58,237,.3);\n  display: flex; align-items: center; gap: 10px;\n}\n@keyframes saSlideIn {\n  from { transform: translateY(16px); opacity: 0; }\n  to   { transform: translateY(0);    opacity: 1; }\n}\n"
+_EXT_CONTENT_JS = "/* Simply Agentic \u2014 Facebook Content Script */\n(function () {\n  'use strict';\n  var saConfig = null;\n  var saInjected = {};\n  var SA_MARK = 'data-sa-done';\n\n  // \u2500\u2500 Load config from storage \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, function (r) {\n    if (r && r.url && r.key) {\n      saConfig = r;\n      setTimeout(injectAll, 900);\n    }\n  });\n\n  // Auto-connect: detect /extension/connect?key=XXX on the SA page\n  if (window.location.href.indexOf('/extension/connect') !== -1) {\n    var params = new URLSearchParams(window.location.search);\n    var autoKey = params.get('key');\n    if (autoKey) {\n      var autoUrl = window.location.origin;\n      chrome.storage.local.set({ sa_url: autoUrl, sa_key: autoKey }, function () {\n        saConfig = { url: autoUrl, key: autoKey };\n        showToast('Simply Agentic connected! Visit Facebook to start importing leads.');\n      });\n    }\n  }\n\n  // \u2500\u2500 Watch for SPA navigation \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  var lastUrl = location.href;\n  var debTimer = null;\n\n  new MutationObserver(function () {\n    if (location.href !== lastUrl) {\n      lastUrl = location.href;\n      saInjected = {};\n      clearTimeout(debTimer);\n      debTimer = setTimeout(function () { if (saConfig) injectAll(); }, 1600);\n    }\n  }).observe(document, { subtree: true, childList: true });\n\n  new MutationObserver(debounce(function () {\n    if (saConfig) injectAll();\n  }, 1400)).observe(document.body, { childList: true, subtree: true });\n\n  function debounce(fn, delay) {\n    var t;\n    return function () { clearTimeout(t); t = setTimeout(fn, delay); };\n  }\n\n  // \u2500\u2500 Dispatch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function injectAll() {\n    var url = location.href;\n    var isFB = url.indexOf('facebook.com') !== -1;\n    var isMSG = url.indexOf('messenger.com') !== -1 || url.indexOf('/messages/') !== -1;\n    var isGroup = url.indexOf('/groups/') !== -1;\n    var isFriends = url.indexOf('/friends') !== -1;\n    var isProfile = isFB && !isGroup && !isMSG && !isFriends &&\n      /facebook\\.com\\/(?!events|pages|marketplace|watch|gaming|videos|photos|stories|notifications|settings|bookmarks|reels|reel|feed)([a-zA-Z0-9._%-]+)/.test(url);\n\n    if (isProfile) injectProfileButton();\n    if (isGroup)   injectGroupImport();\n    if (isFriends) injectGroupImport();\n    if (isMSG)     injectMessengerDraft();\n    injectCommentImport();\n  }\n\n  // \u2500\u2500 API fetch helper \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function saFetch(path, data, cb) {\n    if (!saConfig) { cb && cb(null, 'Not connected'); return; }\n    fetch(saConfig.url + path, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json', 'X-SA-Extension-Key': saConfig.key },\n      body: JSON.stringify(data)\n    })\n      .then(function (r) { return r.json(); })\n      .then(function (d) { cb && cb(d, null); })\n      .catch(function (e) { cb && cb(null, e.message); });\n  }\n\n  // \u2500\u2500 Toast \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function showToast(msg, borderColor) {\n    var t = document.createElement('div');\n    t.className = 'sa-toast';\n    if (borderColor) t.style.borderColor = borderColor;\n    t.innerHTML = '<span style=\"font-size:16px;flex-shrink:0;\">\ud83d\udfe3</span><span>' + escHtml(msg) + '</span>';\n    document.body.appendChild(t);\n    setTimeout(function () {\n      t.style.transition = 'opacity .4s'; t.style.opacity = '0';\n      setTimeout(function () { try { t.remove(); } catch (e) { } }, 450);\n    }, 3500);\n  }\n\n  function escHtml(s) {\n    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n  }\n\n  // \u2500\u2500 Get page profile info \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function getProfileInfo() {\n    var name = '';\n    var url = location.href.split('?')[0];\n    var h1s = document.querySelectorAll('h1');\n    for (var i = 0; i < h1s.length; i++) {\n      var txt = (h1s[i].innerText || '').trim();\n      if (txt && txt.length > 1 && txt.length < 80 && !/^\\d+$/.test(txt)) { name = txt; break; }\n    }\n    if (!name) {\n      var title = (document.title || '').replace('| Facebook', '').replace('Facebook', '').trim();\n      if (title && title.length > 1 && title.length < 80) name = title;\n    }\n    return { name: name, profile_url: url };\n  }\n\n  // \u2500\u2500 1. Profile page button \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function injectProfileButton() {\n    var key = 'profile:' + location.href;\n    if (saInjected[key]) return;\n\n    // Find action buttons area \u2014 try multiple selectors robustly\n    var anchor = null;\n    var h1s = document.querySelectorAll('h1');\n    for (var i = 0; i < h1s.length; i++) {\n      var p = h1s[i].parentElement;\n      if (p) { anchor = p; break; }\n    }\n    if (!anchor) return;\n    if (anchor.querySelector('.sa-inject-wrap')) return;\n\n    saInjected[key] = true;\n\n    var wrap = document.createElement('div');\n    wrap.className = 'sa-inject-wrap';\n\n    var importBtn = document.createElement('button');\n    importBtn.className = 'sa-btn';\n    importBtn.innerHTML = '<span>\u2295</span> Import to CRM';\n\n    var draftBtn = document.createElement('button');\n    draftBtn.className = 'sa-btn sa-btn-ghost';\n    draftBtn.innerHTML = '<span>\u2726</span> Draft Message';\n\n    importBtn.onclick = function () {\n      var info = getProfileInfo();\n      if (!info.name) { showToast('Could not read profile name. Scroll down and try again.', '#f59e0b'); return; }\n      importBtn.textContent = 'Importing\u2026'; importBtn.disabled = true;\n      saFetch('/api/extension/import_lead', {\n        name: info.name, profile_url: info.profile_url,\n        source: 'facebook_profile', tags: ['Facebook', 'Profile Import'],\n        notes: 'Imported from Facebook profile: ' + info.profile_url\n      }, function (d, err) {\n        importBtn.disabled = false;\n        if (d && d.ok) {\n          importBtn.innerHTML = '\u2713 Imported!';\n          importBtn.style.background = 'linear-gradient(135deg,#059669,#047857)';\n          showToast(info.name + ' added to Simply Agentic CRM!');\n        } else {\n          importBtn.innerHTML = '<span>\u2295</span> Import to CRM';\n          showToast('Import failed: ' + (d ? d.error : err), '#ef4444');\n        }\n      });\n    };\n\n    draftBtn.onclick = function () {\n      var info = getProfileInfo();\n      draftBtn.textContent = 'Drafting\u2026'; draftBtn.disabled = true;\n      saFetch('/api/extension/draft_message', {\n        name: info.name, profile_url: info.profile_url, context: document.title\n      }, function (d, err) {\n        draftBtn.disabled = false; draftBtn.innerHTML = '<span>\u2726</span> Draft Message';\n        if (d && d.ok) { showDraftOverlay(d.draft, info.name); }\n        else { showToast('Draft failed: ' + (d ? d.error : err), '#ef4444'); }\n      });\n    };\n\n    wrap.appendChild(importBtn);\n    wrap.appendChild(draftBtn);\n    anchor.appendChild(wrap);\n  }\n\n  // \u2500\u2500 2. Group / Friends \u2014 batch import \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function injectGroupImport() {\n    var key = 'group:' + location.href;\n    if (saInjected[key]) return;\n    if (document.getElementById('sa-group-bar')) return;\n    saInjected[key] = true;\n\n    function collectProfiles() {\n      var seen = {};\n      var results = [];\n      document.querySelectorAll('a[href*=\"facebook.com/\"]').forEach(function (a) {\n        var href = (a.href || '').split('?')[0];\n        var name = (a.innerText || '').trim();\n        if (!name || name.length < 2 || name.length > 80) return;\n        if (seen[href]) return;\n        if (/\\/(groups|events|pages|watch|marketplace|notifications|settings|friends|messages|reels?)\\b/.test(href)) return;\n        if (/facebook\\.com\\/[a-zA-Z0-9._%-]+$/.test(href) || /facebook\\.com\\/profile\\.php/.test(href)) {\n          seen[href] = true;\n          results.push({ name: name, profile_url: href });\n        }\n      });\n      return results;\n    }\n\n    var bar = document.createElement('div');\n    bar.id = 'sa-group-bar';\n    bar.className = 'sa-group-bar';\n\n    var countLbl = document.createElement('span');\n    countLbl.style.cssText = 'font-size:11px;color:#94a3b8;font-family:system-ui;';\n\n    var btn = document.createElement('button');\n    btn.className = 'sa-btn';\n    btn.innerHTML = '<span>\u2295</span> Import Visible People to CRM';\n\n    btn.addEventListener('mouseenter', function () {\n      var m = collectProfiles(); countLbl.textContent = m.length + ' profiles found';\n    });\n\n    btn.onclick = function () {\n      var members = collectProfiles();\n      if (!members.length) { showToast('No profiles found. Scroll down to load more first.', '#f59e0b'); return; }\n      btn.textContent = 'Importing ' + members.length + '\u2026'; btn.disabled = true;\n      var done = 0;\n      function next(i) {\n        if (i >= members.length) {\n          btn.innerHTML = '\u2713 Imported ' + done + ' contacts';\n          btn.style.background = 'linear-gradient(135deg,#059669,#047857)';\n          showToast('Imported ' + done + ' people into Simply Agentic CRM!');\n          return;\n        }\n        var m = members[i];\n        saFetch('/api/extension/import_lead', {\n          name: m.name, profile_url: m.profile_url,\n          source: 'facebook_group', tags: ['Facebook', 'Group Import']\n        }, function (d) {\n          if (d && d.ok) done++;\n          btn.textContent = 'Importing\u2026 ' + (i + 1) + '/' + members.length;\n          setTimeout(function () { next(i + 1); }, 280);\n        });\n      }\n      next(0);\n    };\n\n    bar.appendChild(btn);\n    bar.appendChild(countLbl);\n    var main = document.querySelector('[role=\"main\"]') || document.body;\n    main.insertBefore(bar, main.firstChild);\n  }\n\n  // \u2500\u2500 3. Messenger \u2014 draft message \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function injectMessengerDraft() {\n    if (document.getElementById('sa-messenger-btn')) return;\n    var compose = document.querySelector('[contenteditable=\"true\"][role=\"textbox\"]') ||\n      document.querySelector('div[data-lexical-editor=\"true\"]');\n    if (!compose) return;\n\n    function getConvName() {\n      var els = document.querySelectorAll('h1,h2');\n      for (var i = 0; i < els.length; i++) {\n        var t = (els[i].innerText || '').trim();\n        if (t && t.length > 1 && t.length < 60 && t !== 'Messenger' && t !== 'Chats') return t;\n      }\n      return '';\n    }\n\n    var btn = document.createElement('button');\n    btn.id = 'sa-messenger-btn';\n    btn.className = 'sa-btn sa-btn-ghost sa-btn-sm';\n    btn.innerHTML = '\u2726 Draft with Sunshine';\n    btn.style.cssText += 'margin:4px 8px;';\n\n    btn.onclick = function () {\n      var name = getConvName();\n      btn.textContent = 'Drafting\u2026'; btn.disabled = true;\n      saFetch('/api/extension/draft_message', {\n        name: name, profile_url: location.href,\n        context: 'Facebook Messenger conversation', channel: 'messenger'\n      }, function (d, err) {\n        btn.disabled = false; btn.innerHTML = '\u2726 Draft with Sunshine';\n        if (d && d.ok) { showDraftOverlay(d.draft, name); }\n        else { showToast('Draft failed \u2014 is Simply Agentic connected?', '#ef4444'); }\n      });\n    };\n\n    var parent = compose.parentElement;\n    if (parent) parent.insertBefore(btn, compose);\n  }\n\n  // \u2500\u2500 4. Comments \u2014 add to CRM buttons \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function injectCommentImport() {\n    document.querySelectorAll('[aria-label*=\"Comment by\"], [data-testid=\"comment\"]').forEach(function (c) {\n      if (c.getAttribute(SA_MARK)) return;\n      c.setAttribute(SA_MARK, '1');\n      var nameLink = c.querySelector('a[href*=\"facebook.com/\"]');\n      if (!nameLink) return;\n      var name = (nameLink.innerText || '').trim();\n      var url = (nameLink.href || '').split('?')[0];\n      if (!name || name.length > 80) return;\n\n      var btn = document.createElement('button');\n      btn.className = 'sa-btn sa-btn-ghost sa-btn-sm';\n      btn.innerHTML = '\u2295 CRM';\n      btn.style.cssText += 'margin-left:6px;vertical-align:middle;';\n      btn.onclick = function (e) {\n        e.stopPropagation();\n        btn.textContent = '\u2026';\n        saFetch('/api/extension/import_lead', {\n          name: name, profile_url: url,\n          source: 'facebook_comment', tags: ['Facebook', 'Commenter']\n        }, function (d) {\n          if (d && d.ok) { btn.textContent = '\u2713'; btn.style.color = '#6ee7b7'; showToast(name + ' added to CRM!'); }\n          else { btn.innerHTML = '\u2295 CRM'; }\n        });\n      };\n      if (nameLink.parentElement) nameLink.parentElement.appendChild(btn);\n    });\n  }\n\n  // \u2500\u2500 Draft overlay \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  function showDraftOverlay(draft, name) {\n    var ex = document.getElementById('sa-draft-overlay');\n    if (ex) ex.remove();\n    var o = document.createElement('div');\n    o.id = 'sa-draft-overlay';\n    o.style.cssText = [\n      'position:fixed;bottom:80px;right:24px;z-index:99999;',\n      'background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.6);',\n      'border-radius:16px;padding:16px;max-width:380px;min-width:300px;',\n      'box-shadow:0 16px 64px rgba(0,0,0,.7);font-family:system-ui,sans-serif;'\n    ].join('');\n    var displayName = escHtml(name || 'this contact');\n    o.innerHTML = [\n      '<div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;\">',\n        '<div style=\"font-size:13px;font-weight:700;color:#c4b5fd;\">\u2726 Sunshine drafted for ' + displayName + '</div>',\n        '<button id=\"sa-draft-close\" style=\"background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;line-height:1;padding:0 4px;\">\u2715</button>',\n      '</div>',\n      '<div style=\"font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;',\n           'background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.6);border-radius:8px;',\n           'padding:12px;max-height:200px;overflow-y:auto;\">',\n        escHtml(draft),\n      '</div>',\n      '<div style=\"display:flex;gap:8px;margin-top:10px;\">',\n        '<button id=\"sa-draft-copy\" class=\"sa-btn\" style=\"flex:1;justify-content:center;font-size:12px;\">\ud83d\udccb Copy Message</button>',\n        '<button id=\"sa-draft-add\" class=\"sa-btn sa-btn-ghost\" style=\"flex:1;justify-content:center;font-size:12px;\">\u2295 Add to CRM</button>',\n      '</div>'\n    ].join('');\n    document.body.appendChild(o);\n    document.getElementById('sa-draft-close').onclick = function () { o.remove(); };\n    document.getElementById('sa-draft-copy').onclick = function () {\n      navigator.clipboard.writeText(draft).then(function () { showToast('Message copied \u2014 paste it into Messenger!'); });\n    };\n    document.getElementById('sa-draft-add').onclick = function () {\n      if (!name) { showToast('Could not detect contact name', '#f59e0b'); return; }\n      saFetch('/api/extension/import_lead', {\n        name: name, profile_url: location.href,\n        source: 'messenger', tags: ['Facebook', 'Messenger'],\n        notes: 'Messaged via Sunshine draft.'\n      }, function (d) {\n        if (d && d.ok) showToast(name + ' added to Simply Agentic CRM!');\n      });\n    };\n  }\n\n})();\n"
+_EXT_POPUP_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Simply Agentic</title>\n<style>\n* { box-sizing: border-box; margin: 0; padding: 0; }\nbody { width: 320px; font-family: system-ui, sans-serif; background: #0a0e1f; color: #e2e8f0; }\n.header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: rgba(124,58,237,.15); border-bottom: 1px solid rgba(124,58,237,.3); }\n.logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg,#7c3aed,#6d28d9); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #fff; }\n.title { font-size: 14px; font-weight: 700; color: #c4b5fd; }\n.subtitle { font-size: 10px; color: #475569; margin-top: 1px; }\n.status-bar { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 12px; color: #94a3b8; }\n.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }\n.dot.ok  { background: #10b981; }\n.dot.err { background: #ef4444; }\n.section { padding: 14px 16px; }\n.section + .section { border-top: 1px solid rgba(255,255,255,.06); }\n.sec-title { font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }\nlabel { font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px; }\ninput { width: 100%; padding: 7px 10px; background: rgba(14,22,48,.9); border: 1px solid rgba(42,58,106,.8); border-radius: 7px; color: #e2e8f0; font-size: 12px; font-family: inherit; outline: none; margin-bottom: 8px; }\ninput:focus { border-color: rgba(124,58,237,.7); }\n.btn { width: 100%; padding: 9px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; background: linear-gradient(135deg,#7c3aed,#6d28d9); color: #fff; margin-top: 2px; transition: opacity .15s; }\n.btn:hover { opacity: .88; }\n.btn.sec { background: rgba(14,22,48,.9); border: 1px solid rgba(42,58,106,.8); color: #94a3b8; }\n.quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }\n.ql { padding: 8px; border-radius: 8px; background: rgba(14,22,48,.8); border: 1px solid rgba(42,58,106,.5); color: #94a3b8; font-size: 11px; text-align: center; cursor: pointer; text-decoration: none; display: block; transition: all .15s; }\n.ql:hover { border-color: rgba(124,58,237,.5); color: #c4b5fd; }\n.tip { font-size: 11px; color: #334155; line-height: 1.6; margin-top: 8px; }\n.tip strong { color: #64748b; }\n.msg { font-size: 11px; padding: 6px 10px; border-radius: 6px; margin-top: 6px; }\n.msg.ok  { background: rgba(16,185,129,.1); color: #6ee7b7; border: 1px solid rgba(16,185,129,.3); }\n.msg.err { background: rgba(239,68,68,.1);  color: #fca5a5; border: 1px solid rgba(239,68,68,.3);  }\n</style>\n</head>\n<body>\n\n<div class=\"header\">\n  <div class=\"logo\">SA</div>\n  <div>\n    <div class=\"title\">Simply Agentic</div>\n    <div class=\"subtitle\">Facebook Lead Importer</div>\n  </div>\n</div>\n\n<div class=\"status-bar\">\n  <div class=\"dot err\" id=\"sDot\"></div>\n  <span id=\"sTxt\">Checking\u2026</span>\n</div>\n\n<!-- Connected -->\n<div id=\"cvw\" style=\"display:none;\">\n  <div class=\"section\">\n    <div id=\"uInfo\" style=\"font-size:12px;color:#94a3b8;\"></div>\n    <div class=\"quick\">\n      <a class=\"ql\" id=\"lnkCRM\"  target=\"_blank\">\ud83d\udcc7 CRM</a>\n      <a class=\"ql\" id=\"lnkHome\" target=\"_blank\">\ud83c\udfe0 Simply Agentic</a>\n    </div>\n  </div>\n  <div class=\"section\">\n    <div class=\"sec-title\">How to use</div>\n    <div class=\"tip\">\n      <strong>Any profile:</strong> \"\u2295 Import to CRM\" button<br>\n      <strong>Group / Friends:</strong> \"\u2295 Import Visible People\"<br>\n      <strong>Messenger chat:</strong> \"\u2726 Draft with Sunshine\"<br>\n      <strong>Post comments:</strong> \"\u2295 CRM\" next to each name\n    </div>\n  </div>\n  <div class=\"section\">\n    <button class=\"btn sec\" id=\"discBtn\">Disconnect</button>\n  </div>\n</div>\n\n<!-- Setup -->\n<div id=\"svw\">\n  <div class=\"section\">\n    <div class=\"sec-title\">Connect your account</div>\n    <label>Simply Agentic URL</label>\n    <input type=\"url\" id=\"saUrl\" placeholder=\"https://your-app.onrender.com\">\n    <label>Extension API Key</label>\n    <input type=\"text\" id=\"saKey\" placeholder=\"Paste your key from Simply Agentic\">\n    <button class=\"btn\" id=\"conBtn\">Connect</button>\n    <div id=\"conMsg\"></div>\n    <div class=\"tip\" style=\"margin-top:10px;\">\n      Get your key: open Simply Agentic \u2192 click <strong>\ud83d\udd0c Extension</strong> in the nav bar\n    </div>\n  </div>\n</div>\n\n<script src=\"popup.js\"></script>\n</body>\n</html>\n"
+_EXT_POPUP_JS = "(function () {\n  var saUrl = '', saKey = '';\n\n  function ge(id) { return document.getElementById(id); }\n\n  function setConnected(yes, text) {\n    ge('sDot').className = 'dot ' + (yes ? 'ok' : 'err');\n    ge('sTxt').textContent = text;\n    ge('cvw').style.display = yes ? '' : 'none';\n    ge('svw').style.display = yes ? 'none' : '';\n  }\n\n  // Load saved config\n  chrome.storage.local.get(['sa_url', 'sa_key', 'sa_user'], function (r) {\n    if (r.sa_url && r.sa_key) {\n      saUrl = r.sa_url; saKey = r.sa_key;\n      ge('saUrl').value = saUrl; ge('saKey').value = saKey;\n      verify();\n    } else {\n      setConnected(false, 'Not connected');\n    }\n  });\n\n  function verify() {\n    setConnected(false, 'Connecting\u2026');\n    fetch(saUrl + '/api/extension/auth', {\n      method: 'GET',\n      headers: { 'X-SA-Extension-Key': saKey }\n    })\n      .then(function (r) { return r.json(); })\n      .then(function (d) {\n        if (d.ok) {\n          chrome.storage.local.set({ sa_url: saUrl, sa_key: saKey, sa_user: d.username });\n          setConnected(true, 'Connected as ' + d.username);\n          ge('uInfo').innerHTML = 'Logged in as <strong style=\"color:#c4b5fd;\">' + d.username + '</strong>';\n          ge('lnkCRM').href  = saUrl + '/?tool=crm';\n          ge('lnkHome').href = saUrl;\n        } else {\n          setConnected(false, 'Connection failed');\n          ge('conMsg').innerHTML = '<div class=\"msg err\">' + (d.error || 'Invalid key') + '</div>';\n        }\n      })\n      .catch(function () { setConnected(false, 'Could not reach server'); });\n  }\n\n  ge('conBtn').addEventListener('click', function () {\n    saUrl = (ge('saUrl').value || '').trim().replace(/\\/$/, '');\n    saKey = (ge('saKey').value || '').trim();\n    if (!saUrl || !saKey) {\n      ge('conMsg').innerHTML = '<div class=\"msg err\">Enter both URL and API key.</div>'; return;\n    }\n    ge('conBtn').textContent = 'Connecting\u2026'; ge('conBtn').disabled = true;\n    verify();\n    setTimeout(function () { ge('conBtn').textContent = 'Connect'; ge('conBtn').disabled = false; }, 3500);\n  });\n\n  ge('discBtn').addEventListener('click', function () {\n    chrome.storage.local.remove(['sa_url', 'sa_key', 'sa_user'], function () {\n      saUrl = ''; saKey = '';\n      ge('saUrl').value = ''; ge('saKey').value = '';\n      ge('conMsg').innerHTML = '';\n      setConnected(false, 'Disconnected');\n    });\n  });\n\n})();\n"
+
+
+def _make_ext_icon(size: int) -> bytes:
+    color = (124, 58, 237)
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        crc = _zlib.crc32(tag + data) & 0xffffffff
+        return _struct.pack(">I", len(data)) + tag + data + _struct.pack(">I", crc)
+    ihdr = _chunk(b"IHDR", _struct.pack(">I", size) + _struct.pack(">I", size) + bytes([8,2,0,0,0]))
+    raw  = (b"\x00" + bytes(list(color)*size)) * size
+    idat = _chunk(b"IDAT", _zlib.compress(raw))
+    iend = _chunk(b"IEND", b"")
+    return b"\x89PNG\r\n\x1a\n" + ihdr + idat + iend
+
+
+def _ext_api_key_for_user(username: str) -> str:
+    users_data = load_users()
+    user_rec   = (users_data.get("users") or {}).get(username, {})
+    key = (user_rec.get("settings") or {}).get("extension_api_key", "")
+    if not key:
+        key = secrets.token_hex(32)
+        user_rec.setdefault("settings", {})["extension_api_key"] = key
+        users_data["users"][username] = user_rec
+        save_users(users_data)
+    return key
+
+
+def _ext_authenticate(request_obj) -> Optional[str]:
+    key = (request_obj.headers.get("X-SA-Extension-Key") or "").strip()
+    if not key:
+        return None
+    for uname, urec in (load_users().get("users") or {}).items():
+        stored = (urec.get("settings") or {}).get("extension_api_key", "")
+        if stored and hmac.compare_digest(stored, key):
+            return uname
+    return None
+
+
+@app.get("/api/extension/my_key")
+def api_extension_my_key():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    key  = _ext_api_key_for_user(uname)
+    base = PUBLIC_BASE_URL or ""
+    return jsonify({"ok": True, "key": key, "connect_url": f"{base}/extension/connect?key={key}"})
+
+
+@app.get("/extension/connect")
+def extension_connect():
+    u = current_user()
+    if not u: return redirect(url_for("login") + "?next=/extension/connect")
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    key   = _ext_api_key_for_user(uname)
+    page  = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Simply Agentic — Extension Connected</title>
+<style>body{{font-family:system-ui;background:#0a0e1f;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}}
+.box{{text-align:center;padding:40px;background:rgba(14,22,48,.9);border:1px solid rgba(124,58,237,.4);border-radius:20px;max-width:420px;}}
+h2{{color:#c4b5fd;margin-bottom:10px;font-size:22px;}} p{{color:#64748b;font-size:14px;line-height:1.6;margin-bottom:8px;}}
+.key{{font-family:monospace;font-size:12px;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:10px 14px;color:#94a3b8;word-break:break-all;margin:14px 0;text-align:left;}}
+.btn{{display:inline-block;margin-top:10px;padding:10px 24px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;}}
+</style></head><body>
+<div class="box">
+  <div style="font-size:48px;margin-bottom:12px;">✅</div>
+  <h2>Extension Connected!</h2>
+  <p>Simply Agentic for Facebook is now linked to <strong style="color:#c4b5fd;">{uname}</strong>'s account.</p>
+  <p>If the extension popup didn't auto-connect, paste this key into it:</p>
+  <div class="key">{key}</div>
+  <a href="/" class="btn">← Back to Simply Agentic</a>
+</div>
+</body></html>"""
+    return make_response(page)
+
+
+@app.get("/extension/download")
+def extension_download():
+    u = current_user()
+    if not u: return redirect(url_for("login") + "?next=/extension/download")
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json",  _EXT_MANIFEST)
+        zf.writestr("background.js",  _EXT_BACKGROUND)
+        zf.writestr("content.css",    _EXT_CONTENT_CSS)
+        zf.writestr("content.js",     _EXT_CONTENT_JS)
+        zf.writestr("popup.html",     _EXT_POPUP_HTML)
+        zf.writestr("popup.js",       _EXT_POPUP_JS)
+        for sz in [16, 48, 128]:
+            zf.writestr(f"icon{sz}.png", _make_ext_icon(sz))
+    buf.seek(0)
+    resp = make_response(buf.read())
+    resp.headers["Content-Type"]        = "application/zip"
+    resp.headers["Content-Disposition"] = 'attachment; filename="simply-agentic-extension.zip"'
+    resp.headers["Cache-Control"]       = "no-store"
+    return resp
+
+
+@app.get("/api/extension/auth")
+def api_extension_auth():
+    uname = _ext_authenticate(request)
+    if not uname:
+        return jsonify({"ok": False, "error": "Invalid or missing extension key"}), 401
+    return jsonify({"ok": True, "username": uname, "app": APP_TITLE})
+
+
+@app.post("/api/extension/import_lead")
+def api_extension_import_lead():
+    uname = _ext_authenticate(request)
+    if not uname:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p    = request.get_json(silent=True) or {}
+    name = (p.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name is required"}), 400
+    crm       = _crm_load(uname)
+    plan_key  = _get_user_plan(uname)
+    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    max_c     = plan_info.get("crm_contacts")
+    if max_c is not None and len(crm.get("clients") or {}) >= max_c:
+        return jsonify({"ok": False, "error": f"Contact limit reached ({max_c}). Upgrade your plan."}), 403
+    cid  = _crm_new_id("c")
+    now  = now_iso()
+    tags = p.get("tags") or ["Facebook"]
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    client = {
+        "id": cid, "name": name,
+        "company": (p.get("company") or "").strip(),
+        "email":   (p.get("email")   or "").strip(),
+        "phone":   (p.get("phone")   or "").strip(),
+        "tags":    tags, "status": "lead", "pipeline_stage": "Lead",
+        "notes":   (p.get("notes")   or "").strip(),
+        "custom_fields": {
+            "facebook_url":  (p.get("profile_url") or "").strip(),
+            "import_source": (p.get("source")      or "facebook_extension"),
+        },
+        "created_at": now, "updated_at": now,
+    }
+    try:    client = _crm_enrich_client_record(client)
+    except: pass
+    crm["clients"][cid] = client
+    _crm_save(uname, crm)
+    _award_points(uname, "Imported a Facebook lead via extension", 5)
+    _fire_outbound_webhooks(uname, "new_lead", {
+        "contact": name, "source": p.get("source","facebook_extension"),
+        "facebook_url": p.get("profile_url","")
+    })
+    return jsonify({"ok": True, "client_id": cid, "name": name})
+
+
+@app.post("/api/extension/draft_message")
+def api_extension_draft_message():
+    uname = _ext_authenticate(request)
+    if not uname:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p       = request.get_json(silent=True) or {}
+    name    = (p.get("name")    or "someone").strip()
+    context = (p.get("context") or "").strip()
+    channel = (p.get("channel") or "messenger").strip()
+    op      = _load_operator_profile(uname)
+    op_name = (op.get("display_name") or "Operator").strip()
+    business= (op.get("business")     or "").strip()
+    offers  = (op.get("offers")       or "").strip()
+    first   = name.split()[0] if name else "there"
+    prompt  = (
+        f"Write a short warm personal outreach message to {name} on Facebook {channel.title()}. "
+        f"From: {op_name}" + (f" at {business}" if business else "") + ". "
+        + (f"We offer: {offers}. " if offers else "")
+        + f"Under 100 words. No subject line. Sound human not salesy. "
+        f"Start with their first name ({first}). Do NOT mention AI. "
+        f"Context: {context or 'Facebook user'}"
+    )
+    try:
+        draft = _call_teammate_prompt_for_user(uname, "Sunshine", prompt)
+        if not draft: raise ValueError("Empty response")
+        return jsonify({"ok": True, "draft": draft.strip()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 # ── Compass ─────────────────────────────────────────────────────────────
 @app.post("/api/scout_ask")
