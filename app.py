@@ -19,7 +19,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
 
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
@@ -133,7 +132,7 @@ def _capture_error(exc: Exception, context: str = "") -> None:
 # Generate one with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 # If not set, keys are stored as plaintext — a warning is printed at startup.
 try:
-    from cryptography.fernet import Fernet as _Fernet
+    from cryptography.fernet import Fernet as _Fernet, InvalidToken as _InvalidToken
     _ENC_KEY_RAW = (os.getenv("FIELD_ENCRYPTION_KEY") or "").strip().encode()
     if _ENC_KEY_RAW:
         _FERNET = _Fernet(_ENC_KEY_RAW)
@@ -190,11 +189,6 @@ MAX_INLINE_TEXT_BYTES = int(os.getenv("MAX_INLINE_TEXT_BYTES", "60000"))  # only
 # Vision (screen capture / images)
 MAX_INLINE_IMAGE_BYTES = int(os.getenv("MAX_INLINE_IMAGE_BYTES", str(1_500_000)))  # 1.5MB
 MAX_INLINE_IMAGES = int(os.getenv("MAX_INLINE_IMAGES", "2"))
-
-# Prompt/message length caps — protects against runaway OpenAI billing from huge inputs.
-# Override via env vars if you want to allow longer prompts on Pro plans.
-MAX_PROMPT_CHARS  = int(os.getenv("MAX_PROMPT_CHARS",  "32000"))   # convene / followup prompt
-MAX_MESSAGE_CHARS = int(os.getenv("MAX_MESSAGE_CHARS", "32000"))   # followup message field
 
 # SMTP
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -341,9 +335,6 @@ def _plan_price_id(plan_key: str) -> str:
 
 
 # ── Founder seat tracking ────────────────────────────────────────────────────
-# Module-level lock — shared across ALL calls. A new threading.Lock() inside
-# the function would create a different lock per call, providing zero protection.
-_FOUNDER_SEATS_LOCK = threading.Lock()
 
 def _load_founder_seats() -> Dict[str, Any]:
     """Return founder seat data: {claimed: int, claimants: [...]}"""
@@ -372,7 +363,7 @@ def _founder_seats_remaining() -> int:
 
 def _claim_founder_seat(username: str) -> bool:
     """Atomically claim one founder seat. Returns True if successful."""
-    with _FOUNDER_SEATS_LOCK:
+    with threading.Lock():
         d = _load_founder_seats()
         if d.get("claimed", 0) >= FOUNDER_SEATS_MAX:
             return False
@@ -603,6 +594,7 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
         return None, reason
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
     try:
+        import requests
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
@@ -630,6 +622,7 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
     if not ok:
         return None, reason
     try:
+        import requests
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
@@ -677,19 +670,14 @@ def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) 
 # Global OPENAI_API_KEY optional; users will provide their own keys
 
 client = None  # lazy init to avoid import time crashes
-_CLIENT_LOCK = threading.Lock()
 
-def _get_global_openai_client() -> "OpenAI":
+def _get_global_openai_client():
     global client
     if client is None:
-        with _CLIENT_LOCK:
-            # Double-checked locking: re-test inside the lock in case another
-            # thread initialised it while we were waiting.
-            if client is None:
-                client = OpenAI(api_key=(OPENAI_API_KEY or ""))
+        client = OpenAI(api_key=(OPENAI_API_KEY or ""))
     return client
 
-def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
+def _get_claude_client_for_user(u):
     """Returns Anthropic client using ONLY the user's own saved claude_key. Never falls back to server."""
     if _anthropic_sdk is None:
         return None
@@ -700,10 +688,10 @@ def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
         return None
     return _anthropic_sdk.Anthropic(api_key=key)
 
-def _is_claude_model(model: Optional[str]) -> bool:
+def _is_claude_model(model):
     return (model or "").lower().startswith("claude")
 
-def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = None) -> str:
+def _resolve_model_for_user(defn, u=None):
     """Priority: teammate preferred_model > user global_default_model > server MODEL."""
     tm = (defn.get("preferred_model") or "").strip()
     if tm:
@@ -1155,7 +1143,7 @@ def _stripe_ready() -> bool:
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Minimal Stripe REST wrapper — no stripe-python dep required."""
-    _req = requests
+    import requests as _req
     url = f"https://api.stripe.com/v1{path}"
     headers = {"Authorization": f"Bearer {STRIPE_SECRET_KEY}"}
     try:
@@ -1728,7 +1716,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/admin/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -1765,7 +1753,7 @@ def _csrf_valid() -> bool:
 
 
 @app.get("/health")
-def health_check() -> Any:
+def health_check():
     """Health check for Render and any uptime monitors.
     Returns 200 OK immediately — no auth, no DB calls, no overhead."""
     return jsonify({
@@ -1775,18 +1763,18 @@ def health_check() -> Any:
     })
 
 @app.get("/ping")
-def ping() -> Any:
+def ping():
     """Alias for /health — some monitors use /ping."""
     return "pong", 200
 
 @app.get("/api/csrf_token")
-def api_csrf_token() -> Any:
+def api_csrf_token():
     """Issue (or return) the CSRF token for this session. Call before any POST."""
     token = _csrf_token_for_session()
     return jsonify({"ok": True, "csrf_token": token})
 
 @app.before_request
-def _auth_guard() -> Optional[Any]:
+def _auth_guard():
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
     if request.path.startswith("/static/"):
@@ -1837,7 +1825,7 @@ def _auth_guard() -> Optional[Any]:
 
     return None
 
-def get_openai_client() -> "OpenAI":
+def get_openai_client():
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
 
@@ -1850,6 +1838,14 @@ def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
+def load_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
 
 # Per-path threading locks so concurrent threads don't race on the same file.
 _JSON_FILE_LOCKS: Dict[str, threading.Lock] = {}
@@ -1861,18 +1857,6 @@ def _json_file_lock(path: Path) -> threading.Lock:
         if key not in _JSON_FILE_LOCKS:
             _JSON_FILE_LOCKS[key] = threading.Lock()
         return _JSON_FILE_LOCKS[key]
-
-def load_json(path: Path, default: Any) -> Any:
-    """Thread-safe JSON read. Holds the per-path lock so reads don't race
-    with concurrent atomic writes (tmp → rename)."""
-    if not path.exists():
-        return default
-    lock = _json_file_lock(path)
-    with lock:
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return default
 
 def save_json(path: Path, payload: Any) -> None:
     """Thread-safe atomic JSON write.
@@ -3599,7 +3583,7 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
     return access_token, ""
 
 def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", use_meet: bool = False) -> Dict[str, Any]:
-    _uuid = uuid
+    import requests, uuid as _uuid
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     event: Dict[str, Any] = {
         "summary": title,
@@ -3629,6 +3613,7 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
 
 def _calendar_move_event(access_token: str, event_id: str, new_start_iso: str, new_end_iso: str, timezone: str, send_updates: str = "none") -> Dict[str, Any]:
     """PATCH an existing Google Calendar event to a new time — does NOT create a duplicate."""
+    import requests
     url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}"
     body = {
         "start": {"dateTime": new_start_iso, "timeZone": timezone},
@@ -3681,7 +3666,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     work calendars, Google Tasks, and any other secondary calendars.
     Now fetches everything the user has access to.
     """
-    _req = requests
+    import requests as _req
     headers = {"Authorization": f"Bearer {access_token}"}
     base_params = {
         "timeMin": time_min, "timeMax": time_max,
@@ -3792,6 +3777,7 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
     return access_token, ""
 
 def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
+    import requests
     # Build RFC 2822 message
     from_header = "me"
     if from_name:
@@ -4134,7 +4120,8 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     if "model" in s and ("not found" in s or "does not exist" in s):
         model_hint = ""
         try:
-            m = re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
+            import re as _re
+            m = _re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
             if m:
                 model_hint = f" (model: {m.group(1)})"
         except Exception:
@@ -4212,6 +4199,7 @@ def _is_retryable_llm_error(e: Exception) -> bool:
 # URL CONTENT FETCHER (for teammates)
 # =========================
 import urllib.request as _urllib_req
+import urllib.error as _urllib_err
 
 def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     """Fetch and extract text content from a URL. Returns (text, error)."""
@@ -4239,8 +4227,9 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
                 tag.decompose()
             text = soup.get_text(separator=" ", strip=True)
         else:
-            text = re.sub(r"<[^>]+>", " ", html)
-            text = re.sub(r"\s+", " ", text).strip()
+            import re as _re
+            text = _re.sub(r"<[^>]+>", " ", html)
+            text = _re.sub(r"\s+", " ", text).strip()
         # Truncate
         if len(text) > max_chars:
             text = text[:max_chars] + f"\n\n[Content truncated at {max_chars} chars]"
@@ -4250,7 +4239,8 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
 
 def _inject_url_content(message: str) -> str:
     """Detect URLs in message, fetch their content, and prepend to message."""
-    url_pattern = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+    import re as _re
+    url_pattern = _re.compile(r"https?://\S+|www\.\S+", _re.IGNORECASE)
     urls = url_pattern.findall(message)
     if not urls:
         return message
@@ -4731,24 +4721,6 @@ def api_action_stacks_run(teammate: str, stack_name: str):
     run = _init_run(u=uname, teammate=teammate, stack_name=stack_name, steps=steps, user_input=user_input)
     _persist_run(run)
     run2 = _run_action_stack_engine(run)
-    # Write each step prompt + output to the teammate's thread so they
-    # appear in the chat window on the right just like a regular message.
-    try:
-        thread = load_thread(teammate, uname)
-        outputs = run2.get("outputs") or {}
-        for i, step in enumerate(steps):
-            prompt_text = (step.get("prompt") or "").strip()
-            output_text = (outputs.get(str(i)) or outputs.get(i) or "").strip()
-            if prompt_text and output_text:
-                label = f"[Stack: {stack_name} — Step {i+1}] {prompt_text}"
-                thread = thread + [
-                    {"role": "user",      "content": label},
-                    {"role": "assistant", "content": output_text},
-                ]
-        save_thread(teammate, thread, uname)
-    except Exception:
-        pass  # thread write is best-effort; never block the run response
-    _award_points(uname, f"Ran Action Stack: {stack_name}", 40)
     return jsonify({"ok": True, "run": run2})
 
 @app.post("/api/action_stack_runs/<run_id>/resume")
@@ -4950,346 +4922,500 @@ def admin_seats_page():
         return redirect(url_for("login"))
     if not _is_admin_user(u):
         return redirect(url_for("index"))
-    html = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<title>Seat Manager</title>
+    page = """<!doctype html><html><head><meta charset='utf-8'/>
+<meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Seat Manager — Simply Agentic AI</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:system-ui,sans-serif;background:#07091a;color:#e2e8f0;min-height:100vh;padding:28px 20px;}
+body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;padding:24px;min-height:100vh;}
 h1{color:#c4b5fd;font-size:22px;font-weight:800;margin-bottom:4px;}
-.sub{color:#64748b;font-size:13px;margin-bottom:24px;}
-.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;}
-.stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 20px;}
+.sub{color:#64748b;font-size:13px;margin-bottom:20px;}
+.stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px;}
+.stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:14px 20px;min-width:110px;}
 .stat b{display:block;font-size:26px;font-weight:800;color:#c4b5fd;}
 .stat span{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;}
-.bar{height:6px;background:rgba(255,255,255,.08);border-radius:3px;margin-bottom:22px;}
-.bar-fill{height:6px;background:linear-gradient(90deg,#7c3aed,#4f46e5);border-radius:3px;transition:width .4s;}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
-.toolbar input[type=text]{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 12px;font-size:13px;outline:none;width:220px;}
-.toolbar input[type=text]:focus{border-color:#7c3aed;}
-.toolbar select{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;cursor:pointer;}
-.btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.07);color:#e2e8f0;transition:background .15s;}
-.btn:hover{background:rgba(255,255,255,.13);}
-.btn:disabled{opacity:.4;cursor:not-allowed;}
-.btn-primary{background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#7c3aed;color:#fff;}
-.btn-primary:hover{background:linear-gradient(135deg,#6d28d9,#4338ca);}
+input[type=text]{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 12px;font-size:13px;outline:none;width:240px;}
+input[type=text]:focus{border-color:#7c3aed;}
+select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+.btn{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:background .15s;}
+.btn-primary{background:rgba(124,58,237,.5);border:1px solid rgba(124,58,237,.7);color:#f3e8ff;}
+.btn-primary:hover{background:rgba(124,58,237,.75);}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px;cursor:pointer;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e2e8f0;}
+.btn-sm:hover{background:rgba(255,255,255,.12);}
+.btn-danger{border-color:rgba(239,68,68,.4);color:#fca5a5;}
+.btn-danger:hover{background:rgba(239,68,68,.15);}
 table{width:100%;border-collapse:collapse;font-size:13px;}
-thead th{text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,.08);}
-tbody tr{border-bottom:1px solid rgba(255,255,255,.05);transition:background .1s;}
-tbody tr:hover{background:rgba(255,255,255,.03);}
-td{padding:11px 12px;vertical-align:middle;}
-.code{font-family:monospace;font-size:12px;background:rgba(124,58,237,.2);color:#c4b5fd;padding:3px 8px;border-radius:5px;letter-spacing:.05em;}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;}
-.badge-active{background:rgba(52,211,153,.15);color:#34d399;}
-.badge-used{background:rgba(59,130,246,.15);color:#60a5fa;}
-.badge-inactive{background:rgba(100,116,139,.15);color:#94a3b8;}
-.copy-btn{background:none;border:1px solid rgba(255,255,255,.1);color:#64748b;padding:3px 8px;border-radius:5px;font-size:11px;cursor:pointer;transition:all .15s;}
-.copy-btn:hover{border-color:#7c3aed;color:#c4b5fd;}
-.empty{text-align:center;padding:48px;color:#475569;font-size:14px;}
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center;}
-.modal-bg.open{display:flex;}
-.modal{background:#0f1628;border:1px solid rgba(124,58,237,.4);border-radius:16px;padding:28px;width:min(420px,94vw);box-shadow:0 24px 64px rgba(0,0,0,.8);}
-.modal h3{font-size:16px;font-weight:700;color:#c4b5fd;margin-bottom:18px;}
-label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:12px;}
-label:first-of-type{margin-top:0;}
-.modal input,.modal select{width:100%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:9px 12px;font-size:13px;outline:none;font-family:inherit;}
-.modal input:focus,.modal select:focus{border-color:#7c3aed;}
-.modal-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
-.msg{font-size:13px;margin-top:12px;padding:8px 12px;border-radius:6px;display:none;}
-.msg.ok{display:block;background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.25);}
-.msg.err{display:block;background:rgba(248,113,113,.12);color:#f87171;border:1px solid rgba(248,113,113,.25);}
-.msg.info{display:block;background:rgba(124,58,237,.12);color:#c4b5fd;border:1px solid rgba(124,58,237,.25);}
-a.back{color:#64748b;font-size:13px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;margin-bottom:20px;}
-a.back:hover{color:#c4b5fd;}
-@media(max-width:640px){body{padding:16px 12px;} table{display:block;overflow-x:auto;} .toolbar{flex-direction:column;align-items:stretch;} .toolbar input[type=text]{width:100%;}}
-</style>
-</head>
-<body>
-<a class="back" href="/">&#8592; Back to app</a>
-<h1>&#128273; Seat Manager</h1>
-<p class="sub">Generate and manage access codes for your Simply Agentic AI seats.</p>
-<div class="stats">
-  <div class="stat"><b id="stTotal">-</b><span>Total</span></div>
-  <div class="stat"><b id="stActive">-</b><span>Available</span></div>
-  <div class="stat"><b id="stUsed">-</b><span>Claimed</span></div>
-  <div class="stat"><b id="stInactive">-</b><span>Inactive</span></div>
+th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:1px solid rgba(255,255,255,.08);white-space:nowrap;}
+td{padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle;}
+tr:hover td{background:rgba(255,255,255,.02);}
+.code{font-family:monospace;color:#c4b5fd;font-size:13px;letter-spacing:.04em;cursor:pointer;}
+.code:hover{color:#e9d5ff;}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;}
+.badge-avail{background:rgba(16,185,129,.15);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);}
+.badge-used{background:rgba(251,191,36,.12);color:#fcd34d;border:1px solid rgba(251,191,36,.3);}
+.badge-inactive{background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.badge-stripe{background:rgba(99,91,255,.15);color:#a5b4fc;border:1px solid rgba(99,91,255,.3);}
+.badge-manual{background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);}
+.name-cell{color:#e2e8f0;font-weight:500;}
+.email-cell{color:#94a3b8;font-size:12px;}
+.empty-cell{color:#475569;font-style:italic;font-size:12px;}
+
+/* Edit popover */
+#editPop{display:none;position:fixed;z-index:999;background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:14px;padding:18px 20px;width:340px;box-shadow:0 16px 48px rgba(0,0,0,.7);}
+#editPop h3{font-size:14px;font-weight:700;color:#c4b5fd;margin-bottom:14px;}
+#editPop label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#editPop input,#editPop textarea,#editPop select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:7px 10px;font-size:13px;outline:none;}
+#editPop input:focus,#editPop textarea:focus{border-color:#7c3aed;}
+#editPop .actions{display:flex;gap:8px;margin-top:14px;}
+#editPop .status-msg{font-size:12px;color:#6ee7b7;margin-top:8px;min-height:14px;}
+
+/* Generate modal */
+#genModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:998;align-items:center;justify-content:center;}
+#genModal.open{display:flex;}
+#genBox{background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:16px;padding:24px;width:min(400px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.7);}
+#genBox h3{font-size:16px;font-weight:800;color:#c4b5fd;margin-bottom:16px;}
+#genBox label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px;margin-top:10px;}
+#genBox input,#genBox select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#e2e8f0;padding:8px 10px;font-size:13px;outline:none;}
+#genBox input:focus{border-color:#7c3aed;}
+#genBox .actions{display:flex;gap:8px;margin-top:16px;}
+#genResult{margin-top:12px;font-family:monospace;font-size:13px;color:#6ee7b7;word-break:break-all;}
+</style></head><body>
+<a href='/' style='color:#64748b;font-size:13px;text-decoration:none;'>← Back to app</a>
+<h1 style='margin-top:14px;'>🔑 Seat Manager</h1>
+<div style='margin-bottom:16px;display:flex;gap:16px;'>
+  <a href='/admin/users' style='color:#a5b4fc;font-size:13px;text-decoration:none;'>👥 Users & Impersonation</a>
 </div>
-<div class="bar"><div class="bar-fill" id="usageBar" style="width:0%"></div></div>
-<div class="toolbar">
-  <input type="text" id="search" placeholder="Search code, name, email…" oninput="renderTable()">
-  <select id="fStatus" onchange="renderTable()">
-    <option value="">All statuses</option>
-    <option value="active">Available</option>
-    <option value="used">Claimed</option>
-    <option value="inactive">Inactive</option>
+<div class='sub'>Manage access codes for Simply Agentic AI. Stripe purchases appear automatically.</div>
+
+<div class='stats' id='statsBar'></div>
+
+<div class='toolbar'>
+  <input type='text' id='searchBox' placeholder='Search name, email, code…' oninput='filterTable()'/>
+  <select id='filterStatus' onchange='filterTable()'>
+    <option value=''>All statuses</option>
+    <option value='active'>Available</option>
+    <option value='used'>Used</option>
+    <option value='inactive'>Inactive</option>
   </select>
-  <button class="btn btn-primary" id="openGenBtn">+ Generate Code</button>
-  <button class="btn" id="refreshBtn">&#8635; Refresh</button>
+  <select id='filterSource' onchange='filterTable()'>
+    <option value=''>All sources</option>
+    <option value='stripe'>Stripe</option>
+    <option value='manual'>Manual</option>
+  </select>
+  <select id='filterPlan' onchange='filterTable()'>
+    <option value=''>All plans</option>
+    <option value='founder'>Founder</option>
+    <option value='starter'>Solo Operator</option>
+    <option value='growth'>Growth</option>
+    <option value='pro'>Pro</option>
+  </select>
+  <button class='btn btn-primary' onclick='openGenModal()'>+ Generate Code</button>
+<button class='btn' onclick='runDiag()' style='background:rgba(234,179,8,.15);border-color:rgba(234,179,8,.4);color:#fcd34d;font-size:12px;'>🔧 Diagnose</button>
+<div id='diagOut' style='width:100%;margin-top:8px;font-family:monospace;font-size:12px;line-height:1.7;display:none;background:rgba(0,0,0,.4);border-radius:8px;padding:12px;white-space:pre-wrap;color:#94a3b8;'></div>
 </div>
-<table>
-  <thead><tr><th>Code</th><th>Status</th><th>Holder</th><th>Plan</th><th>Created</th><th>Actions</th></tr></thead>
-  <tbody id="tbody"><tr><td colspan="6" class="empty">Loading&#8230;</td></tr></tbody>
+
+<table id='seatTable'>
+<thead><tr>
+  <th>Code</th>
+  <th>Name</th>
+  <th>Email</th>
+  <th>Plan</th>
+  <th>Source</th>
+  <th>Status</th>
+  <th>Claimed by</th>
+  <th>Created</th>
+  <th>Actions</th>
+</tr></thead>
+<tbody id='seatBody'></tbody>
 </table>
-<div class="modal-bg" id="genModal">
-  <div class="modal">
-    <h3>&#128273; Generate Seat Code</h3>
+
+<!-- Edit popover -->
+<div id='editPop'>
+  <h3>✏️ Edit Seat</h3>
+  <label>Holder name</label>
+  <input id='seatEditName' type='text' placeholder='e.g. Jane Smith'/>
+  <label>Holder email</label>
+  <input id='seatEditEmail' type='email' placeholder='jane@example.com'/>
+  <label>Plan</label>
+  <select id='seatEditPlan'>
+    <option value='starter'>Starter Operator — $47/mo</option>
+    <option value='growth'>Growth System — $97/mo</option>
+    <option value='pro'>Operator Pro — $197/mo</option>
+  </select>
+  <label>Notes</label>
+  <textarea id='seatEditNotes' rows='2' placeholder='Any notes…'></textarea>
+  <label>Status</label>
+  <select id='seatEditStatus'>
+    <option value='active'>Active (available)</option>
+    <option value='inactive'>Inactive (deactivated)</option>
+  </select>
+  <div class='actions'>
+    <button class='btn btn-primary' onclick='saveEdit()'>Save</button>
+    <button class='btn btn-sm' onclick='closeEdit()'>Cancel</button>
+  </div>
+  <div class='status-msg' id='seatEditMsg'></div>
+</div>
+
+<!-- Generate modal -->
+<div id='genModal'>
+  <div id='genBox'>
+    <h3>Generate Access Code</h3>
+    <label>Plan</label>
+    <select id='genPlan'>
+      <option value='starter'>Starter Operator — $47/mo</option>
+      <option value='growth'>Growth System — $97/mo</option>
+      <option value='pro'>Operator Pro — $197/mo</option>
+    </select>
     <label>Number of codes</label>
-    <input type="number" id="genCount" value="1" min="1" max="50">
-    <label>Holder name <em style="color:#475569;">(optional)</em></label>
-    <input type="text" id="genName" placeholder="e.g. Jane Smith">
-    <label>Holder email <em style="color:#475569;">(optional)</em></label>
-    <input type="email" id="genEmail" placeholder="jane@example.com">
-    <label>Plan</label>
-    <select id="genPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
-      <option value="founder">Founder</option>
+    <select id='genCount'>
+      <option value='1'>1 code</option>
+      <option value='5'>5 codes</option>
+      <option value='10'>10 codes</option>
     </select>
-    <div class="msg" id="genMsg"></div>
-    <div class="modal-actions">
-      <button class="btn" id="cancelGenBtn">Cancel</button>
-      <button class="btn btn-primary" id="genSubmitBtn">Generate</button>
+    <label>Holder name <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <input id='genName' type='text' placeholder='e.g. Jane Smith'/>
+    <label>Holder email <span style='color:#475569;font-weight:400;font-size:11px;'>(optional — for 1 code only)</span></label>
+    <input id='genEmail' type='email' placeholder='jane@example.com'/>
+    <div class='actions'>
+      <button class='btn btn-primary' onclick='doGenerate()'>Generate</button>
+      <button class='btn btn-sm' onclick='closeGenModal()'>Cancel</button>
     </div>
+    <div id='genResult'></div>
   </div>
 </div>
-<div class="modal-bg" id="editModal">
-  <div class="modal">
-    <h3>&#9998; Edit Seat</h3>
-    <input type="hidden" id="editCode">
-    <label>Holder name</label>
-    <input type="text" id="editName">
-    <label>Holder email</label>
-    <input type="email" id="editEmail">
-    <label>Plan</label>
-    <select id="editPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
-      <option value="founder">Founder</option>
-    </select>
-    <label>Status</label>
-    <select id="editStatus">
-      <option value="active">Active (available)</option>
-      <option value="inactive">Inactive (deactivated)</option>
-    </select>
-    <label>Notes</label>
-    <input type="text" id="editNotes" placeholder="Any notes">
-    <div class="msg" id="editMsg"></div>
-    <div class="modal-actions">
-      <button class="btn" id="cancelEditBtn">Cancel</button>
-      <button class="btn btn-primary" id="editSubmitBtn">Save</button>
-    </div>
-  </div>
-</div>
+
 <script>
-(function() {
-  var allSeats = [];
-
-  function ge(id) { return document.getElementById(id); }
-  function esc(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-  function showMsg(id, text, type) {
-    var el = ge(id);
-    el.textContent = text;
-    el.className = 'msg ' + type;
-  }
-  function openModal(id) { ge(id).classList.add('open'); }
-  function closeModal(id) { ge(id).classList.remove('open'); }
-
-  function updateStats() {
-    var t = allSeats.length;
-    var a = allSeats.filter(function(s){return s.status==='active';}).length;
-    var u = allSeats.filter(function(s){return s.status==='used';}).length;
-    var i = allSeats.filter(function(s){return s.status==='inactive';}).length;
-    ge('stTotal').textContent   = t;
-    ge('stActive').textContent  = a;
-    ge('stUsed').textContent    = u;
-    ge('stInactive').textContent = i;
-    ge('usageBar').style.width  = t ? Math.round(u/t*100)+'%' : '0%';
-  }
-
-  function renderTable() {
-    var q   = (ge('search').value||'').toLowerCase();
-    var fst = ge('fStatus').value;
-    var rows = allSeats.filter(function(s) {
-      if (fst && s.status !== fst) return false;
-      if (q) {
-        var hay = ((s.code||'')+(s.holder_name||'')+(s.holder_email||'')+(s.label||'')).toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
-      return true;
-    });
-    var tbody = ge('tbody');
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">No seats found.</td></tr>';
-      return;
+// ── Seat Manager CSRF helper ─────────────────────────────────────────────────
+// /admin/seats is a standalone page — it doesn't load the main app's global
+// fetch interceptor. This lightweight helper fetches the session CSRF token
+// once, caches it, and injects X-CSRF-Token on every mutating request.
+let _smCsrfToken = null;
+async function _smFetch(url, opts) {
+  opts = opts || {};
+  const method = (opts.method || 'GET').toUpperCase();
+  if (['POST','PUT','PATCH','DELETE'].includes(method)) {
+    if (!_smCsrfToken) {
+      try {
+        const r = await fetch('/api/csrf_token', {credentials: 'same-origin'});
+        const d = await r.json();
+        _smCsrfToken = d.csrf_token || '';
+      } catch(e) { _smCsrfToken = ''; }
     }
-    var sm = {active:'badge-active',used:'badge-used',inactive:'badge-inactive'};
-    var lm = {active:'Available',used:'Claimed',inactive:'Inactive'};
-    tbody.innerHTML = rows.map(function(s) {
-      var badge = '<span class="badge '+(sm[s.status]||'badge-inactive')+'">'+(lm[s.status]||s.status)+'</span>';
-      var holder = s.holder_name
-        ? '<b>'+esc(s.holder_name)+'</b>'+(s.holder_email?'<br><span style="color:#64748b;font-size:11px;">'+esc(s.holder_email)+'</span>':'')
-        : '<span style="color:#475569;">&#8212;</span>';
-      return '<tr>' +
-        '<td><span class="code">'+esc(s.code)+'</span> <button class="copy-btn" data-copy="'+esc(s.code)+'">copy</button></td>'+
-        '<td>'+badge+'</td>'+
-        '<td>'+holder+'</td>'+
-        '<td style="color:#94a3b8;font-size:12px;">'+esc(s.plan_name||s.plan||'')+'</td>'+
-        '<td style="color:#475569;font-size:12px;">'+(s.created_at||'').slice(0,10)+'</td>'+
-        '<td><button class="btn" style="font-size:11px;padding:4px 10px;" data-edit="'+esc(s.code)+'">Edit</button></td>'+
-      '</tr>';
-    }).join('');
+    opts.headers = opts.headers || {};
+    opts.headers['X-CSRF-Token'] = _smCsrfToken;
+    opts.credentials = opts.credentials || 'same-origin';
   }
+  return fetch(url, opts);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
-  function loadSeats() {
-    ge('tbody').innerHTML = '<tr><td colspan="6" class="empty">Loading&#8230;</td></tr>';
-    fetch('/api/admin/seats', {credentials:'same-origin',cache:'no-store'})
-      .then(function(r){ return r.json(); })
-      .then(function(d) {
-        allSeats = (d.ok && d.seats) ? d.seats : [];
-        updateStats();
-        renderTable();
-      })
-      .catch(function(e) {
-        ge('tbody').innerHTML = '<tr><td colspan="6" class="empty" style="color:#f87171;">Load failed: '+esc(e.message)+'</td></tr>';
-      });
-  }
+let allSeats = [];
+let editingCode = null;
 
-  // Event delegation for table buttons
-  document.getElementById('tbody').addEventListener('click', function(e) {
-    var copy = e.target.closest('[data-copy]');
-    if (copy) {
-      var t = copy.getAttribute('data-copy');
-      navigator.clipboard.writeText(t).catch(function(){});
-      copy.textContent = 'copied!';
-      setTimeout(function(){ copy.textContent = 'copy'; }, 1500);
-      return;
-    }
-    var edit = e.target.closest('[data-edit]');
-    if (edit) {
-      var code = edit.getAttribute('data-edit');
-      var seat = allSeats.find(function(s){ return s.code === code; });
-      if (!seat) return;
-      ge('editCode').value   = code;
-      ge('editName').value   = seat.holder_name  || '';
-      ge('editEmail').value  = seat.holder_email || '';
-      ge('editPlan').value   = seat.plan         || 'starter';
-      ge('editStatus').value = seat.status       || 'active';
-      ge('editNotes').value  = seat.notes        || '';
-      ge('editMsg').className = 'msg';
-      ge('editSubmitBtn').disabled = false;
-      openModal('editModal');
-    }
-  });
+async function runDiag() {
+  const out = document.getElementById('diagOut');
+  out.style.display = 'block';
+  out.textContent = 'Running diagnostics...\n';
+  const log = s => { out.textContent += s + '\n'; };
 
-  // Generate
-  ge('openGenBtn').addEventListener('click', function() {
-    ge('genCount').value = '1';
-    ge('genName').value  = '';
-    ge('genEmail').value = '';
-    ge('genPlan').value  = 'starter';
-    ge('genMsg').className = 'msg';
-    ge('genSubmitBtn').disabled = false;
-    openModal('genModal');
-    ge('genCount').focus();
-  });
+  // Step 1: Check session (GET /api/me)
+  try {
+    const r = await fetch('/api/me', {credentials:'same-origin'});
+    const d = await r.json();
+    log('1. Session: ' + (d.ok ? '✓ Logged in as ' + (d.user&&d.user.username) : '✗ NOT logged in — ' + d.error));
+    if (!d.ok) { log('   FIX: You are not logged in. Go to /login first.'); return; }
+    log('   Admin: ' + (d.user&&d.user.is_admin ? '✓ YES' : '✗ NO — only admins can generate codes'));
+  } catch(e) { log('1. Session check FAILED: ' + e.message); return; }
 
-  ge('cancelGenBtn').addEventListener('click', function() { closeModal('genModal'); });
+  // Step 2: Fetch CSRF token
+  let token = '';
+  try {
+    const r = await fetch('/api/csrf_token', {credentials:'same-origin'});
+    const d = await r.json();
+    token = d.csrf_token || '';
+    log('2. CSRF token: ' + (token ? '✓ Got token (' + token.length + ' chars)' : '✗ Empty token'));
+  } catch(e) { log('2. CSRF token fetch FAILED: ' + e.message); return; }
 
-  ge('genSubmitBtn').addEventListener('click', function() {
-    var btn   = ge('genSubmitBtn');
-    var count = parseInt(ge('genCount').value) || 1;
-    var name  = ge('genName').value.trim();
-    var email = ge('genEmail').value.trim();
-    var plan  = ge('genPlan').value;
-    btn.disabled = true;
-    showMsg('genMsg', 'Generating&#8230;', 'info');
-    fetch('/api/admin/seats/generate', {
+  // Step 3: Call generate with explicit token
+  try {
+    const r = await fetch('/api/admin/seats/generate', {
       method: 'POST',
       credentials: 'same-origin',
-      cache: 'no-store',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({count:count, holder_name:name, holder_email:email, plan:plan})
-    })
-    .then(function(r){ return r.json().then(function(d){return {s:r.status,d:d};}); })
-    .then(function(res) {
-      if (res.d.ok) {
-        showMsg('genMsg', 'Success! Generated: ' + res.d.generated.join(', '), 'ok');
-        loadSeats();
-        setTimeout(function(){ closeModal('genModal'); }, 2500);
-      } else {
-        showMsg('genMsg', 'Error: ' + (res.d.error||'Unknown') + ' [HTTP '+res.s+']', 'err');
-        btn.disabled = false;
-      }
-    })
-    .catch(function(e) {
-      showMsg('genMsg', 'Network error: ' + e.message, 'err');
-      btn.disabled = false;
+      headers: {'Content-Type':'application/json','X-CSRF-Token':token},
+      body: JSON.stringify({count:1, holder_name:'Diag Test', plan:'starter'})
     });
-  });
-
-  // Edit
-  ge('cancelEditBtn').addEventListener('click', function() { closeModal('editModal'); });
-
-  ge('editSubmitBtn').addEventListener('click', function() {
-    var btn  = ge('editSubmitBtn');
-    var code = ge('editCode').value;
-    btn.disabled = true;
-    showMsg('editMsg', 'Saving&#8230;', 'info');
-    fetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
-      method: 'POST',
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        holder_name:  ge('editName').value.trim(),
-        holder_email: ge('editEmail').value.trim(),
-        plan:         ge('editPlan').value,
-        status:       ge('editStatus').value,
-        notes:        ge('editNotes').value.trim()
-      })
-    })
-    .then(function(r){ return r.json().then(function(d){return {s:r.status,d:d};}); })
-    .then(function(res) {
-      if (res.d.ok) {
-        showMsg('editMsg', 'Saved!', 'ok');
-        loadSeats();
-        setTimeout(function(){ closeModal('editModal'); }, 1000);
+    const text = await r.text();
+    log('3. Generate response: HTTP ' + r.status);
+    try {
+      const d = JSON.parse(text);
+      if (d.ok) {
+        log('   ✓ SUCCESS! Code generated: ' + d.generated.join(', '));
+        log('   The seat manager should work. Try the Generate button now.');
       } else {
-        showMsg('editMsg', 'Error: ' + (res.d.error||'Unknown'), 'err');
-        btn.disabled = false;
+        log('   ✗ Error: ' + d.error);
       }
-    })
-    .catch(function(e) {
-      showMsg('editMsg', 'Network error: ' + e.message, 'err');
-      btn.disabled = false;
-    });
+    } catch(e) {
+      log('   Raw response: ' + text.slice(0, 300));
+    }
+  } catch(e) { log('3. Generate request FAILED: ' + e.message); }
+}
+
+async function loadSeats() {
+  const tbody = document.getElementById('seatBody');
+  tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#475569;'>Loading\u2026</td></tr>";
+  try {
+    const res = await fetch('/api/admin/seats', {credentials: 'same-origin'});
+    const text = await res.text();
+    let d;
+    try { d = JSON.parse(text); }
+    catch(e) {
+      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#fcd34d;'>Session expired \u2014 <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again \u2192</a></td></tr>";
+      return;
+    }
+    if (!d.ok) {
+      tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;'>Error: " + (d.error||'Unknown') + " \u2014 <a href='/login?next=/admin/seats' style='color:#a78bfa;'>Log in again</a></td></tr>";
+      return;
+    }
+    allSeats = d.seats || [];
+    renderStats();
+    renderTable(allSeats);
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='9' style='padding:32px;text-align:center;color:#f87171;'>Network error: " + e.message + "<br><br><button class='btn btn-primary' onclick='loadSeats()'>Retry</button></td></tr>";
+  }
+}
+
+function renderStats() {
+  const total  = allSeats.length;
+  const used   = allSeats.filter(s => s.status === 'used').length;
+  const avail  = allSeats.filter(s => s.status === 'active' && !s.claimed_by).length;
+  const stripe = allSeats.filter(s => s.source === 'stripe').length;
+  document.getElementById('statsBar').innerHTML = [
+    ['Total', total], ['Available', avail], ['Used', used], ['Stripe', stripe]
+  ].map(([l,v]) => `<div class='stat'><b>${v}</b><span>${l}</span></div>`).join('');
+}
+
+function planBadge(s) {
+  const p = (s.plan || '').toLowerCase();
+  const name = s.plan_name || (p === 'pro' ? 'Operator Pro' : p === 'growth' ? 'Growth System' : p === 'founder' ? 'Founder Access' : 'Solo Operator');
+  if (p === 'pro')    return `<span class='badge' style='background:rgba(251,191,36,.15);color:#fcd34d;border:1px solid rgba(251,191,36,.35);'>⭐ ${name}</span>`;
+  if (p === 'growth') return `<span class='badge' style='background:rgba(124,58,237,.2);color:#c4b5fd;border:1px solid rgba(124,58,237,.4);'>🚀 ${name}</span>`;
+  return `<span class='badge' style='background:rgba(255,255,255,.06);color:#94a3b8;border:1px solid rgba(255,255,255,.12);'>✦ ${name}</span>`;
+}
+
+function statusBadge(s) {
+  if (s.status === 'inactive') return "<span class='badge badge-inactive'>✗ Inactive</span>";
+  if (s.claimed_by || s.status === 'used') return "<span class='badge badge-used'>⊙ Used</span>";
+  return "<span class='badge badge-avail'>✓ Available</span>";
+}
+
+function sourceBadge(s) {
+  if (s.source === 'stripe') return "<span class='badge badge-stripe'>💳 Stripe</span>";
+  return "<span class='badge badge-manual'>✎ Manual</span>";
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}); }
+  catch(e) { return iso.slice(0,10); }
+}
+
+function escH(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderTable(seats) {
+  var tbody = document.getElementById('seatBody');
+  if (!seats || !seats.length) {
+    tbody.innerHTML = "<tr><td colspan='9' style='padding:24px;text-align:center;color:#475569;'>No seats found.</td></tr>";
+    return;
+  }
+  tbody.innerHTML = seats.map(function(s) {
+    var st = s.status || 'active';
+    var code = escH(s.code);
+    return '<tr>' +
+      '<td><span class="code" title="Click to copy" onclick="copyCode(\'' + code + '\')">' + code + '</span></td>' +
+      '<td>' + (s.holder_name ? '<span class="name-cell">' + escH(s.holder_name) + '</span>' : '<span class="empty-cell">—</span>') + '</td>' +
+      '<td>' + ((s.holder_email||s.stripe_email) ? '<span class="email-cell">' + escH(s.holder_email||s.stripe_email||'') + '</span>' : '<span class="empty-cell">—</span>') + '</td>' +
+      '<td>' + planBadge(s) + '</td>' +
+      '<td>' + sourceBadge(s) + '</td>' +
+      '<td>' + statusBadge(s) + '</td>' +
+      '<td style="color:#94a3b8;font-size:12px;">' + escH(s.claimed_by||'—') + '</td>' +
+      '<td style="color:#64748b;font-size:12px;">' + fmtDate(s.created_at) + '</td>' +
+      '<td><div style="display:flex;gap:6px;">' +
+        '<button class="btn btn-sm" onclick="openEdit(\'' + code + '\')">Edit</button>' +
+        '<button class="btn btn-sm btn-danger" onclick="toggleSeat(\'' + code + '\',\'' + st + '\')">' + (st === 'inactive' ? 'Activate' : 'Deactivate') + '</button>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const fs   = document.getElementById('filterStatus').value;
+  const fsrc = document.getElementById('filterSource').value;
+  const fpln = document.getElementById('filterPlan').value;
+  const filtered = allSeats.filter(s => {
+    const hay = [s.code, s.holder_name, s.holder_email, s.stripe_email, s.claimed_by, s.notes, s.plan, s.plan_name].join(' ').toLowerCase();
+    const matchQ   = !q    || hay.includes(q);
+    const matchSt  = !fs   || (fs==='active' ? (s.status==='active'&&!s.claimed_by) : fs==='used' ? (s.status==='used'||s.claimed_by) : s.status===fs);
+    const matchSrc = !fsrc || (s.source||'manual') === fsrc;
+    const matchPln = !fpln || (s.plan||'starter') === fpln;
+    return matchQ && matchSt && matchSrc && matchPln;
   });
+  renderTable(filtered);
+}
 
-  ge('refreshBtn').addEventListener('click', loadSeats);
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => {
+    showToast('📋 Copied: ' + code);
+  }).catch(() => { prompt('Copy this code:', code); });
+}
 
-  // Modal backdrop close + Escape
-  ge('genModal').addEventListener('click', function(e){ if(e.target===this) closeModal('genModal'); });
-  ge('editModal').addEventListener('click', function(e){ if(e.target===this) closeModal('editModal'); });
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape'){closeModal('genModal');closeModal('editModal');} });
+function showToast(msg, type) {
+  var borderColor = type==='success' ? 'rgba(52,211,153,.7)' : type==='error' ? 'rgba(248,113,113,.7)' : 'rgba(124,58,237,.5)';
+  var textColor   = type==='success' ? '#6ee7b7' : type==='error' ? '#fca5a5' : '#c4b5fd';
+  var icon        = type==='success' ? '✓ ' : type==='error' ? '✕ ' : '';
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#141e38;border-left:3px solid '+borderColor+';border-top:1px solid rgba(255,255,255,.07);border-right:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);color:'+textColor+';padding:11px 18px 11px 15px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,.55);max-width:320px;line-height:1.4;transform:translateX(120%);transition:transform .28s cubic-bezier(.34,1.56,.64,1),opacity .22s;opacity:0;';
+  t.innerHTML = '<span style="opacity:.8;">' + icon + '</span>' + String(msg).replace(/</g,'&lt;');
+  document.body.appendChild(t);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    t.style.transform = 'translateX(0)'; t.style.opacity = '1';
+  }); });
+  setTimeout(function(){
+    t.style.transform = 'translateX(120%)'; t.style.opacity = '0';
+    setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 280);
+  }, 2600);
+}
 
-  loadSeats();
-})();
-</script>
-</body>
-</html>"""
-    resp = make_response(html)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+function openEdit(code) {
+  const s = allSeats.find(x => x.code === code);
+  if (!s) return;
+  editingCode = code;
+  document.getElementById('seatEditName').value   = s.holder_name  || '';
+  document.getElementById('seatEditEmail').value  = s.holder_email || s.stripe_email || '';
+  document.getElementById('seatEditPlan').value   = s.plan || 'starter';
+  document.getElementById('seatEditNotes').value  = s.notes || '';
+  document.getElementById('seatEditStatus').value = s.status || 'active';
+  document.getElementById('seatEditMsg').innerText = '';
+  // Position near the clicked row
+  const row = document.querySelector(`tr[data-code="${code}"]`);
+  const pop = document.getElementById('editPop');
+  pop.style.display = 'block';
+  if (row) {
+    const rect = row.getBoundingClientRect();
+    const ph = 320, pw = 340;
+    let top = rect.top + window.scrollY - 20;
+    let left = rect.right - pw - 20;
+    if (left < 8) left = 8;
+    if (top + ph > document.body.scrollHeight) top = document.body.scrollHeight - ph - 20;
+    pop.style.top  = top  + 'px';
+    pop.style.left = left + 'px';
+  }
+}
+
+function closeEdit() {
+  document.getElementById('editPop').style.display = 'none';
+  editingCode = null;
+}
+
+async function saveEdit() {
+  if (!editingCode) return;
+  const msg = document.getElementById('seatEditMsg');
+  msg.innerText = 'Saving…';
+  try {
+    const payload = {
+      holder_name:  document.getElementById('seatEditName').value.trim(),
+      holder_email: document.getElementById('seatEditEmail').value.trim(),
+      plan:         document.getElementById('seatEditPlan').value,
+      notes:        document.getElementById('seatEditNotes').value.trim(),
+      status:       document.getElementById('seatEditStatus').value,
+    };
+    const res = await _smFetch('/api/admin/seats/' + encodeURIComponent(editingCode) + '/update', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    });
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'Save failed');
+    // Update local cache
+    const idx = allSeats.findIndex(x => x.code === editingCode);
+    if (idx >= 0) allSeats[idx] = {...allSeats[idx], ...payload};
+    msg.innerText = '✓ Saved!';
+    setTimeout(()=>{ closeEdit(); filterTable(); renderStats(); }, 700);
+  } catch(e) {
+    msg.innerText = e.message || 'Save failed';
+  }
+}
+
+async function toggleSeat(code, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  const res = await _smFetch('/api/admin/seats/' + encodeURIComponent(code) + '/update', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
+  });
+  const d = await res.json();
+  if (d.ok) {
+    const idx = allSeats.findIndex(x => x.code === code);
+    if (idx >= 0) allSeats[idx].status = newStatus;
+    filterTable(); renderStats();
+    showToast(newStatus === 'active' ? '✓ Seat activated' : '✗ Seat deactivated');
+  }
+}
+
+function openGenModal() {
+  document.getElementById('genResult').innerText = '';
+  document.getElementById('genName').value  = '';
+  document.getElementById('genEmail').value = '';
+  document.getElementById('genCount').value = '1';
+  document.getElementById('genPlan').value  = 'starter';
+  document.getElementById('genModal').classList.add('open');
+}
+
+function closeGenModal() {
+  document.getElementById('genModal').classList.remove('open');
+}
+
+async function doGenerate() {
+  const resultEl = document.getElementById('genResult');
+  resultEl.style.color = '#6ee7b7';
+  resultEl.innerText = 'Generating…';
+  const count = parseInt(document.getElementById('genCount').value) || 1;
+  const name  = document.getElementById('genName').value.trim();
+  const email = document.getElementById('genEmail').value.trim();
+  const plan  = document.getElementById('genPlan').value || 'starter';
+  try {
+    const res = await _smFetch('/api/admin/seats/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({count, holder_name: name, holder_email: email, plan})
+    });
+    const d = await res.json();
+    if (d.ok) {
+      resultEl.style.color = '#6ee7b7';
+      resultEl.innerText = 'Generated: ' + d.generated.join(', ');
+      await loadSeats();
+    } else {
+      resultEl.style.color = '#f87171';
+      resultEl.innerText = 'Error: ' + (d.error || 'Unknown error');
+    }
+  } catch (err) {
+    resultEl.style.color = '#f87171';
+    resultEl.innerText = 'Request failed: ' + err.message;
+  }
+}
+
+// Close popover on outside click
+document.addEventListener('click', function(e) {
+  const pop = document.getElementById('editPop');
+  if (pop.style.display === 'block' && !pop.contains(e.target) && !e.target.closest('button[onclick^="openEdit"]')) {
+    closeEdit();
+  }
+  if (document.getElementById('genModal').classList.contains('open') && e.target === document.getElementById('genModal')) {
+    closeGenModal();
+  }
+});
+
+loadSeats();
+</script></body></html>"""
+    return page
 
 
 @app.get("/api/me")
@@ -5393,7 +5519,6 @@ def api_onboarding_dismiss():
     data = request.get_json(silent=True) or {}
     dismissed = bool(data.get("dismissed", True))
     _dismiss_onboarding(username, dismissed)
-    _award_points(username, "Completed an onboarding step", 25)
     return jsonify({"ok": True, "dismissed": dismissed})
 
 @app.get("/api/user/settings")
@@ -6025,8 +6150,6 @@ def api_upload():
     try:
         u = current_user()
         owner = (u.get("username") if isinstance(u, dict) else None) or ""
-        if owner:
-            _award_points(owner, "Uploaded a file", 20)
     except Exception:
         owner = ""
     rec = {
@@ -6099,16 +6222,10 @@ def api_image_job_status(job_id: str):
 
 @app.post("/api/convene")
 def api_convene():
-    rl = _check_rate_limit("convene", 30)  # 30 AI requests/min per user
-    if rl:
-        return rl
     try:
         data = request.get_json(force=True) or {}
     except Exception:
         data = {}
-    prompt = (data.get("prompt") or "")
-    if len(prompt) > MAX_PROMPT_CHARS:
-        return jsonify({"ok": False, "error": f"Prompt exceeds {MAX_PROMPT_CHARS:,} character limit."}), 400
     try:
         return _api_convene_impl(data)
     except Exception as e:
@@ -6270,16 +6387,10 @@ def _api_convene_impl(data):
 
 @app.post("/api/followup")
 def api_followup():
-    rl = _check_rate_limit("followup", 30)  # 30 AI requests/min per user
-    if rl:
-        return rl
     try:
         data = request.get_json(force=True) or {}
     except Exception:
         data = {}
-    msg = (data.get("message") or "")
-    if len(msg) > MAX_MESSAGE_CHARS:
-        return jsonify({"ok": False, "error": f"Message exceeds {MAX_MESSAGE_CHARS:,} character limit."}), 400
     try:
         return _api_followup_impl(data)
     except Exception as e:
@@ -6844,7 +6955,6 @@ def api_calendar_create_event():
     try:
         created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location, use_meet=use_meet)
         append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
-        _award_points(u.get("username",""), "Booked a calendar event", 15)
         return jsonify({"ok": True, "event": created})
     except Exception as e:
         append_log("calendar_event_error", {"user": u.get("username", ""), "error": str(e), "at": now_iso()})
@@ -6891,7 +7001,7 @@ def api_calendar_delete_event():
     if not event_id:
         return jsonify({"ok": False, "error": "Missing event_id"}), 400
     try:
-        _req = requests
+        import requests as _req
         r = _req.delete(
             f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -9061,460 +9171,390 @@ def showcase_page():
 _TELEPROMPTER_HTML = """<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<title>Teleprompter — Simply Agentic AI</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Teleprompter</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0;}
-:root{
---bg:#060c18;--sur:#0d1526;--bor:rgba(255,255,255,.09);
---pur:#7c3aed;--purl:#c4b5fd;--red:#f87171;--tx:#e2e8f0;--mu:#64748b;
-}
-html,body{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;}
-#app{display:flex;flex-direction:column;height:100dvh;}
-#top{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--sur);border-bottom:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;min-height:50px;}
-#top h1{font-size:14px;font-weight:700;color:var(--purl);white-space:nowrap;margin-right:4px;}
-.tb{background:rgba(255,255,255,.06);border:1px solid var(--bor);color:var(--tx);padding:5px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .15s;}
-.tb:hover{background:rgba(255,255,255,.11);}
-.tb.on{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.55);color:var(--purl);}
-.tb.rl{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:var(--red);}
-.tb.rl.live{background:rgba(239,68,68,.28);border-color:var(--red);}
-.sp{flex:1;}
-#dot{width:8px;height:8px;border-radius:50%;background:var(--mu);flex-shrink:0;}
-#dot.live{background:var(--red);animation:blink 1.1s infinite;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:.3;}}
-#tmr{font-size:13px;font-weight:700;color:var(--red);display:none;font-variant-numeric:tabular-nums;}
-#sw{flex:1;overflow:hidden;position:relative;}
-#sb{height:100%;padding:30px 28px;overflow-y:auto;font-size:38px;font-weight:700;line-height:1.5;color:rgba(255,255,255,.18);scroll-behavior:smooth;-ms-overflow-style:none;scrollbar-width:none;-webkit-user-select:none;user-select:none;}
-#sb::-webkit-scrollbar{display:none;}
-.w{display:inline;cursor:pointer;transition:color .1s;}
-.w.done{color:rgba(255,255,255,.13)!important;}
-.w.active{color:#fff!important;text-shadow:0 0 32px rgba(124,58,237,.85);}
-.w.near{color:rgba(255,255,255,.48)!important;}
-#rl{position:absolute;left:0;right:0;height:2px;pointer-events:none;z-index:2;background:linear-gradient(90deg,transparent,var(--pur),transparent);opacity:.65;}
-#tf,#bf{position:absolute;left:0;right:0;height:80px;pointer-events:none;z-index:1;}
-#tf{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}
-#bf{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}
-#bot{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--sur);border-top:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;}
-.sr{display:flex;align-items:center;gap:7px;}
-.sl{font-size:11.5px;color:var(--mu);white-space:nowrap;}
-.sv{font-size:11.5px;font-weight:600;min-width:26px;}
-input[type=range]{accent-color:var(--pur);cursor:pointer;}
-#spr{width:110px;}
-#fsr{width:85px;}
-#pl{font-size:11.5px;color:var(--mu);}
-#pip{position:absolute;bottom:68px;right:14px;width:200px;height:113px;border-radius:11px;overflow:hidden;border:2px solid rgba(255,255,255,.16);background:#000;z-index:10;box-shadow:0 10px 30px rgba(0,0,0,.7);display:none;cursor:move;}
-#pip.show{display:block;}
-#cv{width:100%;height:100%;object-fit:cover;display:block;}
-#csel{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.8);padding:5px 7px;display:none;}
-#pip:hover #csel{display:block;}
-#cselect{width:100%;background:rgba(255,255,255,.1);border:none;color:#fff;font-size:10.5px;border-radius:4px;padding:2px 5px;cursor:pointer;}
-.ov{position:absolute;inset:0;background:rgba(6,12,24,.95);z-index:20;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:20px;}
-.ov.show{display:flex;}
-#cdnum{font-size:130px;font-weight:800;color:var(--purl);line-height:1;}
-#eed{width:100%;max-width:700px;background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;}
-#eed h2{font-size:15px;font-weight:600;color:var(--purl);}
-#sta{flex:1;min-height:180px;background:rgba(255,255,255,.05);border:1px solid var(--bor);border-radius:10px;color:var(--tx);font-size:15px;line-height:1.65;padding:14px;resize:vertical;outline:none;font-family:inherit;}
-#sta:focus{border-color:var(--pur);}
-#air{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}
-#ain{flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--bor);border-radius:7px;color:var(--tx);font-size:13px;padding:7px 11px;outline:none;font-family:inherit;}
-#ain:focus{border-color:var(--pur);}
-#ain::placeholder{color:var(--mu);}
-#asp{display:none;width:14px;height:14px;border:2px solid rgba(124,58,237,.2);border-top-color:var(--pur);border-radius:50%;animation:spin .6s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-#edf{display:flex;gap:8px;justify-content:flex-end;}
-#caminfo{text-align:center;max-width:380px;background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px;}
-#caminfo h3{font-size:17px;font-weight:700;color:var(--purl);margin-bottom:10px;}
-#caminfo p{font-size:13px;color:var(--mu);line-height:1.65;margin-bottom:14px;}
-#caminfo ol{font-size:13px;color:var(--mu);line-height:1.9;padding-left:18px;margin-bottom:14px;text-align:left;display:none;}
-#caminfo .cb{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
-#savebox{background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:24px;max-width:340px;text-align:center;display:flex;flex-direction:column;gap:12px;}
-#savebox h3{font-size:17px;font-weight:700;color:var(--purl);}
-#savebox p{font-size:13px;color:var(--mu);line-height:1.55;}
-body.mir #sb{transform:scaleX(-1);}
-@media(max-width:600px){ #sb{font-size:24px;padding:20px 14px;} #pip{width:130px;height:73px;bottom:58px;right:8px;} #spr{width:80px;} #fsr{width:65px;} }
+*{{box-sizing:border-box;margin:0;padding:0;}}
+:root{{--bg:#060c18;--sur:#0d1526;--bor:rgba(255,255,255,.09);
+  --pur:#7c3aed;--purl:#c4b5fd;--red:#f87171;--tx:#e2e8f0;--mu:#64748b;}}
+html,body{{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;}}
+#app{{display:flex;flex-direction:column;height:100dvh;}}
+#top{{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--sur);
+  border-bottom:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;min-height:50px;}}
+#top h1{{font-size:14px;font-weight:700;color:var(--purl);white-space:nowrap;margin-right:4px;}}
+.tb{{background:rgba(255,255,255,.06);border:1px solid var(--bor);color:var(--tx);
+  padding:5px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;}}
+.tb:hover{{background:rgba(255,255,255,.11);}}
+.tb.on{{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.55);color:var(--purl);}}
+.tb.rl{{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:var(--red);}}
+.tb.rl.live{{background:rgba(239,68,68,.25);border-color:var(--red);}}
+.sp{{flex:1;}}
+#dot{{width:8px;height:8px;border-radius:50%;background:var(--mu);flex-shrink:0;}}
+#dot.live{{background:var(--red);animation:blink 1.1s infinite;}}
+@keyframes blink{{0%,100%{{opacity:1;}}50%{{opacity:.3;}}}}
+#tmr{{font-size:13px;font-weight:700;color:var(--red);display:none;font-variant-numeric:tabular-nums;}}
+#sw{{flex:1;overflow:hidden;position:relative;}}
+#sb{{height:100%;padding:30px 28px;overflow-y:auto;font-size:38px;font-weight:700;
+  line-height:1.5;color:rgba(255,255,255,.18);scroll-behavior:smooth;
+  -ms-overflow-style:none;scrollbar-width:none;}}
+#sb::-webkit-scrollbar{{display:none;}}
+.w{{display:inline;cursor:pointer;transition:color .1s,text-shadow .1s;}}
+.w.done{{color:rgba(255,255,255,.14)!important;}}
+.w.active{{color:#fff!important;text-shadow:0 0 36px rgba(124,58,237,.9);}}
+.w.near{{color:rgba(255,255,255,.5)!important;}}
+#rl{{position:absolute;left:0;right:0;height:2px;pointer-events:none;z-index:2;
+  background:linear-gradient(90deg,transparent,var(--pur),transparent);opacity:.6;}}
+#tf,#bf{{position:absolute;left:0;right:0;height:80px;pointer-events:none;z-index:1;}}
+#tf{{top:0;background:linear-gradient(to bottom,var(--bg),transparent);}}
+#bf{{bottom:0;background:linear-gradient(to top,var(--bg),transparent);}}
+#bot{{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--sur);
+  border-top:1px solid var(--bor);flex-shrink:0;flex-wrap:wrap;}}
+.sr{{display:flex;align-items:center;gap:7px;}}
+.sl{{font-size:11.5px;color:var(--mu);white-space:nowrap;}}
+.sv{{font-size:11.5px;font-weight:600;min-width:26px;}}
+input[type=range]{{accent-color:var(--pur);cursor:pointer;}}
+#pl{{font-size:11.5px;color:var(--mu);}}
+#pip{{position:absolute;bottom:68px;right:14px;width:200px;height:113px;border-radius:11px;
+  overflow:hidden;border:2px solid rgba(255,255,255,.16);background:#000;z-index:10;
+  box-shadow:0 10px 30px rgba(0,0,0,.7);display:none;cursor:move;}}
+#pip.show{{display:block;}}
+#cv{{width:100%;height:100%;object-fit:cover;display:block;}}
+#csel{{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.8);padding:5px 7px;display:none;}}
+#pip:hover #csel{{display:block;}}
+#cselect{{width:100%;background:rgba(255,255,255,.1);border:none;color:#fff;
+  font-size:10.5px;border-radius:4px;padding:2px 5px;cursor:pointer;}}
+.ov{{position:absolute;inset:0;background:rgba(6,12,24,.94);z-index:20;
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:20px;}}
+.ov.show{{display:flex;}}
+#cdown{{font-size:130px;font-weight:800;color:var(--purl);line-height:1;}}
+#eed{{width:100%;max-width:720px;background:#0d1526;border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;}}
+#eed h2{{font-size:15px;font-weight:600;color:var(--purl);}}
+#sta{{flex:1;min-height:200px;background:rgba(255,255,255,.05);border:1px solid var(--bor);
+  border-radius:10px;color:var(--tx);font-size:15px;line-height:1.65;padding:14px;
+  resize:vertical;outline:none;font-family:inherit;}}
+#sta:focus{{border-color:var(--pur);}}
+#air{{display:flex;gap:7px;flex-wrap:wrap;align-items:center;}}
+#ain{{flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--bor);
+  border-radius:7px;color:var(--tx);font-size:13px;padding:7px 11px;outline:none;font-family:inherit;}}
+#ain::placeholder{{color:var(--mu);}}
+#ain:focus{{border-color:var(--pur);}}
+#asp{{display:none;width:14px;height:14px;border:2px solid rgba(124,58,237,.2);
+  border-top-color:var(--pur);border-radius:50%;animation:spin .6s linear infinite;}}
+@keyframes spin{{to{{transform:rotate(360deg);}}}}
+#edf{{display:flex;gap:8px;justify-content:flex-end;}}
+#camInfo{{text-align:center;padding:20px;max-width:380px;background:#0d1526;
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;}}
+#camInfo h3{{font-size:17px;font-weight:700;color:var(--purl);margin-bottom:10px;}}
+#camInfo p{{font-size:13px;color:var(--mu);line-height:1.65;margin-bottom:16px;}}
+#camInfo ol{{font-size:13px;color:var(--mu);line-height:1.9;padding-left:18px;margin-bottom:16px;text-align:left;}}
+#camInfo .cb{{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}}
+#saved{{background:#0d1526;border:1px solid rgba(255,255,255,.12);border-radius:14px;
+  padding:24px;max-width:340px;text-align:center;display:flex;flex-direction:column;gap:12px;}}
+#saved h3{{font-size:17px;font-weight:700;color:var(--purl);}}
+#saved p{{font-size:13px;color:var(--mu);line-height:1.55;}}
+body.mir #sb{{transform:scaleX(-1);}}
+@media(max-width:600px){{
+  #sb{{font-size:24px;padding:20px 14px;}}
+  #pip{{width:130px;height:73px;bottom:58px;right:8px;}}
+}}
 </style>
 </head>
 <body>
 <div id="app">
+
 <div id="top">
   <h1>&#127916; Teleprompter</h1>
-  <div id="dot"></div>
-  <div id="tmr">0:00</div>
-  <button class="tb" id="btnScript">&#9999;&#65039; Script</button>
-  <button class="tb rl" id="btnRec">&#9210; Record</button>
-  <button class="tb" id="btnCam">&#128247; Camera</button>
+  <div id="dot"></div><div id="tmr">0:00</div>
+  <button class="tb" onclick="openEd()">&#9999;&#65039; Script</button>
+  <button class="tb rl" id="rb" onclick="toggleRec()">&#9210; Record</button>
+  <button class="tb" id="cb" onclick="toggleCam()">&#128247; Camera</button>
   <div class="sp"></div>
-  <button class="tb" id="btnReset">&#8593; Reset</button>
-  <button class="tb" id="btnMir">&#8644; Mirror</button>
+  <button class="tb" onclick="goTop()">&#8593; Reset</button>
+  <button class="tb" id="mb" onclick="toggleMir()">&#8644; Mirror</button>
   <a href="/" class="tb" style="text-decoration:none;">&#8592; Back</a>
 </div>
+
 <div id="sw">
   <div id="tf"></div>
   <div id="sb"></div>
   <div id="rl"></div>
   <div id="bf"></div>
 </div>
+
 <div id="bot">
-  <div class="sr"><span class="sl">Speed</span><input type="range" id="spr" min="1" max="20" value="6"><span class="sv" id="spv">6</span></div>
-  <div class="sr"><span class="sl">Size</span><input type="range" id="fsr" min="18" max="90" value="38"><span class="sv" id="fsv">38</span></div>
+  <div class="sr"><span class="sl">Speed</span>
+    <input type="range" id="spr" min="1" max="20" value="6" oninput="setSpd(this.value)"/>
+    <span class="sv" id="spv">6</span></div>
+  <div class="sr"><span class="sl">Size</span>
+    <input type="range" id="fsr" min="18" max="90" value="38" oninput="setFsz(this.value)"/>
+    <span class="sv" id="fsv">38</span></div>
   <div class="sp"></div>
   <span id="pl">0%</span>
 </div>
+
 <div id="pip">
   <video id="cv" autoplay muted playsinline></video>
-  <div id="csel"><select id="cselect"></select></div>
+  <div id="csel"><select id="cselect" onchange="swCam(this.value)"></select></div>
 </div>
-<div class="ov" id="cdov"><div id="cdnum">3</div><div style="font-size:17px;color:var(--mu);">Get ready&#8230;</div></div>
+
+<div class="ov" id="cdov"><div id="cdown">3</div><div style="font-size:17px;color:var(--mu);">Get ready&#8230;</div></div>
+
 <div class="ov" id="edov">
   <div id="eed">
-    <h2>&#9999;&#65039; Your Script</h2>
-    <textarea id="sta" placeholder="Paste or type your script&#8230; or describe a topic below and use AI Write."></textarea>
+    <h2>&#9999;&#65039; Your script</h2>
+    <textarea id="sta" placeholder="Type or paste your script&#8230; or use AI below."></textarea>
     <div id="air">
-      <input id="ain" placeholder="Topic for AI&#8230; e.g. 60-sec intro for my coaching business">
+      <input id="ain" placeholder="e.g. 60-sec intro for my coaching business&#8230;"/>
       <div id="asp"></div>
-      <button class="tb on" id="btnAiWrite">&#10022; Write</button>
-      <button class="tb on" id="btnAiTighten">&#10022; Tighten</button>
-      <button class="tb on" id="btnAiHook">&#10022; Hook</button>
+      <button class="tb on" onclick="aiW()">&#10022; Write</button>
+      <button class="tb on" onclick="aiR()">&#10022; Tighten</button>
+      <button class="tb on" onclick="aiH()">&#10022; Hook</button>
     </div>
     <div id="edf">
-      <button class="tb" id="btnEdCancel">Cancel</button>
-      <button class="tb on" id="btnEdSave">&#9654; Start Reading</button>
+      <button class="tb" onclick="closeEd(false)">Cancel</button>
+      <button class="tb on" onclick="closeEd(true)">&#9654; Start Reading</button>
     </div>
   </div>
 </div>
+
 <div class="ov" id="camov">
-  <div id="caminfo">
-    <h3 id="camT">&#128247; Allow Camera</h3>
-    <p id="camM">Chrome will ask for camera permission. Look for the popup at the top of your screen and click Allow.</p>
-    <ol id="camS"></ol>
+  <div id="camInfo">
+    <h3 id="camT">&#128247; Allow camera access</h3>
+    <p id="camM">Chrome will ask for permission. Look for the popup at the top of your screen and click <b>Allow</b>.</p>
+    <ol id="camS" style="display:none;"></ol>
     <div class="cb">
-      <button class="tb on" id="btnCamRetry">Try again</button>
-      <button class="tb" id="btnCamCancel">Cancel</button>
+      <button class="tb on" id="camTryBtn" onclick="camRetry()">Try again</button>
+      <button class="tb" onclick="hideCamOv()">Cancel</button>
     </div>
   </div>
 </div>
+
 <div class="ov" id="savov">
-  <div id="savebox">
+  <div id="saved">
     <h3>&#127881; Recording saved!</h3>
-    <p id="savmsg">Your recording is downloading.</p>
-    <button class="tb on" id="btnSavDone">&#10003; Done</button>
+    <p id="savmsg">Downloading now.</p>
+    <button class="tb on" onclick="document.getElementById('savov').classList.remove('show')">&#10003; Done</button>
   </div>
 </div>
+
 </div>
+
 <script>
-(function() {
-var words=[], idx=0, sTmr=null, rTmr=null, rSec=0;
-var isRec=false, isPlay=false, mRec=null, chunks=[];
-var cStream=null, camOn=false, camId=null, mir=false;
-var spd=6, fsz=38;
+var _csrf=null;
+async function sfetch(url,opts){{
+  opts=opts||{{}};
+  if(['POST','PUT','DELETE'].indexOf((opts.method||'GET').toUpperCase())>=0){{
+    if(!_csrf){{
+      try{{var r=await fetch('/api/csrf_token',{{credentials:'same-origin'}});_csrf=(await r.json()).csrf_token||'';}}catch(e){{_csrf='';}}
+    }}
+    opts.headers=opts.headers||{{}};
+    opts.headers['X-CSRF-Token']=_csrf;
+    opts.credentials=opts.credentials||'same-origin';
+  }}
+  return fetch(url,opts);
+}}
 
-var DEF = "Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication \u2014 all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nLet me show you what that looks like.";
+var words=[],idx=0,sTmr=null,rTmr=null,rSec=0;
+var isRec=false,isPlay=false,mRec=null,chunks=[];
+var cStream=null,camOn=false,camId=null,mir=false;
+var spd=6,fsz=38;
+var DEF="Welcome to Simply Agentic AI.\n\nOur AI teammates handle your marketing, sales, and client communication all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds like you.\n\nLet me show you.";
 
-function ge(id) { return document.getElementById(id); }
-function esc(s) { return String(s||'')
-  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function Q(s){{return document.querySelector(s);}}
+function QI(s){{return document.getElementById(s);}}
 
-function init() {
+function init(){{
   loadScript(localStorage.getItem('tp_s')||DEF);
-  var sv=localStorage.getItem('tp_spd'), fv=localStorage.getItem('tp_fsz');
-  if(sv){spd=+sv;ge('spr').value=sv;ge('spv').textContent=sv;}
-  if(fv){fsz=+fv;ge('fsr').value=fv;ge('fsv').textContent=fv;applyFsz();}
+  var s=localStorage.getItem('tp_spd'),f=localStorage.getItem('tp_fsz');
+  if(s){{spd=+s;Q('#spr').value=s;QI('spv').textContent=s;}}
+  if(f){{fsz=+f;Q('#fsr').value=f;QI('fsv').textContent=f;applyFsz();}}
   posRL();
-}
+}}
 
-function loadScript(txt) {
-  words=txt.trim().split(/\\s+/).filter(Boolean);
-  idx=0;
-  ge('sb').innerHTML=words.map(function(w,i){
-    return '<span class="w near" id="w'+i+'">'+esc(w)+'&nbsp;</span>';
-  }).join('');
+function esc(s){{return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
+
+function loadScript(text){{
+  words=text.trim().split(/\\s+/).filter(Boolean);idx=0;
+  QI('sb').innerHTML=words.map(function(w,i){{return '<span class="w near" id="w'+i+'" onclick="jmp('+i+')">'  +esc(w)+'&nbsp;</span>';}}).join('');
   render();
-}
+}}
 
-function render() {
-  words.forEach(function(_,i){
-    var e=document.getElementById('w'+i); if(!e) return;
+function render(){{
+  words.forEach(function(_,i){{
+    var e=document.getElementById('w'+i);if(!e)return;
     e.className='w'+(i<idx?' done':i===idx?' active':i<idx+10?' near':'');
-  });
-  scrollToCur();
-  ge('pl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
-}
+  }});
+  scrollTo2();
+  QI('pl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
+}}
 
-function scrollToCur() {
-  var e=document.getElementById('w'+idx); if(!e) return;
-  var b=ge('sb'), br=b.getBoundingClientRect(), er=e.getBoundingClientRect();
-  b.scrollTo({top:Math.max(0,b.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'});
-}
+function scrollTo2(){{
+  var e=document.getElementById('w'+idx);if(!e)return;
+  var b=QI('sb'),br=b.getBoundingClientRect(),er=e.getBoundingClientRect();
+  b.scrollTo({{top:Math.max(0,b.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'}});
+}}
 
-function posRL() {
-  var sw=ge('sw'); if(!sw) return;
-  ge('rl').style.top=Math.round(sw.getBoundingClientRect().height*0.38)+'px';
-}
+function posRL(){{
+  var w=Q('#sw');if(!w)return;
+  QI('rl').style.top=Math.round(w.getBoundingClientRect().height*0.38)+'px';
+}}
 
-function jmp(i){idx=i;render();}
+function jmp(i){{idx=i;render();}}
+function goTop(){{idx=0;render();QI('sb').scrollTo({{top:0,behavior:'smooth'}});}}
 
-function resetTop(){
-  idx=0;render();
-  ge('sb').scrollTo({top:0,behavior:'smooth'});
-}
-
-function play(){
-  if(sTmr)return;
-  isPlay=true;
-  function tick(){
+function play(){{
+  if(sTmr)return;isPlay=true;
+  function t(){{
     if(!isPlay)return;
-    if(idx<words.length-1){idx++;render();}else{stopPlay();return;}
-    sTmr=setTimeout(tick,60000/(30+spd*13));
-  }
-  sTmr=setTimeout(tick,60000/(30+spd*13));
-}
+    if(idx<words.length-1){{idx++;render();}}else{{stop2();return;}}
+    sTmr=setTimeout(t,60000/(30+spd*13));
+  }}
+  sTmr=setTimeout(t,60000/(30+spd*13));
+}}
+function stop2(){{isPlay=false;clearTimeout(sTmr);sTmr=null;}}
+function setSpd(v){{spd=+v;QI('spv').textContent=v;localStorage.setItem('tp_spd',v);if(isPlay){{stop2();play();}}}}
+function setFsz(v){{fsz=+v;QI('fsv').textContent=v;localStorage.setItem('tp_fsz',v);applyFsz();}}
+function applyFsz(){{QI('sb').style.fontSize=fsz+'px';}}
 
-function stopPlay(){isPlay=false;clearTimeout(sTmr);sTmr=null;}
+async function toggleCam(){{camOn?stopCam():await startCam(camId);}}
+function hideCamOv(){{QI('camov').classList.remove('show');}}
+function camRetry(){{hideCamOv();startCam(camId);}}
 
-function setSpd(v){spd=+v;ge('spv').textContent=v;localStorage.setItem('tp_spd',v);if(isPlay){stopPlay();play();}}
-function setFsz(v){fsz=+v;ge('fsv').textContent=v;localStorage.setItem('tp_fsz',v);applyFsz();}
-function applyFsz(){ge('sb').style.fontSize=fsz+'px';}
+async function startCam(devId){{
+  try{{
+    if(cStream)cStream.getTracks().forEach(function(t){{t.stop();}});
+    var s=await navigator.mediaDevices.getUserMedia({{video:{{width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
+    var devs=await navigator.mediaDevices.enumerateDevices();
+    var cams=devs.filter(function(d){{return d.kind==='videoinput';}});
+    var got=s.getVideoTracks()[0].getSettings().deviceId;
+    if(devId&&devId!==got&&cams.some(function(c){{return c.deviceId===devId;}}))){{
+      s.getTracks().forEach(function(t){{t.stop();}});
+      s=await navigator.mediaDevices.getUserMedia({{video:{{deviceId:{{exact:devId}},width:{{ideal:1280}},height:{{ideal:720}}}},audio:false}});
+    }}
+    cStream=s;QI('cv').srcObject=s;
+    QI('pip').classList.add('show');QI('cb').classList.add('on');
+    camOn=true;camId=s.getVideoTracks()[0].getSettings().deviceId||devId;
+    fillCams();drag();
+  }}catch(e){{
+    var denied=e.name==='NotAllowedError'||e.name==='PermissionDeniedError';
+    QI('camT').textContent=denied?'Camera blocked':'Camera not found';
+    QI('camM').textContent=denied?'Chrome is blocking camera access. Quick fix:':'No camera detected. Check it is plugged in and not in use.';
+    var S=QI('camS'),B=QI('camTryBtn');
+    if(denied){{S.style.display='block';S.innerHTML='<li>Click the lock icon in your address bar</li><li>Set Camera to Allow</li><li>Reload the page</li>';B.textContent='Open settings';B.onclick=function(){{window.open('chrome://settings/content/camera');hideCamOv();}};}}
+    else{{S.style.display='none';B.textContent='Try again';B.onclick=camRetry;}}
+    QI('camov').classList.add('show');
+  }}
+}}
 
-ge('spr').addEventListener('input',function(){setSpd(this.value);});
-ge('fsr').addEventListener('input',function(){setFsz(this.value);});
-
-ge('sb').addEventListener('click',function(e){
-  var sp=e.target.closest('.w');
-  if(sp){var id=sp.id.replace('w','');jmp(+id);}
-});
-
-ge('btnReset').addEventListener('click',resetTop);
-
-ge('btnMir').addEventListener('click',function(){
-  mir=!mir;
-  document.body.classList.toggle('mir',mir);
-  ge('btnMir').classList.toggle('on',mir);
-});
-
-ge('btnScript').addEventListener('click',function(){
-  stopPlay();
-  ge('sta').value=words.join(' ');
-  ge('edov').classList.add('show');
-  ge('sta').focus();
-});
-
-ge('btnEdCancel').addEventListener('click',function(){ge('edov').classList.remove('show');});
-ge('btnEdSave').addEventListener('click',function(){
-  var t=ge('sta').value.trim();
-  if(t){localStorage.setItem('tp_s',t);loadScript(t);}
-  ge('edov').classList.remove('show');
-});
-
-ge('btnSavDone').addEventListener('click',function(){ge('savov').classList.remove('show');});
-ge('btnCamCancel').addEventListener('click',function(){ge('camov').classList.remove('show');});
-ge('btnCamRetry').addEventListener('click',function(){ge('camov').classList.remove('show');startCam(camId);});
-
-function countdown(n){
-  return new Promise(function(res){
-    ge('cdov').classList.add('show');
-    var i=n,el=ge('cdnum');el.textContent=i;
-    var iv=setInterval(function(){
-      i--;
-      if(i<=0){clearInterval(iv);ge('cdov').classList.remove('show');res();return;}
-      el.textContent=i;
-    },1000);
-  });
-}
-
-ge('btnCam').addEventListener('click',function(){camOn?stopCam():startCam(camId);});
-
-function startCam(devId){
-  navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false})
-    .then(function(s){
-      if(cStream)cStream.getTracks().forEach(function(t){t.stop();});
-      cStream=s;
-      ge('cv').srcObject=s;
-      ge('pip').classList.add('show');
-      ge('btnCam').classList.add('on');
-      camOn=true;
-      camId=s.getVideoTracks()[0].getSettings().deviceId;
-      fillCams();
-      makeDrag();
-    })
-    .catch(function(e){
-      var denied=e.name==='NotAllowedError'||e.name==='PermissionDeniedError';
-      ge('camT').textContent=denied?'Camera blocked':'Camera not found';
-      ge('camM').textContent=denied?'Chrome is blocking camera access. Quick fix:':'No camera detected. Check it is plugged in.';
-      var s=ge('camS');
-      if(denied){s.style.display='block';s.innerHTML='<li>Click the lock icon in your address bar</li><li>Set Camera to Allow</li><li>Reload the page then try again</li>';}
-      else{s.style.display='none';}
-      ge('camov').classList.add('show');
-    });
-}
-
-function stopCam(){
-  if(cStream)cStream.getTracks().forEach(function(t){t.stop();});
+function stopCam(){{
+  if(cStream)cStream.getTracks().forEach(function(t){{t.stop();}});
   cStream=null;camOn=false;
-  ge('pip').classList.remove('show');
-  ge('btnCam').classList.remove('on');
-}
+  QI('pip').classList.remove('show');QI('cb').classList.remove('on');
+}}
 
-function fillCams(){
-  navigator.mediaDevices.enumerateDevices().then(function(devs){
-    var cams=devs.filter(function(d){return d.kind==='videoinput';});
-    ge('cselect').innerHTML=cams.map(function(c,i){
-      return '<option value="'+c.deviceId+'"'+( c.deviceId===camId?' selected':'')+'>'+
-        (c.label||'Camera '+(i+1))+'</option>';
-    }).join('');
-  }).catch(function(){});
-}
+async function fillCams(){{
+  try{{
+    var d=await navigator.mediaDevices.enumerateDevices();
+    QI('cselect').innerHTML=d.filter(function(x){{return x.kind==='videoinput';}}).map(function(x,i){{
+      return '<option value="'+x.deviceId+'"'+( x.deviceId===camId?' selected':'')+'>' +(x.label||'Camera '+(i+1))+'</option>';
+    }}).join('');
+  }}catch(e){{}}
+}}
+async function swCam(id){{camId=id;if(camOn)await startCam(id);}}
+navigator.mediaDevices.addEventListener('devicechange',function(){{if(camOn)fillCams();}});
 
-ge('cselect').addEventListener('change',function(){
-  camId=this.value;
-  if(camOn)startCam(camId);
-});
+function drag(){{
+  var p=QI('pip'),ox=0,oy=0,dn=false;
+  p.onmousedown=function(e){{if(e.target===QI('cselect'))return;dn=true;ox=e.clientX-p.offsetLeft;oy=e.clientY-p.offsetTop;}};
+  document.onmousemove=function(e){{if(!dn)return;p.style.right='auto';p.style.bottom='auto';p.style.left=Math.max(0,e.clientX-ox)+'px';p.style.top=Math.max(0,e.clientY-oy)+'px';}};document.onmouseup=function(){{dn=false;}};
+}}
 
-navigator.mediaDevices.addEventListener('devicechange',function(){if(camOn)fillCams();});
+async function toggleRec(){{isRec?stopRec():await startRec();}}
 
-function makeDrag(){
-  var pip=ge('pip'),ox=0,oy=0,dn=false;
-  pip.addEventListener('mousedown',function(e){
-    if(e.target===ge('cselect'))return;
-    dn=true;ox=e.clientX-pip.offsetLeft;oy=e.clientY-pip.offsetTop;
-  });
-  document.addEventListener('mousemove',function(e){
-    if(!dn)return;
-    pip.style.right='auto';pip.style.bottom='auto';
-    pip.style.left=Math.max(0,e.clientX-ox)+'px';
-    pip.style.top=Math.max(0,e.clientY-oy)+'px';
-  });
-  document.addEventListener('mouseup',function(){dn=false;});
-}
+async function startRec(){{
+  if(!camOn){{if(confirm('Camera is off. Turn on for video+audio? OK=yes, Cancel=audio only.')){{await startCam(camId);if(!camOn)return;}}}}
+  try{{
+    var aS=await navigator.mediaDevices.getUserMedia({{audio:true,video:false}});
+    var rS=camOn&&cStream?new MediaStream([cStream.getVideoTracks()[0],aS.getAudioTracks()[0]]):aS;
+    var mimes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+    var mime=mimes.find(function(m){{return MediaRecorder.isTypeSupported(m);}});
+    chunks=[];mRec=new MediaRecorder(rS,mime?{{mimeType:mime}}:{{}});
+    mRec.ondataavailable=function(e){{if(e.data&&e.data.size)chunks.push(e.data);}};
+    mRec.onstop=function(){{
+      var ext=mime&&mime.includes('mp4')?'mp4':'webm';
+      var blob=new Blob(chunks,{{type:mime||'video/webm'}});
+      var url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='teleprompter-'+Date.now()+'.'+ext;a.click();
+      setTimeout(function(){{URL.revokeObjectURL(url);}},5000);
+      aS.getTracks().forEach(function(t){{t.stop();}});
+      QI('savmsg').textContent='Your '+(camOn?'video':'audio')+' ('+(blob.size/1048576).toFixed(1)+' MB) is downloading.';
+      QI('savov').classList.add('show');
+    }};
+    await cdown(3);mRec.start(500);isRec=true;rSec=0;
+    QI('tmr').style.display='block';QI('dot').className='live';
+    QI('rb').textContent='&#9209; Stop';QI('rb').classList.add('live');
+    rTmr=setInterval(function(){{rSec++;var m=Math.floor(rSec/60),s=rSec%60;QI('tmr').textContent=m+':'+(s<10?'0':'')+s;}},1000);
+    play();
+  }}catch(e){{alert('Recording error: '+e.message);}}
+}}
 
-ge('btnRec').addEventListener('click',function(){isRec?stopRec():startRec();});
-
-function startRec(){
-  if(!camOn){
-    if(!confirm('Camera is off. Record video+audio? OK=enable camera first, Cancel=audio only.')){ doRecord(); return; }
-    navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false})
-      .then(function(s){
-        if(cStream)cStream.getTracks().forEach(function(t){t.stop();});
-        cStream=s;ge('cv').srcObject=s;
-        ge('pip').classList.add('show');ge('btnCam').classList.add('on');
-        camOn=true;camId=s.getVideoTracks()[0].getSettings().deviceId;
-        fillCams();makeDrag();
-        doRecord();
-      })
-      .catch(function(){doRecord();});
-    return;
-  }
-  doRecord();
-}
-
-function doRecord(){
-  navigator.mediaDevices.getUserMedia({audio:true,video:false})
-    .then(function(aStream){
-      var rStream=camOn&&cStream
-        ?new MediaStream([cStream.getVideoTracks()[0],aStream.getAudioTracks()[0]])
-        :aStream;
-      var mimes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
-      var mime=mimes.find(function(m){return MediaRecorder.isTypeSupported(m);})||'';
-      chunks=[];
-      mRec=new MediaRecorder(rStream,mime?{mimeType:mime}:{});
-      mRec.addEventListener('dataavailable',function(e){if(e.data&&e.data.size)chunks.push(e.data);});
-      mRec.addEventListener('stop',function(){
-        var ext=mime.indexOf('mp4')>=0?'mp4':'webm';
-        var blob=new Blob(chunks,{type:mime||'video/webm'});
-        var url=URL.createObjectURL(blob);
-        var a=document.createElement('a');
-        a.href=url;a.download='teleprompter-'+Date.now()+'.'+ext;a.click();
-        setTimeout(function(){URL.revokeObjectURL(url);},5000);
-        aStream.getTracks().forEach(function(t){t.stop();});
-        ge('savmsg').textContent='Your '+(camOn?'video':'audio')+' ('+(blob.size/1048576).toFixed(1)+' MB) is downloading.';
-        ge('savov').classList.add('show');
-      });
-      return countdown(3).then(function(){
-        mRec.start(500);isRec=true;rSec=0;
-        ge('tmr').style.display='block';
-        ge('dot').className='live';
-        ge('btnRec').textContent='\u23F9 Stop';
-        ge('btnRec').classList.add('live');
-        rTmr=setInterval(function(){
-          rSec++;var m=Math.floor(rSec/60),s=rSec%60;
-          ge('tmr').textContent=m+':'+(s<10?'0':'')+s;
-        },1000);
-        play();
-      });
-    })
-    .catch(function(e){alert('Recording error: '+e.message);});
-}
-
-function stopRec(){
+function stopRec(){{
   if(mRec&&mRec.state!=='inactive')mRec.stop();
-  isRec=false;clearInterval(rTmr);stopPlay();
-  ge('tmr').style.display='none';
-  ge('dot').className='';
-  ge('btnRec').textContent='\u23FA Record';
-  ge('btnRec').classList.remove('live');
-}
+  isRec=false;clearInterval(rTmr);stop2();
+  QI('tmr').style.display='none';QI('dot').className='';
+  QI('rb').textContent='&#9210; Record';QI('rb').classList.remove('live');
+}}
 
-async function aiCall(sys,msg){
-  ge('asp').style.display='block';
-  try{
-    var r=await fetch('/api/teleprompter/ai',{
-      method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system:sys,message:msg})
-    });
-    var d=await r.json();
-    return d.text||'';
-  }catch(e){return '';}
-  finally{ge('asp').style.display='none';}
-}
+function cdown(n){{
+  return new Promise(function(res){{
+    QI('cdov').classList.add('show');
+    var i=n,el=QI('cdown');el.textContent=i;
+    var iv=setInterval(function(){{i--;if(i<=0){{clearInterval(iv);QI('cdov').classList.remove('show');res();return;}}el.textContent=i;}},1000);
+  }});
+}}
 
-ge('btnAiWrite').addEventListener('click',function(){
-  var t=ge('ain').value.trim();
-  if(!t){ge('ain').focus();return;}
-  aiCall(
-    'Write a clear conversational teleprompter script. Natural spoken English only, no brackets or headers. Short punchy sentences. 90-150 words. End with a call to action.',
-    t
-  ).then(function(r){if(r)ge('sta').value=r;});
-});
+function toggleMir(){{mir=!mir;document.body.classList.toggle('mir',mir);QI('mb').classList.toggle('on',mir);}}
 
-ge('btnAiTighten').addEventListener('click',function(){
-  var c=ge('sta').value.trim(); if(!c)return;
-  aiCall('Tighten this teleprompter script: shorter sentences, remove filler, keep the voice. Return ONLY the improved script.',c)
-    .then(function(r){if(r)ge('sta').value=r;});
-});
+function openEd(){{stop2();QI('sta').value=words.join(' ');QI('edov').classList.add('show');}}
+function closeEd(save){{
+  QI('edov').classList.remove('show');
+  if(save){{var t=QI('sta').value.trim();if(t){{localStorage.setItem('tp_s',t);loadScript(t);}}}}
+}}
 
-ge('btnAiHook').addEventListener('click',function(){
-  var c=ge('sta').value.trim(); if(!c)return;
-  aiCall('Rewrite ONLY the opening 1-2 sentences to be a stronger hook. Return full script with improved opening.',c)
-    .then(function(r){if(r)ge('sta').value=r;});
-});
+async function aiCall(sys,msg){{
+  QI('asp').style.display='block';
+  try{{var r=await sfetch('/api/teleprompter/ai',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{system:sys,message:msg}})}});var d=await r.json();return d.text||'';}}catch(e){{return'';}}
+  finally{{QI('asp').style.display='none';}}
+}}
+async function aiW(){{var t=QI('ain').value.trim();if(!t){{QI('ain').focus();return;}}var r=await aiCall('Write a clear conversational teleprompter script. Natural spoken English only, no brackets or headers. Short punchy sentences. 90-150 words. End with a call to action.',t);if(r)QI('sta').value=r;}}
+async function aiR(){{var c=QI('sta').value.trim();if(!c)return;var r=await aiCall('Tighten this script: shorter sentences, remove filler, keep the voice. Return ONLY the improved script.',c);if(r)QI('sta').value=r;}}
+async function aiH(){{var c=QI('sta').value.trim();if(!c)return;var r=await aiCall('Rewrite ONLY the opening 1-2 sentences to be a stronger hook. Return full script with improved opening.',c);if(r)QI('sta').value=r;}}
 
-document.addEventListener('keydown',function(e){
-  var inEd=ge('edov').classList.contains('show');
+document.addEventListener('keydown',function(e){{
+  var inEd=QI('edov').classList.contains('show');
   if(inEd&&e.code!=='Escape')return;
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
-  if(e.code==='Space'){e.preventDefault();isPlay?stopPlay():play();}
-  if(e.code==='ArrowRight'||e.code==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}
-  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);render();}
-  if(e.code==='Home'){e.preventDefault();resetTop();}
-  if(e.code==='KeyR')ge('btnRec').click();
-  if(e.code==='KeyC')ge('btnCam').click();
-  if(e.code==='KeyM')ge('btnMir').click();
-  if(e.code==='Escape'&&inEd)ge('edov').classList.remove('show');
-});
+  if(e.code==='Space'){{e.preventDefault();isPlay?stop2():play();}}
+  if(e.code==='ArrowRight'||e.code==='ArrowDown'){{e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}}
+  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){{e.preventDefault();idx=Math.max(idx-1,0);render();}}
+  if(e.code==='Home'){{e.preventDefault();goTop();}}
+  if(e.code==='KeyR')toggleRec();
+  if(e.code==='KeyC')toggleCam();
+  if(e.code==='KeyM')toggleMir();
+  if(e.code==='Escape'&&inEd)closeEd(false);
+}});
 
 var tx0=0;
-ge('sb').addEventListener('touchstart',function(e){tx0=e.touches[0].clientX;},{passive:true});
-ge('sb').addEventListener('touchend',function(e){
+QI('sb').addEventListener('touchstart',function(e){{tx0=e.touches[0].clientX;}},{{passive:true}});
+QI('sb').addEventListener('touchend',function(e){{
   var dx=e.changedTouches[0].clientX-tx0;
-  if(Math.abs(dx)>55){idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}
-},{passive:true});
+  if(Math.abs(dx)>55){{idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}}
+}},{{passive:true}});
 
 window.addEventListener('resize',posRL);
 init();
-})();
 </script>
 </body>
 </html>"""
@@ -9524,10 +9564,7 @@ def teleprompter_page():
     u = current_user()
     if not u:
         return redirect(url_for("login") + "?next=/teleprompter")
-    resp = make_response(_TELEPROMPTER_HTML)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    return _TELEPROMPTER_HTML
 
 @app.post("/api/teleprompter/ai")
 def api_teleprompter_ai():
@@ -10046,8 +10083,10 @@ def register_post():
 
     session["user"] = username
     session.permanent = True
-    _audit_log("register", {"email": email, "is_admin": is_first_user, "direct": True}, username=username)
     return redirect(url_for("index"))
+
+
+# ── Pending email verification storage ────────────────────────────────────────
 _PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
 
 def _load_pending_verifications() -> Dict[str, Any]:
@@ -10148,8 +10187,9 @@ def verify_email_post():
 
     session["user"] = username
     session.permanent = True
-    _audit_log("register", {"email": email, "is_admin": is_first}, username=username)
     return redirect(url_for("index"))
+
+@app.get("/verify/resend")
 def verify_resend():
     token = session.get("_pending_verify_token", "")
     if not token:
@@ -10651,7 +10691,6 @@ def reset_password_post():
     u["updated_at"] = now_iso()
     data["users"][username] = u
     save_users(data)
-    _audit_log("password_reset_completed", {}, username=username)
 
     return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
 
@@ -11169,16 +11208,6 @@ HTML = r"""
     .seatToolBtn:hover{
       background: rgba(22,34,72,.78);
       border-color: rgba(124,58,237,.55);
-    }
-    .seatStackBtn{
-      color: #a78bfa;
-      border-color: rgba(124,58,237,.5);
-      background: rgba(124,58,237,.1);
-    }
-    .seatStackBtn:hover{
-      background: rgba(124,58,237,.22);
-      border-color: rgba(124,58,237,.75);
-      color: #c4b5fd;
     }
 
     .side{
@@ -12828,7 +12857,6 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👤 CRM</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var p=document.getElementById('notifPanel');if(p){p.style.position='fixed';p.style.top='0';p.style.left='0';p.style.right='0';p.style.bottom='0';p.style.width='100%';p.style.maxHeight='100vh';p.style.borderRadius='0';p.style.zIndex='99999';p.style.display='block';if(typeof loadNotifs==='function')loadNotifs();}},200);">🔔 Notifications</button>
           </div>
         </div>
 
@@ -16187,19 +16215,6 @@ function makeSeat(defn, idx){
 
       tools.appendChild(editBtn);
 
-      if(window._SA_UNLOCKS && window._SA_UNLOCKS.indexOf('action_stacks') !== -1){
-        const stackBtn = document.createElement("button");
-        stackBtn.className = "seatToolBtn seatStackBtn";
-        stackBtn.innerText = "⚡ Stack";
-        stackBtn.title = "Build & run an Action Stack for this teammate";
-        stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-        stackBtn.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openStackModal(defn.name);
-        });
-        tools.appendChild(stackBtn);
-      }
 
       seat.appendChild(tools);
 
@@ -16637,13 +16652,6 @@ function makeSeat(defn, idx){
       // smtpStatus hidden — Gmail OAuth handles email connection
 
       setEmailFrom(selectedSeat || "");
-      // Fetch rank unlocks before rendering seats so makeSeat() can
-      // conditionally show tier-gated buttons without a flicker.
-      try{
-        const ulRes = await fetch('/api/community/my_unlocks');
-        const ulData = await ulRes.json();
-        window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
-      } catch(_){ window._SA_UNLOCKS = []; }
       renderTable();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
@@ -17015,7 +17023,6 @@ function makeSeat(defn, idx){
     }
 
     $("refreshThread").onclick = refreshThread;
-    window.refreshThread = refreshThread; // expose globally for stack modal
 
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
@@ -17427,18 +17434,7 @@ function makeSeat(defn, idx){
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      // Toggle stream-TTS mode: speak first sentence as it arrives
-      window._streamTtsEnabled = !window._streamTtsEnabled;
-      if(window._streamTtsEnabled){
-        btn.classList.add("btnPrimary");
-        btn.textContent = "🔊 Auto-Speak: ON";
-        if(typeof showToast==="function") showToast("🔊 Auto-Speak on — teammates will speak as they respond");
-        return;
-      } else {
-        btn.classList.remove("btnPrimary");
-        btn.textContent = "🔊 Speak";
-        // Fall through to speak current text manually
-      }
+      // Fall back to window.lastSeatAssistantText which the streaming IIFE writes to
       var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
       if(!text.trim()){
         if(typeof showToast==="function") showToast("No teammate reply yet — send a message first.", "error");
@@ -27172,8 +27168,6 @@ document.addEventListener("click", function(e) {
     // If already playing, stop
     if(window._saTtsPlaying){
       window._saTtsPlaying = false;
-window._streamTtsEnabled = false; // auto-speak mode: first sentence plays as it streams
-window._streamTtsFired = false;
       try{ window._saTtsAudio.pause(); }catch(_){}
       try{ speechSynthesis.cancel(); }catch(_){}
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
@@ -27343,7 +27337,6 @@ window._streamTtsFired = false;
 
     if(msgEl) msgEl.value="";
     let fullText = "";
-    window._streamTtsFired = false; // reset per-message so first sentence speaks
 
     try{
       const response = await fetch("/api/followup/stream",{
@@ -27377,19 +27370,6 @@ window._streamTtsFired = false;
             aBody.innerText = fullText;
             aBody.appendChild(aCursor);
             threadEl.scrollTop = threadEl.scrollHeight;
-            // ── Sentence-streaming TTS: speak first sentence ~1s after it arrives ──
-            if(window._streamTtsEnabled && !window._streamTtsFired){
-              var sentEnd = fullText.search(/[.!?][\s\n]/);
-              if(sentEnd > 20){
-                window._streamTtsFired = true;
-                var firstSent = fullText.slice(0, sentEnd+1).trim();
-                var _tmDef = (typeof _tm === "function") ? _tm(seat) : {};
-                var _voice = (_tmDef && _tmDef.tts_voice) || "alloy";
-                if(typeof window.saTtsSpeak === "function"){
-                  window.saTtsSpeak(firstSent, _voice, null);
-                }
-              }
-            }
           }
           if(parsed.error){ throw new Error(parsed.error); }
           if(parsed.done){
@@ -27619,27 +27599,17 @@ window._streamTtsFired = false;
     </div>
     <div class="cp-tabs">
       <div class="cp-tab active" id="cpTab-leaderboard" onclick="cpSwitchTab('leaderboard')">🏆 Leaderboard</div>
-      <div class="cp-tab" id="cpTab-unlocks"     onclick="cpSwitchTab('unlocks')">🔓 Unlocks</div>
-      <div class="cp-tab" id="cpTab-ideas"       onclick="cpSwitchTab('ideas')">💡 Ideas</div>
-      <div class="cp-tab" id="cpTab-stats"       onclick="cpSwitchTab('stats')">📊 My Stats</div>
+      <div class="cp-tab" id="cpTab-ideas" onclick="cpSwitchTab('ideas')">💡 Idea Board</div>
+      <div class="cp-tab" id="cpTab-stats" onclick="cpSwitchTab('stats')">📊 My Stats</div>
       <div class="cp-tab" id="cpTab-moderate" style="display:none;" onclick="cpSwitchTab('moderate')">🔧 Moderate <span id="cpModBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 6px;margin-left:3px;"></span></div>
     </div>
-
-    <!-- LEADERBOARD -->
     <div class="cp-body" id="cpLeaderboard">
       <div class="lb-toggle">
-        <button class="lb-btn active" id="lbAllBtn"  onclick="cpShowLB('all')">🌍 All-Time</button>
-        <button class="lb-btn"        id="lbWeekBtn" onclick="cpShowLB('week')">📅 This Week</button>
+        <button class="lb-btn active" id="lbAllBtn" onclick="cpShowLB('all')">🌍 All-Time</button>
+        <button class="lb-btn" id="lbWeekBtn" onclick="cpShowLB('week')">📅 This Week</button>
       </div>
       <div id="lbList"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading leaderboard...</div></div>
     </div>
-
-    <!-- UNLOCKS -->
-    <div class="cp-body" id="cpUnlocks" style="display:none;">
-      <div id="unlocksContent"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading...</div></div>
-    </div>
-
-    <!-- IDEAS -->
     <div class="cp-body" id="cpIdeas" style="display:none;">
       <div class="idea-form">
         <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">💡 Submit a Feature Idea <span class="tiny" style="color:#475569;font-weight:400;">(+20 points)</span></div>
@@ -27653,13 +27623,9 @@ window._streamTtsFired = false;
       </div>
       <div id="ideasList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading ideas...</div></div>
     </div>
-
-    <!-- STATS -->
     <div class="cp-body" id="cpStats" style="display:none;">
       <div id="statsContent"><div class="tiny" style="opacity:.5;text-align:center;padding:40px;">Loading your stats...</div></div>
     </div>
-
-    <!-- MODERATE -->
     <div class="cp-body" id="cpModerate" style="display:none;">
       <div style="font-size:14px;font-weight:700;color:#fcd34d;margin-bottom:14px;">🔧 Pending Ideas — Review Queue</div>
       <div id="modList"><div class="tiny" style="opacity:.5;text-align:center;padding:30px;">Loading...</div></div>
@@ -27669,7 +27635,7 @@ window._streamTtsFired = false;
 
 <script>
 (function(){
-  var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:'', myRank:null};
+  var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:''};
 
   window.openCommunityPanel = function(tab){
     document.getElementById('communityPanel').classList.add('open');
@@ -27683,16 +27649,15 @@ window._streamTtsFired = false;
 
   window.cpSwitchTab = function(tab){
     _cp.activeTab = tab;
-    ['leaderboard','unlocks','ideas','stats','moderate'].forEach(function(t){
+    ['leaderboard','ideas','stats','moderate'].forEach(function(t){
       var b=document.getElementById('cpTab-'+t), p=document.getElementById('cp'+t.charAt(0).toUpperCase()+t.slice(1));
       if(b) b.classList.toggle('active', t===tab);
       if(p) p.style.display = t===tab ? '' : 'none';
     });
     if(tab==='leaderboard') _cpLoadLB();
-    if(tab==='unlocks')     _cpLoadUnlocks();
-    if(tab==='ideas')       _cpLoadIdeas();
-    if(tab==='stats')       _cpLoadStats();
-    if(tab==='moderate')    _cpLoadMod();
+    if(tab==='ideas') _cpLoadIdeas();
+    if(tab==='stats') _cpLoadStats();
+    if(tab==='moderate') _cpLoadMod();
   };
 
   window.cpShowLB = function(mode){
@@ -27702,7 +27667,6 @@ window._streamTtsFired = false;
     _renderLB();
   };
 
-  /* ── LEADERBOARD ── */
   function _cpLoadLB(){
     if(_cp.lb){_renderLB();return;}
     fetch('/api/community/leaderboard').then(function(r){return r.json();}).then(function(d){if(d.ok){_cp.lb=d;_renderLB();}}).catch(function(){});
@@ -27726,86 +27690,6 @@ window._streamTtsFired = false;
     box.innerHTML=html;
   }
 
-  /* ── UNLOCKS ── */
-  var _TIERS = [
-    {tier:1, name:'Operator in Training', emoji:'🌱', min:0,     next:100,   unlocks:[], desc:'Core app + standard prompts'},
-    {tier:2, name:'Field Agent',          emoji:'⚡', min:100,   next:500,   unlocks:['Personal Action Stacks'], desc:'Build and run your own prompt queues per teammate. Chained by default — each step builds on the last.'},
-    {tier:3, name:'Command Ready',        emoji:'🔥', min:500,   next:1500,  unlocks:['Orchestra Mode','Teammate Memory Boost'], desc:'Orchestra: your team collaborates on one piece of content, each applying their domain. Memory Boost: your operator profile auto-injected into every conversation.'},
-    {tier:4, name:'Senior Operator',      emoji:'💎', min:1500,  next:5000,  unlocks:['Deep Dive Mode','Persona Export/Import'], desc:'Deep Dive: 3 automatic rounds — draft, self-critique, definitive final. Persona Export: share your custom teammates with other operators.'},
-    {tier:5, name:'Elite Operator',       emoji:'🚀', min:5000,  next:15000, unlocks:['Fusion Mode','Compass Pro'], desc:'Fusion: GPT-4o + Claude run simultaneously, synthesized into one answer. Compass Pro: full CRM & calendar context in every Compass response.'},
-    {tier:6, name:'Legendary',            emoji:'👑', min:15000, next:null,  unlocks:['Founding Contributor Badge','Tier 6 Prompt Pack'], desc:'Permanent Founding Contributor badge across all community surfaces. Exclusive Tier 6 prompt library — the rarest and most powerful prompts in the platform.'},
-  ];
-
-  function _cpLoadUnlocks(){
-    fetch('/api/community/my_unlocks').then(function(r){return r.json();}).then(function(d){
-      if(d.ok) _renderUnlocks(d.rank);
-    }).catch(function(){});
-  }
-
-  function _renderUnlocks(rank){
-    var box=document.getElementById('unlocksContent'); if(!box)return;
-    var userTier = rank ? rank.tier : 1;
-    var userPts  = rank ? rank.points : 0;
-    var html='';
-    html+='<div style="text-align:center;padding:16px 0 10px;">';
-    html+='<div style="font-size:32px;margin-bottom:4px;">'+(rank?rank.emoji:'🌱')+'</div>';
-    html+='<div style="font-size:15px;font-weight:700;color:#c4b5fd;">'+(rank?rank.name:'Operator in Training')+'</div>';
-    html+='<div style="font-size:12px;color:#475569;margin-top:3px;">'+userPts.toLocaleString()+' points earned</div>';
-    html+='</div>';
-
-    _TIERS.forEach(function(t){
-      var unlocked = userTier >= t.tier;
-      var isCurrent = userTier === t.tier;
-      var ptsNeeded = Math.max(0, t.min - userPts);
-      var borderCol = unlocked ? 'rgba(124,58,237,.45)' : 'rgba(42,58,106,.3)';
-      var bgCol     = unlocked ? 'rgba(124,58,237,.08)' : 'rgba(14,22,48,.5)';
-      var opacity   = unlocked ? '1' : '0.55';
-      html+='<div style="margin-bottom:10px;padding:13px 15px;border-radius:12px;border:1px solid '+borderCol+';background:'+bgCol+';opacity:'+opacity+';">';
-      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
-      html+='<span style="font-size:18px;">'+t.emoji+'</span>';
-      html+='<span style="font-size:13px;font-weight:700;color:'+(unlocked?'#c4b5fd':'#64748b')+';">'+_e(t.name)+'</span>';
-      if(isCurrent) html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(124,58,237,.25);color:#c4b5fd;margin-left:auto;">YOU ARE HERE</span>';
-      else if(unlocked) html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(110,231,183,.12);color:#6ee7b7;margin-left:auto;">✓ UNLOCKED</span>';
-      else html+='<span style="font-size:10px;padding:2px 8px;border-radius:20px;background:rgba(71,85,105,.2);color:#475569;margin-left:auto;">'+ptsNeeded.toLocaleString()+' pts away</span>';
-      html+='</div>';
-      if(t.unlocks.length){
-        html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px;">';
-        t.unlocks.forEach(function(u){
-          html+='<span style="font-size:11px;padding:2px 9px;border-radius:6px;background:'+(unlocked?'rgba(124,58,237,.18)':'rgba(42,58,106,.2)')+';color:'+(unlocked?'#a78bfa':'#475569')+';">'+_e(u)+'</span>';
-        });
-        html+='</div>';
-      }
-      html+='<div style="font-size:11px;color:'+(unlocked?'#94a3b8':'#334155')+';">'+_e(t.desc)+'</div>';
-      if(!unlocked && t.min>0){
-        var pct=Math.min(100,Math.round((userPts/t.min)*100));
-        html+='<div style="margin-top:8px;height:4px;border-radius:2px;background:rgba(42,58,106,.4);overflow:hidden;">';
-        html+='<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#7c3aed,#6d28d9);border-radius:2px;transition:width .4s;"></div></div>';
-        html+='<div style="font-size:10px;color:#334155;margin-top:3px;">'+userPts.toLocaleString()+' / '+t.min.toLocaleString()+' pts</div>';
-      }
-      html+='</div>';
-    });
-
-    html+='<div style="margin-top:14px;padding:12px;border-radius:10px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.4);">';
-    html+='<div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:8px;">⚡ How to earn points</div>';
-    var ways=[
-      ['Chat with a teammate','3 pts'],['Add a CRM contact','5 pts'],
-      ['Move a contact through pipeline','10 pts'],['Upload a file','20 pts'],
-      ['Book a calendar event','15 pts'],['Send a broadcast','30 pts'],
-      ['Run an Action Stack','40 pts'],['Run Deep Dive Mode','45 pts'],
-      ['Run Orchestra Mode','50 pts'],['Run Fusion Mode','80 pts'],
-      ['Submit an idea','20 pts'],['Idea gets approved','75 pts'],
-      ['Idea gets upvoted','5 pts each'],['Idea gets shipped','200 pts'],
-      ['Complete onboarding step','25 pts'],['Run Lead Lab','10–60 pts'],
-    ];
-    ways.forEach(function(w){
-      html+='<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(42,58,106,.2);">';
-      html+='<span style="color:#94a3b8;">'+_e(w[0])+'</span><span style="color:#c4b5fd;font-weight:600;">'+_e(w[1])+'</span></div>';
-    });
-    html+='</div>';
-    box.innerHTML=html;
-  }
-
-  /* ── IDEAS ── */
   function _cpLoadIdeas(){
     fetch('/api/community/ideas').then(function(r){return r.json();}).then(function(d){if(d.ok){_renderIdeas(d.ideas);}}).catch(function(){});
   }
@@ -27851,15 +27735,13 @@ window._streamTtsFired = false;
       }).catch(function(){if(st)st.innerText='Network error.';});
   };
 
-  /* ── STATS ── */
   function _cpLoadStats(){
     fetch('/api/community/my_stats').then(function(r){return r.json();}).then(function(d){
       if(!d.ok)return;
       _cp.me = d.username||_cp.me||'';
-      _cp.myRank = d.rank_info || null;
       _renderStats(d);
       var nb=document.getElementById('navLevelBadge');
-      if(nb){nb.style.display='';nb.innerText=(d.rank_info?d.rank_info.emoji:d.level.emoji)+' '+(d.rank_info?d.rank_info.name:d.level.name);}
+      if(nb){nb.style.display='';nb.innerText=d.level.emoji+' '+d.level.name;}
       if(d.is_admin){
         var mt=document.getElementById('cpTab-moderate');if(mt)mt.style.display='';
         if(d.pending_count>0){
@@ -27872,39 +27754,43 @@ window._streamTtsFired = false;
 
   function _renderStats(d){
     var box=document.getElementById('statsContent');if(!box)return;
-    var ri=d.rank_info||{};
-    var total=d.total||0, weekly=d.weekly||0;
-    var pct=ri.progress_pct||0, ptn=ri.points_to_next||0;
+    var lvl=d.level||{},total=d.total||0,weekly=d.weekly||0;
+    var nextPts=lvl.next||null,minPts=lvl.min||0;
+    var pct=nextPts?Math.min(100,Math.round(((total-minPts)/(nextPts-minPts))*100)):100;
+    var levHtml='<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">';
+    [{emoji:'🌱',name:'Recruit',min:0},{emoji:'⚡',name:'Operator',min:500},{emoji:'🔥',name:'Commander',min:1500},{emoji:'💎',name:'Elite',min:4000},{emoji:'👑',name:'Legend',min:10000}].forEach(function(l){
+      var done=total>=l.min;
+      levHtml+='<div style="font-size:11px;padding:3px 9px;border-radius:6px;'+(done?'background:rgba(124,58,237,.18);color:#c4b5fd;border:1px solid rgba(124,58,237,.3);':'color:#334155;border:1px solid rgba(42,58,106,.3);')+'">'+l.emoji+' '+l.name+'</div>';
+    });
+    levHtml+='</div>';
     var histHtml='';
     if(d.history&&d.history.length){
-      histHtml='<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:16px 0 10px;">📋 Recent Activity</div>';
+      histHtml='<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:10px;">📋 Recent Activity</div>';
       d.history.forEach(function(h){histHtml+='<div class="hist-item"><span class="hist-event">'+_e(h.event)+'</span><span class="hist-pts">+'+h.amount+'</span></div>';});
     }
-    var nextLabel = ri.next ? ri.next.toLocaleString()+' pts' : '🏆 MAX';
     box.innerHTML=
       '<div class="stats-hero">'+
-        '<div class="stats-lvl-emoji">'+(ri.emoji||'🌱')+'</div>'+
-        '<div class="stats-lvl-name">'+_e(ri.name||'Operator in Training')+'</div>'+
+        '<div class="stats-lvl-emoji">'+lvl.emoji+'</div>'+
+        '<div class="stats-lvl-name">'+_e(lvl.name)+'</div>'+
         '<div class="stats-pts">'+total.toLocaleString()+' total points</div>'+
         '<div class="stats-rank">Rank #'+d.rank+' of '+d.total_users+' operators</div>'+
-        (ri.next
-          ? '<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
-            '<div class="progress-label"><span>'+pct+'% to '+_e(ri.next?_TIERS.find(function(t){return t.tier===(ri.tier||0)+1;})||{}:{})+'</span><span>'+ptn.toLocaleString()+' pts to next rank</span></div>'
-          : '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum rank reached — Legendary!</div>')+
+        (nextPts?'<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
+        '<div class="progress-label"><span>'+_e(lvl.emoji)+' '+_e(lvl.name)+'</span><span>'+total.toLocaleString()+' / '+nextPts.toLocaleString()+' XP to next level</span></div>':
+        '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum level reached!</div>')+
+        levHtml+
       '</div>'+
       '<div class="stats-grid">'+
         '<div class="stat-box"><div class="stat-box-n">'+total.toLocaleString()+'</div><div class="stat-box-l">All-Time Points</div></div>'+
         '<div class="stat-box"><div class="stat-box-n">'+weekly.toLocaleString()+'</div><div class="stat-box-l">This Week</div></div>'+
         '<div class="stat-box"><div class="stat-box-n">#'+d.rank+'</div><div class="stat-box-l">Your Rank</div></div>'+
-        '<div class="stat-box"><div class="stat-box-n">'+pct+'%</div><div class="stat-box-l">To Next Rank</div></div>'+
+        '<div class="stat-box"><div class="stat-box-n">'+pct+'%</div><div class="stat-box-l">To Next Level</div></div>'+
       '</div>'+
-      '<div style="margin:10px 0;padding:10px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#64748b;cursor:pointer;" onclick="cpSwitchTab(\'unlocks\')">'+
-        '<strong style="color:#c4b5fd;">🔓 See all rank unlocks →</strong> Track what you\'ve earned and what\'s coming next.'+
+      '<div style="margin-bottom:14px;padding:12px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#64748b;">'+
+        '<strong style="color:#c4b5fd;">How to earn points:</strong> Chat with teammates (+3), add CRM contacts (+5), run Lead Lab (+10-60), generate content (+10), submit ideas (+20), get ideas upvoted (+5 each), get an idea shipped (+200).'+
       '</div>'+
       histHtml;
   }
 
-  /* ── MODERATE ── */
   function _cpLoadMod(){
     fetch('/api/community/pending_ideas').then(function(r){return r.json();}).then(function(d){if(d.ok)_renderMod(d.ideas);}).catch(function(){});
   }
@@ -27918,16 +27804,17 @@ window._streamTtsFired = false;
         (idea.body?'<div class="mod-body-txt">'+_e(idea.body)+'</div>':'')+
         '<div class="mod-by">From: '+_e(idea.submitted_by)+'</div>'+
         '<div class="mod-btns">'+
-          '<button class="mod-btn mod-approve"  onclick="cpMod(\''+_e(idea.id)+'\',\'approved\')">✅ Approve</button>'+
+          '<button class="mod-btn mod-approve" onclick="cpMod(\''+_e(idea.id)+'\',\'approved\')">✅ Approve</button>'+
           '<button class="mod-btn mod-consider" onclick="cpMod(\''+_e(idea.id)+'\',\'considering\')">💭 Considering</button>'+
-          '<button class="mod-btn mod-inprog"   onclick="cpMod(\''+_e(idea.id)+'\',\'in_progress\')">🚀 In Progress</button>'+
-          '<button class="mod-btn mod-ship"     onclick="cpMod(\''+_e(idea.id)+'\',\'shipped\')">📦 Ship It (+200 pts!)</button>'+
-          '<button class="mod-btn mod-reject"   onclick="cpMod(\''+_e(idea.id)+'\',\'rejected\')">❌ Reject</button>'+
+          '<button class="mod-btn mod-inprog" onclick="cpMod(\''+_e(idea.id)+'\',\'in_progress\')">🚀 In Progress</button>'+
+          '<button class="mod-btn mod-ship" onclick="cpMod(\''+_e(idea.id)+'\',\'shipped\')">📦 Ship It (+200 pts!)</button>'+
+          '<button class="mod-btn mod-reject" onclick="cpMod(\''+_e(idea.id)+'\',\'rejected\')">❌ Reject</button>'+
         '</div></div>';
     });
     box.innerHTML=html;
   }
-  window.cpMod = function(id,status){
+
+  window.cpMod = function(id, status){
     fetch('/api/community/ideas/'+encodeURIComponent(id)+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:status})})
       .then(function(r){return r.json();}).then(function(d){
         if(d.ok){var el=document.getElementById('mc-'+id);if(el)el.remove();_cpLoadStats();_cp.lb=null;}
@@ -27941,347 +27828,6 @@ window._streamTtsFired = false;
 })();
 </script>
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
-
-<!-- ═══ ACTION STACK MODAL ═══ -->
-<div id="stackModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.80);backdrop-filter:blur(5px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)closeStackModal()">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(640px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
-      <div>
-        <div id="stackModalTitle" style="font-size:16px;font-weight:800;color:#c4b5fd;">⚡ Action Stack</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px;">Queue up prompts — teammate works through them one by one</div>
-      </div>
-      <button onclick="closeStackModal()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
-    </div>
-
-    <!-- Stack Name -->
-    <div style="padding:14px 22px 0;">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <label style="font-size:12px;color:#64748b;white-space:nowrap;">Stack name:</label>
-        <input id="stackNameInput" maxlength="60" placeholder="My Stack"
-          style="flex:1;min-width:140px;background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.8);color:#e2e8f0;border-radius:8px;padding:6px 12px;font-size:13px;outline:none;"/>
-        <div style="font-size:11px;color:#334155;" id="stackStepCount">0 / 10 steps</div>
-      </div>
-    </div>
-
-    <!-- Saved stacks picker -->
-    <div id="savedStacksRow" style="padding:8px 22px 0;display:none;">
-      <div style="font-size:11px;color:#475569;margin-bottom:5px;">Saved stacks for this teammate:</div>
-      <div id="savedStacksList" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-    </div>
-
-    <!-- Prompt Steps -->
-    <div id="stackSteps" style="padding:14px 22px;display:flex;flex-direction:column;gap:10px;max-height:50vh;overflow-y:auto;"></div>
-
-    <!-- Add step -->
-    <div style="padding:0 22px 14px;">
-      <button id="stackAddBtn" onclick="stackAddStep()"
-        style="width:100%;padding:9px;border:1px dashed rgba(124,58,237,.35);border-radius:10px;background:transparent;color:#7c3aed;font-size:13px;cursor:pointer;transition:all .15s;">
-        + Add Prompt Step
-      </button>
-    </div>
-
-    <!-- Actions -->
-    <div style="display:flex;gap:10px;padding:14px 22px;border-top:1px solid rgba(42,58,106,.5);flex-wrap:wrap;">
-      <button onclick="stackSave(false)" id="stackSaveBtn"
-        style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">
-        💾 Save Stack
-      </button>
-      <button onclick="stackRun()" id="stackRunBtn"
-        style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">
-        ▶ Run Stack
-      </button>
-    </div>
-
-    <!-- Results -->
-    <div id="stackResults" style="display:none;padding:0 22px 20px;">
-      <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:12px;padding-top:4px;border-top:1px solid rgba(42,58,106,.4);">📋 Results</div>
-      <div id="stackResultsList" style="display:flex;flex-direction:column;gap:10px;"></div>
-    </div>
-
-  </div>
-</div>
-
-<script>
-(function(){
-  var _sm = { teammate:'', steps:[], running:false };
-  var MAX_STEPS = 10;
-
-  window.openStackModal = function(tmName){
-    _sm.teammate = tmName;
-    _sm.steps = [];
-    _sm.running = false;
-    document.getElementById('stackModalTitle').innerText = '⚡ ' + tmName + ' — Action Stack';
-    document.getElementById('stackNameInput').value = '';
-    document.getElementById('stackResults').style.display = 'none';
-    document.getElementById('stackResultsList').innerHTML = '';
-    document.getElementById('stackSteps').innerHTML = '';
-    _smUpdateCount();
-    // Start with 1 empty step
-    _smAddStep();
-    // Load saved stacks
-    _smLoadSaved(tmName);
-    var m = document.getElementById('stackModal');
-    m.style.display = 'flex';
-  };
-
-  window.closeStackModal = function(){
-    if(_sm.running) return; // block close during run
-    document.getElementById('stackModal').style.display = 'none';
-  };
-
-  function _smLoadSaved(tmName){
-    var row = document.getElementById('savedStacksRow');
-    var list = document.getElementById('savedStacksList');
-    if(row) row.style.display = 'none';
-    fetch('/api/teammates/' + encodeURIComponent(tmName) + '/stacks')
-      .then(function(r){return r.json();})
-      .then(function(d){
-        // API returns {ok, stacks: ["name1","name2"]} — stacks is an array of names
-        if(!d.ok || !d.stacks || !d.stacks.length) return;
-        var names = d.stacks; // already an array of name strings
-        var html = '';
-        names.forEach(function(n){
-          html += '<button onclick="smLoadStack(' + JSON.stringify(n) + ')" '
-            + 'style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(124,58,237,.35);background:rgba(124,58,237,.1);color:#a78bfa;cursor:pointer;">'
-            + _smE(n) + '</button>';
-        });
-        if(list) list.innerHTML = html;
-        if(row) row.style.display = '';
-      }).catch(function(){});
-  }
-
-  window.smLoadStack = function(name){
-    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name))
-      .then(function(r){return r.json();})
-      .then(function(d){
-        if(!d.ok || !d.stack) return;
-        var stack = d.stack;
-        document.getElementById('stackNameInput').value = stack.name || name;
-        var steps = stack.steps || [];
-        document.getElementById('stackSteps').innerHTML = '';
-        _sm.steps = [];
-        steps.forEach(function(s){
-          _smAddStep(s.prompt || '', s.chained !== false);
-        });
-        document.getElementById('stackResults').style.display = 'none';
-      }).catch(function(){});
-  };
-
-  window.stackAddStep = function(){ _smAddStep('', true); };
-
-  function _smAddStep(prompt, chained){
-    if(_sm.steps.length >= MAX_STEPS) {
-      if(typeof showToast === 'function') showToast('Maximum ' + MAX_STEPS + ' steps reached', 'error');
-      return;
-    }
-    var idx = _sm.steps.length;
-    _sm.steps.push({ prompt: prompt || '', chained: chained !== false });
-
-    var container = document.getElementById('stackSteps');
-    var row = document.createElement('div');
-    row.id = 'smRow_' + idx;
-    row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid rgba(42,58,106,.6);border-radius:12px;background:rgba(14,22,48,.5);position:relative;';
-
-    // Row header: step number + chained toggle + delete
-    var hdr = document.createElement('div');
-    hdr.style.cssText = 'display:flex;align-items:center;gap:8px;';
-
-    var stepNum = document.createElement('span');
-    stepNum.style.cssText = 'font-size:11px;font-weight:700;color:#475569;min-width:52px;';
-    stepNum.innerText = 'STEP ' + (idx + 1);
-    hdr.appendChild(stepNum);
-
-    // Chained toggle
-    var chainWrap = document.createElement('label');
-    chainWrap.style.cssText = 'display:flex;align-items:center;gap:5px;cursor:pointer;user-select:none;';
-    var chainCheck = document.createElement('input');
-    chainCheck.type = 'checkbox';
-    chainCheck.checked = (chained !== false);
-    chainCheck.style.cssText = 'accent-color:#7c3aed;width:13px;height:13px;cursor:pointer;';
-    chainCheck.title = 'Chained: previous step output is automatically passed as context';
-    var chainLabel = document.createElement('span');
-    chainLabel.style.cssText = 'font-size:11px;color:#64748b;';
-    chainLabel.innerText = 'Chained';
-    chainWrap.appendChild(chainCheck);
-    chainWrap.appendChild(chainLabel);
-    hdr.appendChild(chainWrap);
-
-    // Chain help tooltip
-    var chainHelp = document.createElement('span');
-    chainHelp.style.cssText = 'font-size:10px;color:#334155;';
-    chainHelp.title = 'When chained, the previous step\'s output is automatically sent as context. Turn off for a completely fresh prompt.';
-    chainHelp.innerText = '?';
-    hdr.appendChild(chainHelp);
-
-    var spacer = document.createElement('div'); spacer.style.flex = '1';
-    hdr.appendChild(spacer);
-
-    // Delete button (don't show if only 1 step)
-    var delBtn = document.createElement('button');
-    delBtn.style.cssText = 'background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);color:#f87171;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;';
-    delBtn.innerText = '✕ Remove';
-    delBtn.onclick = function(){ _smRemoveStep(idx); };
-    hdr.appendChild(delBtn);
-    row.appendChild(hdr);
-
-    // Textarea
-    var ta = document.createElement('textarea');
-    ta.id = 'smPrompt_' + idx;
-    ta.placeholder = 'Enter prompt for step ' + (idx + 1) + '…';
-    ta.value = prompt || '';
-    ta.rows = 3;
-    ta.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;line-height:1.5;resize:vertical;font-family:inherit;outline:none;';
-    ta.addEventListener('input', function(){ _sm.steps[idx].prompt = ta.value; });
-    chainCheck.addEventListener('change', function(){ _sm.steps[idx].chained = chainCheck.checked; });
-    row.appendChild(ta);
-
-    // Result area (hidden until run)
-    var resultArea = document.createElement('div');
-    resultArea.id = 'smResult_' + idx;
-    resultArea.style.display = 'none';
-    row.appendChild(resultArea);
-
-    container.appendChild(row);
-    _smUpdateCount();
-    ta.focus();
-  }
-
-  function _smRemoveStep(removeIdx){
-    if(_sm.steps.length <= 1) return;
-    _sm.steps.splice(removeIdx, 1);
-    // Re-render all steps
-    var prompts = [];
-    var chains  = [];
-    for(var i = 0; i < _sm.steps.length; i++){
-      var ta = document.getElementById('smPrompt_' + i);
-      var ch = document.querySelector('#smRow_' + i + ' input[type=checkbox]');
-      prompts.push(ta ? ta.value : _sm.steps[i].prompt || '');
-      chains.push(ch ? ch.checked : _sm.steps[i].chained !== false);
-    }
-    document.getElementById('stackSteps').innerHTML = '';
-    _sm.steps = [];
-    for(var j = 0; j < prompts.length; j++){
-      _smAddStep(prompts[j], chains[j]);
-    }
-  }
-
-  function _smUpdateCount(){
-    var el = document.getElementById('stackStepCount');
-    if(el) el.innerText = _sm.steps.length + ' / ' + MAX_STEPS + ' steps';
-    var addBtn = document.getElementById('stackAddBtn');
-    if(addBtn) addBtn.style.opacity = _sm.steps.length >= MAX_STEPS ? '0.35' : '1';
-  }
-
-  function _smCollectSteps(){
-    var out = [];
-    for(var i = 0; i < _sm.steps.length; i++){
-      var ta = document.getElementById('smPrompt_' + i);
-      var ch = document.querySelector('#smRow_' + i + ' input[type=checkbox]');
-      var p = ta ? ta.value.trim() : '';
-      if(!p) continue; // skip empty
-      out.push({ type:'prompt', label:'Step '+(i+1), prompt:p, chained: ch ? ch.checked : true });
-    }
-    return out;
-  }
-
-  window.stackSave = function(silent){
-    var name = (document.getElementById('stackNameInput').value || '').trim() || ('Stack ' + new Date().toLocaleDateString());
-    var steps = _smCollectSteps();
-    if(!steps.length){ if(!silent && typeof showToast==='function') showToast('Add at least one prompt step', 'error'); return; }
-    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name), {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({steps: steps})
-    }).then(function(r){return r.json();}).then(function(d){
-      if(d.ok){
-        if(!silent && typeof showToast==='function') showToast('Stack saved!', 'success');
-        _smLoadSaved(_sm.teammate);
-      }
-    }).catch(function(){});
-  };
-
-  window.stackRun = function(){
-    var name = (document.getElementById('stackNameInput').value || '').trim() || ('Quick Stack');
-    var steps = _smCollectSteps();
-    if(!steps.length){ if(typeof showToast==='function') showToast('Add at least one prompt step', 'error'); return; }
-    if(_sm.running) return;
-
-    // Save first, then run
-    _sm.running = true;
-    var runBtn = document.getElementById('stackRunBtn');
-    var saveBtn = document.getElementById('stackSaveBtn');
-    if(runBtn){ runBtn.disabled = true; runBtn.innerText = '⏳ Running…'; }
-    if(saveBtn){ saveBtn.disabled = true; }
-
-    // Show result placeholders inline in each step card
-    for(var i = 0; i < steps.length; i++){
-      var ra = document.getElementById('smResult_' + i);
-      if(ra){ ra.style.display=''; ra.innerHTML='<div style="font-size:11px;color:#475569;padding:6px 0;">⏳ Waiting…</div>'; }
-    }
-    document.getElementById('stackResults').style.display = '';
-    document.getElementById('stackResultsList').innerHTML = '<div style="font-size:12px;color:#64748b;padding:6px 0;">Running stack…</div>';
-
-    // Save then run
-    fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name), {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({steps: steps})
-    }).then(function(r){return r.json();}).then(function(d){
-      if(!d.ok) throw new Error(d.error || 'Save failed');
-      return fetch('/api/teammates/' + encodeURIComponent(_sm.teammate) + '/stacks/' + encodeURIComponent(name) + '/run', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({input:''})
-      });
-    }).then(function(r){return r.json();}).then(function(d){
-      _sm.running = false;
-      if(runBtn){ runBtn.disabled=false; runBtn.innerText='▶ Run Stack'; }
-      if(saveBtn){ saveBtn.disabled=false; }
-      if(!d.ok){ throw new Error(d.error || 'Run failed'); }
-      _smShowResults(d.run, steps);
-      _smLoadSaved(_sm.teammate);
-      if(typeof showToast==='function') showToast('Stack complete! +40 pts ⚡', 'success');
-      // Refresh the teammate chat window so stack outputs appear in the thread
-      try{
-        if(window.refreshThread) window.refreshThread();
-      } catch(_){}
-    }).catch(function(err){
-      _sm.running = false;
-      if(runBtn){ runBtn.disabled=false; runBtn.innerText='▶ Run Stack'; }
-      if(saveBtn){ saveBtn.disabled=false; }
-      if(typeof showToast==='function') showToast('Stack error: ' + err.message, 'error');
-      document.getElementById('stackResultsList').innerHTML = '<div style="color:#f87171;font-size:12px;">Error: ' + _smE(err.message) + '</div>';
-    });
-  };
-
-  function _smShowResults(run, steps){
-    var outputs = run.outputs || {};
-    var resultsList = document.getElementById('stackResultsList');
-    var listHtml = '';
-
-    for(var i = 0; i < steps.length; i++){
-      var out = outputs[String(i)] || outputs[i] || '';
-      // Update inline result in the step card
-      var ra = document.getElementById('smResult_' + i);
-      if(ra){
-        ra.style.display = '';
-        ra.innerHTML = '<div style="margin-top:4px;border-top:1px solid rgba(42,58,106,.4);padding-top:8px;">'
-          + '<div style="font-size:10px;color:#6ee7b7;font-weight:700;margin-bottom:4px;">✓ OUTPUT</div>'
-          + '<div style="font-size:12px;color:#cbd5e1;white-space:pre-wrap;line-height:1.6;max-height:160px;overflow-y:auto;background:rgba(9,12,24,.6);border-radius:6px;padding:8px 10px;">'
-          + _smE(out) + '</div></div>';
-      }
-      // Also build the summary results section
-      listHtml += '<div style="border:1px solid rgba(42,58,106,.5);border-radius:10px;overflow:hidden;">'
-        + '<div style="padding:8px 12px;background:rgba(124,58,237,.08);border-bottom:1px solid rgba(42,58,106,.4);font-size:12px;font-weight:700;color:#a78bfa;">Step ' + (i+1) + (steps[i].label ? ' — ' + _smE(steps[i].label) : '') + (steps[i].chained ? ' · <span style="color:#475569;font-weight:400;">chained</span>' : ' · <span style="color:#475569;font-weight:400;">independent</span>') + '</div>'
-        + '<div style="padding:10px 12px;font-size:12px;color:#cbd5e1;white-space:pre-wrap;line-height:1.6;max-height:200px;overflow-y:auto;">' + _smE(out || '(no output)') + '</div>'
-        + '</div>';
-    }
-    if(resultsList) resultsList.innerHTML = listHtml;
-  }
-
-  function _smE(s){ var d=document.createElement('div'); d.appendChild(document.createTextNode(String(s||''))); return d.innerHTML; }
-})();
-</script>
-<!-- ═══ END ACTION STACK MODAL ═══ -->
 
 <!-- ═══ SCOUT ═══ -->
 <div id="scoutOverlay" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);" onclick="if(event.target===this)closeScoutPanel()">
@@ -28734,7 +28280,7 @@ def api_account_delete():
     if errors:
         append_log("account_delete_partial", {"username": uname, "errors": errors})
 
-    _audit_log("account_deleted", {"errors": errors}, username=uname)
+    append_log("account_deleted", {"username": uname, "at": now_iso()})
     return jsonify({"ok": True, "message": "Account and data deleted successfully.", "errors": errors})
 
 
@@ -29046,6 +28592,7 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
         if not sid or not token or not from_num:
             return False, "Twilio missing SID/TOKEN/FROM."
+        import requests
         url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
         r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
         if r.status_code >= 400:
@@ -29419,10 +28966,7 @@ def api_crm_clients_update(client_id: str):
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
         if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
-            old_stage = c.get("pipeline_stage", "")
             c["pipeline_stage"] = stage
-            if stage != old_stage and old_stage:
-                _award_points(uname, f"Moved contact to {stage}", 10)
     if "tags" in payload:
         tags_in = payload.get("tags") or []
         if isinstance(tags_in, str):
@@ -29720,8 +29264,6 @@ def api_crm_broadcast_email():
     subject = (payload.get("subject") or "").strip()
     body_t = (payload.get("body") or "").strip()
     dry_run = bool(payload.get("dry_run"))
-    if not dry_run:
-        _award_points(uname, "Sent an email broadcast", 30)
 
     if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
@@ -30557,6 +30099,7 @@ def _crm_guess_company(title: str, domain: str) -> str:
 
 def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
     try:
+        import requests
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         ctype = (r.headers.get("Content-Type") or "").lower()
@@ -30587,6 +30130,7 @@ def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, 
     results: List[Tuple[str, str]] = []
     def fetch_one(u: str) -> Tuple[str, str]:
         try:
+            import requests
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
             r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
             ctype = (r.headers.get("Content-Type") or "").lower()
@@ -30875,6 +30419,7 @@ def _crm_warm_reason(candidate: Dict[str, Any], niche: str, location: str) -> st
 
 def _crm_ddg_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
+        import requests
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=20)
         html = r.text or ""
@@ -31126,6 +30671,7 @@ def _crm_items_from_rows(rows: List[Dict[str, Any]], niche: str, location: str) 
 
 def _crm_bing_search(query: str, max_results: int = 12) -> List[Dict[str, str]]:
     try:
+        import requests
         from urllib.parse import quote_plus
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         url = "https://www.bing.com/search?q=" + quote_plus(query) + "&count=20"
@@ -32758,9 +32304,6 @@ def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
                 "retries": max(0, min(3, int(s.get("retries") or 0))),
                 "fallback_teammate": (s.get("fallback_teammate") or "").strip()[:64],
                 "continue_on_error": bool(s.get("continue_on_error")),
-                # chained=True (default): previous step output is automatically
-                # injected as context. Set False for a fully independent step.
-                "chained": bool(s.get("chained", True)),
             })
     return out
 
@@ -32887,13 +32430,8 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                             _append_run_log(run, "route", {"step": cursor + 1, "to": to_tm, "attempt": attempt})
                         else:
                             p = _safe_render(step.get("prompt") or "", ctx)
-                            # Chained mode (default): automatically prepend previous
-                            # output as context if the prompt doesn't already use {{last}}
-                            is_chained = step.get("chained", True)
-                            if is_chained and last_output and "{{last}}" not in (step.get("prompt") or ""):
-                                p = f"Previous step output:\n{last_output}\n\n---\n\n{p}"
                             out = _call_teammate_prompt_for_user(u, run.get("teammate", ""), p)
-                            _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", ""), "attempt": attempt, "chained": is_chained})
+                            _stack_task_log(cursor + 1, "prompt", out, {"label": step.get("label", ""), "attempt": attempt})
                             _append_run_log(run, "prompt", {"step": cursor + 1, "label": step.get("label", ""), "attempt": attempt})
                         break
                     except Exception as inner:
@@ -34201,7 +33739,7 @@ def _execute_teammate_tool(
             cal_token, reason = _calendar_creds_for_user(u)
             if not cal_token:
                 return f"Calendar not connected: {reason}"
-            _req = requests
+            import requests as _req
             now_dt   = datetime.utcnow()
             time_min = now_dt.isoformat() + "Z"
             time_max = (now_dt + timedelta(days=days)).isoformat() + "Z"
@@ -34473,10 +34011,10 @@ def api_webhook_receive(token: str):
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
 @app.post("/api/followup/stream")
 def api_followup_stream():
-    """SSE streaming followup — tokens arrive in real time instead of one big wait.
-    Drops in alongside the existing /api/followup; same thread/logging semantics."""
     _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
     if _rl: return _rl
+    """SSE streaming followup — tokens arrive in real time instead of one big wait.
+    Drops in alongside the existing /api/followup; same thread/logging semantics."""
     from flask import Response, stream_with_context
 
     u = current_user()
@@ -34495,8 +34033,6 @@ def api_followup_stream():
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
-    if len(msg) > MAX_MESSAGE_CHARS:
-        return jsonify({"ok": False, "error": f"Message exceeds {MAX_MESSAGE_CHARS:,} character limit."}), 400
 
     reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
@@ -35315,94 +34851,19 @@ def api_tts():
 COMMUNITY_POINTS_FILE = DATA / "community_points.json"
 COMMUNITY_IDEAS_FILE  = DATA / "community_ideas.json"
 
-# ── Rank Tiers ─────────────────────────────────────────────────────────────
-# Single source of truth. "unlocks" lists feature keys gated to this tier+.
-RANK_TIERS: List[Dict[str, Any]] = [
-    {
-        "tier": 1, "name": "Operator in Training", "emoji": "🌱",
-        "min": 0,     "next": 100,
-        "unlocks": [],
-    },
-    {
-        "tier": 2, "name": "Field Agent", "emoji": "⚡",
-        "min": 100,   "next": 500,
-        "unlocks": ["action_stacks"],
-    },
-    {
-        "tier": 3, "name": "Command Ready", "emoji": "🔥",
-        "min": 500,   "next": 1500,
-        "unlocks": ["action_stacks", "orchestra", "memory_boost"],
-    },
-    {
-        "tier": 4, "name": "Senior Operator", "emoji": "💎",
-        "min": 1500,  "next": 5000,
-        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export"],
-    },
-    {
-        "tier": 5, "name": "Elite Operator", "emoji": "🚀",
-        "min": 5000,  "next": 15000,
-        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export", "fusion", "compass_pro"],
-    },
-    {
-        "tier": 6, "name": "Legendary", "emoji": "👑",
-        "min": 15000, "next": None,
-        "unlocks": ["action_stacks", "orchestra", "memory_boost", "deep_dive", "persona_export", "fusion", "compass_pro", "legendary_badge"],
-    },
+COMMUNITY_LEVELS = [
+    {"name": "Recruit",   "emoji": "🌱", "min": 0,     "next": 500},
+    {"name": "Operator",  "emoji": "⚡", "min": 500,   "next": 1500},
+    {"name": "Commander", "emoji": "🔥", "min": 1500,  "next": 4000},
+    {"name": "Elite",     "emoji": "💎", "min": 4000,  "next": 10000},
+    {"name": "Legend",    "emoji": "👑", "min": 10000, "next": None},
 ]
 
-def _get_user_rank(points: int) -> Dict[str, Any]:
-    """Return the full rank tier dict for a given point total, plus progress info."""
-    tier = RANK_TIERS[0]
-    for t in reversed(RANK_TIERS):
-        if points >= t["min"]:
-            tier = t
-            break
-    nxt = tier["next"]
-    if nxt is None:
-        progress_pct = 100
-        points_to_next = 0
-    else:
-        span = nxt - tier["min"]
-        earned = points - tier["min"]
-        progress_pct = min(100, int((earned / span) * 100)) if span > 0 else 100
-        points_to_next = max(0, nxt - points)
-    return {
-        **tier,
-        "points":         points,
-        "progress_pct":   progress_pct,
-        "points_to_next": points_to_next,
-    }
-
-# Legacy alias so existing callers don't break
-def _community_level(points: int) -> Dict[str, Any]:
-    r = _get_user_rank(points)
-    return {"name": r["name"], "emoji": r["emoji"], "min": r["min"], "next": r["next"]}
-
-def _user_has_unlock(username: str, feature_key: str) -> bool:
-    """Return True if the user's current rank includes the given feature unlock."""
-    try:
-        data  = _community_load_points()
-        total = (data.get(username) or {}).get("total", 0)
-        rank  = _get_user_rank(total)
-        return feature_key in rank.get("unlocks", [])
-    except Exception:
-        return False
-
-def _check_rank_up_and_notify(username: str, old_total: int, new_total: int) -> None:
-    """Fire a notification if the user just crossed into a new tier."""
-    try:
-        old_tier = _get_user_rank(old_total)["tier"]
-        new_tier = _get_user_rank(new_total)["tier"]
-        if new_tier > old_tier:
-            new_rank = _get_user_rank(new_total)
-            _push_notification(username, {
-                "type":    "rank_up",
-                "title":   f"🎉 Rank Up! You're now {new_rank['emoji']} {new_rank['name']}",
-                "body":    f"You've unlocked: {', '.join(new_rank['unlocks']) if new_rank['unlocks'] else 'new prompts'}. Keep going!",
-                "action":  "/",
-            })
-    except Exception:
-        pass
+def _community_level(points: int) -> dict:
+    for lvl in reversed(COMMUNITY_LEVELS):
+        if points >= lvl["min"]:
+            return lvl
+    return COMMUNITY_LEVELS[0]
 
 def _community_week_key() -> str:
     from datetime import datetime
@@ -35440,24 +34901,13 @@ def _award_points(username: str, event: str, amount: int) -> int:
             u["daily_chat"] = {d: v for d, v in daily.items()
                                if d >= (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")}
 
-        old_total = u.get("total", 0)
-        u["total"] = old_total + amount
+        u["total"] = u.get("total", 0) + amount
         u.setdefault("weeks", {})[week] = u["weeks"].get(week, 0) + amount
         hist = u.setdefault("history", [])
         hist.insert(0, {"event": event, "amount": amount, "ts": now_iso()})
         u["history"] = hist[:100]
         _community_save_points(data)
-        new_total = u["total"]
-        # Fire rank-up notification in background so it never blocks the caller
-        try:
-            threading.Thread(
-                target=_check_rank_up_and_notify,
-                args=(username, old_total, new_total),
-                daemon=True,
-            ).start()
-        except Exception:
-            pass
-        return new_total
+        return u["total"]
     except Exception:
         return 0
 
@@ -35467,17 +34917,15 @@ def _community_get_user_stats(username: str) -> dict:
     ud = data.get(username, {"total": 0, "weeks": {}, "history": []})
     total  = ud.get("total", 0)
     weekly = ud.get("weeks", {}).get(week, 0)
-    rank_info = _get_user_rank(total)
-    # leaderboard position (1-based)
+    lvl    = _community_level(total)
+    # rank (1-based)
     totals = sorted([v.get("total", 0) for v in data.values()], reverse=True)
-    lb_rank = totals.index(total) + 1 if total in totals else len(totals) + 1
+    rank   = totals.index(total) + 1 if total in totals else len(totals) + 1
     return {
         "total": total, "weekly": weekly,
-        "level":          {"name": rank_info["name"], "emoji": rank_info["emoji"], "min": rank_info["min"], "next": rank_info["next"]},
-        "rank_info":      rank_info,   # full tier data including unlocks + progress
-        "rank":           lb_rank,
-        "total_users":    len(data),
-        "history":        ud.get("history", [])[:15],
+        "level": lvl, "rank": rank,
+        "total_users": len(data),
+        "history": ud.get("history", [])[:15],
     }
 
 def _community_load_ideas() -> list:
@@ -35841,281 +35289,6 @@ def api_community_pending_ideas():
     ideas   = _community_load_ideas()
     pending = [i for i in ideas if i.get("status") == "pending"]
     return jsonify({"ok": True, "ideas": pending})
-
-
-
-# =============================================================================
-# RANK UNLOCKS — feature gate check endpoint
-# =============================================================================
-
-@app.get("/api/community/my_unlocks")
-def api_my_unlocks():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    data  = _community_load_points()
-    total = (data.get(uname) or {}).get("total", 0)
-    rank  = _get_user_rank(total)
-    return jsonify({"ok": True, "rank": rank, "unlocks": rank["unlocks"]})
-
-
-# =============================================================================
-# ORCHESTRA MODE  (Tier 3 — Command Ready)
-# Each teammate applies their domain lens in clockwise order from the selected
-# one. Output is a single unified document. Each pass is logged so the user
-# can see exactly what changed.
-# =============================================================================
-
-# Per-teammate conductor instructions — what each one should (and shouldn't) do.
-_ORCHESTRA_ROLES: Dict[str, str] = {
-    "Luna":     "Apply creative voice, vivid language, metaphor, and emotional resonance. Do NOT touch structure, CTAs, or factual content.",
-    "Orion":    "Apply logical flow and strategic structure. Add frameworks or hierarchy where missing. Do NOT touch voice, tone, or CTAs.",
-    "Sunshine": "Sharpen the hook, strengthen the CTA, and add urgency or persuasion where appropriate. Do NOT rewrite body copy or change structure.",
-    "Willow":   "Fix clarity, grammar, sentence rhythm, and concision. Do NOT change meaning, add new ideas, or alter tone.",
-    "Alex":     "Ensure brand consistency and professional polish. Tighten messaging and remove fluff. Do NOT add new ideas.",
-    "Atlis":    "Add data-driven reasoning, specificity, and evidence where claims are vague. Do NOT change voice or structure.",
-    "Nova":     "Optimise for the target audience. Add empathy and relatability. Do NOT change factual content.",
-}
-_ORCHESTRA_DEFAULT_ROLE = "Apply your expertise to improve this content. Preserve everything outside your domain."
-
-def _orchestra_run(uname: str, prompt: str, teammate_order: List[str]) -> Dict[str, Any]:
-    """Run prompt through teammates in order, each applying their domain lens."""
-    current_doc = ""
-    passes: List[Dict[str, Any]] = []
-    reg      = load_registry(uname)
-    installed = reg.get("installed") or {}
-
-    for i, name in enumerate(teammate_order):
-        defn = installed.get(name)
-        if not defn:
-            continue
-        role_instruction = _ORCHESTRA_ROLES.get(name, _ORCHESTRA_DEFAULT_ROLE)
-        is_first = (i == 0)
-        if is_first:
-            conductor = (
-                f"You are {name}. You are opening an Orchestra session.\n\n"
-                f"Original request: {prompt}\n\n"
-                f"Your role: {role_instruction}\n\n"
-                f"Produce the first draft. Write the complete document."
-            )
-        else:
-            conductor = (
-                f"You are {name}. You are part of an Orchestra — a team working on one document together.\n\n"
-                f"Original request: {prompt}\n\n"
-                f"Current document:\n{current_doc}\n\n"
-                f"Your role: {role_instruction}\n\n"
-                f"IMPORTANT: Do NOT rewrite, summarise, or start over. Apply ONLY your expertise. "
-                f"Return the full improved document. Make your changes feel like they were always there."
-            )
-        sys_prompt = teammate_system_prompt(defn, lighting_mode=False)
-        result = call_llm(sys_prompt, [{"role": "user", "content": conductor}], temperature=0.6)
-        passes.append({"teammate": name, "role": role_instruction, "output": result})
-        current_doc = result
-
-    return {"final": current_doc, "passes": passes}
-
-@app.post("/api/orchestra/run")
-def api_orchestra_run():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    if not _user_has_unlock(uname, "orchestra"):
-        return jsonify({"ok": False, "error": "Orchestra Mode unlocks at Tier 3 — Command Ready."}), 403
-    rl = _check_rate_limit("orchestra", 20)
-    if rl: return rl
-    p = request.get_json(silent=True) or {}
-    prompt         = (p.get("prompt") or "").strip()[:MAX_PROMPT_CHARS]
-    teammate_order = p.get("teammate_order") or []
-    if not prompt:
-        return jsonify({"ok": False, "error": "Prompt required"}), 400
-    if not teammate_order or not isinstance(teammate_order, list):
-        return jsonify({"ok": False, "error": "teammate_order list required"}), 400
-    teammate_order = [str(t).strip() for t in teammate_order[:8]]
-    try:
-        result = _orchestra_run(uname, prompt, teammate_order)
-        _award_points(uname, "Ran Orchestra Mode", 50)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        _capture_error(e, context="api_orchestra_run")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# =============================================================================
-# DEEP DIVE MODE  (Tier 4 — Senior Operator)
-# Runs 3 automatic rounds: draft → self-critique → deeper pass → synthesis.
-# The teammate challenges its own first answer and goes deeper each round.
-# =============================================================================
-
-def _deep_dive_run(uname: str, teammate_name: str, prompt: str) -> Dict[str, Any]:
-    reg     = load_registry(uname)
-    defn    = (reg.get("installed") or {}).get(teammate_name)
-    if not defn:
-        return {"error": f"Teammate {teammate_name} not found"}
-    sys_prompt = teammate_system_prompt(defn, lighting_mode=False)
-
-    # Round 1 — initial response
-    r1 = call_llm(sys_prompt, [{"role": "user", "content": prompt}], temperature=0.65)
-
-    # Round 2 — self-critique
-    critique_prompt = (
-        f"You just wrote this response:\n\n{r1}\n\n"
-        f"Now critically review it. What's missing? What's too surface-level? "
-        f"What assumptions did you make? What would make this genuinely more valuable? "
-        f"Be specific and ruthless."
-    )
-    r2 = call_llm(sys_prompt, [
-        {"role": "user",      "content": prompt},
-        {"role": "assistant", "content": r1},
-        {"role": "user",      "content": critique_prompt},
-    ], temperature=0.5)
-
-    # Round 3 — deeper pass incorporating the critique
-    deeper_prompt = (
-        f"Original request: {prompt}\n\n"
-        f"Your first response:\n{r1}\n\n"
-        f"Your critique of it:\n{r2}\n\n"
-        f"Now write the definitive version — deeper, more specific, more valuable. "
-        f"Address every gap you identified. This is the final answer."
-    )
-    r3 = call_llm(sys_prompt, [{"role": "user", "content": deeper_prompt}], temperature=0.6)
-
-    return {"draft": r1, "critique": r2, "final": r3, "rounds": 3}
-
-@app.post("/api/deepdive/run")
-def api_deepdive_run():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    if not _user_has_unlock(uname, "deep_dive"):
-        return jsonify({"ok": False, "error": "Deep Dive Mode unlocks at Tier 4 — Senior Operator."}), 403
-    rl = _check_rate_limit("deepdive", 15)
-    if rl: return rl
-    p = request.get_json(silent=True) or {}
-    teammate = (p.get("teammate") or "").strip()
-    prompt   = (p.get("prompt")   or "").strip()[:MAX_PROMPT_CHARS]
-    if not teammate or not prompt:
-        return jsonify({"ok": False, "error": "teammate and prompt required"}), 400
-    try:
-        result = _deep_dive_run(uname, teammate, prompt)
-        _award_points(uname, "Ran Deep Dive Mode", 45)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        _capture_error(e, context="api_deepdive_run")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# =============================================================================
-# FUSION MODE  (Tier 5 — Elite Operator)
-# Runs the same prompt through GPT-4o AND Claude simultaneously, then a
-# third synthesis pass merges the best of both into one unified answer.
-# =============================================================================
-
-def _fusion_run(uname: str, prompt: str, system: str = "") -> Dict[str, Any]:
-    """Run prompt through GPT-4o and Claude in parallel, then synthesise."""
-    sys_msg = system or "You are a world-class expert. Give the best possible answer."
-    gpt_result    = ""
-    claude_result = ""
-    gpt_err       = ""
-    claude_err    = ""
-
-    def _run_gpt() -> None:
-        nonlocal gpt_result, gpt_err
-        try:
-            client = get_openai_client()
-            resp = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
-                max_tokens=2000, temperature=0.65,
-            )
-            gpt_result = (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            gpt_err = str(e)
-
-    def _run_claude() -> None:
-        nonlocal claude_result, claude_err
-        try:
-            u_data = (load_users().get("users") or {}).get(uname) or {}
-            cl = _get_claude_client_for_user(u_data)
-            if not cl:
-                # Fall back to server ANTHROPIC_API_KEY if user hasn't set their own
-                if _anthropic_sdk and ANTHROPIC_API_KEY:
-                    cl = _anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
-            if not cl:
-                claude_err = "No Anthropic API key configured."
-                return
-            resp = cl.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2000,
-                system=sys_msg,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            claude_result = (resp.content[0].text if resp.content else "").strip()
-        except Exception as e:
-            claude_err = str(e)
-
-    # Run both in parallel
-    t1 = threading.Thread(target=_run_gpt,    daemon=True)
-    t2 = threading.Thread(target=_run_claude, daemon=True)
-    t1.start(); t2.start()
-    t1.join(timeout=45); t2.join(timeout=45)
-
-    if not gpt_result and not claude_result:
-        return {"error": f"Both models failed. GPT: {gpt_err} | Claude: {claude_err}"}
-
-    # Synthesis pass — merge the best of both
-    if gpt_result and claude_result:
-        synthesis_prompt = (
-            f"Original request: {prompt}\n\n"
-            f"Response A (GPT-4o):\n{gpt_result}\n\n"
-            f"Response B (Claude):\n{claude_result}\n\n"
-            f"You are a master synthesiser. Merge these two responses into one definitive answer "
-            f"that takes the strongest elements from each. Do not mention that two models were used. "
-            f"Write as a single cohesive, expert response."
-        )
-        fusion = call_llm(
-            "You are a world-class expert synthesiser.",
-            [{"role": "user", "content": synthesis_prompt}],
-            temperature=0.5,
-        )
-    else:
-        # Only one model succeeded — return it as the fusion
-        fusion = gpt_result or claude_result
-
-    return {
-        "gpt_response":    gpt_result,
-        "claude_response": claude_result,
-        "fusion":          fusion,
-        "gpt_error":       gpt_err,
-        "claude_error":    claude_err,
-    }
-
-@app.post("/api/fusion/run")
-def api_fusion_run():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = u.get("username", "")
-    if not _user_has_unlock(uname, "fusion"):
-        return jsonify({"ok": False, "error": "Fusion Mode unlocks at Tier 5 — Elite Operator."}), 403
-    rl = _check_rate_limit("fusion", 10)
-    if rl: return rl
-    p = request.get_json(silent=True) or {}
-    prompt = (p.get("prompt") or "").strip()[:MAX_PROMPT_CHARS]
-    system = (p.get("system") or "").strip()[:2000]
-    if not prompt:
-        return jsonify({"ok": False, "error": "Prompt required"}), 400
-    try:
-        result = _fusion_run(uname, prompt, system)
-        if "error" in result:
-            return jsonify({"ok": False, "error": result["error"]}), 500
-        _award_points(uname, "Ran Fusion Mode", 80)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        _capture_error(e, context="api_fusion_run")
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Compass ─────────────────────────────────────────────────────────────
