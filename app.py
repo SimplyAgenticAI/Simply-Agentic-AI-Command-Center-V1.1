@@ -37783,6 +37783,25 @@ def _ext_authenticate(request_obj) -> Optional[str]:
     return None
 
 
+
+@app.after_request
+def _ext_cors_headers(response):
+    """Add CORS headers to all /api/extension/* routes so the Chrome extension can reach them."""
+    if (request.path or "").startswith("/api/extension/"):
+        response.headers["Access-Control-Allow-Origin"]  = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+@app.route("/api/extension/<path:subpath>", methods=["OPTIONS"])
+def _ext_options(subpath):
+    """Handle preflight CORS for all extension endpoints."""
+    resp = make_response("", 204)
+    resp.headers["Access-Control-Allow-Origin"]  = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
 @app.get("/api/extension/my_key")
 def api_extension_my_key():
     u = current_user()
@@ -37899,8 +37918,22 @@ var SA_PRESET_USER = {json.dumps(uname)};
 def api_extension_auth():
     uname = _ext_authenticate(request)
     if not uname:
-        return jsonify({"ok": False, "error": "Invalid or missing extension key"}), 401
-    return jsonify({"ok": True, "username": uname, "app": APP_TITLE})
+        resp = jsonify({"ok": False, "error": "Invalid or missing extension key"})
+        resp.status_code = 401
+    else:
+        resp = jsonify({"ok": True, "username": uname, "app": APP_TITLE})
+    resp.headers["Access-Control-Allow-Origin"]  = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
+
+@app.options("/api/extension/auth")
+def api_extension_auth_preflight():
+    resp = make_response("", 204)
+    resp.headers["Access-Control-Allow-Origin"]  = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return resp
 
 
 @app.post("/api/extension/import_lead")
