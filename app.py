@@ -35511,8 +35511,15 @@ def api_followup_stream():
     thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
-    oai_client      = get_openai_client()
     _use_claude     = _is_claude_model(preferred_model)
+
+    # Read the user's OpenAI key directly — never rely on g.openai_client
+    # for the stream path since the generator runs outside the normal request cycle.
+    _u_record = load_users().get("users", {}).get(uname, {})
+    _raw_key  = (_u_record.get("settings") or {}).get("openai_key", "")
+    _user_api_key = _decrypt_field(_raw_key.strip()) if _raw_key else ""
+    _effective_key = _user_api_key or OPENAI_API_KEY or ""
+    oai_client = OpenAI(api_key=_effective_key) if _effective_key else None
 
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
@@ -35538,6 +35545,10 @@ def api_followup_stream():
         except Exception:
             pass
         return complete_text, draft
+
+    # Guard: no OpenAI key available at all
+    if not _use_claude and not oai_client:
+        return jsonify({"ok": False, "error": "No OpenAI API key configured. Go to ⚙️ Settings and add your key."}), 400
 
     def generate():
         parts = []
