@@ -9032,14 +9032,12 @@ def pricing_page():
     )
 
     cards_html = ""
-    for key, p in PLANS.items():
-        if key == "founder":
-            continue
+    for key in ["starter", "team"]:
+        p = PLANS.get(key, {})
         badge         = p.get("badge")
-        is_growth     = key == "growth"
+        is_featured   = key == "starter"
         badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
-        rec_cls       = " plan-card-featured" if is_growth else ""
-        team_seats    = p.get("team_seats", 1)
+        rec_cls       = " plan-card-featured" if is_featured else ""
         features_html = "".join(
             f"<li><span class='pfc'>&#10003;</span>{f}</li>"
             for f in p.get("features", [])
@@ -9049,9 +9047,9 @@ def pricing_page():
         cards_html   += f"""
         <div class='plan-card{rec_cls}'>
           {badge_html}
-          <div class='plan-name'>{p['name']}</div>
-          <div class='plan-price'><span class='plan-dollar'>$</span>{p['price']}<span class='plan-per'>/mo</span></div>
-          <div class='plan-tagline'>{p['tagline']}</div>
+          <div class='plan-name'>{p.get('name','')}</div>
+          <div class='plan-price'><span class='plan-dollar'>$</span>{p.get('price','')}<span class='plan-per'>/mo</span></div>
+          <div class='plan-tagline'>{p.get('tagline','')}</div>
           <ul class='plan-features'>{features_html}</ul>
           <button class='plan-btn' onclick="startCheckout('{key}')" id='planBtn-{key}'>
             <span class='btn-spinner' id='spin-{key}' style='display:none'>
