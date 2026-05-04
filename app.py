@@ -9032,12 +9032,14 @@ def pricing_page():
     )
 
     cards_html = ""
-    for key in ["starter", "team"]:
+    for key, display_key in [("starter", "starter"), ("growth", "team")]:
         p = PLANS.get(key, {})
         badge         = p.get("badge")
         is_featured   = key == "starter"
         badge_html    = f"<div class='plan-badge'>{badge}</div>" if badge else ""
         rec_cls       = " plan-card-featured" if is_featured else ""
+        # Override name to "Team" for growth plan
+        display_name  = "Team" if key == "growth" else p.get('name', '')
         features_html = "".join(
             f"<li><span class='pfc'>&#10003;</span>{f}</li>"
             for f in p.get("features", [])
@@ -9047,7 +9049,7 @@ def pricing_page():
         cards_html   += f"""
         <div class='plan-card{rec_cls}'>
           {badge_html}
-          <div class='plan-name'>{p.get('name','')}</div>
+          <div class='plan-name'>{display_name}</div>
           <div class='plan-price'><span class='plan-dollar'>$</span>{p.get('price','')}<span class='plan-per'>/mo</span></div>
           <div class='plan-tagline'>{p.get('tagline','')}</div>
           <ul class='plan-features'>{features_html}</ul>
