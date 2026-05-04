@@ -169,7 +169,7 @@ def _decrypt_field(value: str) -> str:
 
 
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI v1.11")
-MODEL = os.getenv("MODEL", "gpt-4o")
+MODEL = os.getenv("MODEL", "gpt-4o-mini")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
@@ -4199,7 +4199,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         if isinstance(e, RateLimitError):
             code = getattr(getattr(e, 'error', None), 'code', None) or ''
             if 'quota' in str(code).lower() or 'insufficient_quota' in str(e).lower():
-                return 402, "OpenAI quota exceeded on the server key. Go to ⚙️ Settings → add your own OpenAI API key so you use your own account directly."
+                return 402, "OpenAI quota exceeded — the API key being used has no remaining credits. Check platform.openai.com → your project billing, or add a different key in ⚙️ Settings."
             return 429, "OpenAI rate limit hit — please wait a moment and try again."
         if isinstance(e, BadRequestError):
             s2 = str(e).lower()
@@ -37024,7 +37024,7 @@ def _fusion_run(uname: str, prompt: str, system: str = "") -> Dict[str, Any]:
         try:
             client = get_openai_client()
             resp = client.chat.completions.create(
-                model="gpt-4o",
+                model=MODEL,
                 messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}],
                 max_tokens=2000, temperature=0.65,
             )
