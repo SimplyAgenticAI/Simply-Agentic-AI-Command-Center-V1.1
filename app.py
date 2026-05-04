@@ -4196,11 +4196,9 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         if isinstance(e, AuthenticationError):
             return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
         if isinstance(e, RateLimitError):
-            # RateLimitError covers both rate limits AND quota exhaustion
-            # Distinguish by error code or message
             code = getattr(getattr(e, 'error', None), 'code', None) or ''
-            if 'quota' in str(code).lower() or 'quota' in str(e).lower():
-                return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
+            if 'quota' in str(code).lower() or 'insufficient_quota' in str(e).lower():
+                return 402, "OpenAI quota exceeded on the server key. Go to ⚙️ Settings → add your own OpenAI API key so you use your own account directly."
             return 429, "OpenAI rate limit hit — please wait a moment and try again."
         if isinstance(e, BadRequestError):
             s2 = str(e).lower()
@@ -35594,13 +35592,12 @@ def api_followup_stream():
             }) + "\n\n"
 
         except Exception as exc:
-            raw = repr(exc)
-            err_msg = raw
+            err_msg = str(exc) or "Stream error"
             try:
                 _, err_msg = _classify_openai_error(exc)
             except Exception:
                 pass
-            yield "data: " + json.dumps({"error": f"[DEBUG raw: {raw[:300]}] | classified: {err_msg}"}) + "\n\n"
+            yield "data: " + json.dumps({"error": err_msg}) + "\n\n"
 
     return Response(
         stream_with_context(generate()),
