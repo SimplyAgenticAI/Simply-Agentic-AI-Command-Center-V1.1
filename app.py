@@ -29131,35 +29131,57 @@ document.addEventListener('click',e=>{
 <!-- ═══ END CHANGELOG + REFERRAL ═══ -->
 
 <!-- ═══ ORCHESTRA MODE MODAL ═══ -->
-<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('orchestraModal')">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this&&!window._orchRunning)_saCloseModal('orchestraModal')">
+  <div id="orchInner" style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+
+    <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#c4b5fd;">Orchestra Mode</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate applies their expertise — one unified output</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate adds their expertise — one unified output</div>
       </div>
-      <button onclick="_saCloseModal('orchestraModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <button onclick="if(!window._orchRunning)_saCloseModal('orchestraModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
     </div>
-    <div style="padding:18px 22px;">
-      <div style="font-size:12px;color:#64748b;margin-bottom:10px;">Teammate order <span style="color:#475569;">(clockwise from selected — drag to reorder)</span></div>
-      <div id="orchOrderList" style="display:flex;flex-wrap:wrap;gap:8px;min-height:40px;margin-bottom:14px;padding:10px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:10px;"></div>
-      <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px;">Prompt</label>
-      <textarea id="orchPrompt" placeholder="What should the team work on together?" rows="4"
-        style="width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;resize:vertical;font-family:inherit;"></textarea>
+
+    <!-- Setup view -->
+    <div id="orchSetup">
+      <!-- Teammate selector -->
+      <div style="padding:16px 22px 0;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:8px;">Select teammates <span style="color:#334155;">— click to include, drag to reorder</span></div>
+        <div id="orchOrderList" style="display:flex;flex-wrap:wrap;gap:8px;min-height:44px;padding:10px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:10px;"></div>
+      </div>
+      <!-- Prompt -->
+      <div style="padding:14px 22px 0;">
+        <label style="font-size:12px;color:#64748b;display:block;margin-bottom:6px;">Prompt</label>
+        <textarea id="orchPrompt" rows="4" placeholder="What should the team work on together?"
+          style="width:100%;box-sizing:border-box;background:rgba(9,12,24,.8);border:1px solid rgba(42,58,106,.7);color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.55;resize:vertical;font-family:inherit;outline:none;"></textarea>
+      </div>
+      <!-- Actions -->
+      <div style="padding:14px 22px 18px;display:flex;gap:10px;">
+        <button onclick="_saCloseModal('orchestraModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
+        <button id="orchRunBtn" onclick="_saRunOrchestra()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">Run Orchestra</button>
+      </div>
     </div>
-    <div style="padding:0 22px 18px;display:flex;gap:10px;">
-      <button onclick="_saCloseModal('orchestraModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
-      <button id="orchRunBtn" onclick="_saRunOrchestra()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">Run Orchestra</button>
+
+    <!-- Live run view (hidden until running) -->
+    <div id="orchLiveView" style="display:none;padding:16px 22px;">
+      <div id="orchPassCards" style="display:flex;flex-direction:column;gap:8px;"></div>
     </div>
+
+    <!-- Results view -->
     <div id="orchResults" style="display:none;padding:0 22px 20px;">
-      <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;margin-bottom:10px;font-size:13px;font-weight:700;color:#c4b5fd;">📋 Result</div>
-      <div id="orchPassLog" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
-      <div id="orchFinalOutput" style="background:rgba(9,12,24,.7);border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:14px;font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;max-height:320px;overflow-y:auto;"></div>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button onclick="_saOrchCopyFinal()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy Result</button>
-        <button onclick="_saOrchSendToThread()" style="flex:1;padding:8px;border:1px solid rgba(124,58,237,.4);border-radius:8px;background:rgba(124,58,237,.12);color:#c4b5fd;font-size:12px;cursor:pointer;">→ Send to Thread</button>
+      <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;margin-bottom:10px;">
+        <div id="orchPassLog" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
+        <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:8px;">Final unified output</div>
+        <div id="orchFinalOutput" style="background:rgba(9,12,24,.7);border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:14px;font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;max-height:320px;overflow-y:auto;"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button onclick="_saOrchCopyFinal()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy</button>
+          <button onclick="_saOrchSendToThread()" style="flex:1;padding:8px;border:1px solid rgba(124,58,237,.4);border-radius:8px;background:rgba(124,58,237,.12);color:#c4b5fd;font-size:12px;cursor:pointer;">→ Send to Thread</button>
+          <button onclick="_saOrchRunAgain()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">↩ Run Again</button>
+        </div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -29304,236 +29326,252 @@ document.addEventListener('click',e=>{
   /* ══════════════════════════════════════════════════════════════════
      ORCHESTRA MODE
   ══════════════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════════════════
+     ORCHESTRA MODE
+  ══════════════════════════════════════════════════════════════════ */
+  var _orchState = { order:[], running:false };
+  window._orchRunning = false;
+
+  // Teammate chip colours — one per seat position
+  var _orchColors = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#7c3aed','#0891b2'];
+
   window._saOpenOrchestra = function(){
+    _orchState.running = false;
+    window._orchRunning = false;
+
+    // Show setup, hide live + results
+    ge('orchSetup').style.display    = '';
+    ge('orchLiveView').style.display = 'none';
+    ge('orchResults').style.display  = 'none';
+    ge('orchPassCards').innerHTML    = '';
+
+    // Build teammate chips from installed seats
     var orderEl = ge('orchOrderList');
-    if(orderEl){
-      orderEl.innerHTML = '';
-      try{
-        // Try multiple sources for installed teammates
-        var installed = [];
-        if(window.state && window.state.installed && typeof window.state.installed === 'object'){
-          installed = Object.keys(window.state.installed);
-        }
-        // Fallback: read from the rendered seat cards in the DOM
-        if(!installed.length){
-          document.querySelectorAll('.seat[data-name]').forEach(function(s){
-            var n = s.dataset.name;
-            if(n && n !== 'Operator' && !installed.includes(n)) installed.push(n);
-          });
-        }
-        // Start clockwise from selected seat
-        var sel = window.selectedSeat || '';
-        if(sel && installed.indexOf(sel) !== -1){
-          var idx = installed.indexOf(sel);
-          installed = installed.slice(idx).concat(installed.slice(0, idx));
-        }
-        if(!installed.length){
-          orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">No teammates found. Select a seat at the round table first.</div>';
-        } else {
-          installed.forEach(function(name){
-            var chip = document.createElement('div');
-            chip.dataset.name = name;
-            chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
-            chip.innerText = name;
-            chip.draggable = true;
-            chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
-            chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
-            chip.addEventListener('dragover', function(e){ e.preventDefault(); });
-            chip.addEventListener('drop', function(e){
-              e.preventDefault();
-              var draggedName = e.dataTransfer.getData('text/plain');
-              var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
-              if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
-            });
-            orderEl.appendChild(chip);
-          });
-        }
-      } catch(e){ orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">Error loading teammates: '+e.message+'</div>'; }
-    }
-    // Pre-fill prompt — try group console first, then DM box
+    orderEl.innerHTML = '';
+    _orchState.order = [];
+
     try{
-      var op = ge('opPrompt');
-      var fm = ge('followMsg');
-      var prefill = (op && op.value.trim()) ? op.value.trim() : (fm && fm.value.trim() ? fm.value.trim() : '');
-      if(prefill) ge('orchPrompt').value = prefill;
+      var installed = [];
+      if(window.state && window.state.installed && typeof window.state.installed === 'object'){
+        installed = Object.keys(window.state.installed);
+      }
+      if(!installed.length){
+        document.querySelectorAll('.seat[data-name]').forEach(function(s){
+          var n = s.dataset.name;
+          if(n && n !== 'Operator' && installed.indexOf(n) === -1) installed.push(n);
+        });
+      }
+      // Start from selected seat
+      var sel = window.selectedSeat || '';
+      if(sel && installed.indexOf(sel) !== -1){
+        var idx = installed.indexOf(sel);
+        installed = installed.slice(idx).concat(installed.slice(0, idx));
+      }
+
+      installed.forEach(function(name, i){
+        var col = _orchColors[i % _orchColors.length];
+        var chip = document.createElement('div');
+        chip.dataset.name    = name;
+        chip.dataset.selected = '1';
+        chip.draggable = true;
+        chip.style.cssText = 'padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;border:2px solid '+col+';background:'+col+'22;color:'+col+';transition:all .15s;';
+
+        var num = document.createElement('span');
+        num.style.cssText = 'font-size:10px;font-weight:800;background:'+col+';color:#fff;border-radius:4px;padding:1px 5px;';
+        num.textContent = i+1;
+        chip.appendChild(num);
+
+        var lbl = document.createElement('span');
+        lbl.textContent = name;
+        chip.appendChild(lbl);
+
+        // Toggle select on click
+        chip.addEventListener('click', function(){
+          var on = chip.dataset.selected === '1';
+          chip.dataset.selected = on ? '0' : '1';
+          chip.style.opacity   = on ? '0.35' : '1';
+          chip.style.background= on ? 'transparent' : col+'22';
+          _orchRenumberChips();
+        });
+
+        // Drag to reorder
+        chip.addEventListener('dragstart', function(e){
+          e.dataTransfer.setData('text/plain', name);
+          chip.style.opacity = '0.4';
+        });
+        chip.addEventListener('dragend', function(){
+          chip.style.opacity = chip.dataset.selected==='1' ? '1' : '0.35';
+        });
+        chip.addEventListener('dragover', function(e){ e.preventDefault(); });
+        chip.addEventListener('drop', function(e){
+          e.preventDefault();
+          var dn = e.dataTransfer.getData('text/plain');
+          var dc = orderEl.querySelector('[data-name="'+dn+'"]');
+          if(dc && dc !== chip) orderEl.insertBefore(dc, chip);
+          _orchRenumberChips();
+        });
+
+        orderEl.appendChild(chip);
+      });
+    } catch(e){
+      orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">No teammates found.</div>';
+    }
+
+    // Pre-fill prompt
+    try{
+      var op = ge('opPrompt'), fm = ge('followMsg');
+      var pre = (op&&op.value.trim()) ? op.value.trim() : (fm&&fm.value.trim() ? fm.value.trim() : '');
+      if(pre) ge('orchPrompt').value = pre;
     } catch(e){}
-    ge('orchResults').style.display = 'none';
+
     _saOpenModal('orchestraModal');
   };
 
+  function _orchRenumberChips(){
+    var chips = ge('orchOrderList').querySelectorAll('[data-name]');
+    var n = 0;
+    chips.forEach(function(c){
+      var num = c.querySelector('span');
+      if(num){
+        if(c.dataset.selected === '1'){ n++; num.textContent = n; }
+        else { num.textContent = '-'; }
+      }
+    });
+  }
+
   window._saRunOrchestra = function(){
     var prompt = (ge('orchPrompt').value||'').trim();
-    if(!prompt){ _toast('Enter a prompt', 'error'); return; }
-    var orderEl = ge('orchOrderList');
-    var chips = orderEl ? Array.from(orderEl.querySelectorAll('[data-name]')) : [];
-    var order = chips.map(function(c){ return c.dataset.name; }).filter(Boolean);
-    if(!order.length){ _toast('No teammates found', 'error'); return; }
+    if(!prompt){ _toast('Enter a prompt first', 'error'); return; }
 
-    // ── Minimise modal → show live status strip on the round table ──────────
-    var modal = ge('orchestraModal');
-    var inner = modal ? modal.querySelector('div') : null;
-    if(inner){
-      inner.style.transition = 'transform .35s cubic-bezier(.4,0,.2,1), opacity .35s';
-      inner.style.opacity = '0';
-      inner.style.transform = 'translateY(-18px) scale(.97)';
-    }
-    setTimeout(function(){ if(modal) modal.style.display = 'none'; }, 320);
+    // Collect selected teammates in order
+    var chips = ge('orchOrderList').querySelectorAll('[data-name]');
+    var order = [];
+    chips.forEach(function(c){
+      if(c.dataset.selected === '1') order.push(c.dataset.name);
+    });
+    if(!order.length){ _toast('Select at least one teammate', 'error'); return; }
 
-    // Create live status strip
-    var strip = document.createElement('div');
-    strip.id = 'orchLiveStrip';
-    strip.style.cssText = [
-      'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:99996;',
-      'background:rgba(10,14,30,.97);border:1px solid rgba(124,58,237,.6);',
-      'border-top:none;border-radius:0 0 14px 14px;',
-      'padding:8px 20px;display:flex;align-items:center;gap:12px;',
-      'box-shadow:0 8px 32px rgba(124,58,237,.25);',
-      'transition:opacity .3s;'
-    ].join('');
-    strip.innerHTML = '<div style="font-size:12px;font-weight:700;color:#c4b5fd;">Orchestra running</div>'
-      + '<div id="orchStripName" style="font-size:12px;color:#94a3b8;">Starting…</div>'
-      + '<div id="orchStripDots" style="display:flex;gap:4px;">'
-      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out infinite;"></div>'
-      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out .2s infinite;"></div>'
-      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out .4s infinite;"></div>'
-      + '</div>';
-    document.body.appendChild(strip);
+    _orchState.running = true;
+    window._orchRunning = true;
 
-    // ── Orchestra seat activation animation ──────────────────────────────────
-    var _orchDoneSeats = [];
+    // Switch to live view
+    ge('orchSetup').style.display    = 'none';
+    ge('orchResults').style.display  = 'none';
+    ge('orchLiveView').style.display = '';
 
-    function _orchActivateSeat(name, isDone){
-      // Reset all
-      document.querySelectorAll('.seat').forEach(function(s){
-        s.style.boxShadow = '';
-        s.style.transform = '';
-        s.style.transition = 'box-shadow .4s, transform .4s, border-color .4s';
-        s.style.borderColor = '';
-        var prev = s.querySelector('.orchSeatStatus');
-        if(prev) prev.remove();
-      });
-      // Mark done seats
-      _orchDoneSeats.forEach(function(dname){
-        var ds = document.querySelector('.seat[data-name="'+dname+'"]');
-        if(!ds) return;
-        ds.style.borderColor = 'rgba(110,231,183,.5)';
-        if(!ds.querySelector('.orchSeatStatus')){
-          var tick = document.createElement('div');
-          tick.className = 'orchSeatStatus';
-          tick.style.cssText = 'position:absolute;top:-10px;right:-10px;background:#059669;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(5,150,105,.5);';
-          tick.textContent = '✓';
-          ds.style.position = 'relative';
-          ds.appendChild(tick);
-        }
-      });
-      // Activate current seat
-      var seat = document.querySelector('.seat[data-name="'+name+'"]');
-      if(seat){
-        seat.style.position = 'relative';
-        seat.style.boxShadow = '0 0 0 2px rgba(124,58,237,.9), 0 0 32px rgba(124,58,237,.6), 0 0 64px rgba(124,58,237,.2)';
-        seat.style.transform = 'scale(1.04)';
-        seat.style.borderColor = 'rgba(124,58,237,.9)';
-        // Pulsing "working" label
-        var lbl = document.createElement('div');
-        lbl.className = 'orchSeatStatus orchWorking';
-        lbl.style.cssText = 'position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border-radius:6px;padding:2px 10px;font-size:10px;font-weight:700;white-space:nowrap;z-index:5;box-shadow:0 2px 8px rgba(124,58,237,.5);animation:operatorPulse 1.2s ease-in-out infinite;';
-        lbl.textContent = 'Working…';
-        seat.appendChild(lbl);
-        // Scroll seat into view
-        try{ seat.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){}
-        // Select the seat so the thread shows
-        try{ if(typeof selectSeat==='function') selectSeat(name); }catch(e){}
-      }
-      // Update strip
-      var sn = ge('orchStripName');
-      if(sn) sn.textContent = name + ' is working…';
-    }
+    // Build pass cards — one per teammate, all pending
+    var passCards = ge('orchPassCards');
+    passCards.innerHTML = '';
+    order.forEach(function(name, i){
+      var col = _orchColors[i % _orchColors.length];
+      var card = document.createElement('div');
+      card.id = 'orchCard_'+i;
+      card.style.cssText = 'border-radius:12px;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);overflow:hidden;transition:border-color .3s,box-shadow .3s;';
+      card.innerHTML =
+        '<div id="orchCardHdr_'+i+'" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(14,22,48,.8);">'
+          +'<div style="width:8px;height:8px;border-radius:50%;background:rgba(100,116,139,.4);flex-shrink:0;" id="orchDot_'+i+'"></div>'
+          +'<div style="font-size:13px;font-weight:600;color:#64748b;flex:1;" id="orchName_'+i+'">'+_eHTML(name)+'</div>'
+          +'<div style="font-size:11px;color:#334155;" id="orchStatus_'+i+'">Waiting</div>'
+        +'</div>'
+        +'<div id="orchOutput_'+i+'" style="display:none;padding:10px 14px 12px;font-size:12px;color:#94a3b8;line-height:1.6;white-space:pre-wrap;max-height:120px;overflow-y:auto;border-top:1px solid rgba(42,58,106,.3);"></div>';
+      passCards.appendChild(card);
+    });
 
-    function _orchCleanSeats(){
-      document.querySelectorAll('.seat').forEach(function(s){
-        s.style.boxShadow = '';
-        s.style.transform = '';
-        s.style.borderColor = '';
-        var st = s.querySelector('.orchSeatStatus');
-        if(st) st.remove();
-      });
-    }
+    // Animate first card to "working"
+    _orchSetCardWorking(0, _orchColors[0 % _orchColors.length]);
 
-    // ── Fire the API call ─────────────────────────────────────────────────────
-    // Animate first seat immediately
-    if(order.length) _orchActivateSeat(order[0]);
-
+    // Fire the API
     fetch('/api/orchestra/run', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({prompt:prompt, teammate_order:order})
-    }).then(function(r){return r.json();}).then(function(d){
-      // Clean up live UI
-      _orchCleanSeats();
-      var st = ge('orchLiveStrip');
-      if(st){ st.style.opacity='0'; setTimeout(function(){try{st.remove();}catch(e){}},350); }
+    }).then(function(r){ return r.json(); }).then(function(d){
+      _orchState.running = false;
+      window._orchRunning = false;
 
       if(!d.ok){
-        // Reopen modal with error
-        _saOpenOrchestra();
+        // Back to setup with error
+        ge('orchSetup').style.display    = '';
+        ge('orchLiveView').style.display = 'none';
         _toast(d.error||'Orchestra failed', 'error');
         return;
       }
 
-      // Animate completed passes with ticks before showing result
-      (d.passes||[]).forEach(function(p, i){
-        _orchDoneSeats.push(p.teammate||'');
-        var ds = document.querySelector('.seat[data-name="'+(p.teammate||'')+'"]');
-        if(ds){
-          ds.style.borderColor = 'rgba(110,231,183,.5)';
-          if(!ds.querySelector('.orchSeatStatus')){
-            var tick = document.createElement('div');
-            tick.className = 'orchSeatStatus';
-            tick.style.cssText = 'position:absolute;top:-10px;right:-10px;background:#059669;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(5,150,105,.5);';
-            tick.textContent = '✓';
-            ds.style.position = 'relative';
-            ds.appendChild(tick);
+      // Animate each pass result with a short delay so user can read them
+      var passes = d.passes || [];
+      var delay = 0;
+      passes.forEach(function(p, i){
+        var col = _orchColors[i % _orchColors.length];
+        setTimeout(function(){
+          // Mark this card done
+          _orchSetCardDone(i, col, p.output || p.role || '');
+          // Activate next card
+          if(i+1 < passes.length){
+            _orchSetCardWorking(i+1, _orchColors[(i+1) % _orchColors.length]);
           }
-        }
+        }, delay);
+        delay += 320;
       });
 
-      // Reopen modal with results after 1.2s so user can see the ticks
+      // After all cards animated, show final result
       setTimeout(function(){
-        _orchCleanSeats();
-        // Reopen modal
-        modal.style.display = 'flex';
-        if(inner){
-          inner.style.transition = 'transform .35s cubic-bezier(.34,1.56,.64,1), opacity .35s';
-          inner.style.opacity = '0';
-          inner.style.transform = 'scale(.95)';
-          requestAnimationFrame(function(){
-            inner.style.opacity = '1';
-            inner.style.transform = 'scale(1)';
-          });
-        }
-        // Fill results
+        // Fill pass log
         var passLog = ge('orchPassLog');
         passLog.innerHTML = '';
-        (d.passes||[]).forEach(function(p, i){
+        passes.forEach(function(p, i){
+          var col2 = _orchColors[i % _orchColors.length];
           var chip = document.createElement('div');
-          chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:6px;font-size:11px;color:#a78bfa;';
-          chip.innerText = '✓ '+_eHTML(p.teammate||('Step '+(i+1)));
+          chip.style.cssText = 'display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1px solid '+col2+'44;color:'+col2+';background:'+col2+'11;';
+          chip.textContent = '✓ '+(p.teammate||('Step '+(i+1)));
           passLog.appendChild(chip);
         });
         ge('orchFinalOutput').innerText = d.final || '';
-        ge('orchResults').style.display = '';
-        _setBusy('orchRunBtn', false, 'Run Orchestra');
+        ge('orchLiveView').style.display = 'none';
+        ge('orchResults').style.display  = '';
         _toast('Orchestra complete! +50 pts');
         if(typeof refreshThread === 'function') try{ refreshThread(); }catch(e){}
-      }, 1200);
+      }, delay + 400);
 
-    }).catch(function(e){
-      _orchCleanSeats();
-      var st2 = ge('orchLiveStrip');
-      if(st2){ try{st2.remove();}catch(e2){} }
-      _saOpenOrchestra();
-      _setBusy('orchRunBtn', false, 'Run Orchestra');
+    }).catch(function(){
+      _orchState.running = false;
+      window._orchRunning = false;
+      ge('orchSetup').style.display    = '';
+      ge('orchLiveView').style.display = 'none';
       _toast('Network error', 'error');
     });
+  };
+
+  function _orchSetCardWorking(i, col){
+    var card = ge('orchCard_'+i);
+    var dot  = ge('orchDot_'+i);
+    var name = ge('orchName_'+i);
+    var stat = ge('orchStatus_'+i);
+    if(!card) return;
+    card.style.borderColor = col;
+    card.style.boxShadow   = '0 0 20px '+col+'33';
+    if(dot)  { dot.style.background = col; dot.style.animation = 'dotPulse .8s ease-in-out infinite'; }
+    if(name) { name.style.color = '#e2e8f0'; }
+    if(stat) { stat.innerHTML = '<span style="color:'+col+';font-weight:600;">Working…</span>'; }
+  }
+
+  function _orchSetCardDone(i, col, outputText){
+    var card = ge('orchCard_'+i);
+    var dot  = ge('orchDot_'+i);
+    var stat = ge('orchStatus_'+i);
+    var out  = ge('orchOutput_'+i);
+    if(!card) return;
+    card.style.borderColor = col+'88';
+    card.style.boxShadow   = '';
+    if(dot)  { dot.style.background = col; dot.style.animation = 'none'; }
+    if(stat) { stat.innerHTML = '<span style="color:'+col+';">✓ Done</span>'; }
+    if(out && outputText){
+      out.textContent = outputText;
+      out.style.display = '';
+    }
+  }
+
+  window._saOrchRunAgain = function(){
+    ge('orchResults').style.display  = 'none';
+    ge('orchSetup').style.display    = '';
   };
 
   window._saOrchCopyFinal = function(){
