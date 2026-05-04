@@ -1613,6 +1613,12 @@ _ERROR_PAGE_CSS = (
 
 @app.after_request
 def _add_security_headers(response):
+    # Skip restrictive security headers for extension API routes — they need open CORS
+    if (request.path or "").startswith("/api/extension/") or (request.path or "").startswith("/extension/"):
+        response.headers["Access-Control-Allow-Origin"]  = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return response
     response.headers["X-Frame-Options"]        = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
