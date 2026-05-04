@@ -37823,22 +37823,24 @@ h2{{color:#c4b5fd;margin-bottom:10px;font-size:22px;}} p{{color:#64748b;font-siz
 def extension_download():
     u = current_user()
     if not u: return redirect(url_for("login") + "?next=/extension/download")
-    buf = _io.BytesIO()
-    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json",  _EXT_MANIFEST)
-        zf.writestr("background.js",  _EXT_BACKGROUND)
-        zf.writestr("content.css",    _EXT_CONTENT_CSS)
-        zf.writestr("content.js",     _EXT_CONTENT_JS)
-        zf.writestr("popup.html",     _EXT_POPUP_HTML)
-        zf.writestr("popup.js",       _EXT_POPUP_JS)
-        for sz in [16, 48, 128]:
-            zf.writestr(f"icon{sz}.png", _make_ext_icon(sz))
-    buf.seek(0)
-    resp = make_response(buf.read())
-    resp.headers["Content-Type"]        = "application/zip"
-    resp.headers["Content-Disposition"] = 'attachment; filename="simply-agentic-extension.zip"'
-    resp.headers["Cache-Control"]       = "no-store"
-    return resp
+    try:
+        buf = _io.BytesIO()
+        with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("manifest.json",  _EXT_MANIFEST)
+            zf.writestr("background.js",  _EXT_BACKGROUND)
+            zf.writestr("content.css",    _EXT_CONTENT_CSS)
+            zf.writestr("content.js",     _EXT_CONTENT_JS)
+            zf.writestr("popup.html",     _EXT_POPUP_HTML)
+            zf.writestr("popup.js",       _EXT_POPUP_JS)
+        buf.seek(0)
+        resp = make_response(buf.read())
+        resp.headers["Content-Type"]        = "application/zip"
+        resp.headers["Content-Disposition"] = 'attachment; filename="simply-agentic-extension.zip"'
+        resp.headers["Cache-Control"]       = "no-store"
+        return resp
+    except Exception as e:
+        _capture_error(e, context="extension_download")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.get("/api/extension/auth")
