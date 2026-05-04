@@ -1833,6 +1833,11 @@ def api_debug_key_status():
         "ts":     now_iso(),
     })
 
+@app.get("/health")
+def health_check() -> Any:
+    """Health check for Render and uptime monitors. Returns 200 immediately."""
+    return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso()})
+
 @app.get("/ping")
 def ping() -> Any:
     """Alias for /health — some monitors use /ping."""
