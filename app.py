@@ -37824,19 +37824,55 @@ def extension_download():
     u = current_user()
     if not u: return redirect(url_for("login") + "?next=/extension/download")
     try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+        api_key = _ext_api_key_for_user(uname)
+        base_url = (PUBLIC_BASE_URL or "").rstrip("/")
+
         def _fix(s):
-            # json.dumps stores emoji as UTF-16 surrogate pairs.
-            # Round-trip through utf-16 restores proper Unicode code points.
             try:
-                s.encode('utf-8')   # already clean — no surrogates
+                s.encode('utf-8')
                 return s
             except UnicodeEncodeError:
                 return s.encode('utf-16', 'surrogatepass').decode('utf-16')
 
+        # Inject a config.js that pre-loads the user's URL + key into chrome.storage
+        # The background service worker runs this on install so the extension works immediately
+        config_js = f"""// Auto-generated — do not edit
+// This file is personalised for {uname} and pre-connects the extension on install.
+chrome.runtime.onInstalled.addListener(function() {{
+  chrome.storage.local.set({{
+    sa_url: {json.dumps(base_url)},
+    sa_key: {json.dumps(api_key)},
+    sa_user: {json.dumps(uname)}
+  }}, function() {{
+    console.log('[SA] Simply Agentic auto-connected for {uname}');
+  }});
+}});
+
+chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {{
+  if (msg.type === 'GET_CONFIG') {{
+    chrome.storage.local.get(['sa_url', 'sa_key', 'sa_user'], function(r) {{
+      sendResponse({{
+        url: r.sa_url || {json.dumps(base_url)},
+        key: r.sa_key || {json.dumps(api_key)},
+        user: r.sa_user || {json.dumps(uname)}
+      }});
+    }});
+    return true;
+  }}
+  if (msg.type === 'SAVE_CONFIG') {{
+    chrome.storage.local.set({{ sa_url: msg.url, sa_key: msg.key }}, function() {{
+      sendResponse({{ ok: true }});
+    }});
+    return true;
+  }}
+}});
+"""
+
         buf = _io.BytesIO()
         with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json",  _fix(_EXT_MANIFEST))
-            zf.writestr("background.js",  _fix(_EXT_BACKGROUND))
+            zf.writestr("background.js",  config_js)          # personalised — replaces generic background.js
             zf.writestr("content.css",    _fix(_EXT_CONTENT_CSS))
             zf.writestr("content.js",     _fix(_EXT_CONTENT_JS))
             zf.writestr("popup.html",     _fix(_EXT_POPUP_HTML))
