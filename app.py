@@ -5569,6 +5569,11 @@ def api_change_password():
 
 @app.post("/api/user/settings")
 def api_set_user_settings():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(force=True) or {}
+    openai_key = (data.get("openai_key") or "").strip()
     claude_key = (data.get("claude_key") or "").strip()
     global_default_model = (data.get("global_default_model") or "").strip()
 
