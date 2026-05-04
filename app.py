@@ -29135,7 +29135,7 @@ document.addEventListener('click',e=>{
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
       <div>
-        <div style="font-size:16px;font-weight:800;color:#c4b5fd;">🎵 Orchestra Mode</div>
+        <div style="font-size:16px;font-weight:800;color:#c4b5fd;">Orchestra Mode</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate applies their expertise — one unified output</div>
       </div>
       <button onclick="_saCloseModal('orchestraModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
@@ -29149,7 +29149,7 @@ document.addEventListener('click',e=>{
     </div>
     <div style="padding:0 22px 18px;display:flex;gap:10px;">
       <button onclick="_saCloseModal('orchestraModal')" style="flex:1;padding:10px;border:1px solid rgba(42,58,106,.8);border-radius:10px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:13px;cursor:pointer;">Cancel</button>
-      <button id="orchRunBtn" onclick="_saRunOrchestra()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">🎵 Run Orchestra</button>
+      <button id="orchRunBtn" onclick="_saRunOrchestra()" style="flex:2;padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">Run Orchestra</button>
     </div>
     <div id="orchResults" style="display:none;padding:0 22px 20px;">
       <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;margin-bottom:10px;font-size:13px;font-weight:700;color:#c4b5fd;">📋 Result</div>
@@ -29368,29 +29368,172 @@ document.addEventListener('click',e=>{
     var chips = orderEl ? Array.from(orderEl.querySelectorAll('[data-name]')) : [];
     var order = chips.map(function(c){ return c.dataset.name; }).filter(Boolean);
     if(!order.length){ _toast('No teammates found', 'error'); return; }
-    _setBusy('orchRunBtn', true, '🎵 Run Orchestra');
-    ge('orchResults').style.display = 'none';
+
+    // ── Minimise modal → show live status strip on the round table ──────────
+    var modal = ge('orchestraModal');
+    var inner = modal ? modal.querySelector('div') : null;
+    if(inner){
+      inner.style.transition = 'transform .35s cubic-bezier(.4,0,.2,1), opacity .35s';
+      inner.style.opacity = '0';
+      inner.style.transform = 'translateY(-18px) scale(.97)';
+    }
+    setTimeout(function(){ if(modal) modal.style.display = 'none'; }, 320);
+
+    // Create live status strip
+    var strip = document.createElement('div');
+    strip.id = 'orchLiveStrip';
+    strip.style.cssText = [
+      'position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:99996;',
+      'background:rgba(10,14,30,.97);border:1px solid rgba(124,58,237,.6);',
+      'border-top:none;border-radius:0 0 14px 14px;',
+      'padding:8px 20px;display:flex;align-items:center;gap:12px;',
+      'box-shadow:0 8px 32px rgba(124,58,237,.25);',
+      'transition:opacity .3s;'
+    ].join('');
+    strip.innerHTML = '<div style="font-size:12px;font-weight:700;color:#c4b5fd;">Orchestra running</div>'
+      + '<div id="orchStripName" style="font-size:12px;color:#94a3b8;">Starting…</div>'
+      + '<div id="orchStripDots" style="display:flex;gap:4px;">'
+      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out infinite;"></div>'
+      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out .2s infinite;"></div>'
+      + '<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;animation:dotPulse .8s ease-in-out .4s infinite;"></div>'
+      + '</div>';
+    document.body.appendChild(strip);
+
+    // ── Orchestra seat activation animation ──────────────────────────────────
+    var _orchDoneSeats = [];
+
+    function _orchActivateSeat(name, isDone){
+      // Reset all
+      document.querySelectorAll('.seat').forEach(function(s){
+        s.style.boxShadow = '';
+        s.style.transform = '';
+        s.style.transition = 'box-shadow .4s, transform .4s, border-color .4s';
+        s.style.borderColor = '';
+        var prev = s.querySelector('.orchSeatStatus');
+        if(prev) prev.remove();
+      });
+      // Mark done seats
+      _orchDoneSeats.forEach(function(dname){
+        var ds = document.querySelector('.seat[data-name="'+dname+'"]');
+        if(!ds) return;
+        ds.style.borderColor = 'rgba(110,231,183,.5)';
+        if(!ds.querySelector('.orchSeatStatus')){
+          var tick = document.createElement('div');
+          tick.className = 'orchSeatStatus';
+          tick.style.cssText = 'position:absolute;top:-10px;right:-10px;background:#059669;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(5,150,105,.5);';
+          tick.textContent = '✓';
+          ds.style.position = 'relative';
+          ds.appendChild(tick);
+        }
+      });
+      // Activate current seat
+      var seat = document.querySelector('.seat[data-name="'+name+'"]');
+      if(seat){
+        seat.style.position = 'relative';
+        seat.style.boxShadow = '0 0 0 2px rgba(124,58,237,.9), 0 0 32px rgba(124,58,237,.6), 0 0 64px rgba(124,58,237,.2)';
+        seat.style.transform = 'scale(1.04)';
+        seat.style.borderColor = 'rgba(124,58,237,.9)';
+        // Pulsing "working" label
+        var lbl = document.createElement('div');
+        lbl.className = 'orchSeatStatus orchWorking';
+        lbl.style.cssText = 'position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border-radius:6px;padding:2px 10px;font-size:10px;font-weight:700;white-space:nowrap;z-index:5;box-shadow:0 2px 8px rgba(124,58,237,.5);animation:operatorPulse 1.2s ease-in-out infinite;';
+        lbl.textContent = 'Working…';
+        seat.appendChild(lbl);
+        // Scroll seat into view
+        try{ seat.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){}
+        // Select the seat so the thread shows
+        try{ if(typeof selectSeat==='function') selectSeat(name); }catch(e){}
+      }
+      // Update strip
+      var sn = ge('orchStripName');
+      if(sn) sn.textContent = name + ' is working…';
+    }
+
+    function _orchCleanSeats(){
+      document.querySelectorAll('.seat').forEach(function(s){
+        s.style.boxShadow = '';
+        s.style.transform = '';
+        s.style.borderColor = '';
+        var st = s.querySelector('.orchSeatStatus');
+        if(st) st.remove();
+      });
+    }
+
+    // ── Fire the API call ─────────────────────────────────────────────────────
+    // Animate first seat immediately
+    if(order.length) _orchActivateSeat(order[0]);
+
     fetch('/api/orchestra/run', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({prompt:prompt, teammate_order:order})
     }).then(function(r){return r.json();}).then(function(d){
-      _setBusy('orchRunBtn', false, '🎵 Run Orchestra');
-      if(!d.ok){ _toast(d.error||'Orchestra failed', 'error'); return; }
-      // Render passes
-      var passLog = ge('orchPassLog');
-      passLog.innerHTML = '';
+      // Clean up live UI
+      _orchCleanSeats();
+      var st = ge('orchLiveStrip');
+      if(st){ st.style.opacity='0'; setTimeout(function(){try{st.remove();}catch(e){}},350); }
+
+      if(!d.ok){
+        // Reopen modal with error
+        _saOpenOrchestra();
+        _toast(d.error||'Orchestra failed', 'error');
+        return;
+      }
+
+      // Animate completed passes with ticks before showing result
       (d.passes||[]).forEach(function(p, i){
-        var chip = document.createElement('div');
-        chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:6px;font-size:11px;color:#a78bfa;';
-        chip.innerText = '✓ '+_eHTML(p.teammate||('Step '+(i+1)));
-        passLog.appendChild(chip);
-        if(typeof saVFX_orchestraPass === 'function') saVFX_orchestraPass(p.teammate, i, (d.passes||[]).length);
+        _orchDoneSeats.push(p.teammate||'');
+        var ds = document.querySelector('.seat[data-name="'+(p.teammate||'')+'"]');
+        if(ds){
+          ds.style.borderColor = 'rgba(110,231,183,.5)';
+          if(!ds.querySelector('.orchSeatStatus')){
+            var tick = document.createElement('div');
+            tick.className = 'orchSeatStatus';
+            tick.style.cssText = 'position:absolute;top:-10px;right:-10px;background:#059669;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;z-index:5;box-shadow:0 2px 8px rgba(5,150,105,.5);';
+            tick.textContent = '✓';
+            ds.style.position = 'relative';
+            ds.appendChild(tick);
+          }
+        }
       });
-      ge('orchFinalOutput').innerText = d.final || '';
-      ge('orchResults').style.display = '';
-      _toast('Orchestra complete! +50 pts 🎵');
-      if(typeof refreshThread === 'function') try{ refreshThread(); }catch(e){}
-    }).catch(function(e){ _setBusy('orchRunBtn', false, '🎵 Run Orchestra'); _toast('Network error', 'error'); });
+
+      // Reopen modal with results after 1.2s so user can see the ticks
+      setTimeout(function(){
+        _orchCleanSeats();
+        // Reopen modal
+        modal.style.display = 'flex';
+        if(inner){
+          inner.style.transition = 'transform .35s cubic-bezier(.34,1.56,.64,1), opacity .35s';
+          inner.style.opacity = '0';
+          inner.style.transform = 'scale(.95)';
+          requestAnimationFrame(function(){
+            inner.style.opacity = '1';
+            inner.style.transform = 'scale(1)';
+          });
+        }
+        // Fill results
+        var passLog = ge('orchPassLog');
+        passLog.innerHTML = '';
+        (d.passes||[]).forEach(function(p, i){
+          var chip = document.createElement('div');
+          chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:6px;font-size:11px;color:#a78bfa;';
+          chip.innerText = '✓ '+_eHTML(p.teammate||('Step '+(i+1)));
+          passLog.appendChild(chip);
+        });
+        ge('orchFinalOutput').innerText = d.final || '';
+        ge('orchResults').style.display = '';
+        _setBusy('orchRunBtn', false, 'Run Orchestra');
+        _toast('Orchestra complete! +50 pts');
+        if(typeof refreshThread === 'function') try{ refreshThread(); }catch(e){}
+      }, 1200);
+
+    }).catch(function(e){
+      _orchCleanSeats();
+      var st2 = ge('orchLiveStrip');
+      if(st2){ try{st2.remove();}catch(e2){} }
+      _saOpenOrchestra();
+      _setBusy('orchRunBtn', false, 'Run Orchestra');
+      _toast('Network error', 'error');
+    });
   };
 
   window._saOrchCopyFinal = function(){
