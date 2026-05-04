@@ -4188,32 +4188,50 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
-    """Returns (http_status, friendly_user_message). Never exposes raw tracebacks."""
+    """Returns (http_status, friendly_user_message). Uses exception type first,
+    falls back to string matching only for untyped exceptions."""
+    # ── Check structured OpenAI SDK exception types first ─────────────────────
+    try:
+        from openai import RateLimitError, AuthenticationError, BadRequestError, APIConnectionError
+        if isinstance(e, AuthenticationError):
+            return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+        if isinstance(e, RateLimitError):
+            # RateLimitError covers both rate limits AND quota exhaustion
+            # Distinguish by error code or message
+            code = getattr(getattr(e, 'error', None), 'code', None) or ''
+            if 'quota' in str(code).lower() or 'quota' in str(e).lower():
+                return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
+            return 429, "OpenAI rate limit hit — please wait a moment and try again."
+        if isinstance(e, BadRequestError):
+            s2 = str(e).lower()
+            if 'context_length' in s2 or 'maximum context' in s2 or 'too many tokens' in s2 or "string too long" in s2:
+                return 400, "Your conversation is too long for this model. Try clearing the thread and starting fresh."
+            if 'content_policy' in s2 or 'content filter' in s2:
+                return 400, "The AI declined this request due to content policy. Try rephrasing."
+            return 400, f"Request error: {str(e)[:160]}"
+        if isinstance(e, APIConnectionError):
+            return 503, "Could not reach the AI service — check your internet connection and try again."
+    except ImportError:
+        pass
+    # ── Fallback: string match on raw error (for non-SDK errors) ──────────────
     s = (str(e) or "").lower()
-    if "incorrect api key" in s or "invalid api key" in s or "authentication" in s or ("401" in s and "api" in s):
+    if "incorrect api key" in s or "invalid api key" in s or ("authentication" in s and "api" in s):
         return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
-    if "insufficient_quota" in s or "exceeded your current quota" in s or ("quota" in s and "billing" in s):
+    if "insufficient_quota" in s or "exceeded your current quota" in s:
         return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
-    if "model" in s and ("not found" in s or "does not exist" in s):
-        model_hint = ""
-        try:
-            m = re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
-            if m:
-                model_hint = f" (model: {m.group(1)})"
-        except Exception:
-            pass
-        return 400, f"The AI model{model_hint} was not found. Update the teammate's model in Settings."
     if "rate limit" in s or "429" in s:
         return 429, "OpenAI rate limit hit — please wait a moment and try again."
+    if "context_length" in s or "maximum context" in s or "too many tokens" in s or "string too long" in s:
+        return 400, "Your conversation is too long. Clear the thread and start fresh."
+    if "model" in s and ("not found" in s or "does not exist" in s):
+        return 400, "AI model not found — check the model name in teammate Settings."
     if "connection" in s or "timeout" in s or "network" in s or "503" in s:
-        return 503, "Could not reach the AI service — check your internet connection and try again."
-    if "context_length" in s or "maximum context" in s or "too many tokens" in s:
-        return 400, "Your conversation is too long. Clear the thread and start a new one."
+        return 503, "Could not reach the AI service — check your internet connection."
     if "content_policy" in s or "content filter" in s or "safety" in s:
         return 400, "The AI declined this request due to content policy. Try rephrasing."
-    # Unknown error — surface the raw message so it can be diagnosed
-    short = s[:200] if len(s) > 200 else s
-    return 500, f"AI service error: {short}"
+    # Surface raw error so it can always be diagnosed
+    short = str(e)[:200]
+    return 500, f"AI error: {short}"
 
 
 # =========================
