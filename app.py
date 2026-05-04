@@ -4188,30 +4188,50 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
 
 
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
-    """Returns (http_status, friendly_user_message). Never exposes raw tracebacks."""
+    """Returns (http_status, friendly_user_message). Uses exception type first,
+    falls back to string matching only for untyped exceptions."""
+    # ── Check structured OpenAI SDK exception types first ─────────────────────
+    try:
+        from openai import RateLimitError, AuthenticationError, BadRequestError, APIConnectionError
+        if isinstance(e, AuthenticationError):
+            return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+        if isinstance(e, RateLimitError):
+            # RateLimitError covers both rate limits AND quota exhaustion
+            # Distinguish by error code or message
+            code = getattr(getattr(e, 'error', None), 'code', None) or ''
+            if 'quota' in str(code).lower() or 'quota' in str(e).lower():
+                return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
+            return 429, "OpenAI rate limit hit — please wait a moment and try again."
+        if isinstance(e, BadRequestError):
+            s2 = str(e).lower()
+            if 'context_length' in s2 or 'maximum context' in s2 or 'too many tokens' in s2 or "string too long" in s2:
+                return 400, "Your conversation is too long for this model. Try clearing the thread and starting fresh."
+            if 'content_policy' in s2 or 'content filter' in s2:
+                return 400, "The AI declined this request due to content policy. Try rephrasing."
+            return 400, f"Request error: {str(e)[:160]}"
+        if isinstance(e, APIConnectionError):
+            return 503, "Could not reach the AI service — check your internet connection and try again."
+    except ImportError:
+        pass
+    # ── Fallback: string match on raw error (for non-SDK errors) ──────────────
     s = (str(e) or "").lower()
-    if "incorrect api key" in s or "invalid api key" in s or "authentication" in s or ("401" in s and "api" in s):
-        return 401, "Your OpenAI API key appears to be invalid. Go to Settings and double-check it."
-    if "quota" in s or "insufficient_quota" in s or "exceeded your current quota" in s or "billing" in s:
-        return 402, "Your OpenAI account has hit its usage limit or a billing issue. Check your OpenAI dashboard."
-    if "model" in s and ("not found" in s or "does not exist" in s):
-        model_hint = ""
-        try:
-            m = re.search(r"model[^a-z]*([a-z0-9][a-z0-9._-]{2,39})", s)
-            if m:
-                model_hint = f" (model: {m.group(1)})"
-        except Exception:
-            pass
-        return 400, f"The AI model{model_hint} was not found. Update the teammate's model in Settings."
+    if "incorrect api key" in s or "invalid api key" in s or ("authentication" in s and "api" in s):
+        return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+    if "insufficient_quota" in s or "exceeded your current quota" in s:
+        return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
     if "rate limit" in s or "429" in s:
         return 429, "OpenAI rate limit hit — please wait a moment and try again."
+    if "context_length" in s or "maximum context" in s or "too many tokens" in s or "string too long" in s:
+        return 400, "Your conversation is too long. Clear the thread and start fresh."
+    if "model" in s and ("not found" in s or "does not exist" in s):
+        return 400, "AI model not found — check the model name in teammate Settings."
     if "connection" in s or "timeout" in s or "network" in s or "503" in s:
-        return 503, "Could not reach the AI service — check your internet connection and try again."
-    if "context_length" in s or "maximum context" in s or "too many tokens" in s:
-        return 400, "Your conversation is too long. Clear the thread and start a new one."
+        return 503, "Could not reach the AI service — check your internet connection."
     if "content_policy" in s or "content filter" in s or "safety" in s:
         return 400, "The AI declined this request due to content policy. Try rephrasing."
-    return 500, "An unexpected error occurred with the AI service. Please try again."
+    # Surface raw error so it can always be diagnosed
+    short = str(e)[:200]
+    return 500, f"AI error: {short}"
 
 
 # =========================
@@ -13042,7 +13062,7 @@ label         { font-size: 14px !important; }
 
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
-        <div id="navLevelBadge" style="display:none;font-size:12px;font-weight:700;color:#c4b5fd;padding:4px 10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.32);border-radius:8px;cursor:pointer;white-space:nowrap;" onclick="openCommunityPanel('stats')"></div>
+        <div id="navLevelBadge" style="display:none;"></div>
         <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Compass</button>
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
@@ -15241,19 +15261,19 @@ input[type="range"]::-moz-range-progress {
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
               <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
-              <div class="tiny" style="opacity:.9;">Runs on the latest group replies.</div>
+
             </div>
 
             <div class="pillRow">
               <input type="file" id="groupFiles" multiple style="display:none" />
-              <button class="btn btnMini" id="pickGroupFiles">Upload files</button>
-              <div class="tiny" id="uploadHint">Attach files or use Share screen to capture a screenshot.</div>
+              <button class="btn btnMini" id="pickGroupFiles" title="Attach files or use Share screen to capture a screenshot.">Upload files</button>
+              <div class="tiny" id="uploadHint" style="display:none;"></div>
             </div>
             <div id="groupAttachList" class="pillRow"></div>
 
             <div class="opRow">
-              <div class="tiny" id="opStatus">Ready</div>
-              <div class="tiny" id="opHint">Say a teammate name to switch. Box clears on each switch.</div>
+              <div class="tiny" id="opStatus"></div>
+              <div class="tiny" id="opHint" title="Say a teammate name to switch. Box clears on each switch." style="display:none;"></div>
             </div>
             <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
@@ -16490,7 +16510,7 @@ function makeSeat(defn, idx){
       if(window._SA_UNLOCKS && window._SA_UNLOCKS.indexOf('action_stacks') !== -1){
         const stackBtn = document.createElement("button");
         stackBtn.className = "seatToolBtn seatStackBtn";
-        stackBtn.innerText = "⚡ Stack";
+        stackBtn.innerText = "Stack";
         stackBtn.title = "Build & run an Action Stack for this teammate";
         stackBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
         stackBtn.addEventListener("click", (e) => {
@@ -16944,6 +16964,28 @@ function makeSeat(defn, idx){
         const ulData = await ulRes.json();
         window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
       } catch(_){ window._SA_UNLOCKS = []; }
+      // Gate tier-locked feature buttons inline — no dependency on external scripts
+      (function(){
+        var unlocks = window._SA_UNLOCKS || [];
+        var btnMap = {
+          orchestraBtn: { key: 'orchestra',     fn: function(){ if(typeof _saOpenOrchestra==='function') _saOpenOrchestra(); } },
+          fusionBtn:    { key: 'fusion',         fn: function(){ if(typeof _saOpenFusion==='function')    _saOpenFusion();    } },
+          deepDiveBtn:  { key: 'deep_dive',      fn: function(){ if(typeof _saOpenDeepDive==='function')  _saOpenDeepDive();  } },
+          stackBtn:     { key: 'action_stacks',  fn: function(){ if(typeof openStackModal==='function')   openStackModal(window.selectedSeat||''); } },
+        };
+        Object.keys(btnMap).forEach(function(btnId){
+          var btn = document.getElementById(btnId);
+          if(!btn) return;
+          var entry = btnMap[btnId];
+          if(unlocks.indexOf(entry.key) !== -1){
+            btn.style.display = '';
+            btn.onclick = entry.fn;
+          } else {
+            btn.style.display = 'none';
+            btn.onclick = null;
+          }
+        });
+      })();
       renderTable();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
@@ -28377,7 +28419,7 @@ window._streamTtsFired = false;
     _sm.teammate = tmName;
     _sm.steps = [];
     _sm.running = false;
-    document.getElementById('stackModalTitle').innerText = '⚡ ' + tmName + ' — Action Stack';
+    document.getElementById('stackModalTitle').innerText = tmName + ' — Action Stack';
     document.getElementById('stackNameInput').value = '';
     document.getElementById('stackResults').style.display = 'none';
     document.getElementById('stackResultsList').innerHTML = '';
@@ -29114,17 +29156,7 @@ document.addEventListener('click',e=>{
     });
   };
 
-  // Add referral button to nav
-  setTimeout(function(){
-    var logoutBtn = document.querySelector('a.saNavBtn[href="/logout"]');
-    if(logoutBtn && logoutBtn.parentNode){
-      var refBtn = document.createElement('button');
-      refBtn.style.cssText = 'background:rgba(29,158,117,.15);border:1px solid rgba(29,158,117,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;';
-      refBtn.innerHTML = '🎁 Refer';
-      refBtn.onclick = openReferralModal;
-      logoutBtn.parentNode.insertBefore(refBtn, logoutBtn);
-    }
-  }, 2500);
+  // Referral button hidden until launched — backend ready, UI suppressed
 
 })();
 </script>
@@ -29305,41 +29337,57 @@ document.addEventListener('click',e=>{
      ORCHESTRA MODE
   ══════════════════════════════════════════════════════════════════ */
   window._saOpenOrchestra = function(){
-    // Populate teammate order from installed seats
     var orderEl = ge('orchOrderList');
     if(orderEl){
       orderEl.innerHTML = '';
       try{
-        var installed = (window.state && window.state.installed) ? Object.keys(window.state.installed) : [];
-        // Start clockwise from selected seat if possible
+        // Try multiple sources for installed teammates
+        var installed = [];
+        if(window.state && window.state.installed && typeof window.state.installed === 'object'){
+          installed = Object.keys(window.state.installed);
+        }
+        // Fallback: read from the rendered seat cards in the DOM
+        if(!installed.length){
+          document.querySelectorAll('.seat[data-name]').forEach(function(s){
+            var n = s.dataset.name;
+            if(n && n !== 'Operator' && !installed.includes(n)) installed.push(n);
+          });
+        }
+        // Start clockwise from selected seat
         var sel = window.selectedSeat || '';
-        if(sel && installed.includes(sel)){
+        if(sel && installed.indexOf(sel) !== -1){
           var idx = installed.indexOf(sel);
           installed = installed.slice(idx).concat(installed.slice(0, idx));
         }
-        installed.forEach(function(name){
-          var chip = document.createElement('div');
-          chip.dataset.name = name;
-          chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
-          chip.innerText = name;
-          chip.draggable = true;
-          chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
-          chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
-          chip.addEventListener('dragover', function(e){ e.preventDefault(); });
-          chip.addEventListener('drop', function(e){
-            e.preventDefault();
-            var draggedName = e.dataTransfer.getData('text/plain');
-            var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
-            if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
+        if(!installed.length){
+          orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">No teammates found. Select a seat at the round table first.</div>';
+        } else {
+          installed.forEach(function(name){
+            var chip = document.createElement('div');
+            chip.dataset.name = name;
+            chip.style.cssText = 'padding:5px 12px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:8px;font-size:12px;color:#c4b5fd;cursor:grab;user-select:none;';
+            chip.innerText = name;
+            chip.draggable = true;
+            chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', name); chip.style.opacity='0.4'; });
+            chip.addEventListener('dragend', function(){ chip.style.opacity='1'; });
+            chip.addEventListener('dragover', function(e){ e.preventDefault(); });
+            chip.addEventListener('drop', function(e){
+              e.preventDefault();
+              var draggedName = e.dataTransfer.getData('text/plain');
+              var draggedChip = orderEl.querySelector('[data-name="'+draggedName+'"]');
+              if(draggedChip && draggedChip !== chip){ orderEl.insertBefore(draggedChip, chip); }
+            });
+            orderEl.appendChild(chip);
           });
-          orderEl.appendChild(chip);
-        });
-      } catch(e){ orderEl.innerText='No teammates installed.'; }
+        }
+      } catch(e){ orderEl.innerHTML = '<div style="font-size:12px;color:#f87171;">Error loading teammates: '+e.message+'</div>'; }
     }
-    // Pre-fill prompt from current followMsg
+    // Pre-fill prompt — try group console first, then DM box
     try{
+      var op = ge('opPrompt');
       var fm = ge('followMsg');
-      if(fm && fm.value.trim()) ge('orchPrompt').value = fm.value.trim();
+      var prefill = (op && op.value.trim()) ? op.value.trim() : (fm && fm.value.trim() ? fm.value.trim() : '');
+      if(prefill) ge('orchPrompt').value = prefill;
     } catch(e){}
     ge('orchResults').style.display = 'none';
     _saOpenModal('orchestraModal');
@@ -29522,18 +29570,8 @@ document.addEventListener('click',e=>{
     }
   }
 
-  // Wire immediately and re-wire after loadState (which sets _SA_UNLOCKS)
-  _wireUnlockedButtons();
-  var _origLoadState = window.loadState;
-  if(typeof _origLoadState === 'function'){
-    window.loadState = async function(){
-      var result = await _origLoadState.apply(this, arguments);
-      _wireUnlockedButtons();
-      return result;
-    };
-  }
-  // Also fire after a short delay in case loadState already ran
-  setTimeout(_wireUnlockedButtons, 2000);
+  // Expose as a fallback — loadState handles the primary gate inline now
+  window._wireUnlockedButtons = _wireUnlockedButtons;
 
 })();
 </script>
@@ -35556,12 +35594,13 @@ def api_followup_stream():
             }) + "\n\n"
 
         except Exception as exc:
-            err_msg = str(exc) or "Stream error"
+            raw = repr(exc)
+            err_msg = raw
             try:
                 _, err_msg = _classify_openai_error(exc)
             except Exception:
                 pass
-            yield "data: " + json.dumps({"error": err_msg}) + "\n\n"
+            yield "data: " + json.dumps({"error": f"[DEBUG raw: {raw[:300]}] | classified: {err_msg}"}) + "\n\n"
 
     return Response(
         stream_with_context(generate()),
