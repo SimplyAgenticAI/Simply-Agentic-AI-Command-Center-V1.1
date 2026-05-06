@@ -8572,26 +8572,6 @@ LOGIN_HTML = r"""
 /* Pause wing beat during landing phase (38%-55% = ~2.3s-3.2s into 5.8s) */
 .dragonflySvg:hover .dfWing{ animation-play-state:paused; }
 
-/* ===== 5 OFFSPRING MUSHROOMS ===== */
-@keyframes newMushGrow{
-  0%  { transform:scaleY(0); opacity:0; }
-  12% { opacity:1; }
-  58% { transform:scaleY(1.10); }
-  74% { transform:scaleY(0.94); }
-  100%{ transform:scaleY(1);   opacity:1; }
-}
-.newMush{
-  position:absolute;
-  bottom:0;
-  transform-origin:bottom center;
-  animation:newMushGrow 1.1s cubic-bezier(.34,1.56,.64,1) both;
-}
-.sporeLayer{
-  position:absolute;
-  top:0; left:0;
-  width:100%; height:100%;
-  pointer-events:none;
-}
 </style>
 
 </head><body>
@@ -8790,175 +8770,56 @@ LOGIN_HTML = r"""
     {% if error %}<div class="err">{{error}}</div>{% endif %}
 
     <!-- ===== MUSHROOM + DRAGONFLY SCENE ===== -->
-    <div class="loginScene" id="loginScene" aria-hidden="true">
-
-      <!-- Mushroom SVG — original, same as before -->
-      <svg id="origMushroom" class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
+    <div class="loginScene" aria-hidden="true">
+      <!-- Mushroom SVG -->
+      <svg class="mushroomSvg" viewBox="0 0 110 130" xmlns="http://www.w3.org/2000/svg">
+        <!-- stem -->
         <rect x="36" y="72" width="38" height="58" rx="10" fill="rgba(230,220,200,0.88)"/>
+        <!-- stem shading -->
         <rect x="36" y="72" width="14" height="58" rx="7" fill="rgba(200,185,165,0.45)"/>
+        <!-- gill underside -->
         <ellipse cx="55" cy="74" rx="34" ry="10" fill="rgba(220,200,175,0.75)"/>
+        <!-- cap -->
         <ellipse cx="55" cy="55" rx="52" ry="32" fill="#c0392b"/>
+        <!-- cap highlight gradient dome -->
         <ellipse cx="55" cy="44" rx="44" ry="25" fill="rgba(220,80,60,0.55)"/>
+        <!-- white spots -->
         <circle cx="55" cy="38" r="11" fill="rgba(255,255,255,0.88)"/>
         <circle cx="28" cy="52" r="7"  fill="rgba(255,255,255,0.82)"/>
         <circle cx="82" cy="50" r="7"  fill="rgba(255,255,255,0.82)"/>
         <circle cx="43" cy="62" r="4"  fill="rgba(255,255,255,0.72)"/>
         <circle cx="70" cy="60" r="5"  fill="rgba(255,255,255,0.72)"/>
+        <!-- shimmer -->
         <ellipse cx="40" cy="38" rx="14" ry="6" fill="rgba(255,255,255,0.18)" transform="rotate(-18 40 38)"/>
+        <!-- ground ring -->
         <ellipse cx="55" cy="128" rx="30" ry="5" fill="rgba(100,180,80,0.35)"/>
         <ellipse cx="55" cy="128" rx="22" ry="3.5" fill="rgba(80,160,60,0.25)"/>
       </svg>
 
-      <!-- Dragonfly SVG — unchanged -->
+      <!-- Dragonfly SVG -->
       <svg class="dragonflySvg" viewBox="0 0 54 28" xmlns="http://www.w3.org/2000/svg">
+        <!-- body -->
         <ellipse cx="27" cy="16" rx="13" ry="4" fill="#2d7a4f"/>
         <ellipse cx="27" cy="16" rx="5"  ry="3.5" fill="#1a5c37"/>
+        <!-- abdomen segments -->
         <ellipse cx="36" cy="17" rx="4" ry="2.5" fill="#3a9e65"/>
         <ellipse cx="42" cy="18" rx="3" ry="2"   fill="#2d7a4f"/>
         <ellipse cx="47" cy="19" rx="2" ry="1.5" fill="#1a5c37"/>
+        <!-- head -->
         <circle cx="18" cy="15" r="4.5" fill="#1a5c37"/>
         <circle cx="16" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
         <circle cx="20" cy="13" r="1.5" fill="#80ffcc" opacity="0.7"/>
+        <!-- wings (upper pair) -->
         <g class="dfWing">
           <ellipse cx="27" cy="9"  rx="18" ry="7" fill="rgba(160,220,255,0.55)" stroke="rgba(80,180,220,0.6)" stroke-width="0.5" transform="rotate(-8 27 9)"/>
           <ellipse cx="27" cy="23" rx="16" ry="6" fill="rgba(160,220,255,0.45)" stroke="rgba(80,180,220,0.5)" stroke-width="0.5" transform="rotate(10 27 23)"/>
         </g>
+        <!-- wing veins -->
         <line x1="18" y1="9"  x2="44" y2="6"  stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
         <line x1="18" y1="23" x2="42" y2="27" stroke="rgba(80,180,220,0.4)" stroke-width="0.4"/>
       </svg>
-
-      <!-- Spore particle canvas — drawn by JS after dragonfly departs -->
-      <canvas class="sporeLayer" id="sporeLayer"></canvas>
-
     </div>
     <!-- ===== END SCENE ===== -->
-
-    <script>
-    (function(){
-      var scene   = document.getElementById('loginScene');
-      var origM   = document.getElementById('origMushroom');
-      var spCv    = document.getElementById('sporeLayer');
-      var ctx     = spCv.getContext('2d');
-      var spores  = [], emitting = false, raf;
-
-      function sizeCanvas(){
-        spCv.width  = scene.offsetWidth  || 400;
-        spCv.height = scene.offsetHeight || 160;
-      }
-      sizeCanvas();
-
-      // Mushroom cap geometry in scene coords (scene = 160px tall)
-      // Cap centre: scene_height - mushroom_height + cap_cy_in_svg = 160-130+55 = 85
-      // Cap rx=52, ry=32 — spores emit from under the cap rim
-      function mkSpore(){
-        var W = spCv.width, H = spCv.height;
-        var cx = W * 0.5;
-        var capY = H - 130 + 87;          // bottom edge of cap in scene coords
-        var spread = 48;
-        return {
-          x   : cx + (Math.random()-.5)*spread*2,
-          y   : capY - Math.random()*8,
-          vx  : (Math.random()-.5)*0.65,
-          vy  : 0.55 + Math.random()*0.9,
-          life: 0.85 + Math.random()*0.15,
-          dec : 0.006 + Math.random()*0.005,
-          r   : 1.4  + Math.random()*1.8,
-          hue : Math.random()<0.55 ? 272+Math.random()*18 : 46
-        };
-      }
-
-      function tickSpores(){
-        var W=spCv.width, H=spCv.height;
-        ctx.clearRect(0,0,W,H);
-        if(emitting && Math.random()<0.55) spores.push(mkSpore());
-        spores = spores.filter(function(s){return s.life>0;});
-        spores.forEach(function(s){
-          s.x+=s.vx; s.y+=s.vy; s.vx*=0.998; s.life-=s.dec;
-          var a=Math.max(0,s.life);
-          var g=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.r*3.5);
-          g.addColorStop(0,'hsla('+s.hue+',88%,78%,'+a+')');
-          g.addColorStop(0.45,'hsla('+s.hue+',78%,60%,'+(a*0.45)+')');
-          g.addColorStop(1,'transparent');
-          ctx.fillStyle=g;
-          ctx.beginPath();ctx.arc(s.x,s.y,s.r*3.5,0,Math.PI*2);ctx.fill();
-        });
-        if(emitting||spores.length>0) raf=requestAnimationFrame(tickSpores);
-      }
-
-      // ── 5 offspring mushroom definitions ───────────────────────────
-      // cap colour, width, height, left-offset as % of scene width
-      var babies=[
-        {cap:'#7c3aed', sw:0.32, sh:0.22, w:56, h:70,  lp: 5},
-        {cap:'#d97706', sw:0.34, sh:0.22, w:68, h:84,  lp:20},
-        {cap:'#c0392b', sw:0.30, sh:0.20, w:48, h:60,  lp:40},
-        {cap:'#db2777', sw:0.33, sh:0.22, w:62, h:78,  lp:60},
-        {cap:'#0891b2', sw:0.31, sh:0.21, w:52, h:65,  lp:78},
-      ];
-
-      function buildMushSVG(v){
-        var ns='http://www.w3.org/2000/svg';
-        var W2=v.w+18, H2=v.h+8;
-        var svg=document.createElementNS(ns,'svg');
-        svg.setAttribute('viewBox','0 0 '+W2+' '+H2);
-        svg.setAttribute('width', v.w);
-        svg.setAttribute('height',v.h);
-        var cx=W2/2;
-        var cRx=v.w*0.47, cRy=v.h*0.30;
-        var cCy=v.h*0.40;
-        var sTop=cCy+cRy*0.55;
-        var sW=v.w*0.33, sH=H2-sTop-4;
-        function el(tag,attrs){
-          var e=document.createElementNS(ns,tag);
-          for(var k in attrs) e.setAttribute(k,attrs[k]);
-          svg.appendChild(e); return e;
-        }
-        el('rect',{x:cx-sW/2,y:sTop,width:sW,height:sH,rx:sW*0.24,fill:'rgba(230,220,200,0.88)'});
-        el('rect',{x:cx-sW/2,y:sTop,width:sW*0.34,height:sH,rx:sW*0.14,fill:'rgba(200,185,165,0.38)'});
-        el('ellipse',{cx:cx,cy:sTop+2,rx:cRx*0.63,ry:cRy*0.32,fill:'rgba(220,200,175,0.68)'});
-        el('ellipse',{cx:cx,cy:cCy,rx:cRx,ry:cRy,fill:v.cap});
-        el('ellipse',{cx:cx,cy:cCy-cRy*0.28,rx:cRx*0.80,ry:cRy*0.68,fill:'rgba(255,255,255,0.12)'});
-        el('circle', {cx:cx,cy:cCy-cRy*0.28,r:v.w*0.095,fill:'rgba(255,255,255,0.84)'});
-        el('circle', {cx:cx-cRx*0.37,cy:cCy+cRy*0.10,r:v.w*0.066,fill:'rgba(255,255,255,0.78)'});
-        el('circle', {cx:cx+cRx*0.37,cy:cCy+cRy*0.10,r:v.w*0.066,fill:'rgba(255,255,255,0.76)'});
-        el('circle', {cx:cx+cRx*0.13,cy:cCy+cRy*0.42,r:v.w*0.038,fill:'rgba(255,255,255,0.68)'});
-        el('ellipse',{cx:cx,cy:H2-2,rx:v.w*0.27,ry:H2*0.038,fill:'rgba(100,180,80,0.28)'});
-        return svg;
-      }
-
-      function spawnBabies(){
-        var sw=scene.offsetWidth;
-        babies.forEach(function(v,i){
-          setTimeout(function(){
-            var svg=buildMushSVG(v);
-            svg.classList.add('newMush');
-            svg.style.left=(v.lp/100*sw - v.w/2)+'px';
-            scene.appendChild(svg);
-          }, i*520);
-        });
-      }
-
-      // ── TIMELINE ────────────────────────────────────────────────────
-      // CSS dragonfly: delay 1.2s + duration 5.8s = gone at 7.0 s
-      setTimeout(function(){
-        // phase 1 — spore emission (1.9 s)
-        emitting=true; sizeCanvas(); tickSpores();
-
-        setTimeout(function(){
-          // phase 2 — stop spores, fade original mushroom (1.3 s)
-          emitting=false;
-          origM.style.transition='opacity 1.3s ease-in, transform 1.3s ease-in';
-          origM.style.opacity='0';
-          origM.style.transform='scaleY(0.82) translateX(-50%)';
-
-          setTimeout(function(){
-            // phase 3 — hide original, grow 5 babies
-            origM.style.display='none';
-            spawnBabies();
-          }, 1300);
-        }, 1900);
-      }, 7100);
-    })();
-    </script>
 
   </div>
 </body></html>
