@@ -38564,101 +38564,162 @@ GETTING_STARTED_HTML = r"""<!doctype html>
 <style>
 :root{--bg:#070c1a;--surface:#0f1629;--card:#131d38;--border:rgba(80,110,200,.3);--purple:#7c3aed;--blue:#3b82f6;--text:#eef2ff;--muted:#94a3b8;--gold:#f7d36a;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg);color:var(--text);font-family:Arial,sans-serif;min-height:100vh;}
+body{background:var(--bg);color:var(--text);font-family:Arial,sans-serif;min-height:100vh;overflow-x:hidden;}
 a{color:#a78bfa;text-decoration:none;}
-a:hover{text-decoration:underline;}
 
-/* Header */
+/* ── Header ── */
 .gs-header{background:linear-gradient(180deg,rgba(20,30,65,.98),rgba(15,22,41,.95));border-bottom:1px solid var(--border);padding:18px 24px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);}
-.gs-brand{display:flex;flex-direction:column;gap:2px;}
 .gs-brand-name{font-size:20px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
-.gs-brand-sub{font-size:12px;color:var(--muted);}
+.gs-brand-sub{font-size:12px;color:var(--muted);margin-top:2px;}
 .gs-dot{width:10px;height:10px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,var(--purple) 72%);box-shadow:0 0 12px rgba(124,58,237,.55);}
-.gs-back{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);padding:8px 16px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s;}
-.gs-back:hover{color:var(--text);border-color:rgba(124,58,237,.5);}
+.gs-back{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);padding:8px 16px;border-radius:10px;font-size:13px;cursor:pointer;text-decoration:none;transition:all .15s;}
+.gs-back:hover{color:var(--text);border-color:rgba(124,58,237,.5);text-decoration:none;}
 
-/* Hero */
-.gs-hero{text-align:center;padding:48px 24px 32px;max-width:640px;margin:0 auto;}
+/* ── Hero ── */
+.gs-hero{text-align:center;padding:44px 24px 28px;max-width:640px;margin:0 auto;}
 .gs-hero h1{font-size:30px;font-weight:700;color:var(--text);margin-bottom:10px;}
 .gs-hero p{font-size:15px;color:var(--muted);line-height:1.6;}
 .gs-progress{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:18px;font-size:13px;color:var(--muted);}
 .gs-progress-bar{width:160px;height:5px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;}
 .gs-progress-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--blue));border-radius:99px;transition:width .4s;}
 
-/* Grid */
-.gs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;padding:8px 24px 48px;max-width:1100px;margin:0 auto;}
+/* ── Grid ── */
+.gs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:22px;padding:8px 28px 60px;max-width:1160px;margin:0 auto;}
 
-/* Episode card */
-.ep-card{background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden;transition:border-color .2s,transform .2s;cursor:default;}
-.ep-card:hover{border-color:rgba(124,58,237,.55);transform:translateY(-2px);}
-.ep-card.watched{border-color:rgba(16,185,129,.35);}
+/* ── Episode card ── */
+.ep-card{background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden;transition:border-color .2s,transform .22s,box-shadow .22s;cursor:pointer;}
+.ep-card:hover{border-color:rgba(124,58,237,.6);transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,.45),0 0 0 1px rgba(124,58,237,.15);}
+.ep-card.watched{border-color:rgba(16,185,129,.4);}
+.ep-card.watched:hover{border-color:rgba(16,185,129,.65);}
 
-/* Preview area */
-.ep-preview{width:100%;height:178px;background:#050810;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
-.ep-watched-badge{position:absolute;top:8px;right:8px;background:rgba(16,185,129,.25);border:1px solid rgba(16,185,129,.5);color:#6ee7b7;font-size:10px;font-weight:700;padding:3px 8px;border-radius:99px;z-index:10;display:none;}
+/* ── Preview thumbnail ── */
+.ep-preview{width:100%;height:200px;background:#050810;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
+.ep-watched-badge{position:absolute;top:9px;right:9px;background:rgba(16,185,129,.25);border:1px solid rgba(16,185,129,.5);color:#6ee7b7;font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;z-index:10;display:none;}
 .ep-card.watched .ep-watched-badge{display:block;}
+/* Play overlay */
+.ep-play-hint{position:absolute;inset:0;background:rgba(0,0,0,0);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s,background .2s;z-index:8;}
+.ep-card:hover .ep-play-hint{opacity:1;background:rgba(0,0,0,.28);}
+.ep-play-circle{width:52px;height:52px;border-radius:50%;background:rgba(124,58,237,.85);border:2px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 20px rgba(124,58,237,.5);transform:scale(0.88);transition:transform .2s;}
+.ep-card:hover .ep-play-circle{transform:scale(1);}
 
-/* Episode info */
-.ep-info{padding:14px 16px 16px;}
+/* ── Episode info ── */
+.ep-info{padding:14px 17px 17px;}
 .ep-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-.ep-num{font-size:10px;font-weight:700;color:rgba(167,139,250,.8);background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25);border-radius:99px;padding:2px 9px;}
+.ep-num{font-size:10px;font-weight:700;color:rgba(167,139,250,.9);background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:99px;padding:2px 9px;}
 .ep-dur{font-size:10px;color:var(--muted);}
-.ep-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px;}
-.ep-desc{font-size:12px;color:var(--muted);line-height:1.5;}
+.ep-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:5px;}
+.ep-desc{font-size:12px;color:var(--muted);line-height:1.55;}
+.ep-cta{display:inline-flex;align-items:center;gap:5px;margin-top:10px;font-size:12px;color:#a78bfa;font-weight:600;}
+.ep-cta:hover{color:#c4b5fd;}
 
-/* ── Shared animation primitives ──────────────────────── */
+/* ── Full-screen modal ── */
+.gs-modal-bg{position:fixed;inset:0;background:rgba(4,6,18,.92);z-index:9000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(12px);padding:20px;}
+.gs-modal{width:min(900px,calc(100vw - 32px));max-height:calc(100vh - 48px);background:linear-gradient(180deg,#0f1629,#0a1022);border:1px solid rgba(124,58,237,.4);border-radius:24px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px rgba(0,0,0,.75),0 0 0 1px rgba(124,58,237,.1);}
+.gs-modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px 14px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;}
+.gs-modal-title{display:flex;align-items:center;gap:10px;}
+.gs-modal-num{font-size:11px;font-weight:700;color:#a78bfa;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.3);border-radius:99px;padding:3px 11px;}
+.gs-modal-name{font-size:17px;font-weight:700;color:var(--text);}
+.gs-modal-close{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
+.gs-modal-close:hover{background:rgba(255,255,255,.14);color:var(--text);}
+.gs-modal-body{display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden;min-height:0;}
+.gs-modal-left{position:relative;background:#050810;border-right:1px solid rgba(255,255,255,.06);overflow:hidden;}
+.gs-modal-right{padding:28px 26px;overflow-y:auto;display:flex;flex-direction:column;gap:0;}
+.gs-modal-right h3{font-size:13px;font-weight:700;color:rgba(167,139,250,.8);letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;}
+.gs-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.gs-step:last-child{border-bottom:none;}
+.gs-step-num{width:22px;height:22px;border-radius:50%;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);color:#a78bfa;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.gs-step-text{font-size:13px;color:var(--muted);line-height:1.55;}
+.gs-step-text strong{color:var(--text);font-weight:600;}
+.gs-modal-foot{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;border-top:1px solid rgba(255,255,255,.07);flex-shrink:0;gap:12px;}
+.gs-nav-btn{display:flex;align-items:center;gap:6px;padding:9px 18px;border-radius:10px;border:1px solid rgba(80,110,200,.45);background:rgba(11,16,36,.8);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;}
+.gs-nav-btn:hover{color:var(--text);border-color:rgba(124,58,237,.55);}
+.gs-nav-btn:disabled{opacity:.3;cursor:default;}
+.gs-nav-dots{display:flex;gap:6px;align-items:center;}
+.gs-nav-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);cursor:pointer;transition:all .2s;}
+.gs-nav-dot.active{background:#7c3aed;width:20px;border-radius:99px;}
+.gs-nav-dot.done{background:rgba(16,185,129,.55);}
+.gs-watched-btn{padding:9px 20px;border-radius:10px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.12);color:#6ee7b7;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;}
+.gs-watched-btn:hover{background:rgba(16,185,129,.22);}
+
+/* ── Shared mini animation primitives (card thumbnails) ── */
 .ani-screen{position:absolute;inset:0;display:flex;flex-direction:column;}
-.ani-bar{height:28px;background:rgba(15,22,41,.95);border-bottom:1px solid rgba(80,110,200,.25);display:flex;align-items:center;padding:0 10px;gap:6px;font-size:10px;color:rgba(148,163,184,.7);flex-shrink:0;}
-.ani-dot{width:6px;height:6px;border-radius:50%;}
-.ani-body{flex:1;padding:10px;overflow:hidden;}
-.ani-input{height:26px;border-radius:7px;border:1px solid rgba(80,110,200,.35);background:rgba(12,18,38,.9);color:var(--text);font-size:11px;padding:0 9px;width:100%;display:flex;align-items:center;}
+.ani-bar{height:26px;background:rgba(15,22,41,.95);border-bottom:1px solid rgba(80,110,200,.22);display:flex;align-items:center;padding:0 9px;gap:5px;font-size:9.5px;color:rgba(148,163,184,.7);flex-shrink:0;}
+.ani-dot{width:5px;height:5px;border-radius:50%;}
+.ani-body{flex:1;padding:9px;overflow:hidden;}
+.ani-input{height:24px;border-radius:6px;border:1px solid rgba(80,110,200,.35);background:rgba(12,18,38,.9);color:var(--text);font-size:10px;padding:0 8px;width:100%;display:flex;align-items:center;}
 .ani-input.focused{border-color:rgba(124,58,237,.75);box-shadow:0 0 0 2px rgba(124,58,237,.15);}
-.ani-label{font-size:10px;color:rgba(148,163,184,.75);margin-bottom:4px;margin-top:8px;}
+.ani-label{font-size:9.5px;color:rgba(148,163,184,.75);margin-bottom:4px;margin-top:7px;}
 .ani-label:first-child{margin-top:0;}
-.ani-btn{display:inline-flex;align-items:center;justify-content:center;padding:6px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(80,110,200,.5);background:rgba(11,16,36,.9);color:var(--text);}
+.ani-btn{display:inline-flex;align-items:center;justify-content:center;padding:5px 12px;border-radius:7px;font-size:10px;font-weight:700;cursor:default;border:1px solid rgba(80,110,200,.5);background:rgba(11,16,36,.9);color:var(--text);}
 .ani-btn.primary{border-color:rgba(124,58,237,.7);background:linear-gradient(180deg,rgba(124,58,237,.45),rgba(59,130,246,.18));}
-.ani-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:700;}
+.ani-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;font-size:9.5px;font-weight:700;}
 .ani-badge.green{background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;}
 .ani-badge.purple{background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#a78bfa;}
-.ani-card{background:rgba(15,22,41,.8);border:1px solid rgba(80,110,200,.25);border-radius:8px;padding:8px 10px;font-size:10px;color:var(--text);}
-.ani-row{display:flex;align-items:center;gap:8px;}
-.ani-flex{display:flex;align-items:center;gap:6px;}
-.ani-muted{font-size:10px;color:var(--muted);}
-.ani-typing::after{content:'|';animation:blink .7s infinite;}
-@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.ani-card{background:rgba(15,22,41,.8);border:1px solid rgba(80,110,200,.25);border-radius:7px;padding:7px 9px;font-size:9.5px;color:var(--text);}
+.ani-row{display:flex;align-items:center;gap:7px;}
+.ani-muted{font-size:9.5px;color:var(--muted);}
 .ani-progress-track{height:4px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;width:100%;}
 .ani-progress-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--blue));border-radius:99px;width:0%;}
 .ani-circle{border-radius:50%;background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(59,130,246,.2));border:1px solid var(--border);}
-.ani-seat{border-radius:10px;border:1px solid var(--border);background:var(--card);padding:5px 7px;font-size:9px;font-weight:700;color:var(--muted);text-align:center;transition:all .3s;}
+.ani-seat{border-radius:8px;border:1px solid var(--border);background:var(--card);padding:4px 6px;font-size:8.5px;font-weight:700;color:var(--muted);text-align:center;transition:all .3s;}
 .ani-seat.active{border-color:rgba(124,58,237,.6);color:#a78bfa;background:rgba(124,58,237,.1);}
-.ani-check{color:#10b981;font-size:12px;}
-.ani-spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(124,58,237,.3);border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite;}
+.ani-check{color:#10b981;font-size:11px;}
+.ani-spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(124,58,237,.3);border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
-.fade-in{animation:fadeIn .4s ease both;}
-.fade-out{animation:fadeOut .4s ease both;}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
-@keyframes fadeOut{from{opacity:1;}to{opacity:0;}}
-.slide-in-r{animation:slideInR .4s ease both;}
-@keyframes slideInR{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
-.slide-in-u{animation:slideInU .35s ease both;}
-@keyframes slideInU{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 
-@media(max-width:640px){.gs-grid{grid-template-columns:1fr;padding:8px 14px 40px;}.gs-hero{padding:32px 16px 24px;}.gs-hero h1{font-size:24px;}}
+/* ── Large modal animation layer (scaled up 1.85x) ── */
+.gs-modal-left .ani-bar{height:38px;font-size:13px;padding:0 14px;gap:8px;}
+.gs-modal-left .ani-dot{width:9px;height:9px;}
+.gs-modal-left .ani-body{padding:18px;}
+.gs-modal-left .ani-input{height:38px;font-size:14px;padding:0 13px;border-radius:9px;}
+.gs-modal-left .ani-label{font-size:13px;margin-bottom:6px;margin-top:14px;}
+.gs-modal-left .ani-label:first-child{margin-top:0;}
+.gs-modal-left .ani-btn{padding:10px 22px;font-size:13px;border-radius:10px;}
+.gs-modal-left .ani-badge{font-size:13px;padding:5px 13px;}
+.gs-modal-left .ani-card{padding:12px 15px;font-size:13px;border-radius:10px;}
+.gs-modal-left .ani-muted{font-size:12px;}
+.gs-modal-left .ani-seat{font-size:12px;padding:8px 10px;border-radius:12px;}
+.gs-modal-left .ani-spin{width:18px;height:18px;border-width:3px;}
+.gs-modal-left .ani-check{font-size:17px;}
+.gs-modal-left .ani-progress-track{height:6px;}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeOut{from{opacity:1;}to{opacity:0;}}
+@keyframes slideInR{from{opacity:0;transform:translateX(24px);}to{opacity:1;transform:translateX(0);}}
+@keyframes slideInU{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.fade-in{animation:fadeIn .4s ease both;}
+.slide-in-r{animation:slideInR .4s ease both;}
+.slide-in-u{animation:slideInU .35s ease both;}
+
+/* ── Modal open animation ── */
+@keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(12px);}to{opacity:1;transform:scale(1) translateY(0);}}
+.gs-modal{animation:modalIn .25s ease both;}
+
+@media(max-width:720px){
+  .gs-modal-body{grid-template-columns:1fr;grid-template-rows:260px 1fr;}
+  .gs-modal-left{border-right:none;border-bottom:1px solid rgba(255,255,255,.06);}
+  .gs-grid{grid-template-columns:1fr 1fr;padding:8px 14px 40px;}
+  .gs-hero h1{font-size:24px;}
+}
+@media(max-width:480px){
+  .gs-grid{grid-template-columns:1fr;}
+  .ep-preview{height:170px;}
+}
 </style>
 </head>
 <body>
 
 <div class="gs-header">
-  <div class="gs-brand">
+  <div>
     <div class="gs-brand-name"><div class="gs-dot"></div> Simply Academy</div>
-    <div class="gs-brand-sub">{{app_title}} — animated getting started guides</div>
+    <div class="gs-brand-sub">{{app_title}} — step-by-step animated guides</div>
   </div>
   <a class="gs-back" href="/">← Back to command center</a>
 </div>
 
 <div class="gs-hero">
-  <h1>Get up to speed in minutes</h1>
-  <p>Every feature explained with a live animated walkthrough — no videos to buffer, no links to click. Everything plays right here.</p>
+  <h1>Get up to speed in minutes ✨</h1>
+  <p>Click any episode for a full-screen animated walkthrough — every feature shown step by step, with written instructions alongside the animation.</p>
   <div class="gs-progress">
     <span id="progressLabel">0 of 8 complete</span>
     <div class="gs-progress-bar"><div class="gs-progress-fill" id="progressFill" style="width:0%"></div></div>
@@ -38666,572 +38727,605 @@ a:hover{text-decoration:underline;}
 </div>
 
 <div class="gs-grid" id="episodeGrid">
-
-  <!-- EP01 -->
-  <div class="ep-card" id="ep1">
-    <div class="ep-preview" id="prev1">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="1" id="ep1">
+    <div class="ep-preview" id="prev1"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 01</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 01</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Getting started</div>
-      <div class="ep-desc">Add your OpenAI API key and connect to the AI brain that powers every teammate.</div>
+      <div class="ep-desc">Add your OpenAI key and get the AI brain connected. Start here — everything else depends on this.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP02 -->
-  <div class="ep-card" id="ep2">
-    <div class="ep-preview" id="prev2">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="2" id="ep2">
+    <div class="ep-preview" id="prev2"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 02</span><span class="ep-dur">~90 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 02</span><span class="ep-dur">~3 min</span></div>
       <div class="ep-title">Your AI teammates</div>
-      <div class="ep-desc">Meet the round table. Each seat is a specialist — click one and start a conversation.</div>
+      <div class="ep-desc">Meet the round table. Each seat is a specialist — click one and start a real conversation.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP03 -->
-  <div class="ep-card" id="ep3">
-    <div class="ep-preview" id="prev3">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="3" id="ep3">
+    <div class="ep-preview" id="prev3"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 03</span><span class="ep-dur">~75 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 03</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Managing contacts</div>
       <div class="ep-desc">Add clients, track conversations, send messages and manage your whole network in one place.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP04 -->
-  <div class="ep-card" id="ep4">
-    <div class="ep-preview" id="prev4">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="4" id="ep4">
+    <div class="ep-preview" id="prev4"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 04</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 04</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Email broadcasts</div>
-      <div class="ep-desc">Write once, send to hundreds. AI drafts, you approve, your whole list gets it instantly.</div>
+      <div class="ep-desc">Write once, send to hundreds. AI drafts it, you approve it, your whole list gets it instantly.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP05 -->
-  <div class="ep-card" id="ep5">
-    <div class="ep-preview" id="prev5">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="5" id="ep5">
+    <div class="ep-preview" id="prev5"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 05</span><span class="ep-dur">~75 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 05</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Finding leads</div>
       <div class="ep-desc">Describe your ideal customer and watch the AI search the web and score real prospects for you.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP06 -->
-  <div class="ep-card" id="ep6">
-    <div class="ep-preview" id="prev6">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="6" id="ep6">
+    <div class="ep-preview" id="prev6"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 06</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 06</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Calendar & scheduling</div>
       <div class="ep-desc">Sync your Google Calendar, create events, and let your AI teammates handle scheduling tasks.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP07 -->
-  <div class="ep-card" id="ep7">
-    <div class="ep-preview" id="prev7">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="7" id="ep7">
+    <div class="ep-preview" id="prev7"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 07</span><span class="ep-dur">~90 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 07</span><span class="ep-dur">~3 min</span></div>
       <div class="ep-title">Action stacks</div>
-      <div class="ep-desc">Chain multiple AI tasks into one workflow. Set it running and come back to results.</div>
+      <div class="ep-desc">Chain multiple AI tasks into one automated workflow. Set it running and come back to results.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
-
-  <!-- EP08 -->
-  <div class="ep-card" id="ep8">
-    <div class="ep-preview" id="prev8">
-      <div class="ep-watched-badge">✓ Done</div>
-    </div>
+  <div class="ep-card" data-ep="8" id="ep8">
+    <div class="ep-preview" id="prev8"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
-      <div class="ep-meta"><span class="ep-num">EP 08</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-meta"><span class="ep-num">EP 08</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Chrome extension</div>
-      <div class="ep-desc">Import leads from Facebook with one click. The extension bridges social media and your CRM.</div>
+      <div class="ep-desc">Import leads from Facebook with one click. The extension bridges social media and your CRM automatically.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
+</div>
 
+<!-- ── Full-screen episode modal ── -->
+<div id="gsBg" class="gs-modal-bg" style="display:none;" aria-modal="true" role="dialog">
+  <div class="gs-modal" id="gsModal">
+    <div class="gs-modal-head">
+      <div class="gs-modal-title">
+        <span class="gs-modal-num" id="gsModalNum">EP 01</span>
+        <span class="gs-modal-name" id="gsModalName">Getting started</span>
+      </div>
+      <button class="gs-modal-close" id="gsModalClose" aria-label="Close">✕</button>
+    </div>
+    <div class="gs-modal-body">
+      <div class="gs-modal-left" id="gsModalAni"></div>
+      <div class="gs-modal-right">
+        <h3>How it works</h3>
+        <div id="gsModalSteps"></div>
+      </div>
+    </div>
+    <div class="gs-modal-foot">
+      <button class="gs-nav-btn" id="gsPrev">← Previous</button>
+      <div class="gs-nav-dots" id="gsNavDots"></div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button class="gs-watched-btn" id="gsWatchedBtn">✓ Mark complete</button>
+        <button class="gs-nav-btn" id="gsNext">Next →</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
-// ── Shared utilities ─────────────────────────────────────────────────────────
-function el(tag, attrs, text){
-  var e = document.createElement(tag);
-  if(attrs) Object.keys(attrs).forEach(function(k){ e.setAttribute(k, attrs[k]); });
-  if(text) e.textContent = text;
-  return e;
-}
-function div(cls, html){
-  var d = document.createElement('div');
-  if(cls) d.className = cls;
-  if(html) d.innerHTML = html;
-  return d;
-}
-function typeText(el, text, speed, done){
-  var i = 0;
-  el.textContent = '';
-  var t = setInterval(function(){
-    if(i >= text.length){ clearInterval(t); if(done) done(); return; }
-    el.textContent += text[i++];
-  }, speed || 55);
-  return t;
-}
-// Run a sequence of timed steps, then loop
-function seq(steps, loopAfter, container){
-  var timers = [];
+// ── Shared utilities ──────────────────────────────────────────────────────────
+function div(cls, html){ var d=document.createElement('div'); if(cls)d.className=cls; if(html)d.innerHTML=html; return d; }
+function typeText(el, text, speed, done){ var i=0; el.textContent=''; var t=setInterval(function(){ if(i>=text.length){clearInterval(t);if(done)done();return;} el.textContent+=text[i++]; },speed||55); return t; }
+var _seqTimers = {};
+function stopSeq(id){ if(_seqTimers[id]){ _seqTimers[id].forEach(clearTimeout); _seqTimers[id]=[]; } }
+function seq(id, steps, loopAfter, container){
+  stopSeq(id);
+  _seqTimers[id]=[];
   function run(){
-    steps.forEach(function(s){
-      timers.push(setTimeout(s, s._at));
-    });
-    timers.push(setTimeout(function(){
-      timers.forEach(clearTimeout);
-      // brief blank pause then restart
-      if(container) container.innerHTML = '';
-      timers = [];
-      setTimeout(run, 600);
+    steps.forEach(function(s){ _seqTimers[id].push(setTimeout(s[1], s[0])); });
+    _seqTimers[id].push(setTimeout(function(){
+      stopSeq(id);
+      if(container) container.innerHTML='';
+      _seqTimers[id]=[setTimeout(run, 700)];
     }, loopAfter));
   }
-  // stamp timings
-  var at = 0;
-  steps.forEach(function(s, i){
-    s._at = s[0]; // steps are [delay_from_start, fn]
-  });
-  // rebuild as objects
-  var stepsArr = steps.map(function(s){ return {_at: s[0], fn: s[1]}; });
-  function run2(){
-    stepsArr.forEach(function(s){
-      timers.push(setTimeout(s.fn, s._at));
-    });
-    timers.push(setTimeout(function(){
-      timers.forEach(clearTimeout);
-      if(container) container.innerHTML = '';
-      timers = [];
-      setTimeout(run2, 700);
-    }, loopAfter));
-  }
-  run2();
+  run();
 }
 
-// ── Progress tracker ─────────────────────────────────────────────────────────
-var watched = JSON.parse(localStorage.getItem('sa_gs_watched') || '{}');
-function markWatched(n){
-  watched['ep'+n] = true;
-  localStorage.setItem('sa_gs_watched', JSON.stringify(watched));
-  updateProgress();
+// ── Episode metadata ──────────────────────────────────────────────────────────
+var EPISODES = {
+  1: {
+    num:'EP 01', title:'Getting started',
+    steps:[
+      {t:'Open <strong>Settings</strong>', d:'Click the Settings dropdown in the top navigation bar.'},
+      {t:'Find <strong>OpenAI API Key</strong>', d:'Scroll to the API Key field inside Settings. It\'s near the top.'},
+      {t:'Paste your key', d:'Visit platform.openai.com, create a key, and paste it here. It starts with sk-.'},
+      {t:'Click <strong>Save settings</strong>', d:'Hit Save — a green "Connected" badge will confirm the connection.'},
+      {t:'You\'re ready!', d:'All 8 AI teammates are now powered up. Click any seat at the round table to start.'},
+    ],
+    ani: buildEP1
+  },
+  2: {
+    num:'EP 02', title:'Your AI teammates',
+    steps:[
+      {t:'Find the <strong>round table</strong>', d:'The main screen shows a circular table with labelled seats around it.'},
+      {t:'Click any <strong>seat</strong>', d:'Each seat is a different AI specialist — Sales, Marketing, Operations, and more.'},
+      {t:'Type your request', d:'Just describe what you need in plain English. No special commands required.'},
+      {t:'Read the response', d:'Your teammate replies in the chat panel on the right side of the screen.'},
+      {t:'<strong>Switch teammates</strong> anytime', d:'Click a different seat mid-conversation to bring in another specialist.'},
+    ],
+    ani: buildEP2
+  },
+  3: {
+    num:'EP 03', title:'Managing contacts',
+    steps:[
+      {t:'Open <strong>Contacts</strong>', d:'Click Manage in the nav, then select Contacts from the dropdown.'},
+      {t:'Click <strong>+ Add Contact</strong>', d:'Fill in the name, email, phone and any notes about this person.'},
+      {t:'Send a <strong>message</strong>', d:'Open any contact and hit Message to draft an email or SMS with AI help.'},
+      {t:'Add <strong>tags & notes</strong>', d:'Tag contacts by type (Lead, Client, Partner) and write private notes.'},
+      {t:'Filter & search', d:'Use the search bar or filter by tag to find exactly who you need instantly.'},
+    ],
+    ani: buildEP3
+  },
+  4: {
+    num:'EP 04', title:'Email broadcasts',
+    steps:[
+      {t:'Open <strong>Contacts → Broadcast</strong>', d:'Go to Manage → Contacts, then switch to the Email Broadcast tab.'},
+      {t:'Choose your <strong>recipients</strong>', d:'Send to all contacts or filter by tag — e.g. all Leads, or just Clients.'},
+      {t:'Write your <strong>subject & message</strong>', d:'Type naturally. Use {{first_name}} to personalise each email automatically.'},
+      {t:'Click <strong>Send broadcast</strong>', d:'Review the preview, then hit Send. Each contact gets a personalised copy.'},
+      {t:'Check the <strong>stats</strong>', d:'The Email Console shows opens, clicks and delivery status for each broadcast.'},
+    ],
+    ani: buildEP4
+  },
+  5: {
+    num:'EP 05', title:'Finding leads',
+    steps:[
+      {t:'Open <strong>Find Leads</strong>', d:'Click Research in the top nav, then select Find Leads from the dropdown.'},
+      {t:'Describe your <strong>ideal customer</strong>', d:'Write naturally: "SaaS founders in NYC raising a seed round" works perfectly.'},
+      {t:'Set your <strong>filters</strong>', d:'Optionally set company size, location, industry, or funding stage.'},
+      {t:'Click <strong>Find leads</strong>', d:'The AI searches the web and returns scored prospects with contact details.'},
+      {t:'<strong>Add to Contacts</strong>', d:'Hit the + button next to any lead to add them straight to your Contacts.'},
+    ],
+    ani: buildEP5
+  },
+  6: {
+    num:'EP 06', title:'Calendar & scheduling',
+    steps:[
+      {t:'Open <strong>Calendar</strong>', d:'Go to Manage in the nav, then select Calendar.'},
+      {t:'Connect <strong>Google Calendar</strong>', d:'Click Connect Calendar and sign in with Google. Your events will sync.'},
+      {t:'Click a <strong>date</strong> to create an event', d:'Click any day on the calendar to open the new event form.'},
+      {t:'Fill in the <strong>details</strong>', d:'Add title, time, location and attendees. AI can draft descriptions for you.'},
+      {t:'Your <strong>teammates can schedule</strong> too', d:'Ask any AI teammate to "book a call for Thursday at 2pm" and they\'ll do it.'},
+    ],
+    ani: buildEP6
+  },
+  7: {
+    num:'EP 07', title:'Action stacks',
+    steps:[
+      {t:'Find <strong>Action Stacks</strong>', d:'Action stacks appear in several places — look for the ⚡ icon in the interface.'},
+      {t:'Choose a <strong>stack template</strong>', d:'Pick from pre-built workflows like "Research & Outreach" or build your own.'},
+      {t:'Set your <strong>inputs</strong>', d:'Each stack needs a starting point — a contact name, a topic, or a goal.'},
+      {t:'Click <strong>Run stack</strong>', d:'The AI works through each step automatically. Watch the progress in real time.'},
+      {t:'Review the <strong>outputs</strong>', d:'Each completed step shows its result. Edit anything before it moves to the next step.'},
+    ],
+    ani: buildEP7
+  },
+  8: {
+    num:'EP 08', title:'Chrome extension',
+    steps:[
+      {t:'Install the <strong>extension</strong>', d:'Go to Settings → Get the Chrome Extension. Download and install it.'},
+      {t:'Connect your <strong>account</strong>', d:'Click the extension icon and paste in your Simply Agentic key to link it.'},
+      {t:'Browse <strong>Facebook</strong>', d:'Visit any Facebook profile or Messenger conversation.'},
+      {t:'Click <strong>Import to Contacts</strong>', d:'The extension popup detects the person. One click imports their details.'},
+      {t:'Draft a <strong>message with AI</strong>', d:'Hit "Draft message" to get an AI-written personalised opening message instantly.'},
+    ],
+    ani: buildEP8
+  },
+};
+
+// ── Mini thumbnail animation builders ────────────────────────────────────────
+function mkBar(label){
+  var b=div('ani-bar'); b.innerHTML='<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:5px;">'+label+'</span>'; return b;
 }
-function updateProgress(){
-  var count = Object.keys(watched).length;
-  document.getElementById('progressLabel').textContent = count + ' of 8 complete';
-  document.getElementById('progressFill').style.width = Math.round(count/8*100) + '%';
-  for(var i=1;i<=8;i++){
-    var card = document.getElementById('ep'+i);
-    if(card){ if(watched['ep'+i]) card.classList.add('watched'); else card.classList.remove('watched'); }
-  }
+
+function buildEP1(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('⚙️ Settings'));
+      var body=div('ani-body'); s.appendChild(body);
+      var lbl=div('ani-label'); lbl.textContent='OpenAI API Key'; body.appendChild(lbl);
+      var inp=div('ani-input'); inp.id=id+'inp'; inp.textContent='sk-proj- …'; body.appendChild(inp);
+      var lbl2=div('ani-label'); lbl2.textContent='Status'; body.appendChild(lbl2);
+      var st=div('ani-badge purple'); st.textContent='Not connected'; body.appendChild(st);
+      container.appendChild(s);
+    }],
+    [900,function(){
+      var inp=document.getElementById(id+'inp'); if(!inp)return;
+      inp.classList.add('focused'); inp.textContent='';
+      typeText(inp,'sk-proj-AbC••••••••••••••',62);
+    }],
+    [3000,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var old=body.querySelector('.ani-badge'); if(old)old.remove();
+      var badge=div('ani-badge green fade-in'); badge.textContent='✓ Connected'; body.appendChild(badge);
+    }],
+    [4800,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var lbl=div('ani-label fade-in'); lbl.textContent='Active model'; body.appendChild(lbl);
+      var pill=div('ani-badge purple fade-in'); pill.textContent='gpt-4o-mini'; body.appendChild(pill);
+    }],
+    [6500,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var btn=div('ani-btn primary fade-in'); btn.style.marginTop='10px'; btn.style.width='100%'; btn.style.justifyContent='center'; btn.textContent='Save settings'; body.appendChild(btn);
+    }],
+  ];
+  seq(id, steps, 9000, container);
 }
-updateProgress();
-// Mark as watched after 8s of viewing (animation has played through)
+
+function buildEP2(container, id){
+  var seats=[['Alex','Sales'],['Jordan','Marketing'],['Sam','Ops'],['Morgan','Strategy']];
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('🤝 Round Table'));
+      var body=div('ani-body'); body.style.cssText='flex:1;padding:9px;display:flex;flex-direction:column;gap:6px;align-items:center;overflow:hidden;';
+      var circ=div('ani-circle'); circ.style.cssText='width:60px;height:60px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted);flex-shrink:0;'; circ.textContent='Round Table';
+      body.appendChild(circ);
+      var grid=div(''); grid.id=id+'g'; grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;';
+      body.appendChild(grid); s.appendChild(body); container.appendChild(s);
+    }],
+    [400,function(){ var g=document.getElementById(id+'g'); if(!g)return; seats.forEach(function(st,i){ setTimeout(function(){ var d=div('ani-seat'); d.textContent=st[0]; g.appendChild(d); setTimeout(function(){d.classList.add('active');},120); },i*320); }); }],
+    [2800,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var bubble=div('ani-card slide-in-u'); bubble.style.cssText='width:100%;font-size:9.5px;border-color:rgba(124,58,237,.4);';
+      bubble.innerHTML='<span style="color:#a78bfa;font-weight:700;">You →</span> Write a sales email for our launch';
+      body.appendChild(bubble);
+    }],
+    [4000,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var sp=div('ani-muted slide-in-u'); sp.id=id+'sp'; sp.innerHTML='<span class="ani-spin"></span> Alex is writing…'; body.appendChild(sp);
+    }],
+    [5800,function(){
+      var sp=document.getElementById(id+'sp'); if(sp)sp.remove();
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var r=div('ani-card slide-in-u'); r.style.cssText='width:100%;font-size:9.5px;border-color:rgba(16,185,129,.3);';
+      r.innerHTML='<span style="color:#6ee7b7;font-weight:700;">Alex →</span> Subject: Introducing [Product]…'; body.appendChild(r);
+    }],
+  ];
+  seq(id, steps, 9000, container);
+}
+
+function buildEP3(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('👥 Contacts'));
+      var body=div('ani-body'); s.appendChild(body);
+      var empty=div('ani-muted'); empty.style.cssText='text-align:center;padding:8px 0;'; empty.textContent='No contacts yet';
+      var btn=div('ani-btn primary'); btn.style.cssText='margin-top:8px;width:100%;justify-content:center;'; btn.textContent='+ Add Contact';
+      body.appendChild(empty); body.appendChild(btn); container.appendChild(s);
+    }],
+    [1400,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      body.innerHTML='';
+      var l1=div('ani-label'); l1.textContent='Full name'; body.appendChild(l1);
+      var i1=div('ani-input focused'); i1.id=id+'n'; body.appendChild(i1);
+      var l2=div('ani-label'); l2.textContent='Email'; body.appendChild(l2);
+      var i2=div('ani-input'); i2.id=id+'e'; body.appendChild(i2);
+    }],
+    [1900,function(){ var i=document.getElementById(id+'n'); if(i)typeText(i,'Sarah Johnson',65); }],
+    [3300,function(){ var i=document.getElementById(id+'e'); if(i){i.classList.add('focused');typeText(i,'sarah@acmecorp.com',55);} }],
+    [5000,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var btn=div('ani-btn primary'); btn.style.cssText='margin-top:9px;width:100%;justify-content:center;'; btn.textContent='Save contact'; body.appendChild(btn);
+    }],
+    [6400,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      body.innerHTML='';
+      var row=div('ani-card slide-in-u');
+      row.innerHTML='<div class="ani-row"><div style="width:26px;height:26px;border-radius:50%;background:rgba(124,58,237,.3);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#a78bfa;flex-shrink:0;">SJ</div><div style="min-width:0;"><div style="font-size:10px;font-weight:700;">Sarah Johnson</div><div class="ani-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">sarah@acmecorp.com</div></div><span class="ani-badge green" style="margin-left:auto;flex-shrink:0;">New</span></div>';
+      body.appendChild(row);
+    }],
+  ];
+  seq(id, steps, 9200, container);
+}
+
+function buildEP4(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('📧 Broadcast'));
+      var body=div('ani-body'); s.appendChild(body);
+      var l1=div('ani-label'); l1.textContent='Subject'; body.appendChild(l1);
+      var i1=div('ani-input focused'); i1.id=id+'s'; body.appendChild(i1);
+      var l2=div('ani-label'); l2.textContent='Recipients'; body.appendChild(l2);
+      var rec=div(''); rec.innerHTML='<span class="ani-badge purple">All contacts (48)</span>'; body.appendChild(rec);
+      container.appendChild(s);
+    }],
+    [500,function(){ var i=document.getElementById(id+'s'); if(i)typeText(i,'Big news — our new feature is live!',50); }],
+    [2700,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var lbl=div('ani-label'); lbl.textContent='Preview'; body.appendChild(lbl);
+      var prev=div('ani-card'); prev.style.cssText='font-size:9px;line-height:1.5;color:var(--muted);'; prev.textContent='Hi {{first_name}}, we just launched…'; body.appendChild(prev);
+    }],
+    [4200,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var btn=div('ani-btn primary fade-in'); btn.style.cssText='margin-top:9px;width:100%;justify-content:center;'; btn.textContent='Send broadcast →'; body.appendChild(btn);
+    }],
+    [5400,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var tr=div('ani-progress-track'); tr.style.marginTop='9px'; body.appendChild(tr);
+      var fl=div('ani-progress-fill'); fl.style.transition='width 2.2s'; tr.appendChild(fl);
+      setTimeout(function(){fl.style.width='100%';},50);
+    }],
+    [7800,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var b=div('ani-badge green fade-in'); b.style.marginTop='7px'; b.textContent='✓ Sent to 48 contacts'; body.appendChild(b);
+    }],
+  ];
+  seq(id, steps, 10500, container);
+}
+
+function buildEP5(container, id){
+  var leads=[{n:'Priya Sharma',c:'TechFlow SaaS',s:94},{n:'Marcus Webb',c:'Growthbase Inc',s:87},{n:'Dana Chen',c:'LaunchPad Co',s:81}];
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('🔬 Find Leads'));
+      var body=div('ani-body'); s.appendChild(body);
+      var lbl=div('ani-label'); lbl.textContent='Describe your ideal customer'; body.appendChild(lbl);
+      var inp=div('ani-input focused'); inp.id=id+'q'; body.appendChild(inp);
+      container.appendChild(s);
+    }],
+    [500,function(){ var i=document.getElementById(id+'q'); if(i)typeText(i,'SaaS founders in NYC raising seed',46); }],
+    [3000,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var sp=div('ani-muted'); sp.id=id+'sp'; sp.style.marginTop='7px'; sp.innerHTML='<span class="ani-spin"></span> Searching web…'; body.appendChild(sp);
+    }],
+    [4700,function(){
+      var sp=document.getElementById(id+'sp'); if(sp)sp.remove();
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      leads.forEach(function(l,i){
+        setTimeout(function(){
+          var row=div('ani-card slide-in-u'); row.style.marginTop='4px';
+          row.innerHTML='<div class="ani-row"><div style="min-width:0;flex:1;"><div style="font-size:9.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.n+'</div><div class="ani-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.c+'</div></div><div style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;font-size:9px;font-weight:700;padding:2px 6px;border-radius:99px;flex-shrink:0;">'+l.s+'</div></div>';
+          body.appendChild(row);
+        },i*480);
+      });
+    }],
+  ];
+  seq(id, steps, 9200, container);
+}
+
+function buildEP6(container, id){
+  var days=['M','T','W','T','F','S','S'];
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('📅 Calendar — May'));
+      var body=div('ani-body'); s.appendChild(body);
+      var grid=div(''); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:8.5px;';
+      days.forEach(function(d){ var h=div(''); h.style.cssText='text-align:center;color:var(--muted);padding:1px;'; h.textContent=d; grid.appendChild(h); });
+      for(var i=1;i<=28;i++){ (function(n){ var c=div(''); c.id=id+'d'+n; c.style.cssText='text-align:center;padding:2px 1px;border-radius:3px;font-size:8.5px;color:var(--muted);'; c.textContent=n; grid.appendChild(c); })(i); }
+      body.appendChild(grid); container.appendChild(s);
+    }],
+    [1100,function(){
+      var c=document.getElementById(id+'d15'); if(!c)return;
+      c.style.cssText='text-align:center;padding:2px 1px;border-radius:3px;font-size:8.5px;background:rgba(124,58,237,.35);border:1px solid rgba(124,58,237,.6);color:#c4b5fd;font-weight:700;';
+    }],
+    [1900,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var form=div('ani-card slide-in-u'); form.style.marginTop='7px';
+      var lbl=div('ani-label'); lbl.style.marginTop='0'; lbl.textContent='New event — May 15'; form.appendChild(lbl);
+      var inp=div('ani-input focused'); inp.id=id+'t'; form.appendChild(inp);
+      body.appendChild(form);
+    }],
+    [2400,function(){ var i=document.getElementById(id+'t'); if(i)typeText(i,'Client Discovery Call',62); }],
+    [4500,function(){
+      var c=document.getElementById(id+'d15'); if(!c)return;
+      c.innerHTML='<div style="font-size:7.5px;background:rgba(59,130,246,.4);border-radius:2px;padding:1px;color:#93c5fd;overflow:hidden;white-space:nowrap;">Call</div>';
+    }],
+    [5500,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var b=div('ani-badge green fade-in'); b.style.marginTop='6px'; b.textContent='✓ Event created'; body.appendChild(b);
+    }],
+  ];
+  seq(id, steps, 8800, container);
+}
+
+function buildEP7(container, id){
+  var stacks=[{l:'Research prospect',i:'🔍'},{l:'Draft outreach email',i:'✍️'},{l:'Add to Contacts',i:'👥'},{l:'Schedule follow-up',i:'📅'}];
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('⚡ Action Stack'));
+      var body=div('ani-body'); body.id=id+'b'; s.appendChild(body);
+      stacks.forEach(function(sk,i){
+        var row=div(''); row.style.cssText='display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);';
+        var ic=div(''); ic.style.cssText='width:20px;height:20px;border-radius:5px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;'; ic.textContent=sk.i;
+        var lbl=div(''); lbl.style.cssText='font-size:9.5px;flex:1;color:var(--muted);'; lbl.textContent=sk.l;
+        var st=div(''); st.id=id+'s'+i; st.style.cssText='width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.06);flex-shrink:0;';
+        row.appendChild(ic); row.appendChild(lbl); row.appendChild(st); body.appendChild(row);
+      });
+      var run=div('ani-btn primary'); run.style.cssText='margin-top:9px;width:100%;justify-content:center;'; run.textContent='▶ Run stack'; body.appendChild(run);
+      container.appendChild(s);
+    }],
+    [1400,function(){ var s=document.getElementById(id+'s0'); if(s)s.innerHTML='<div class="ani-spin" style="width:12px;height:12px;"></div>'; }],
+    [2900,function(){ var s=document.getElementById(id+'s0'); if(s)s.innerHTML='<span class="ani-check">✓</span>'; var s1=document.getElementById(id+'s1'); if(s1)s1.innerHTML='<div class="ani-spin" style="width:12px;height:12px;"></div>'; }],
+    [4600,function(){ var s=document.getElementById(id+'s1'); if(s)s.innerHTML='<span class="ani-check">✓</span>'; var s2=document.getElementById(id+'s2'); if(s2)s2.innerHTML='<div class="ani-spin" style="width:12px;height:12px;"></div>'; }],
+    [6100,function(){ var s=document.getElementById(id+'s2'); if(s)s.innerHTML='<span class="ani-check">✓</span>'; var s3=document.getElementById(id+'s3'); if(s3)s3.innerHTML='<div class="ani-spin" style="width:12px;height:12px;"></div>'; }],
+    [7500,function(){
+      var s=document.getElementById(id+'s3'); if(s)s.innerHTML='<span class="ani-check">✓</span>';
+      var b=document.getElementById(id+'b'); if(!b)return;
+      var done=div('ani-badge green fade-in'); done.style.marginTop='7px'; done.textContent='✓ All steps complete'; b.appendChild(done);
+    }],
+  ];
+  seq(id, steps, 10500, container);
+}
+
+function buildEP8(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('Facebook — Profile'));
+      var body=div('ani-body'); body.style.position='relative'; s.appendChild(body);
+      var prof=div(''); prof.style.cssText='background:rgba(24,119,242,.08);border:1px solid rgba(24,119,242,.2);border-radius:7px;padding:7px 9px;';
+      prof.innerHTML='<div class="ani-row" style="gap:7px;"><div style="width:28px;height:28px;border-radius:50%;background:rgba(24,119,242,.3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#93c5fd;">ML</div><div><div style="font-size:10px;font-weight:700;">Mark Lee</div><div class="ani-muted">CEO at Startup Co · 2nd</div></div></div>';
+      body.appendChild(prof); container.appendChild(s);
+    }],
+    [1400,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var pop=div('ani-card slide-in-r'); pop.id=id+'pop';
+      pop.style.cssText='position:absolute;right:0;top:0;width:120px;border-color:rgba(124,58,237,.5);padding:7px;';
+      pop.innerHTML='<div style="display:flex;align-items:center;gap:4px;margin-bottom:7px;"><div style="width:7px;height:7px;border-radius:50%;background:var(--purple);"></div><span style="font-size:8.5px;font-weight:700;">Simply Agentic</span></div><div class="ani-muted" style="margin-bottom:7px;">Mark Lee detected</div>';
+      var btn=div('ani-btn primary'); btn.style.cssText='width:100%;justify-content:center;font-size:8.5px;'; btn.textContent='Import to Contacts';
+      pop.appendChild(btn); body.appendChild(pop);
+    }],
+    [3200,function(){
+      var pop=document.getElementById(id+'pop'); if(!pop)return;
+      var tr=div('ani-progress-track'); tr.style.marginTop='7px'; pop.appendChild(tr);
+      var fl=div('ani-progress-fill'); fl.style.transition='width 1.5s'; tr.appendChild(fl);
+      setTimeout(function(){fl.style.width='100%';},50);
+    }],
+    [5000,function(){
+      var pop=document.getElementById(id+'pop'); if(!pop)return;
+      var b=div('ani-badge green fade-in'); b.style.marginTop='5px'; b.textContent='✓ Added to Contacts'; pop.appendChild(b);
+    }],
+  ];
+  seq(id, steps, 8800, container);
+}
+
+var BUILDERS = {1:buildEP1,2:buildEP2,3:buildEP3,4:buildEP4,5:buildEP5,6:buildEP6,7:buildEP7,8:buildEP8};
+
+// ── Launch thumbnail animations on the cards ──────────────────────────────────
 for(var _i=1;_i<=8;_i++){
   (function(n){
-    setTimeout(function(){ markWatched(n); }, 8000 + n * 200);
+    var container = document.getElementById('prev'+n);
+    if(container) BUILDERS[n](container, 'card'+n);
   })(_i);
 }
 
-// ── EP01: Getting Started ────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev1');
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">⚙️ Settings</span>'; s.appendChild(bar);
-      var body = div('ani-body'); s.appendChild(body);
-      var lbl = div('ani-label'); lbl.textContent = 'OpenAI API Key'; body.appendChild(lbl);
-      var inp = div('ani-input'); inp.id='ep1inp'; inp.textContent='Enter your key…'; body.appendChild(inp);
-      p.appendChild(s);
-    }],
-    [900, function(){
-      var inp = document.getElementById('ep1inp');
-      if(!inp) return;
-      inp.classList.add('focused'); inp.textContent='';
-    }],
-    [1100, function(){
-      var inp = document.getElementById('ep1inp');
-      if(!inp) return;
-      var txt = 'sk-proj-••••••••••••••••';
-      typeText(inp, txt, 70);
-    }],
-    [3000, function(){
-      var body = p.querySelector('.ani-body');
-      if(!body) return;
-      var badge = div('ani-badge green fade-in'); badge.style.marginTop='10px'; badge.textContent = '✓ Connected! Model ready';
-      body.appendChild(badge);
-    }],
-    [4500, function(){
-      var body = p.querySelector('.ani-body');
-      if(!body) return;
-      var lbl2 = div('ani-label'); lbl2.style.marginTop='8px'; lbl2.textContent='Active model'; body.appendChild(lbl2);
-      var pill = div('ani-badge purple fade-in'); pill.textContent='gpt-4o-mini'; body.appendChild(pill);
-    }],
-    [6500, function(){
-      var body = p.querySelector('.ani-body');
-      if(!body) return;
-      var btn = div('ani-btn primary fade-in'); btn.style.marginTop='12px'; btn.textContent='Save settings →'; body.appendChild(btn);
-    }],
-  ];
-  seq(steps, 9500, p);
-})();
+// ── Progress tracker ──────────────────────────────────────────────────────────
+var watched = JSON.parse(localStorage.getItem('sa_gs_watched')||'{}');
+function markWatched(n){
+  watched['ep'+n]=true;
+  localStorage.setItem('sa_gs_watched',JSON.stringify(watched));
+  updateProgress();
+}
+function updateProgress(){
+  var count=Object.keys(watched).length;
+  document.getElementById('progressLabel').textContent=count+' of 8 complete';
+  document.getElementById('progressFill').style.width=Math.round(count/8*100)+'%';
+  for(var i=1;i<=8;i++){
+    var card=document.getElementById('ep'+i);
+    if(card){ if(watched['ep'+i])card.classList.add('watched'); else card.classList.remove('watched'); }
+  }
+  // update dots
+  document.querySelectorAll('.gs-nav-dot').forEach(function(d){
+    var n=parseInt(d.dataset.ep);
+    d.classList.toggle('done', !!watched['ep'+n]);
+  });
+}
+updateProgress();
 
-// ── EP02: AI Teammates ───────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev2');
-  var teammates = ['Alex','Jordan','Sam','Morgan'];
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">🤝 Round Table</span>'; s.appendChild(bar);
-      var body = div('ani-body'); body.style.display='flex'; body.style.flexDirection='column'; body.style.alignItems='center'; body.style.gap='6px'; s.appendChild(body);
-      // circle
-      var circ = div('ani-circle'); circ.style.width='70px'; circ.style.height='70px'; circ.style.display='flex'; circ.style.alignItems='center'; circ.style.justifyContent='center'; circ.style.fontSize='10px'; circ.style.color='var(--muted)'; circ.textContent='Round Table'; body.appendChild(circ);
-      // seat grid
-      var grid = div(''); grid.id='ep2seats'; grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;'; body.appendChild(grid);
-      p.appendChild(s);
-    }],
-    [400, function(){
-      var g = document.getElementById('ep2seats'); if(!g) return;
-      var d = div('ani-seat'); d.textContent = teammates[0]; g.appendChild(d);
-      setTimeout(function(){d.classList.add('active');},200);
-    }],
-    [900, function(){
-      var g = document.getElementById('ep2seats'); if(!g) return;
-      var d = div('ani-seat'); d.textContent = teammates[1]; g.appendChild(d);
-      setTimeout(function(){d.classList.add('active');},200);
-    }],
-    [1400, function(){
-      var g = document.getElementById('ep2seats'); if(!g) return;
-      var d = div('ani-seat'); d.textContent = teammates[2]; g.appendChild(d);
-      setTimeout(function(){d.classList.add('active');},200);
-    }],
-    [1900, function(){
-      var g = document.getElementById('ep2seats'); if(!g) return;
-      var d = div('ani-seat'); d.textContent = teammates[3]; g.appendChild(d);
-      setTimeout(function(){d.classList.add('active');},200);
-    }],
-    [3000, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var bubble = div('ani-card slide-in-u'); bubble.style.cssText='width:100%;margin-top:4px;font-size:10px;border-color:rgba(124,58,237,.4);';
-      bubble.innerHTML = '<span style="color:#a78bfa;font-weight:700;">You:</span> Write me a sales email for our new product';
-      body.appendChild(bubble);
-    }],
-    [4200, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var spin = div('ani-muted slide-in-u'); spin.style.marginTop='4px'; spin.innerHTML = '<span class="ani-spin"></span> Alex is writing…';
-      spin.id='ep2spin'; body.appendChild(spin);
-    }],
-    [6000, function(){
-      var sp = document.getElementById('ep2spin'); if(sp) sp.remove();
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var reply = div('ani-card slide-in-u'); reply.style.cssText='width:100%;margin-top:4px;font-size:10px;border-color:rgba(16,185,129,.3);';
-      reply.innerHTML = '<span style="color:#6ee7b7;font-weight:700;">Alex:</span> Subject: Introducing [Product]…';
-      body.appendChild(reply);
-    }],
-  ];
-  seq(steps, 9500, p);
-})();
+// ── Modal system ──────────────────────────────────────────────────────────────
+var currentEp = 1;
+var modalAniContainer = document.getElementById('gsModalAni');
 
-// ── EP03: Contacts ───────────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev3');
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">👥 Contacts</span>'; s.appendChild(bar);
-      var body = div('ani-body'); s.appendChild(body);
-      var empty = div('ani-muted'); empty.style.cssText='text-align:center;padding:10px 0;'; empty.textContent='No contacts yet'; body.appendChild(empty);
-      var btn = div('ani-btn primary'); btn.id='ep3addBtn'; btn.style.cssText='margin-top:8px;width:100%;justify-content:center;'; btn.textContent='+ Add Contact'; body.appendChild(btn);
-      p.appendChild(s);
-    }],
-    [1200, function(){
-      var btn = document.getElementById('ep3addBtn'); if(!btn) return;
-      btn.style.boxShadow='0 0 0 3px rgba(124,58,237,.3)';
-    }],
-    [1800, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      body.innerHTML='';
-      var lbl1 = div('ani-label'); lbl1.textContent='Full name'; body.appendChild(lbl1);
-      var inp1 = div('ani-input focused'); inp1.id='ep3name'; body.appendChild(inp1);
-      var lbl2 = div('ani-label'); lbl2.textContent='Email'; body.appendChild(lbl2);
-      var inp2 = div('ani-input'); inp2.id='ep3email'; body.appendChild(inp2);
-    }],
-    [2200, function(){
-      var inp = document.getElementById('ep3name'); if(!inp) return;
-      typeText(inp, 'Sarah Johnson', 65);
-    }],
-    [3400, function(){
-      var inp = document.getElementById('ep3email'); if(!inp) return;
-      inp.classList.add('focused');
-      typeText(inp, 'sarah@acmecorp.com', 55);
-    }],
-    [5000, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var btn = div('ani-btn primary'); btn.style.cssText='margin-top:10px;width:100%;justify-content:center;'; btn.textContent='Save contact'; body.appendChild(btn);
-    }],
-    [6200, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      body.innerHTML='';
-      var row = div('ani-card slide-in-u'); row.style.marginTop='4px';
-      row.innerHTML='<div class="ani-row"><div style="width:28px;height:28px;border-radius:50%;background:rgba(124,58,237,.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a78bfa;flex-shrink:0;">SJ</div><div><div style="font-size:11px;font-weight:700;">Sarah Johnson</div><div class="ani-muted">sarah@acmecorp.com</div></div><span class="ani-badge green" style="margin-left:auto;">New</span></div>';
-      body.appendChild(row);
-      var cnt = div('ani-muted fade-in'); cnt.style.cssText='text-align:right;margin-top:6px;font-size:10px;'; cnt.textContent='1 contact total'; body.appendChild(cnt);
-    }],
-  ];
-  seq(steps, 9500, p);
-})();
+function openModal(n){
+  currentEp = n;
+  var ep = EPISODES[n];
+  document.getElementById('gsModalNum').textContent = ep.num;
+  document.getElementById('gsModalName').textContent = ep.title;
+  // Steps
+  var stepsEl = document.getElementById('gsModalSteps');
+  stepsEl.innerHTML = '';
+  ep.steps.forEach(function(s,i){
+    var row = div('gs-step');
+    var num = div('gs-step-num'); num.textContent = i+1; row.appendChild(num);
+    var txt = div('gs-step-text'); txt.innerHTML = '<strong>'+s.t+'</strong><br>'+s.d; row.appendChild(txt);
+    stepsEl.appendChild(row);
+  });
+  // nav dots
+  var dotsEl = document.getElementById('gsNavDots');
+  dotsEl.innerHTML = '';
+  for(var i=1;i<=8;i++){
+    (function(idx){
+      var dot = div('gs-nav-dot'); dot.dataset.ep=idx;
+      if(idx===n) dot.classList.add('active');
+      if(watched['ep'+idx]) dot.classList.add('done');
+      dot.onclick = function(){ openModal(idx); };
+      dotsEl.appendChild(dot);
+    })(i);
+  }
+  // prev / next
+  document.getElementById('gsPrev').disabled = (n===1);
+  document.getElementById('gsNext').disabled = (n===8);
+  document.getElementById('gsNext').textContent = n===8 ? 'Done ✓' : 'Next →';
+  // watched button
+  var wb = document.getElementById('gsWatchedBtn');
+  wb.textContent = watched['ep'+n] ? '✓ Completed' : '✓ Mark complete';
+  wb.style.background = watched['ep'+n] ? 'rgba(16,185,129,.25)' : '';
+  // launch large animation
+  BUILDERS[n](modalAniContainer, 'modal'+n);
+  // show
+  document.getElementById('gsBg').style.display='flex';
+  document.body.style.overflow='hidden';
+}
 
-// ── EP04: Broadcasts ─────────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev4');
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">📧 Broadcast</span>'; s.appendChild(bar);
-      var body = div('ani-body'); s.appendChild(body);
-      var lbl1 = div('ani-label'); lbl1.textContent='Subject line'; body.appendChild(lbl1);
-      var inp1 = div('ani-input focused'); inp1.id='ep4subj'; body.appendChild(inp1);
-      var lbl2 = div('ani-label'); lbl2.textContent='Recipients'; body.appendChild(lbl2);
-      var rec = div(''); rec.innerHTML='<span class="ani-badge purple">All contacts (48)</span>'; body.appendChild(rec);
-      p.appendChild(s);
-    }],
-    [600, function(){
-      var inp = document.getElementById('ep4subj'); if(!inp) return;
-      typeText(inp, 'Big news: our new feature is live!', 52);
-    }],
-    [2800, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var lbl = div('ani-label'); lbl.textContent='Message preview'; body.appendChild(lbl);
-      var prev = div('ani-card'); prev.style.cssText='font-size:10px;line-height:1.5;color:var(--muted);'; prev.textContent='Hi {{first_name}}, we just launched…'; body.appendChild(prev);
-    }],
-    [4200, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var btn = div('ani-btn primary'); btn.id='ep4send'; btn.style.cssText='margin-top:10px;width:100%;justify-content:center;'; btn.textContent='Send broadcast →'; body.appendChild(btn);
-    }],
-    [5400, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var track = div('ani-progress-track'); track.style.marginTop='10px'; body.appendChild(track);
-      var fill = div('ani-progress-fill'); fill.id='ep4fill'; fill.style.transition='width 2s'; track.appendChild(fill);
-      setTimeout(function(){ fill.style.width='100%'; }, 50);
-    }],
-    [7500, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var badge = div('ani-badge green fade-in'); badge.style.marginTop='8px'; badge.textContent='✓ Sent to 48 contacts'; body.appendChild(badge);
-    }],
-  ];
-  seq(steps, 10500, p);
-})();
+function closeModal(){
+  stopSeq('modal'+currentEp);
+  modalAniContainer.innerHTML='';
+  document.getElementById('gsBg').style.display='none';
+  document.body.style.overflow='';
+  markWatched(currentEp);
+}
 
-// ── EP05: Find Leads ─────────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev5');
-  var leads = [
-    {name:'Priya Sharma', co:'TechFlow SaaS', score:94},
-    {name:'Marcus Webb', co:'Growthbase Inc', score:87},
-    {name:'Dana Chen', co:'LaunchPad Co', score:81},
-  ];
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">🔬 Find Leads</span>'; s.appendChild(bar);
-      var body = div('ani-body'); s.appendChild(body);
-      var lbl = div('ani-label'); lbl.textContent='Describe your ideal customer'; body.appendChild(lbl);
-      var inp = div('ani-input focused'); inp.id='ep5q'; body.appendChild(inp);
-      p.appendChild(s);
-    }],
-    [600, function(){
-      var inp = document.getElementById('ep5q'); if(!inp) return;
-      typeText(inp, 'SaaS founders in NYC raising a seed round', 48);
-    }],
-    [3200, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var spin = div('ani-muted'); spin.id='ep5spin'; spin.style.marginTop='8px'; spin.innerHTML='<span class="ani-spin"></span> Searching the web…'; body.appendChild(spin);
-    }],
-    [4800, function(){
-      var sp = document.getElementById('ep5spin'); if(sp) sp.remove();
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      leads.forEach(function(l, i){
-        setTimeout(function(){
-          var row = div('ani-card slide-in-u'); row.style.cssText='margin-top:5px;';
-          row.innerHTML='<div class="ani-row"><div><div style="font-size:10px;font-weight:700;">'+l.name+'</div><div class="ani-muted">'+l.co+'</div></div><div style="margin-left:auto;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;">'+l.score+'</div></div>';
-          body.appendChild(row);
-        }, i * 500);
-      });
-    }],
-  ];
-  seq(steps, 9500, p);
-})();
+document.getElementById('gsModalClose').onclick = closeModal;
+document.getElementById('gsBg').onclick = function(e){ if(e.target===this) closeModal(); };
+document.getElementById('gsPrev').onclick = function(){ if(currentEp>1) openModal(currentEp-1); };
+document.getElementById('gsNext').onclick = function(){
+  if(currentEp<8){ openModal(currentEp+1); }
+  else { closeModal(); }
+};
+document.getElementById('gsWatchedBtn').onclick = function(){
+  markWatched(currentEp);
+  this.textContent='✓ Completed'; this.style.background='rgba(16,185,129,.25)';
+};
+document.addEventListener('keydown',function(e){
+  if(document.getElementById('gsBg').style.display==='none') return;
+  if(e.key==='Escape') closeModal();
+  if(e.key==='ArrowRight' && currentEp<8) openModal(currentEp+1);
+  if(e.key==='ArrowLeft'  && currentEp>1) openModal(currentEp-1);
+});
 
-// ── EP06: Calendar ───────────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev6');
-  var days = ['M','T','W','T','F','S','S'];
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">📅 Calendar — May 2025</span>'; s.appendChild(bar);
-      var body = div('ani-body'); s.appendChild(body);
-      // mini calendar grid
-      var grid = div(''); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:9px;';
-      days.forEach(function(d){ var h=div(''); h.style.cssText='text-align:center;color:var(--muted);padding:2px;'; h.textContent=d; grid.appendChild(h); });
-      for(var i=1;i<=28;i++){
-        (function(n){
-          var cell=div(''); cell.style.cssText='text-align:center;padding:3px 1px;border-radius:4px;cursor:pointer;font-size:9px;color:var(--muted);transition:all .2s;';
-          cell.textContent=n; cell.id='ep6d'+n; grid.appendChild(cell);
-        })(i);
-      }
-      body.appendChild(grid); p.appendChild(s);
-    }],
-    [1200, function(){
-      var cell = document.getElementById('ep6d14'); if(!cell) return;
-      cell.style.cssText='text-align:center;padding:3px 1px;border-radius:4px;font-size:9px;background:rgba(124,58,237,.35);border:1px solid rgba(124,58,237,.6);color:#c4b5fd;font-weight:700;';
-    }],
-    [2000, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var form = div('ani-card slide-in-u'); form.style.marginTop='8px';
-      var lbl = div('ani-label'); lbl.style.marginTop='0'; lbl.textContent='New event — May 14';
-      form.appendChild(lbl);
-      var inp = div('ani-input focused'); inp.id='ep6title'; form.appendChild(inp);
-      body.appendChild(form);
-    }],
-    [2600, function(){
-      var inp = document.getElementById('ep6title'); if(!inp) return;
-      typeText(inp, 'Client Discovery Call', 65);
-    }],
-    [4600, function(){
-      var cell = document.getElementById('ep6d14'); if(!cell) return;
-      cell.innerHTML='<div style="font-size:8px;background:rgba(59,130,246,.4);border-radius:3px;padding:1px 2px;color:#93c5fd;white-space:nowrap;overflow:hidden;">Call</div>';
-    }],
-    [5500, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var badge = div('ani-badge green fade-in'); badge.style.marginTop='6px'; badge.textContent='✓ Event created'; body.appendChild(badge);
-    }],
-  ];
-  seq(steps, 9000, p);
-})();
-
-// ── EP07: Action Stacks ──────────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev7');
-  var stackSteps = [
-    {label:'Research prospect', icon:'🔍'},
-    {label:'Draft outreach email', icon:'✍️'},
-    {label:'Add to Contacts', icon:'👥'},
-    {label:'Schedule follow-up', icon:'📅'},
-  ];
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">⚡ Action Stack</span>'; s.appendChild(bar);
-      var body = div('ani-body'); body.id='ep7body'; s.appendChild(body);
-      stackSteps.forEach(function(ss, i){
-        var row = div(''); row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);';
-        var icon = div(''); icon.style.cssText='width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;'; icon.textContent=ss.icon;
-        var lbl = div(''); lbl.style.cssText='font-size:10px;flex:1;color:var(--muted);'; lbl.textContent=ss.label;
-        var status = div(''); status.id='ep7s'+i; status.style.cssText='width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.06);flex-shrink:0;';
-        row.appendChild(icon); row.appendChild(lbl); row.appendChild(status); body.appendChild(row);
-      });
-      var run = div('ani-btn primary'); run.style.cssText='margin-top:10px;width:100%;justify-content:center;'; run.textContent='▶ Run stack'; body.appendChild(run);
-      p.appendChild(s);
-    }],
-    [1500, function(){
-      var s0 = document.getElementById('ep7s0'); if(!s0) return;
-      s0.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
-    }],
-    [3000, function(){
-      var s0 = document.getElementById('ep7s0'); if(s0) s0.innerHTML='<span class="ani-check">✓</span>';
-      var s1 = document.getElementById('ep7s1'); if(!s1) return;
-      s1.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
-    }],
-    [4800, function(){
-      var s1 = document.getElementById('ep7s1'); if(s1) s1.innerHTML='<span class="ani-check">✓</span>';
-      var s2 = document.getElementById('ep7s2'); if(!s2) return;
-      s2.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
-    }],
-    [6200, function(){
-      var s2 = document.getElementById('ep7s2'); if(s2) s2.innerHTML='<span class="ani-check">✓</span>';
-      var s3 = document.getElementById('ep7s3'); if(!s3) return;
-      s3.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
-    }],
-    [7600, function(){
-      var s3 = document.getElementById('ep7s3'); if(s3) s3.innerHTML='<span class="ani-check">✓</span>';
-      var body = document.getElementById('ep7body'); if(!body) return;
-      var done = div('ani-badge green fade-in'); done.style.cssText='margin-top:8px;'; done.textContent='✓ All 4 steps complete'; body.appendChild(done);
-    }],
-  ];
-  seq(steps, 10500, p);
-})();
-
-// ── EP08: Chrome Extension ───────────────────────────────────────────────────
-(function(){
-  var p = document.getElementById('prev8');
-  var steps = [
-    [0, function(){
-      p.innerHTML = '';
-      var s = div('ani-screen');
-      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">Facebook — Mark Lee</span>'; s.appendChild(bar);
-      var body = div('ani-body'); body.style.position='relative'; s.appendChild(body);
-      // Facebook-style profile mock
-      var prof = div(''); prof.style.cssText='background:rgba(24,119,242,.08);border:1px solid rgba(24,119,242,.2);border-radius:8px;padding:8px 10px;';
-      prof.innerHTML='<div class="ani-row" style="gap:8px;"><div style="width:30px;height:30px;border-radius:50%;background:rgba(24,119,242,.3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;">ML</div><div><div style="font-size:11px;font-weight:700;">Mark Lee</div><div class="ani-muted" style="font-size:9px;">CEO at Startup Co · 2nd</div></div></div>';
-      body.appendChild(prof);
-      p.appendChild(s);
-    }],
-    [1500, function(){
-      var body = p.querySelector('.ani-body'); if(!body) return;
-      var popup = div('ani-card slide-in-r'); popup.id='ep8pop';
-      popup.style.cssText='position:absolute;right:0;top:0;width:130px;border-color:rgba(124,58,237,.5);padding:8px;';
-      popup.innerHTML='<div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,var(--purple));"></div><span style="font-size:9px;font-weight:700;">Simply Agentic</span></div><div class="ani-muted" style="margin-bottom:8px;font-size:9px;">Mark Lee detected</div>';
-      var btn = div('ani-btn primary'); btn.id='ep8btn'; btn.style.cssText='width:100%;justify-content:center;font-size:9px;'; btn.textContent='Import to Contacts';
-      popup.appendChild(btn); body.appendChild(popup);
-    }],
-    [3000, function(){
-      var btn = document.getElementById('ep8btn'); if(!btn) return;
-      btn.style.boxShadow='0 0 0 3px rgba(124,58,237,.3)';
-    }],
-    [3800, function(){
-      var pop = document.getElementById('ep8pop'); if(!pop) return;
-      var track = div('ani-progress-track'); track.style.marginTop='8px'; pop.appendChild(track);
-      var fill = div('ani-progress-fill'); fill.id='ep8fill'; fill.style.transition='width 1.4s'; track.appendChild(fill);
-      setTimeout(function(){ fill.style.width='100%'; }, 50);
-    }],
-    [5500, function(){
-      var pop = document.getElementById('ep8pop'); if(!pop) return;
-      var badge = div('ani-badge green fade-in'); badge.style.marginTop='6px'; badge.textContent='✓ Added to Contacts'; pop.appendChild(badge);
-    }],
-  ];
-  seq(steps, 9500, p);
-})();
+// ── Card click handlers ───────────────────────────────────────────────────────
+document.querySelectorAll('.ep-card').forEach(function(card){
+  card.onclick = function(){ openModal(parseInt(card.dataset.ep)); };
+});
 
 </script>
 </body>
 </html>"""
-
-
 @app.get("/getting-started")
 def getting_started():
     u = current_user()
