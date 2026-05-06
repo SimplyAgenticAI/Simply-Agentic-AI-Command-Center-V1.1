@@ -8602,14 +8602,15 @@ LOGIN_HTML = r"""
 (function(){
   var cv=document.getElementById('cosmicWeb'),ctx=cv.getContext('2d');
   var W,H,nodes=[],mouse={x:0,y:0};
-  var N=90,MAX_DIST=180,SPEED=0.28;
+  var N=100,MAX_DIST=280,SPEED=0.28;
 
   // aurora blobs — slow-drifting radial glow patches
   var auroras=[
-    {x:0.18,y:0.25,r:0.38,hue:265,phase:0,spd:0.0007},
-    {x:0.82,y:0.72,r:0.42,hue:220,phase:1.8,spd:0.0009},
-    {x:0.55,y:0.12,r:0.30,hue:280,phase:3.2,spd:0.0006},
-    {x:0.30,y:0.80,r:0.28,hue:200,phase:0.9,spd:0.0011},
+    {x:0.18,y:0.25,r:0.52,hue:265,phase:0,spd:0.0007},
+    {x:0.82,y:0.72,r:0.55,hue:220,phase:1.8,spd:0.0009},
+    {x:0.55,y:0.12,r:0.44,hue:280,phase:3.2,spd:0.0006},
+    {x:0.30,y:0.80,r:0.42,hue:200,phase:0.9,spd:0.0011},
+    {x:0.70,y:0.45,r:0.38,hue:245,phase:2.5,spd:0.0008},
   ];
 
   function resize(){
@@ -8653,11 +8654,11 @@ LOGIN_HTML = r"""
       var cx=W*(a.x+Math.sin(a.phase*1.1)*0.06);
       var cy=H*(a.y+Math.cos(a.phase*0.9)*0.07);
       var rad=Math.min(W,H)*a.r;
-      var pulse=0.055+0.025*Math.sin(a.phase*2.3);
-      var hShift=a.hue+18*Math.sin(a.phase*1.7);
+      var pulse=0.11+0.05*Math.sin(a.phase*2.3);
+      var hShift=a.hue+22*Math.sin(a.phase*1.7);
       var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
-      g.addColorStop(0,'hsla('+hShift+',75%,52%,'+pulse+')');
-      g.addColorStop(0.45,'hsla('+hShift+',68%,40%,'+(pulse*0.4)+')');
+      g.addColorStop(0,'hsla('+hShift+',85%,60%,'+pulse+')');
+      g.addColorStop(0.45,'hsla('+hShift+',78%,46%,'+(pulse*0.5)+')');
       g.addColorStop(1,'transparent');
       ctx.fillStyle=g;
       ctx.fillRect(0,0,W,H);
@@ -8672,14 +8673,15 @@ LOGIN_HTML = r"""
         var dist=Math.sqrt(dx*dx+dy*dy);
         if(dist>MAX_DIST) continue;
         var t=1-dist/MAX_DIST;
-        var alpha=t*t*(0.18+0.12*Math.sin(a.phase+b.phase));
+        var alpha=t*t*(0.55+0.30*Math.sin(a.phase+b.phase));
         // gradient filament blending both node colors
         var lg=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
         var hA=a.isGold?48:a.hue, hB=b.isGold?48:b.hue;
-        lg.addColorStop(0,'hsla('+hA+','+a.sat+'%,68%,'+alpha+')');
-        lg.addColorStop(1,'hsla('+hB+','+b.sat+'%,68%,'+alpha+')');
+        lg.addColorStop(0,'hsla('+hA+','+a.sat+'%,82%,'+alpha+')');
+        lg.addColorStop(0.5,'hsla('+((hA+hB)/2|0)+',90%,90%,'+(alpha*0.6)+')');
+        lg.addColorStop(1,'hsla('+hB+','+b.sat+'%,82%,'+alpha+')');
         ctx.strokeStyle=lg;
-        ctx.lineWidth=t*1.4;
+        ctx.lineWidth=t*2.2;
         ctx.beginPath();
         ctx.moveTo(a.x,a.y);
         ctx.lineTo(b.x,b.y);
@@ -8696,18 +8698,20 @@ LOGIN_HTML = r"""
       var sat=n.isGold?90:n.sat;
 
       // outer corona
-      var gOuter=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*7);
-      gOuter.addColorStop(0,'hsla('+hue+','+sat+'%,75%,'+(glow*0.22)+')');
+      var gOuter=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*9);
+      gOuter.addColorStop(0,'hsla('+hue+','+sat+'%,85%,'+(glow*0.42)+')');
+      gOuter.addColorStop(0.5,'hsla('+hue+','+sat+'%,70%,'+(glow*0.18)+')');
       gOuter.addColorStop(1,'transparent');
       ctx.fillStyle=gOuter;
       ctx.beginPath();
-      ctx.arc(n.x,n.y,radius*7,0,Math.PI*2);
+      ctx.arc(n.x,n.y,radius*9,0,Math.PI*2);
       ctx.fill();
 
       // inner core
-      var gCore=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*2.2);
-      gCore.addColorStop(0,'hsla('+hue+',90%,92%,'+(glow*0.95)+')');
-      gCore.addColorStop(0.4,'hsla('+hue+','+sat+'%,72%,'+(glow*0.7)+')');
+      var gCore=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*2.8);
+      gCore.addColorStop(0,'hsla('+hue+',95%,97%,'+Math.min(glow*1.1,1)+')');
+      gCore.addColorStop(0.3,'hsla('+hue+',90%,80%,'+(glow*0.95)+')');
+      gCore.addColorStop(0.7,'hsla('+hue+','+sat+'%,65%,'+(glow*0.5)+')');
       gCore.addColorStop(1,'transparent');
       ctx.fillStyle=gCore;
       ctx.beginPath();
