@@ -8574,7 +8574,165 @@ LOGIN_HTML = r"""
 </style>
 
 </head><body>
-  <div class="card">
+
+<!-- ===== COSMIC NEURAL WEB ===== -->
+<canvas id="cosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('cosmicWeb'),ctx=cv.getContext('2d');
+  var W,H,nodes=[],mouse={x:0,y:0};
+  var N=90,MAX_DIST=180,SPEED=0.28;
+
+  // aurora blobs — slow-drifting radial glow patches
+  var auroras=[
+    {x:0.18,y:0.25,r:0.38,hue:265,phase:0,spd:0.0007},
+    {x:0.82,y:0.72,r:0.42,hue:220,phase:1.8,spd:0.0009},
+    {x:0.55,y:0.12,r:0.30,hue:280,phase:3.2,spd:0.0006},
+    {x:0.30,y:0.80,r:0.28,hue:200,phase:0.9,spd:0.0011},
+  ];
+
+  function resize(){
+    W=cv.width=window.innerWidth;
+    H=cv.height=window.innerHeight;
+  }
+
+  function mkNode(){
+    // color palette: purple, blue, occasional gold accent
+    var palettes=[
+      [265,72],[240,75],[255,65],[210,80],[275,60],[230,70]
+    ];
+    var p=palettes[Math.floor(Math.random()*palettes.length)];
+    return{
+      x:Math.random()*W, y:Math.random()*H,
+      vx:(Math.random()-.5)*SPEED, vy:(Math.random()-.5)*SPEED,
+      r:1.2+Math.random()*2.2,
+      hue:p[0]+Math.random()*20-10,
+      sat:p[1],
+      phase:Math.random()*Math.PI*2,
+      pulseSpd:0.012+Math.random()*0.018,
+      isGold:Math.random()<0.06   // rare gold nodes for sparkle
+    };
+  }
+
+  function init(){
+    resize();
+    nodes=[];
+    for(var i=0;i<N;i++) nodes.push(mkNode());
+  }
+
+  // subtle mouse parallax — nodes nudge gently toward cursor
+  document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // ── Aurora layer ──────────────────────────────────────────
+    auroras.forEach(function(a){
+      a.phase+=a.spd;
+      var cx=W*(a.x+Math.sin(a.phase*1.1)*0.06);
+      var cy=H*(a.y+Math.cos(a.phase*0.9)*0.07);
+      var rad=Math.min(W,H)*a.r;
+      var pulse=0.055+0.025*Math.sin(a.phase*2.3);
+      var hShift=a.hue+18*Math.sin(a.phase*1.7);
+      var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
+      g.addColorStop(0,'hsla('+hShift+',75%,52%,'+pulse+')');
+      g.addColorStop(0.45,'hsla('+hShift+',68%,40%,'+(pulse*0.4)+')');
+      g.addColorStop(1,'transparent');
+      ctx.fillStyle=g;
+      ctx.fillRect(0,0,W,H);
+    });
+
+    // ── Filaments (edges) ─────────────────────────────────────
+    for(var i=0;i<N;i++){
+      var a=nodes[i];
+      for(var j=i+1;j<N;j++){
+        var b=nodes[j];
+        var dx=a.x-b.x, dy=a.y-b.y;
+        var dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist>MAX_DIST) continue;
+        var t=1-dist/MAX_DIST;
+        var alpha=t*t*(0.18+0.12*Math.sin(a.phase+b.phase));
+        // gradient filament blending both node colors
+        var lg=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
+        var hA=a.isGold?48:a.hue, hB=b.isGold?48:b.hue;
+        lg.addColorStop(0,'hsla('+hA+','+a.sat+'%,68%,'+alpha+')');
+        lg.addColorStop(1,'hsla('+hB+','+b.sat+'%,68%,'+alpha+')');
+        ctx.strokeStyle=lg;
+        ctx.lineWidth=t*1.4;
+        ctx.beginPath();
+        ctx.moveTo(a.x,a.y);
+        ctx.lineTo(b.x,b.y);
+        ctx.stroke();
+      }
+    }
+
+    // ── Nodes ─────────────────────────────────────────────────
+    nodes.forEach(function(n){
+      n.phase+=n.pulseSpd;
+      var glow=0.55+0.45*Math.sin(n.phase);
+      var radius=n.r*(0.85+0.3*Math.sin(n.phase*0.7));
+      var hue=n.isGold?48:n.hue;
+      var sat=n.isGold?90:n.sat;
+
+      // outer corona
+      var gOuter=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*7);
+      gOuter.addColorStop(0,'hsla('+hue+','+sat+'%,75%,'+(glow*0.22)+')');
+      gOuter.addColorStop(1,'transparent');
+      ctx.fillStyle=gOuter;
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,radius*7,0,Math.PI*2);
+      ctx.fill();
+
+      // inner core
+      var gCore=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*2.2);
+      gCore.addColorStop(0,'hsla('+hue+',90%,92%,'+(glow*0.95)+')');
+      gCore.addColorStop(0.4,'hsla('+hue+','+sat+'%,72%,'+(glow*0.7)+')');
+      gCore.addColorStop(1,'transparent');
+      ctx.fillStyle=gCore;
+      ctx.beginPath();
+      ctx.arc(n.x,n.y,radius*2.2,0,Math.PI*2);
+      ctx.fill();
+    });
+
+    // ── Move nodes ────────────────────────────────────────────
+    nodes.forEach(function(n){
+      // gentle mouse attraction (very subtle, not distracting)
+      var mdx=mouse.x-n.x, mdy=mouse.y-n.y;
+      var md=Math.sqrt(mdx*mdx+mdy*mdy);
+      if(md<260&&md>1){
+        n.vx+=mdx/md*0.0012;
+        n.vy+=mdy/md*0.0012;
+      }
+      // speed cap
+      var spd=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
+      if(spd>SPEED*2.2){n.vx=n.vx/spd*SPEED*2.2;n.vy=n.vy/spd*SPEED*2.2;}
+      n.x+=n.vx; n.y+=n.vy;
+      // wrap edges softly
+      if(n.x<-30) n.x=W+28;
+      if(n.x>W+30) n.x=-28;
+      if(n.y<-30) n.y=H+28;
+      if(n.y>H+30) n.y=-28;
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize',function(){
+    resize();
+    // reposition nodes that are now off-screen
+    nodes.forEach(function(n){
+      if(n.x>W) n.x=Math.random()*W;
+      if(n.y>H) n.y=Math.random()*H;
+    });
+  });
+
+  init();
+  draw();
+})();
+</script>
+<!-- ===== END COSMIC WEB ===== -->
+
+<div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
 
