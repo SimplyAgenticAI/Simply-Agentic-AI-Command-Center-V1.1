@@ -13162,6 +13162,105 @@ label         { font-size: 14px !important; }
 }
 @media (max-width: 390px) { .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; } }
 
+/* ── Tooltip system ──────────────────────────────────────────────────── */
+[data-tip]{position:relative;}
+[data-tip]::after{
+  content:attr(data-tip);
+  position:absolute;
+  bottom:calc(100% + 8px);
+  left:50%;
+  transform:translateX(-50%) scale(0.94);
+  background:rgba(6,9,22,.97);
+  border:1px solid rgba(124,58,237,.38);
+  color:#d4dcff;
+  font-size:11px;
+  font-weight:400;
+  padding:5px 10px;
+  border-radius:8px;
+  white-space:nowrap;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .16s, transform .16s;
+  z-index:9990;
+  box-shadow:0 6px 20px rgba(0,0,0,.45);
+}
+[data-tip]:hover::after{opacity:1;transform:translateX(-50%) scale(1);}
+
+/* ── Stats strip ─────────────────────────────────────────────────────── */
+.statsStrip{
+  display:flex;
+  align-items:center;
+  gap:0;
+  padding:0 16px;
+  background:rgba(6,9,22,.72);
+  border-bottom:1px solid rgba(34,49,90,.5);
+  font-size:11.5px;
+  color:rgba(180,196,255,.65);
+  overflow-x:auto;
+  white-space:nowrap;
+  scrollbar-width:none;
+  height:30px;
+}
+.statsStrip::-webkit-scrollbar{display:none;}
+.ss-item{display:flex;align-items:center;gap:5px;padding:0 14px 0 0;}
+.ss-sep{color:rgba(255,255,255,.1);padding-right:14px;}
+.ss-val{color:#e2e8f0;font-weight:500;}
+.ss-link{color:#a78bfa;text-decoration:none;font-weight:600;padding:0 14px 0 0;}
+.ss-link:hover{color:#c4b5fd;}
+@media(max-width:720px){.statsStrip{display:none;}}
+
+/* ── Welcome overlay ─────────────────────────────────────────────────── */
+.welcomeOverlay{
+  position:fixed;inset:0;
+  background:rgba(4,6,15,.88);
+  z-index:10000;
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(8px);
+}
+.welcomeCard{
+  width:min(520px,calc(100vw - 28px));
+  background:linear-gradient(180deg,#121c38,#0f1629);
+  border:1px solid rgba(124,58,237,.45);
+  border-radius:24px;
+  padding:36px 34px 28px;
+  box-shadow:0 32px 80px rgba(0,0,0,.65),0 0 40px rgba(124,58,237,.12);
+}
+.wcStep{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:10px 0;
+  border-bottom:1px solid rgba(255,255,255,.06);
+}
+.wcStep:last-child{border-bottom:none;}
+.wcNum{
+  width:24px;height:24px;border-radius:50%;
+  background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);
+  color:#a78bfa;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;
+}
+.wcCheck{
+  width:24px;height:24px;border-radius:50%;
+  background:rgba(16,185,129,.25);border:1px solid rgba(16,185,129,.5);
+  color:#6ee7b7;font-size:13px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;
+}
+.wcText{font-size:13px;color:#d4dcff;line-height:1.5;}
+.wcText strong{color:#eef2ff;font-weight:600;}
+.wcPrimary{
+  background:linear-gradient(135deg,rgba(124,58,237,.6),rgba(59,130,246,.3));
+  border:1px solid rgba(124,58,237,.65);
+  color:#eef2ff;padding:11px 28px;border-radius:12px;
+  font-size:14px;font-weight:700;cursor:pointer;
+  transition:opacity .15s;
+}
+.wcPrimary:hover{opacity:.88;}
+.wcSecondary{
+  background:transparent;border:1px solid rgba(80,110,200,.5);
+  color:#94a3b8;padding:11px 20px;border-radius:12px;
+  font-size:14px;cursor:pointer;text-decoration:none;
+  display:inline-block;transition:border-color .15s;
+}
+.wcSecondary:hover{border-color:rgba(124,58,237,.6);color:#c4b5fd;}
+
 </style>
 </head>
 <body>
@@ -13183,7 +13282,7 @@ label         { font-size: 14px !important; }
       <div class="saNavLeft">
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saTeamDropBtn" onclick="saToggleDrop('saTeamDrop')">
+          <button class="saNavBtn" id="saTeamDropBtn" data-tip="Manage your AI teammates" onclick="saToggleDrop('saTeamDrop')">
             <span>Team</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saTeamDrop">
@@ -13196,7 +13295,7 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saCreateDropBtn" onclick="saToggleDrop('saCreateDrop')">
+          <button class="saNavBtn" id="saCreateDropBtn" data-tip="Create content & access tools" onclick="saToggleDrop('saCreateDrop')">
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
@@ -13210,32 +13309,33 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saResearchDropBtn" onclick="saToggleDrop('saResearchDrop')">
+          <button class="saNavBtn" id="saResearchDropBtn" data-tip="Research leads & analyze sites" onclick="saToggleDrop('saResearchDrop')">
             <span>🔍 Research</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saResearchDrop">
-            <button class="saDropItem" id="leadLabBtn">🧪 Lead Lab</button>
+            <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
             <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
             <button class="saDropItem" id="frameworkResearchBtn" onclick="document.getElementById('frameworkBtn')&&document.getElementById('frameworkBtn').click()">🧠 Core Framework</button>
           </div>
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saManageDropBtn" onclick="saToggleDrop('saManageDrop')">
+          <button class="saNavBtn" id="saManageDropBtn" data-tip="Contacts, calendar & email" onclick="saToggleDrop('saManageDrop')">
             <span>📊 Manage</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saManageDrop">
-            <button class="saDropItem" id="crmBtn">👤 CRM</button>
-            <button class="saDropItem" id="calendarBtn">📅 Calendar</button>
-            <button class="saDropItem" id="emailConsoleBtn">📧 Email Console</button>
+            <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
+            <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
+            <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
           </div>
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saSettingsDropBtn" onclick="saToggleDrop('saSettingsDrop')">
+          <button class="saNavBtn" id="saSettingsDropBtn" data-tip="Account settings & preferences" onclick="saToggleDrop('saSettingsDrop')">
             <span>Settings</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saSettingsDrop">
+            <a class="saDropItem" href="/getting-started" style="text-decoration:none;color:inherit;">📚 Getting started guide</a>
             <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="customizeBtn">🎨 Customize</button>
@@ -13285,7 +13385,7 @@ label         { font-size: 14px !important; }
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;"></div>
-        <button onclick="openScoutPanel()" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Compass</button>
+        <button onclick="openScoutPanel()" data-tip="AI-powered contextual help" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Help</button>
         <button onclick="openExtensionPanel()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🔌 Extension</button>
         <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
         <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
@@ -13296,6 +13396,41 @@ label         { font-size: 14px !important; }
     </div>
     <!-- ===== END REDESIGNED NAV BAR ===== -->
   </div>
+
+  <!-- ===== STATS STRIP ===== -->
+  <div class="statsStrip" id="statsStrip">
+    <span class="ss-item">👥 <span class="ss-val" id="ssContacts">—</span>&nbsp;contacts</span>
+    <span class="ss-sep">·</span>
+    <span class="ss-item">💬 <span class="ss-val" id="ssMessages">—</span>&nbsp;messages today</span>
+    <span class="ss-sep">·</span>
+    <span class="ss-item">⭐ <span class="ss-val" id="ssPoints">—</span>&nbsp;pts</span>
+    <span class="ss-sep">·</span>
+    <a class="ss-link" href="/getting-started">📚 Getting started guide</a>
+  </div>
+  <!-- ===== END STATS STRIP ===== -->
+
+  <!-- ===== WELCOME OVERLAY ===== -->
+  <div class="welcomeOverlay" id="welcomeOverlay" style="display:none;" aria-modal="true" role="dialog">
+    <div class="welcomeCard">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-size:36px;margin-bottom:10px;">🚀</div>
+        <h2 style="font-size:22px;font-weight:700;color:#eef2ff;margin:0 0 8px;">Welcome to Simply Agentic!</h2>
+        <p style="color:#94a3b8;font-size:13px;margin:0;">Your AI command center is ready. Here's how to hit the ground running:</p>
+      </div>
+      <div style="margin-bottom:24px;">
+        <div class="wcStep"><div class="wcNum">1</div><div class="wcText"><strong>Add your OpenAI API key</strong> — Settings → API Key. This powers every teammate.</div></div>
+        <div class="wcStep"><div class="wcNum">2</div><div class="wcText"><strong>Meet your AI teammates</strong> — click any seat at the round table to start chatting.</div></div>
+        <div class="wcStep"><div class="wcNum">3</div><div class="wcText"><strong>Add your first contact</strong> — open <em>Contacts</em> from the Manage menu to build your list.</div></div>
+        <div class="wcStep"><div class="wcNum">4</div><div class="wcText"><strong>Find leads automatically</strong> — use <em>Find Leads</em> in the Research menu to discover prospects.</div></div>
+        <div class="wcStep"><div class="wcNum">5</div><div class="wcText"><strong>Watch the tutorials</strong> — step-by-step animated guides for every feature.</div></div>
+      </div>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a class="wcSecondary" href="/getting-started">📚 Watch tutorials</a>
+        <button class="wcPrimary" onclick="dismissWelcome()">Let's go! →</button>
+      </div>
+    </div>
+  </div>
+  <!-- ===== END WELCOME OVERLAY ===== -->
 
   <div class="mobileBar" id="mobileBar">
     <button class="btn" id="mobileMenuBtn">☰ Menu</button>
@@ -13335,7 +13470,7 @@ label         { font-size: 14px !important; }
             <span>🔍 Research</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🧪 Lead Lab</button>
+            <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🔬 Find Leads</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showSiteAnalyzerModal,200);">🌐 Site Analyzer</button>
             <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
           </div>
@@ -13347,7 +13482,7 @@ label         { font-size: 14px !important; }
             <span>📊 Manage</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👤 CRM</button>
+            <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👥 Contacts</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var p=document.getElementById('notifPanel');if(p){p.style.position='fixed';p.style.top='0';p.style.left='0';p.style.right='0';p.style.bottom='0';p.style.width='100%';p.style.maxHeight='100vh';p.style.borderRadius='0';p.style.zIndex='99999';p.style.display='block';if(typeof loadNotifs==='function')loadNotifs();}},200);">🔔 Notifications</button>
@@ -13376,8 +13511,9 @@ label         { font-size: 14px !important; }
           <div class="mdGroupBody">
             <button class="btn" data-click="settingsBtn" onclick="closeMobileDrawer()">⚙️ Settings</button>
             <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 Get OpenAI Key</button>
+            <a class="btn" href="/getting-started" style="text-decoration:none;display:block;text-align:left;">📚 Getting started</a>
             <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Compass Help</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
             <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="color:#94a3b8;">🚪 Logout</button>
@@ -30117,6 +30253,64 @@ document.addEventListener('click',e=>{
 })();
 </script>
 
+<!-- ===== STATS STRIP + WELCOME JS ===== -->
+<script>
+(function(){
+  // ── Stats strip loader ────────────────────────────────────────────
+  function loadStats(){
+    fetch('/api/clients').then(function(r){return r.json();}).then(function(d){
+      if(d.ok && d.clients) document.getElementById('ssContacts').textContent = d.clients.length;
+    }).catch(function(){});
+    fetch('/api/community/my_stats').then(function(r){return r.json();}).then(function(d){
+      if(d.ok && d.points!=null) document.getElementById('ssPoints').textContent = d.points;
+    }).catch(function(){});
+    // Messages today via localStorage counter
+    var today = new Date().toDateString();
+    try{
+      var ms = JSON.parse(localStorage.getItem('sa_msg_day')||'{}');
+      document.getElementById('ssMessages').textContent = ms[today] || 0;
+    }catch(e){}
+  }
+  loadStats();
+  // Increment message counter — hook into existing send patterns
+  var _origFetch = window.fetch;
+  window.fetch = function(url, opts){
+    if(typeof url === 'string' && url.indexOf('/api/') !== -1 && opts && opts.method === 'POST'){
+      if(url.indexOf('/chat') !== -1 || url.indexOf('/action') !== -1){
+        try{
+          var today = new Date().toDateString();
+          var ms = JSON.parse(localStorage.getItem('sa_msg_day')||'{}');
+          ms[today] = (ms[today]||0) + 1;
+          // keep only today
+          var clean = {}; clean[today] = ms[today];
+          localStorage.setItem('sa_msg_day', JSON.stringify(clean));
+          var el = document.getElementById('ssMessages');
+          if(el) el.textContent = ms[today];
+        }catch(e){}
+      }
+    }
+    return _origFetch.apply(this, arguments);
+  };
+
+  // ── Welcome overlay ───────────────────────────────────────────────
+  function dismissWelcome(){
+    localStorage.setItem('sa_welcomed','1');
+    var ov = document.getElementById('welcomeOverlay');
+    if(ov){ ov.style.opacity='0'; ov.style.transition='opacity .35s'; setTimeout(function(){ov.style.display='none';},350); }
+  }
+  window.dismissWelcome = dismissWelcome;
+  // Show once per browser
+  if(!localStorage.getItem('sa_welcomed')){
+    var ov = document.getElementById('welcomeOverlay');
+    if(ov){ ov.style.display='flex'; }
+  }
+  // Click outside to dismiss
+  var ov2 = document.getElementById('welcomeOverlay');
+  if(ov2) ov2.addEventListener('click', function(e){ if(e.target===ov2) dismissWelcome(); });
+})();
+</script>
+<!-- ===== END STATS + WELCOME JS ===== -->
+
 </body>
 </html>
 """
@@ -38354,3 +38548,693 @@ def api_resolve_bug(report_id: str):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
+
+
+# =============================================================================
+# SIMPLY ACADEMY — GETTING STARTED PAGE
+# 8 CSS/JS animated episode walkthroughs, zero video hosting required
+# =============================================================================
+
+GETTING_STARTED_HTML = r"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Simply Academy — {{app_title}}</title>
+<style>
+:root{--bg:#070c1a;--surface:#0f1629;--card:#131d38;--border:rgba(80,110,200,.3);--purple:#7c3aed;--blue:#3b82f6;--text:#eef2ff;--muted:#94a3b8;--gold:#f7d36a;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:Arial,sans-serif;min-height:100vh;}
+a{color:#a78bfa;text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* Header */
+.gs-header{background:linear-gradient(180deg,rgba(20,30,65,.98),rgba(15,22,41,.95));border-bottom:1px solid var(--border);padding:18px 24px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);}
+.gs-brand{display:flex;flex-direction:column;gap:2px;}
+.gs-brand-name{font-size:20px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+.gs-brand-sub{font-size:12px;color:var(--muted);}
+.gs-dot{width:10px;height:10px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,#c4b5fd 28%,var(--purple) 72%);box-shadow:0 0 12px rgba(124,58,237,.55);}
+.gs-back{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);padding:8px 16px;border-radius:10px;font-size:13px;cursor:pointer;transition:all .15s;}
+.gs-back:hover{color:var(--text);border-color:rgba(124,58,237,.5);}
+
+/* Hero */
+.gs-hero{text-align:center;padding:48px 24px 32px;max-width:640px;margin:0 auto;}
+.gs-hero h1{font-size:30px;font-weight:700;color:var(--text);margin-bottom:10px;}
+.gs-hero p{font-size:15px;color:var(--muted);line-height:1.6;}
+.gs-progress{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:18px;font-size:13px;color:var(--muted);}
+.gs-progress-bar{width:160px;height:5px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;}
+.gs-progress-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--blue));border-radius:99px;transition:width .4s;}
+
+/* Grid */
+.gs-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;padding:8px 24px 48px;max-width:1100px;margin:0 auto;}
+
+/* Episode card */
+.ep-card{background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden;transition:border-color .2s,transform .2s;cursor:default;}
+.ep-card:hover{border-color:rgba(124,58,237,.55);transform:translateY(-2px);}
+.ep-card.watched{border-color:rgba(16,185,129,.35);}
+
+/* Preview area */
+.ep-preview{width:100%;height:178px;background:#050810;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
+.ep-watched-badge{position:absolute;top:8px;right:8px;background:rgba(16,185,129,.25);border:1px solid rgba(16,185,129,.5);color:#6ee7b7;font-size:10px;font-weight:700;padding:3px 8px;border-radius:99px;z-index:10;display:none;}
+.ep-card.watched .ep-watched-badge{display:block;}
+
+/* Episode info */
+.ep-info{padding:14px 16px 16px;}
+.ep-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.ep-num{font-size:10px;font-weight:700;color:rgba(167,139,250,.8);background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25);border-radius:99px;padding:2px 9px;}
+.ep-dur{font-size:10px;color:var(--muted);}
+.ep-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px;}
+.ep-desc{font-size:12px;color:var(--muted);line-height:1.5;}
+
+/* ── Shared animation primitives ──────────────────────── */
+.ani-screen{position:absolute;inset:0;display:flex;flex-direction:column;}
+.ani-bar{height:28px;background:rgba(15,22,41,.95);border-bottom:1px solid rgba(80,110,200,.25);display:flex;align-items:center;padding:0 10px;gap:6px;font-size:10px;color:rgba(148,163,184,.7);flex-shrink:0;}
+.ani-dot{width:6px;height:6px;border-radius:50%;}
+.ani-body{flex:1;padding:10px;overflow:hidden;}
+.ani-input{height:26px;border-radius:7px;border:1px solid rgba(80,110,200,.35);background:rgba(12,18,38,.9);color:var(--text);font-size:11px;padding:0 9px;width:100%;display:flex;align-items:center;}
+.ani-input.focused{border-color:rgba(124,58,237,.75);box-shadow:0 0 0 2px rgba(124,58,237,.15);}
+.ani-label{font-size:10px;color:rgba(148,163,184,.75);margin-bottom:4px;margin-top:8px;}
+.ani-label:first-child{margin-top:0;}
+.ani-btn{display:inline-flex;align-items:center;justify-content:center;padding:6px 14px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(80,110,200,.5);background:rgba(11,16,36,.9);color:var(--text);}
+.ani-btn.primary{border-color:rgba(124,58,237,.7);background:linear-gradient(180deg,rgba(124,58,237,.45),rgba(59,130,246,.18));}
+.ani-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:99px;font-size:10px;font-weight:700;}
+.ani-badge.green{background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;}
+.ani-badge.purple{background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#a78bfa;}
+.ani-card{background:rgba(15,22,41,.8);border:1px solid rgba(80,110,200,.25);border-radius:8px;padding:8px 10px;font-size:10px;color:var(--text);}
+.ani-row{display:flex;align-items:center;gap:8px;}
+.ani-flex{display:flex;align-items:center;gap:6px;}
+.ani-muted{font-size:10px;color:var(--muted);}
+.ani-typing::after{content:'|';animation:blink .7s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+.ani-progress-track{height:4px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;width:100%;}
+.ani-progress-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--blue));border-radius:99px;width:0%;}
+.ani-circle{border-radius:50%;background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(59,130,246,.2));border:1px solid var(--border);}
+.ani-seat{border-radius:10px;border:1px solid var(--border);background:var(--card);padding:5px 7px;font-size:9px;font-weight:700;color:var(--muted);text-align:center;transition:all .3s;}
+.ani-seat.active{border-color:rgba(124,58,237,.6);color:#a78bfa;background:rgba(124,58,237,.1);}
+.ani-check{color:#10b981;font-size:12px;}
+.ani-spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(124,58,237,.3);border-top-color:var(--purple);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.fade-in{animation:fadeIn .4s ease both;}
+.fade-out{animation:fadeOut .4s ease both;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeOut{from{opacity:1;}to{opacity:0;}}
+.slide-in-r{animation:slideInR .4s ease both;}
+@keyframes slideInR{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
+.slide-in-u{animation:slideInU .35s ease both;}
+@keyframes slideInU{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+@media(max-width:640px){.gs-grid{grid-template-columns:1fr;padding:8px 14px 40px;}.gs-hero{padding:32px 16px 24px;}.gs-hero h1{font-size:24px;}}
+</style>
+</head>
+<body>
+
+<div class="gs-header">
+  <div class="gs-brand">
+    <div class="gs-brand-name"><div class="gs-dot"></div> Simply Academy</div>
+    <div class="gs-brand-sub">{{app_title}} — animated getting started guides</div>
+  </div>
+  <a class="gs-back" href="/">← Back to command center</a>
+</div>
+
+<div class="gs-hero">
+  <h1>Get up to speed in minutes</h1>
+  <p>Every feature explained with a live animated walkthrough — no videos to buffer, no links to click. Everything plays right here.</p>
+  <div class="gs-progress">
+    <span id="progressLabel">0 of 8 complete</span>
+    <div class="gs-progress-bar"><div class="gs-progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+</div>
+
+<div class="gs-grid" id="episodeGrid">
+
+  <!-- EP01 -->
+  <div class="ep-card" id="ep1">
+    <div class="ep-preview" id="prev1">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 01</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-title">Getting started</div>
+      <div class="ep-desc">Add your OpenAI API key and connect to the AI brain that powers every teammate.</div>
+    </div>
+  </div>
+
+  <!-- EP02 -->
+  <div class="ep-card" id="ep2">
+    <div class="ep-preview" id="prev2">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 02</span><span class="ep-dur">~90 sec read</span></div>
+      <div class="ep-title">Your AI teammates</div>
+      <div class="ep-desc">Meet the round table. Each seat is a specialist — click one and start a conversation.</div>
+    </div>
+  </div>
+
+  <!-- EP03 -->
+  <div class="ep-card" id="ep3">
+    <div class="ep-preview" id="prev3">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 03</span><span class="ep-dur">~75 sec read</span></div>
+      <div class="ep-title">Managing contacts</div>
+      <div class="ep-desc">Add clients, track conversations, send messages and manage your whole network in one place.</div>
+    </div>
+  </div>
+
+  <!-- EP04 -->
+  <div class="ep-card" id="ep4">
+    <div class="ep-preview" id="prev4">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 04</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-title">Email broadcasts</div>
+      <div class="ep-desc">Write once, send to hundreds. AI drafts, you approve, your whole list gets it instantly.</div>
+    </div>
+  </div>
+
+  <!-- EP05 -->
+  <div class="ep-card" id="ep5">
+    <div class="ep-preview" id="prev5">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 05</span><span class="ep-dur">~75 sec read</span></div>
+      <div class="ep-title">Finding leads</div>
+      <div class="ep-desc">Describe your ideal customer and watch the AI search the web and score real prospects for you.</div>
+    </div>
+  </div>
+
+  <!-- EP06 -->
+  <div class="ep-card" id="ep6">
+    <div class="ep-preview" id="prev6">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 06</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-title">Calendar & scheduling</div>
+      <div class="ep-desc">Sync your Google Calendar, create events, and let your AI teammates handle scheduling tasks.</div>
+    </div>
+  </div>
+
+  <!-- EP07 -->
+  <div class="ep-card" id="ep7">
+    <div class="ep-preview" id="prev7">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 07</span><span class="ep-dur">~90 sec read</span></div>
+      <div class="ep-title">Action stacks</div>
+      <div class="ep-desc">Chain multiple AI tasks into one workflow. Set it running and come back to results.</div>
+    </div>
+  </div>
+
+  <!-- EP08 -->
+  <div class="ep-card" id="ep8">
+    <div class="ep-preview" id="prev8">
+      <div class="ep-watched-badge">✓ Done</div>
+    </div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 08</span><span class="ep-dur">~60 sec read</span></div>
+      <div class="ep-title">Chrome extension</div>
+      <div class="ep-desc">Import leads from Facebook with one click. The extension bridges social media and your CRM.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Shared utilities ─────────────────────────────────────────────────────────
+function el(tag, attrs, text){
+  var e = document.createElement(tag);
+  if(attrs) Object.keys(attrs).forEach(function(k){ e.setAttribute(k, attrs[k]); });
+  if(text) e.textContent = text;
+  return e;
+}
+function div(cls, html){
+  var d = document.createElement('div');
+  if(cls) d.className = cls;
+  if(html) d.innerHTML = html;
+  return d;
+}
+function typeText(el, text, speed, done){
+  var i = 0;
+  el.textContent = '';
+  var t = setInterval(function(){
+    if(i >= text.length){ clearInterval(t); if(done) done(); return; }
+    el.textContent += text[i++];
+  }, speed || 55);
+  return t;
+}
+// Run a sequence of timed steps, then loop
+function seq(steps, loopAfter, container){
+  var timers = [];
+  function run(){
+    steps.forEach(function(s){
+      timers.push(setTimeout(s, s._at));
+    });
+    timers.push(setTimeout(function(){
+      timers.forEach(clearTimeout);
+      // brief blank pause then restart
+      if(container) container.innerHTML = '';
+      timers = [];
+      setTimeout(run, 600);
+    }, loopAfter));
+  }
+  // stamp timings
+  var at = 0;
+  steps.forEach(function(s, i){
+    s._at = s[0]; // steps are [delay_from_start, fn]
+  });
+  // rebuild as objects
+  var stepsArr = steps.map(function(s){ return {_at: s[0], fn: s[1]}; });
+  function run2(){
+    stepsArr.forEach(function(s){
+      timers.push(setTimeout(s.fn, s._at));
+    });
+    timers.push(setTimeout(function(){
+      timers.forEach(clearTimeout);
+      if(container) container.innerHTML = '';
+      timers = [];
+      setTimeout(run2, 700);
+    }, loopAfter));
+  }
+  run2();
+}
+
+// ── Progress tracker ─────────────────────────────────────────────────────────
+var watched = JSON.parse(localStorage.getItem('sa_gs_watched') || '{}');
+function markWatched(n){
+  watched['ep'+n] = true;
+  localStorage.setItem('sa_gs_watched', JSON.stringify(watched));
+  updateProgress();
+}
+function updateProgress(){
+  var count = Object.keys(watched).length;
+  document.getElementById('progressLabel').textContent = count + ' of 8 complete';
+  document.getElementById('progressFill').style.width = Math.round(count/8*100) + '%';
+  for(var i=1;i<=8;i++){
+    var card = document.getElementById('ep'+i);
+    if(card){ if(watched['ep'+i]) card.classList.add('watched'); else card.classList.remove('watched'); }
+  }
+}
+updateProgress();
+// Mark as watched after 8s of viewing (animation has played through)
+for(var _i=1;_i<=8;_i++){
+  (function(n){
+    setTimeout(function(){ markWatched(n); }, 8000 + n * 200);
+  })(_i);
+}
+
+// ── EP01: Getting Started ────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev1');
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">⚙️ Settings</span>'; s.appendChild(bar);
+      var body = div('ani-body'); s.appendChild(body);
+      var lbl = div('ani-label'); lbl.textContent = 'OpenAI API Key'; body.appendChild(lbl);
+      var inp = div('ani-input'); inp.id='ep1inp'; inp.textContent='Enter your key…'; body.appendChild(inp);
+      p.appendChild(s);
+    }],
+    [900, function(){
+      var inp = document.getElementById('ep1inp');
+      if(!inp) return;
+      inp.classList.add('focused'); inp.textContent='';
+    }],
+    [1100, function(){
+      var inp = document.getElementById('ep1inp');
+      if(!inp) return;
+      var txt = 'sk-proj-••••••••••••••••';
+      typeText(inp, txt, 70);
+    }],
+    [3000, function(){
+      var body = p.querySelector('.ani-body');
+      if(!body) return;
+      var badge = div('ani-badge green fade-in'); badge.style.marginTop='10px'; badge.textContent = '✓ Connected! Model ready';
+      body.appendChild(badge);
+    }],
+    [4500, function(){
+      var body = p.querySelector('.ani-body');
+      if(!body) return;
+      var lbl2 = div('ani-label'); lbl2.style.marginTop='8px'; lbl2.textContent='Active model'; body.appendChild(lbl2);
+      var pill = div('ani-badge purple fade-in'); pill.textContent='gpt-4o-mini'; body.appendChild(pill);
+    }],
+    [6500, function(){
+      var body = p.querySelector('.ani-body');
+      if(!body) return;
+      var btn = div('ani-btn primary fade-in'); btn.style.marginTop='12px'; btn.textContent='Save settings →'; body.appendChild(btn);
+    }],
+  ];
+  seq(steps, 9500, p);
+})();
+
+// ── EP02: AI Teammates ───────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev2');
+  var teammates = ['Alex','Jordan','Sam','Morgan'];
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">🤝 Round Table</span>'; s.appendChild(bar);
+      var body = div('ani-body'); body.style.display='flex'; body.style.flexDirection='column'; body.style.alignItems='center'; body.style.gap='6px'; s.appendChild(body);
+      // circle
+      var circ = div('ani-circle'); circ.style.width='70px'; circ.style.height='70px'; circ.style.display='flex'; circ.style.alignItems='center'; circ.style.justifyContent='center'; circ.style.fontSize='10px'; circ.style.color='var(--muted)'; circ.textContent='Round Table'; body.appendChild(circ);
+      // seat grid
+      var grid = div(''); grid.id='ep2seats'; grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;'; body.appendChild(grid);
+      p.appendChild(s);
+    }],
+    [400, function(){
+      var g = document.getElementById('ep2seats'); if(!g) return;
+      var d = div('ani-seat'); d.textContent = teammates[0]; g.appendChild(d);
+      setTimeout(function(){d.classList.add('active');},200);
+    }],
+    [900, function(){
+      var g = document.getElementById('ep2seats'); if(!g) return;
+      var d = div('ani-seat'); d.textContent = teammates[1]; g.appendChild(d);
+      setTimeout(function(){d.classList.add('active');},200);
+    }],
+    [1400, function(){
+      var g = document.getElementById('ep2seats'); if(!g) return;
+      var d = div('ani-seat'); d.textContent = teammates[2]; g.appendChild(d);
+      setTimeout(function(){d.classList.add('active');},200);
+    }],
+    [1900, function(){
+      var g = document.getElementById('ep2seats'); if(!g) return;
+      var d = div('ani-seat'); d.textContent = teammates[3]; g.appendChild(d);
+      setTimeout(function(){d.classList.add('active');},200);
+    }],
+    [3000, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var bubble = div('ani-card slide-in-u'); bubble.style.cssText='width:100%;margin-top:4px;font-size:10px;border-color:rgba(124,58,237,.4);';
+      bubble.innerHTML = '<span style="color:#a78bfa;font-weight:700;">You:</span> Write me a sales email for our new product';
+      body.appendChild(bubble);
+    }],
+    [4200, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var spin = div('ani-muted slide-in-u'); spin.style.marginTop='4px'; spin.innerHTML = '<span class="ani-spin"></span> Alex is writing…';
+      spin.id='ep2spin'; body.appendChild(spin);
+    }],
+    [6000, function(){
+      var sp = document.getElementById('ep2spin'); if(sp) sp.remove();
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var reply = div('ani-card slide-in-u'); reply.style.cssText='width:100%;margin-top:4px;font-size:10px;border-color:rgba(16,185,129,.3);';
+      reply.innerHTML = '<span style="color:#6ee7b7;font-weight:700;">Alex:</span> Subject: Introducing [Product]…';
+      body.appendChild(reply);
+    }],
+  ];
+  seq(steps, 9500, p);
+})();
+
+// ── EP03: Contacts ───────────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev3');
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">👥 Contacts</span>'; s.appendChild(bar);
+      var body = div('ani-body'); s.appendChild(body);
+      var empty = div('ani-muted'); empty.style.cssText='text-align:center;padding:10px 0;'; empty.textContent='No contacts yet'; body.appendChild(empty);
+      var btn = div('ani-btn primary'); btn.id='ep3addBtn'; btn.style.cssText='margin-top:8px;width:100%;justify-content:center;'; btn.textContent='+ Add Contact'; body.appendChild(btn);
+      p.appendChild(s);
+    }],
+    [1200, function(){
+      var btn = document.getElementById('ep3addBtn'); if(!btn) return;
+      btn.style.boxShadow='0 0 0 3px rgba(124,58,237,.3)';
+    }],
+    [1800, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      body.innerHTML='';
+      var lbl1 = div('ani-label'); lbl1.textContent='Full name'; body.appendChild(lbl1);
+      var inp1 = div('ani-input focused'); inp1.id='ep3name'; body.appendChild(inp1);
+      var lbl2 = div('ani-label'); lbl2.textContent='Email'; body.appendChild(lbl2);
+      var inp2 = div('ani-input'); inp2.id='ep3email'; body.appendChild(inp2);
+    }],
+    [2200, function(){
+      var inp = document.getElementById('ep3name'); if(!inp) return;
+      typeText(inp, 'Sarah Johnson', 65);
+    }],
+    [3400, function(){
+      var inp = document.getElementById('ep3email'); if(!inp) return;
+      inp.classList.add('focused');
+      typeText(inp, 'sarah@acmecorp.com', 55);
+    }],
+    [5000, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var btn = div('ani-btn primary'); btn.style.cssText='margin-top:10px;width:100%;justify-content:center;'; btn.textContent='Save contact'; body.appendChild(btn);
+    }],
+    [6200, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      body.innerHTML='';
+      var row = div('ani-card slide-in-u'); row.style.marginTop='4px';
+      row.innerHTML='<div class="ani-row"><div style="width:28px;height:28px;border-radius:50%;background:rgba(124,58,237,.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#a78bfa;flex-shrink:0;">SJ</div><div><div style="font-size:11px;font-weight:700;">Sarah Johnson</div><div class="ani-muted">sarah@acmecorp.com</div></div><span class="ani-badge green" style="margin-left:auto;">New</span></div>';
+      body.appendChild(row);
+      var cnt = div('ani-muted fade-in'); cnt.style.cssText='text-align:right;margin-top:6px;font-size:10px;'; cnt.textContent='1 contact total'; body.appendChild(cnt);
+    }],
+  ];
+  seq(steps, 9500, p);
+})();
+
+// ── EP04: Broadcasts ─────────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev4');
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">📧 Broadcast</span>'; s.appendChild(bar);
+      var body = div('ani-body'); s.appendChild(body);
+      var lbl1 = div('ani-label'); lbl1.textContent='Subject line'; body.appendChild(lbl1);
+      var inp1 = div('ani-input focused'); inp1.id='ep4subj'; body.appendChild(inp1);
+      var lbl2 = div('ani-label'); lbl2.textContent='Recipients'; body.appendChild(lbl2);
+      var rec = div(''); rec.innerHTML='<span class="ani-badge purple">All contacts (48)</span>'; body.appendChild(rec);
+      p.appendChild(s);
+    }],
+    [600, function(){
+      var inp = document.getElementById('ep4subj'); if(!inp) return;
+      typeText(inp, 'Big news: our new feature is live!', 52);
+    }],
+    [2800, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var lbl = div('ani-label'); lbl.textContent='Message preview'; body.appendChild(lbl);
+      var prev = div('ani-card'); prev.style.cssText='font-size:10px;line-height:1.5;color:var(--muted);'; prev.textContent='Hi {{first_name}}, we just launched…'; body.appendChild(prev);
+    }],
+    [4200, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var btn = div('ani-btn primary'); btn.id='ep4send'; btn.style.cssText='margin-top:10px;width:100%;justify-content:center;'; btn.textContent='Send broadcast →'; body.appendChild(btn);
+    }],
+    [5400, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var track = div('ani-progress-track'); track.style.marginTop='10px'; body.appendChild(track);
+      var fill = div('ani-progress-fill'); fill.id='ep4fill'; fill.style.transition='width 2s'; track.appendChild(fill);
+      setTimeout(function(){ fill.style.width='100%'; }, 50);
+    }],
+    [7500, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var badge = div('ani-badge green fade-in'); badge.style.marginTop='8px'; badge.textContent='✓ Sent to 48 contacts'; body.appendChild(badge);
+    }],
+  ];
+  seq(steps, 10500, p);
+})();
+
+// ── EP05: Find Leads ─────────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev5');
+  var leads = [
+    {name:'Priya Sharma', co:'TechFlow SaaS', score:94},
+    {name:'Marcus Webb', co:'Growthbase Inc', score:87},
+    {name:'Dana Chen', co:'LaunchPad Co', score:81},
+  ];
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">🔬 Find Leads</span>'; s.appendChild(bar);
+      var body = div('ani-body'); s.appendChild(body);
+      var lbl = div('ani-label'); lbl.textContent='Describe your ideal customer'; body.appendChild(lbl);
+      var inp = div('ani-input focused'); inp.id='ep5q'; body.appendChild(inp);
+      p.appendChild(s);
+    }],
+    [600, function(){
+      var inp = document.getElementById('ep5q'); if(!inp) return;
+      typeText(inp, 'SaaS founders in NYC raising a seed round', 48);
+    }],
+    [3200, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var spin = div('ani-muted'); spin.id='ep5spin'; spin.style.marginTop='8px'; spin.innerHTML='<span class="ani-spin"></span> Searching the web…'; body.appendChild(spin);
+    }],
+    [4800, function(){
+      var sp = document.getElementById('ep5spin'); if(sp) sp.remove();
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      leads.forEach(function(l, i){
+        setTimeout(function(){
+          var row = div('ani-card slide-in-u'); row.style.cssText='margin-top:5px;';
+          row.innerHTML='<div class="ani-row"><div><div style="font-size:10px;font-weight:700;">'+l.name+'</div><div class="ani-muted">'+l.co+'</div></div><div style="margin-left:auto;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.35);color:#a78bfa;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;">'+l.score+'</div></div>';
+          body.appendChild(row);
+        }, i * 500);
+      });
+    }],
+  ];
+  seq(steps, 9500, p);
+})();
+
+// ── EP06: Calendar ───────────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev6');
+  var days = ['M','T','W','T','F','S','S'];
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">📅 Calendar — May 2025</span>'; s.appendChild(bar);
+      var body = div('ani-body'); s.appendChild(body);
+      // mini calendar grid
+      var grid = div(''); grid.style.cssText='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:9px;';
+      days.forEach(function(d){ var h=div(''); h.style.cssText='text-align:center;color:var(--muted);padding:2px;'; h.textContent=d; grid.appendChild(h); });
+      for(var i=1;i<=28;i++){
+        (function(n){
+          var cell=div(''); cell.style.cssText='text-align:center;padding:3px 1px;border-radius:4px;cursor:pointer;font-size:9px;color:var(--muted);transition:all .2s;';
+          cell.textContent=n; cell.id='ep6d'+n; grid.appendChild(cell);
+        })(i);
+      }
+      body.appendChild(grid); p.appendChild(s);
+    }],
+    [1200, function(){
+      var cell = document.getElementById('ep6d14'); if(!cell) return;
+      cell.style.cssText='text-align:center;padding:3px 1px;border-radius:4px;font-size:9px;background:rgba(124,58,237,.35);border:1px solid rgba(124,58,237,.6);color:#c4b5fd;font-weight:700;';
+    }],
+    [2000, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var form = div('ani-card slide-in-u'); form.style.marginTop='8px';
+      var lbl = div('ani-label'); lbl.style.marginTop='0'; lbl.textContent='New event — May 14';
+      form.appendChild(lbl);
+      var inp = div('ani-input focused'); inp.id='ep6title'; form.appendChild(inp);
+      body.appendChild(form);
+    }],
+    [2600, function(){
+      var inp = document.getElementById('ep6title'); if(!inp) return;
+      typeText(inp, 'Client Discovery Call', 65);
+    }],
+    [4600, function(){
+      var cell = document.getElementById('ep6d14'); if(!cell) return;
+      cell.innerHTML='<div style="font-size:8px;background:rgba(59,130,246,.4);border-radius:3px;padding:1px 2px;color:#93c5fd;white-space:nowrap;overflow:hidden;">Call</div>';
+    }],
+    [5500, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var badge = div('ani-badge green fade-in'); badge.style.marginTop='6px'; badge.textContent='✓ Event created'; body.appendChild(badge);
+    }],
+  ];
+  seq(steps, 9000, p);
+})();
+
+// ── EP07: Action Stacks ──────────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev7');
+  var stackSteps = [
+    {label:'Research prospect', icon:'🔍'},
+    {label:'Draft outreach email', icon:'✍️'},
+    {label:'Add to Contacts', icon:'👥'},
+    {label:'Schedule follow-up', icon:'📅'},
+  ];
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">⚡ Action Stack</span>'; s.appendChild(bar);
+      var body = div('ani-body'); body.id='ep7body'; s.appendChild(body);
+      stackSteps.forEach(function(ss, i){
+        var row = div(''); row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);';
+        var icon = div(''); icon.style.cssText='width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;'; icon.textContent=ss.icon;
+        var lbl = div(''); lbl.style.cssText='font-size:10px;flex:1;color:var(--muted);'; lbl.textContent=ss.label;
+        var status = div(''); status.id='ep7s'+i; status.style.cssText='width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.06);flex-shrink:0;';
+        row.appendChild(icon); row.appendChild(lbl); row.appendChild(status); body.appendChild(row);
+      });
+      var run = div('ani-btn primary'); run.style.cssText='margin-top:10px;width:100%;justify-content:center;'; run.textContent='▶ Run stack'; body.appendChild(run);
+      p.appendChild(s);
+    }],
+    [1500, function(){
+      var s0 = document.getElementById('ep7s0'); if(!s0) return;
+      s0.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
+    }],
+    [3000, function(){
+      var s0 = document.getElementById('ep7s0'); if(s0) s0.innerHTML='<span class="ani-check">✓</span>';
+      var s1 = document.getElementById('ep7s1'); if(!s1) return;
+      s1.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
+    }],
+    [4800, function(){
+      var s1 = document.getElementById('ep7s1'); if(s1) s1.innerHTML='<span class="ani-check">✓</span>';
+      var s2 = document.getElementById('ep7s2'); if(!s2) return;
+      s2.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
+    }],
+    [6200, function(){
+      var s2 = document.getElementById('ep7s2'); if(s2) s2.innerHTML='<span class="ani-check">✓</span>';
+      var s3 = document.getElementById('ep7s3'); if(!s3) return;
+      s3.innerHTML='<div class="ani-spin" style="width:14px;height:14px;"></div>';
+    }],
+    [7600, function(){
+      var s3 = document.getElementById('ep7s3'); if(s3) s3.innerHTML='<span class="ani-check">✓</span>';
+      var body = document.getElementById('ep7body'); if(!body) return;
+      var done = div('ani-badge green fade-in'); done.style.cssText='margin-top:8px;'; done.textContent='✓ All 4 steps complete'; body.appendChild(done);
+    }],
+  ];
+  seq(steps, 10500, p);
+})();
+
+// ── EP08: Chrome Extension ───────────────────────────────────────────────────
+(function(){
+  var p = document.getElementById('prev8');
+  var steps = [
+    [0, function(){
+      p.innerHTML = '';
+      var s = div('ani-screen');
+      var bar = div('ani-bar'); bar.innerHTML = '<div class="ani-dot" style="background:#ef4444"></div><div class="ani-dot" style="background:#f59e0b"></div><div class="ani-dot" style="background:#10b981"></div><span style="margin-left:6px;">Facebook — Mark Lee</span>'; s.appendChild(bar);
+      var body = div('ani-body'); body.style.position='relative'; s.appendChild(body);
+      // Facebook-style profile mock
+      var prof = div(''); prof.style.cssText='background:rgba(24,119,242,.08);border:1px solid rgba(24,119,242,.2);border-radius:8px;padding:8px 10px;';
+      prof.innerHTML='<div class="ani-row" style="gap:8px;"><div style="width:30px;height:30px;border-radius:50%;background:rgba(24,119,242,.3);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;">ML</div><div><div style="font-size:11px;font-weight:700;">Mark Lee</div><div class="ani-muted" style="font-size:9px;">CEO at Startup Co · 2nd</div></div></div>';
+      body.appendChild(prof);
+      p.appendChild(s);
+    }],
+    [1500, function(){
+      var body = p.querySelector('.ani-body'); if(!body) return;
+      var popup = div('ani-card slide-in-r'); popup.id='ep8pop';
+      popup.style.cssText='position:absolute;right:0;top:0;width:130px;border-color:rgba(124,58,237,.5);padding:8px;';
+      popup.innerHTML='<div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;"><div style="width:8px;height:8px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,var(--purple));"></div><span style="font-size:9px;font-weight:700;">Simply Agentic</span></div><div class="ani-muted" style="margin-bottom:8px;font-size:9px;">Mark Lee detected</div>';
+      var btn = div('ani-btn primary'); btn.id='ep8btn'; btn.style.cssText='width:100%;justify-content:center;font-size:9px;'; btn.textContent='Import to Contacts';
+      popup.appendChild(btn); body.appendChild(popup);
+    }],
+    [3000, function(){
+      var btn = document.getElementById('ep8btn'); if(!btn) return;
+      btn.style.boxShadow='0 0 0 3px rgba(124,58,237,.3)';
+    }],
+    [3800, function(){
+      var pop = document.getElementById('ep8pop'); if(!pop) return;
+      var track = div('ani-progress-track'); track.style.marginTop='8px'; pop.appendChild(track);
+      var fill = div('ani-progress-fill'); fill.id='ep8fill'; fill.style.transition='width 1.4s'; track.appendChild(fill);
+      setTimeout(function(){ fill.style.width='100%'; }, 50);
+    }],
+    [5500, function(){
+      var pop = document.getElementById('ep8pop'); if(!pop) return;
+      var badge = div('ani-badge green fade-in'); badge.style.marginTop='6px'; badge.textContent='✓ Added to Contacts'; pop.appendChild(badge);
+    }],
+  ];
+  seq(steps, 9500, p);
+})();
+
+</script>
+</body>
+</html>"""
+
+
+@app.get("/getting-started")
+def getting_started():
+    u = current_user()
+    if not u:
+        return redirect(url_for("login") + "?next=/getting-started")
+    return render_template_string(GETTING_STARTED_HTML, app_title=APP_TITLE)
