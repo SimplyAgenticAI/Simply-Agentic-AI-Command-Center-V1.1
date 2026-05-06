@@ -505,7 +505,20 @@ def _get_user_plan(username: str) -> str:
     """Return the plan key ('starter'/'growth'/'pro') for a given username.
     Looks up their seat record. Admins (first user) get 'pro' automatically.
     Falls back to 'starter' if no seat found.
+    Result is cached on g per username for the duration of the request.
     """
+    # Per-request cache — plan won't change mid-request
+    try:
+        cache = getattr(g, "_plan_cache", None)
+        if cache is None:
+            g._plan_cache = {}
+            cache = g._plan_cache
+        if username in cache:
+            return cache[username]
+    except RuntimeError:
+        cache = None  # no app context (background thread)
+
+    result = "starter"
     try:
         # Admin always gets pro access
         data = load_users()
@@ -513,14 +526,21 @@ def _get_user_plan(username: str) -> str:
         if users:
             first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
             if first.get("username") == username:
-                return "pro"
+                result = "pro"
+                if cache is not None:
+                    cache[username] = result
+                return result
         seats = (_load_seats().get("seats") or {})
         for seat in seats.values():
             if seat.get("claimed_by") == username:
-                return (seat.get("plan") or "starter").strip().lower()
+                result = (seat.get("plan") or "starter").strip().lower()
+                break
     except Exception:
         pass
-    return "starter"
+
+    if cache is not None:
+        cache[username] = result
+    return result
 
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
@@ -1427,51 +1447,82 @@ RATE_LIMIT_UPLOAD     = int(os.getenv("RATE_LIMIT_UPLOAD", "20"))
 RATE_LIMIT_GENERAL    = int(os.getenv("RATE_LIMIT_GENERAL", "120"))
 RATE_LIMIT_WINDOW_SEC = 60
 
-# ── Persistent file-backed rate limiter ──────────────────────────────────────
-# Survives server restarts, Gunicorn reloads, and deploys.
-# Uses a single JSON file with per-key counters + window timestamps.
+# ── In-memory rate limiter with periodic disk flush ──────────────────────────
+# Previously the rate limiter read AND wrote the JSON file on every single API
+# request — a disk round-trip on every call. Now we keep state in memory and
+# flush to disk in a background thread every 30 s.
+# This keeps cross-restart persistence while eliminating per-request disk I/O.
 _RATE_LIMITS_LOCK = threading.Lock()
+_RL_MEM: Dict[str, Any] = {}   # key -> {"count": int, "window_start": float}
+_RL_MEM_DIRTY = False           # True when in-memory state has unflushed changes
 
 def _rl_file() -> str:
     return os.path.join(DATA_DIR, "_rate_limits.json")
 
-def _rl_load() -> dict:
+def _rl_cleanup(data: dict, now_ts: float) -> dict:
+    """Remove expired keys to keep the store compact."""
+    cutoff = now_ts - RATE_LIMIT_WINDOW_SEC * 2
+    return {k: v for k, v in data.items() if v.get("window_start", 0) > cutoff}
+
+def _rl_load_from_disk() -> None:
+    """Warm the in-memory store from disk at startup (best-effort)."""
     try:
         with open(_rl_file(), "r", encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            with _RATE_LIMITS_LOCK:
+                _RL_MEM.update(raw)
     except Exception:
-        return {}
+        pass
 
-def _rl_save(data: dict) -> None:
+def _rl_flush_to_disk() -> None:
+    """Write the in-memory rate limit state to disk. Called by the background flusher."""
+    global _RL_MEM_DIRTY
+    with _RATE_LIMITS_LOCK:
+        if not _RL_MEM_DIRTY:
+            return
+        now_ts = datetime.utcnow().timestamp()
+        cleaned = _rl_cleanup(dict(_RL_MEM), now_ts)
+        _RL_MEM.clear()
+        _RL_MEM.update(cleaned)
+        _RL_MEM_DIRTY = False
+        snapshot = dict(_RL_MEM)
     try:
         tmp = _rl_file() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
+            json.dump(snapshot, f)
         os.replace(tmp, _rl_file())
     except Exception:
         pass
 
-def _rl_cleanup(data: dict, now_ts: float) -> dict:
-    """Remove expired keys to keep file small. Called on every write."""
-    cutoff = now_ts - RATE_LIMIT_WINDOW_SEC * 2
-    return {k: v for k, v in data.items() if v.get("window_start", 0) > cutoff}
+def _rl_background_flusher() -> None:
+    """Daemon thread: persist rate limit state to disk every 30 seconds."""
+    while True:
+        time.sleep(30)
+        try:
+            _rl_flush_to_disk()
+        except Exception:
+            pass
+
+# Warm from disk then start the flusher
+_rl_load_from_disk()
+threading.Thread(target=_rl_background_flusher, daemon=True, name="rl-flusher").start()
 
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
-    """Returns (allowed, error_message). Persistent across restarts."""
+    """Returns (allowed, error_message). Pure in-memory — no disk I/O per call."""
+    global _RL_MEM_DIRTY
     now_ts = datetime.utcnow().timestamp()
     with _RATE_LIMITS_LOCK:
-        data = _rl_load()
-        rec = data.get(key)
+        rec = _RL_MEM.get(key)
         if rec is None or (now_ts - rec.get("window_start", 0)) > RATE_LIMIT_WINDOW_SEC:
-            data[key] = {"count": 1, "window_start": now_ts}
-            _rl_save(_rl_cleanup(data, now_ts))
+            _RL_MEM[key] = {"count": 1, "window_start": now_ts}
+            _RL_MEM_DIRTY = True
             return True, ""
         if rec["count"] >= limit:
             wait = int(RATE_LIMIT_WINDOW_SEC - (now_ts - rec["window_start"])) + 1
             return False, f"Rate limit reached. Please wait {wait} second(s) before trying again."
         rec["count"] += 1
-        data[key] = rec
-        _rl_save(_rl_cleanup(data, now_ts))
+        _RL_MEM_DIRTY = True
         return True, ""
 
 def _get_rate_key(category: str) -> str:
@@ -1503,12 +1554,31 @@ def load_users() -> Dict[str, Any]:
     return data
 
 def save_users(data: Dict[str, Any]) -> None:
+    global _HAS_ANY_USER_CACHE
     data["updated_at"] = now_iso()
     save_json(USERS_PATH, data)
+    # Prime the cache — if we just saved at least one user, latch it to True
+    if data.get("users"):
+        with _HAS_ANY_USER_LOCK:
+            _HAS_ANY_USER_CACHE = True
+
+_HAS_ANY_USER_CACHE: Optional[bool] = None  # None = unchecked, True/False = known
+_HAS_ANY_USER_LOCK = threading.Lock()
 
 def has_any_user() -> bool:
-    data = load_users()
-    return bool((data.get("users") or {}))
+    """Return True if at least one user account exists.
+    Once True, the result is cached for the lifetime of the process — users can
+    only be added, never removed, so this is safe. The setup page is only shown
+    when False, i.e., before the very first account is created.
+    """
+    global _HAS_ANY_USER_CACHE
+    with _HAS_ANY_USER_LOCK:
+        if _HAS_ANY_USER_CACHE is True:
+            return True
+        result = bool((load_users().get("users") or {}))
+        if result:
+            _HAS_ANY_USER_CACHE = True  # latch permanently once True
+        return result
 
 def _clean_username(u: str) -> str:
     u = (u or "").strip().lower()
@@ -1563,21 +1633,53 @@ def _new_user(username: str, password: str, email: str = "", is_admin: bool = Fa
         "reset": {"token_hash": "", "created_at": None}
     }
 
+_CU_UNSET = object()  # module-level sentinel — distinct from None (logged-out user)
+
 def current_user() -> Optional[Dict[str, Any]]:
+    """Return the current authenticated user dict, or None.
+    Result is cached on Flask's g object so users.json is read at most once
+    per request — previously it was read on every single call.
+    g is always request-scoped, so the cache is never stale across requests.
+    Background threads have no g context; the try/except handles that safely.
+    """
+    try:
+        cached = getattr(g, "_current_user", _CU_UNSET)
+        if cached is not _CU_UNSET:
+            return cached  # type: ignore[return-value]
+    except RuntimeError:
+        # No application/request context (e.g. background thread) — skip cache.
+        pass
+
     # Admin impersonation: if active, return the impersonated user's record
     impersonating = session.get("_impersonating_as")
     if impersonating:
         data = load_users()
-        return (data.get("users") or {}).get(impersonating)
+        result = (data.get("users") or {}).get(impersonating)
+        try:
+            g._current_user = result
+        except RuntimeError:
+            pass
+        return result
+
     uname = session.get("user")
     # Historically we stored the username string in session["user"].
     # Some earlier builds accidentally stored a dict here; support both.
     if isinstance(uname, dict):
         uname = uname.get("username")
     if not uname:
+        try:
+            g._current_user = None
+        except RuntimeError:
+            pass
         return None
+
     data = load_users()
-    return (data.get("users") or {}).get(uname)
+    result = (data.get("users") or {}).get(uname)
+    try:
+        g._current_user = result
+    except RuntimeError:
+        pass
+    return result
 
 def ensure_local_owner_user() -> str:
     """Ensure a local owner user exists for first-run / setup-less deployments.
@@ -4943,6 +5045,7 @@ def api_action_stack_schedules_tick():
             pass
         return jsonify({"ok": True})
     except Exception as e:
+        _capture_error(e, context="action_stack_schedules_tick")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -7135,6 +7238,7 @@ def api_calendar_move_event():
                                              "start": start, "at": now_iso()})
         return jsonify({"ok": True, "event": updated})
     except Exception as e:
+        _capture_error(e, context="calendar_move_event")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -7163,6 +7267,7 @@ def api_calendar_delete_event():
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": f"Google API returned {r.status_code}: {r.text[:200]}"}), 400
     except Exception as e:
+        _capture_error(e, context="calendar_delete_event")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -7187,6 +7292,7 @@ def api_calendar_events():
         events = _calendar_list_events(access_token, time_min=time_min, time_max=time_max, timezone=timezone, max_results=max_results)
         return jsonify({"ok": True, "events": events})
     except Exception as e:
+        _capture_error(e, context="calendar_list_events")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -7559,6 +7665,7 @@ def api_cal_task_complete_action(task_id: str):
         )
         raw = (resp.choices[0].message.content or "").strip()
     except Exception as e:
+        _capture_error(e, context="teammate_email_draft")
         return jsonify({"ok": False, "error": f"Teammate AI error: {e}"}), 500
 
     # Try structured extract first (uses the ```email block)
@@ -9744,7 +9851,7 @@ def api_teleprompter_ai():
     try:
         client = get_openai_client()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user",   "content": message},
@@ -31106,6 +31213,7 @@ def api_crm_broadcast_sms():
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
 
     except Exception as e:
+        _capture_error(e, context="broadcast_sms")
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
 
 
@@ -31303,6 +31411,7 @@ def api_crm_calendar_create_event():
         event = _calendar_create_event(access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone, attendees=payload.get("attendees") or [], description=(payload.get("description") or ""), location=(payload.get("location") or ""))
         return jsonify({"ok": True, "event": event})
     except Exception as e:
+        _capture_error(e, context="calendar_create_event")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -36802,6 +36911,7 @@ def api_notifications_get():
         unread = sum(1 for n in notifs if not n.get("read"))
         return jsonify({"ok": True, "notifications": list(reversed(notifs[-30:])), "unread": unread})
     except Exception as e:
+        _capture_error(e, context="notifications_get")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.post("/api/notifications/read")
@@ -36824,6 +36934,7 @@ def api_notifications_mark_read():
             os.replace(tmp, str(notif_path))
         return jsonify({"ok": True})
     except Exception as e:
+        _capture_error(e, context="notifications_mark_read")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.delete("/api/notifications")
@@ -36836,6 +36947,7 @@ def api_notifications_clear():
         if notif_path.exists(): notif_path.unlink()
         return jsonify({"ok": True})
     except Exception as e:
+        _capture_error(e, context="notifications_clear")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 # =========================
@@ -36945,6 +37057,7 @@ def api_audit_log():
         limit = min(int(request.args.get("limit", 100)), 500)
         return jsonify({"ok": True, "events": list(reversed(events[-limit:])), "total": len(events)})
     except Exception as e:
+        _capture_error(e, context="audit_log_get")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.delete("/api/audit/log")
@@ -36958,6 +37071,7 @@ def api_audit_log_clear():
         if audit_path.exists(): audit_path.unlink()
         return jsonify({"ok": True})
     except Exception as e:
+        _capture_error(e, context="audit_log_clear")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 # ── Community API routes ────────────────────────────────────────────
@@ -37735,6 +37849,7 @@ def api_admin_analytics():
             "generated_at": now_iso(),
         })
     except Exception as e:
+        _capture_error(e, context="analytics_report")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 # =============================================================================
@@ -37965,7 +38080,7 @@ def api_extension_import_lead():
         "created_at": now, "updated_at": now,
     }
     try:    client = _crm_enrich_client_record(client)
-    except: pass
+    except Exception as _enrich_err: _capture_error(_enrich_err, context="extension_import_lead_enrich")
     crm["clients"][cid] = client
     _crm_save(uname, crm)
     _award_points(uname, "Imported a Facebook lead via extension", 5)
@@ -38020,7 +38135,7 @@ def api_scout_ask():
     try:
         client = get_openai_client()
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=MODEL,
             messages=[{"role": "system", "content": system}] + [
                 {"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages
             ],
@@ -38028,6 +38143,7 @@ def api_scout_ask():
         )
         return jsonify({"ok": True, "answer": (resp.choices[0].message.content or "").strip()})
     except Exception as e:
+        _capture_error(e, context="api_scout_ask")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
