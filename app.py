@@ -2006,12 +2006,19 @@ def _auth_guard() -> Optional[Any]:
             return redirect(url_for("setup"))
         return redirect(url_for("login"))
 
-    # attach per-user OpenAI client for this request
+    # attach per-user OpenAI client for this request (best-effort — skip if no key configured)
     u = current_user()
     user_key = ""
     if u:
         user_key = _decrypt_field((((u.get("settings") or {}).get("openai_key")) or "").strip())
-    g.openai_client = OpenAI(api_key=(user_key or OPENAI_API_KEY))
+    _effective_key = user_key or OPENAI_API_KEY
+    if _effective_key:
+        try:
+            g.openai_client = OpenAI(api_key=_effective_key)
+        except Exception:
+            g.openai_client = None
+    else:
+        g.openai_client = None
 
     return None
 
