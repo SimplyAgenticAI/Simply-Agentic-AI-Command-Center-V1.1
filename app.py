@@ -11604,49 +11604,50 @@ HTML = r"""
       padding: 4px 4px 8px;
     }
 
+    /* ── Seat card — grid flow, no drag ──────────────────────────── */
     .seat{
-      position:absolute;
+      position:relative;
       overflow:hidden;
       isolation:isolate;
-      width: 190px;
-      height: 124px;
-      background: rgba(14,22,48,.92);
-      border: 1px solid rgba(42,58,106,.85);
-      border-radius: 16px;
-      padding: 10px;
-      cursor: grab;
+      width: 100%;
+      min-height: 130px;
+      background: rgba(11,17,42,.94);
+      border: 1px solid rgba(42,58,106,.7);
+      border-radius: 18px;
+      padding: 14px 14px 38px 14px;
+      cursor: pointer;
       display:flex;
-      gap:10px;
+      gap:12px;
       align-items:flex-start;
-      transition: transform .12s ease, border-color .12s ease, background .12s ease;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 0 22px rgba(0,0,0,.28);
+      transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 24px rgba(0,0,0,.32);
       user-select:none;
       touch-action: manipulation;
-      z-index: 12;
     }
-    .seat:active{ cursor: grabbing; }
     .seat:hover{
-      transform: translateY(-2px);
-      border-color: rgba(124,58,237,.55);
-      background: rgba(16,26,58,.84);
+      transform: translateY(-3px);
+      border-color: rgba(124,58,237,.5);
+      background: rgba(13,21,52,.96);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px rgba(124,58,237,.12);
     }
-    .seat.dragging{
-      transform: none;
-      z-index: 30;
-      border-color: rgba(124,58,237,.85);
-      box-shadow: 0 0 30px rgba(124,58,237,.22), 0 0 22px rgba(0,0,0,.28);
-    }
+    /* Show quick-action buttons only on hover */
+    .seat .seatTools{ opacity: 0; transition: opacity .16s; }
+    .seat:hover .seatTools{ opacity: 1; }
+    /* No dragging cursor — it's a grid now */
+    .seat:active{ cursor: pointer; }
+    .seat.dragging{ transform: none; z-index: 12; }
 
     .avatar{
-      width:44px;height:44px;border-radius:14px;
+      width:52px;height:52px;border-radius:16px;
       display:flex;align-items:center;justify-content:center;
-      font-weight:800;
-      box-shadow: 0 0 18px rgba(0,0,0,.30);
-      border: 1px solid rgba(255,255,255,.08);
+      font-weight:800;font-size:20px;
+      box-shadow: 0 0 24px rgba(0,0,0,.38);
+      border: 1px solid rgba(255,255,255,.1);
       flex: 0 0 auto;
       position:relative;
       pointer-events:none;
+      transition: box-shadow .25s ease;
     }
 
     .liveDot{
@@ -11670,37 +11671,79 @@ HTML = r"""
     .typingDots span:nth-child(3){ animation-delay:.36s; }
     @keyframes typingBounce { 0%,80%,100%{ transform:translateY(0); opacity:.5; } 40%{ transform:translateY(-5px); opacity:1; } }
 
-    .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:13px; }
-    .seatRole{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .seatStatus{ font-size:12px; color:var(--muted); opacity:.95; }
+    .seatMeta{ display:flex; flex-direction:column; gap:5px; min-width:0; flex: 1 1 auto; pointer-events:none; }
+    .seatName{ font-weight:800; font-size:14px; color:#eef2ff; letter-spacing:.01em; }
+    .seatRole{ font-size:11px; color:rgba(148,163,184,.85); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:.04em; text-transform:uppercase; }
+    .seatStatus{ font-size:12px; color:rgba(148,163,184,.7); margin-top:2px; }
+
+    /* ── Selected (active) seat — dramatic glow ring ────────────── */
+    .seat.seatPulse{
+      border-color: rgba(124,58,237,.9) !important;
+      background: rgba(16,24,60,.98) !important;
+      box-shadow:
+        0 0 0 2px rgba(124,58,237,.35),
+        0 0 28px rgba(124,58,237,.22),
+        0 8px 32px rgba(0,0,0,.5) !important;
+      transform: translateY(-2px);
+    }
+    /* Selected avatar gets a pulsing glow ring */
+    .seat.seatPulse .avatar{
+      box-shadow: 0 0 0 3px rgba(124,58,237,.55), 0 0 22px rgba(124,58,237,.28) !important;
+      animation: avatarGlow 2.8s ease-in-out infinite;
+    }
+    @keyframes avatarGlow{
+      0%,100%{ box-shadow: 0 0 0 3px rgba(124,58,237,.55), 0 0 18px rgba(124,58,237,.2); }
+      50%{ box-shadow: 0 0 0 4px rgba(124,58,237,.75), 0 0 28px rgba(124,58,237,.42); }
+    }
+    /* Active seat name gets a subtle purple tint */
+    .seat.seatPulse .seatName{ color:#c4b5fd; }
+    /* Active indicator bar at top of card */
+    .seat.seatPulse::before{
+      content:'';
+      position:absolute;
+      top:0;left:0;right:0;
+      height:2px;
+      background:linear-gradient(90deg,rgba(124,58,237,.8),rgba(99,102,241,.5),transparent);
+      border-radius:18px 18px 0 0;
+    }
+
+    /* ── Thinking state — amber ripple on liveDot ───────────────── */
+    @keyframes thinkRipple{
+      0%{ box-shadow:0 0 0 0 rgba(255,207,112,.7); }
+      70%{ box-shadow:0 0 0 8px rgba(255,207,112,0); }
+      100%{ box-shadow:0 0 0 0 rgba(255,207,112,0); }
+    }
+    .liveDot.thinking{ animation: dotPulse 1.1s ease-in-out infinite, thinkRipple 1.4s ease-out infinite; }
 
     .seatTools{
       position:absolute;
-      bottom:8px;
-      right:8px;
+      bottom:10px;
+      right:10px;
       display:flex;
-      gap:10px;
+      gap:6px;
       pointer-events:auto;
       z-index: 40;
     }
     .seatToolBtn{
-      border:1px solid rgba(42,58,106,.85);
-      background: rgba(20,30,60,.65);
-      color: var(--text);
-      padding: 6px 8px;
-      border-radius: 10px;
+      border:1px solid rgba(42,58,106,.7);
+      background: rgba(12,18,44,.85);
+      color: rgba(148,163,184,.9);
+      padding: 5px 10px;
+      border-radius: 8px;
       font-size: 11px;
       cursor:pointer;
       pointer-events:auto;
+      transition: all .14s;
+      backdrop-filter: blur(8px);
     }
     .seatToolBtn:hover{
-      background: rgba(22,34,72,.78);
-      border-color: rgba(124,58,237,.55);
+      background: rgba(22,34,72,.9);
+      border-color: rgba(124,58,237,.6);
+      color: #c4b5fd;
     }
     .seatStackBtn{
       color: #a78bfa;
-      border-color: rgba(124,58,237,.5);
+      border-color: rgba(124,58,237,.45);
       background: rgba(124,58,237,.1);
     }
     .seatStackBtn:hover{
@@ -13168,6 +13211,55 @@ label         { font-size: 14px !important; }
   .saNavRight   { display: none !important; }
 }
 @media (max-width: 390px) { .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; } }
+
+/* ── Round Table Desktop Grid ───────────────────────────────────────────────
+   Replaces free-floating absolute position with a clean snap grid.
+   Mobile overrides (already in place) still take priority via !important.    */
+@media (min-width: 721px){
+  #tableWrap{
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important;
+    gap: 14px !important;
+    padding: 24px !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 280px !important;
+    position: relative !important;
+    align-items: stretch !important;
+  }
+  /* Operator seat spans full width — it's the group console, not a teammate card */
+  #tableWrap > .operator{
+    grid-column: 1 / -1 !important;
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    width: 100% !important; height: auto !important;
+    transform: none !important;
+  }
+  /* Table circle SVG decoration stays hidden inside the grid */
+  #tableWrap > .table{
+    display: none !important;
+  }
+  /* Seats fill their grid cell naturally */
+  #tableWrap > .seat{
+    position: relative !important;
+    left: auto !important; top: auto !important;
+    width: 100% !important; height: auto !important;
+    transform: none;
+  }
+  /* Keep hover lift working */
+  #tableWrap > .seat:hover{
+    transform: translateY(-3px) !important;
+  }
+  /* Keep selected state lift */
+  #tableWrap > .seat.seatPulse{
+    transform: translateY(-2px) !important;
+  }
+}
+
+/* ── Round table surface ellipse sizing ──────────────────────────────── */
+#rtSurface{
+  min-height: 100%;
+}
 
 /* ── Condensed overflow menu items ─────────────────────────────────────────── */
 .saMoreItem{
@@ -15616,7 +15708,20 @@ input[type="range"]::-moz-range-progress {
         </div>
 
 
-        <div class="tableWrap" id="tableWrap">
+        <!-- ── Round Table Surface (SVG behind the seat grid) ── -->
+        <div style="position:relative;">
+          <svg id="rtSurface" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;" preserveAspectRatio="none">
+            <defs>
+              <radialGradient id="rtGrad" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"   stop-color="rgba(22,34,78,.6)"/>
+                <stop offset="55%"  stop-color="rgba(12,18,48,.35)"/>
+                <stop offset="100%" stop-color="rgba(6,9,24,0)"/>
+              </radialGradient>
+            </defs>
+            <ellipse cx="50%" cy="50%" rx="47%" ry="45%" fill="url(#rtGrad)" stroke="rgba(70,90,180,.2)" stroke-width="1.5" stroke-dasharray="7 5"/>
+            <ellipse cx="50%" cy="50%" rx="37%" ry="35%" fill="none" stroke="rgba(70,90,180,.09)" stroke-width="1"/>
+          </svg>
+          <div class="tableWrap" id="tableWrap" style="position:relative;z-index:1;">
           <div class="mobileTeamLabel">Your Team — tap to chat</div>
           <div class="table" id="tableCore">
             <div class="runes"></div>
@@ -15673,6 +15778,8 @@ input[type="range"]::-moz-range-progress {
           </div>
 
         </div>
+          </div><!-- /tableWrap -->
+        </div><!-- /rtSurface wrapper -->
       </div>
 
       <div class="underTable">
@@ -16953,36 +17060,29 @@ function makeSeat(defn, idx){
       st.id = "status_" + defn.name;
       st.innerText = "Idle";
 
+      // Specialty tagline — first sentence of mission, capped at 55 chars
+      const specialty = document.createElement("div");
+      specialty.className = "seatSpecialty";
+      const missionText = (defn.mission || defn.goal || "").split(".")[0].trim();
+      specialty.innerText = missionText.length > 58 ? missionText.slice(0,55) + "…" : missionText;
+      specialty.style.cssText = "font-size:11px;color:rgba(148,163,184,.5);line-height:1.4;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;pointer-events:none;";
+
       meta.appendChild(nm);
       meta.appendChild(rl);
       meta.appendChild(st);
+      if(missionText) meta.appendChild(specialty);
 
       seat.appendChild(avatar);
       seat.appendChild(meta);
 
-      const saved = loadSeatPositions();
-      const w = 190, h = 104;
-      const isMobile = window.innerWidth <= 640;
-      if(isMobile){
-        // Ghost Stack fix: force relative flow in JS — CSS !important vs inline is unreliable
-        seat.style.position = "relative";
-        seat.style.left     = "";
-        seat.style.top      = "";
-        seat.style.width    = "100%";
-        seat.style.height   = "auto";
-        seat.style.transform = "none";
-      } else {
-        if(saved[defn.name] && typeof saved[defn.name].left === "number" && typeof saved[defn.name].top === "number"){
-          seat.style.left = saved[defn.name].left + "px";
-          seat.style.top = saved[defn.name].top + "px";
-        }else{
-          const pos = POS[idx % POS.length];
-          const left = (pos.x/100) * wrapRect.width - (w/2);
-          const top  = (pos.y/100) * wrapRect.height - (h/2);
-          seat.style.left = left + "px";
-          seat.style.top = top + "px";
-        }
-      }
+      // Grid layout: no px positioning needed on desktop or mobile
+      // CSS grid handles all placement — just ensure relative flow
+      seat.style.position = "relative";
+      seat.style.left     = "";
+      seat.style.top      = "";
+      seat.style.width    = "";   // grid column handles width
+      seat.style.height   = "auto";
+      seat.style.transform = "none";
 
       let dragging = false;
       let moved = false;
@@ -17006,49 +17106,22 @@ function makeSeat(defn, idx){
       });
 
       seat.addEventListener("pointermove", (e) => {
+        // Drag repositioning disabled — grid layout handles placement.
+        // Track move flag so click still fires correctly.
         if(!dragging) return;
-        if(window.innerWidth <= 640) return; // no drag repositioning on mobile
-
         const dx = Math.abs(e.clientX - startX);
         const dy = Math.abs(e.clientY - startY);
-        if(dx > 6 || dy > 6) moved = true;
-
-        const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : $("tableWrap"));
-        const boundsRect = boundsEl.getBoundingClientRect();
-        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
-
-        let newLeft = ((e.clientX - boundsRect.left) / sc) - offsetX;
-        let newTop  = ((e.clientY - boundsRect.top) / sc) - offsetY;
-
-        const pad = -80;
-        const maxLeft = (boundsEl.clientWidth || 0) - seat.offsetWidth + 80;
-        const maxTop  = (boundsEl.clientHeight || 0) - seat.offsetHeight + 80;
-
-        newLeft = clamp(newLeft, pad, maxLeft);
-        newTop  = clamp(newTop, pad, maxTop);
-
-        seat.style.left = newLeft + "px";
-        seat.style.top = newTop + "px";
+        if(dx > 8 || dy > 8) moved = true;
       });
 
       function finishDrag(pointerId){
         if(!dragging) return;
         dragging = false;
         seat.classList.remove("dragging");
-
-        if(window.innerWidth > 640){
-          const current = loadSeatPositions();
-          current[defn.name] = {
-            left: parseFloat(seat.style.left) || 0,
-            top: parseFloat(seat.style.top) || 0
-          };
-          saveSeatPositions(current);
-        }
-
+        // Always fire select on pointer-up (drag is disabled, every tap = select)
         if(!moved){
           selectSeat(defn.name);
         }
-
         try{ seat.releasePointerCapture(pointerId); }catch(err){}
       }
 
