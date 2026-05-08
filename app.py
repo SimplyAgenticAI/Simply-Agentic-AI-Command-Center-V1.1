@@ -13162,6 +13162,17 @@ label         { font-size: 14px !important; }
 }
 @media (max-width: 390px) { .saNavBtn { font-size: 11px !important; padding: 5px 8px !important; } }
 
+/* ── Condensed overflow menu items ─────────────────────────────────────────── */
+.saMoreItem{
+  display:block;width:100%;text-align:left;
+  padding:7px 11px;border-radius:8px;
+  background:transparent;border:none;
+  font-size:12px;font-weight:500;cursor:pointer;
+  color:#e2e8f0;
+  transition:background .12s;
+}
+.saMoreItem:hover{background:rgba(255,255,255,.07);}
+
 /* ── Tooltip system ──────────────────────────────────────────────────── */
 [data-tip]{position:relative;}
 [data-tip]::after{
@@ -13385,12 +13396,22 @@ label         { font-size: 14px !important; }
       <div class="saNavRight" style="display:flex;align-items:center;gap:6px;">
         <div class="saModelTag" id="modelTag">Model: {{model}}</div>
         <div id="navLevelBadge" style="display:none;"></div>
-        <button onclick="openScoutPanel()" data-tip="AI-powered contextual help" style="background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🧭 Help</button>
-        <button onclick="openExtensionPanel()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🔌 Extension</button>
-        <button onclick="openHumanHelpModal()" style="background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.4);color:#86efac;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">✉ Get Human Help</button>
-        <button onclick="openBugReportModal()" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Report Bug</button>
-        <button id="bugInboxNavBtn" onclick="openBugInboxModal()" style="display:none;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fca5a5;padding:5px 11px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;">🐛 Bugs</button>
-        <a class="saNavBtn" href="/logout" title="Sign out" onclick="return confirm('Are you sure you want to log out?')" style="text-decoration:none;padding:6px 13px;font-size:13px;opacity:0.85;">🚪 Logout</a>
+        <!-- ⋯ More dropdown — replaces 6 individual right-nav buttons -->
+        <div style="position:relative;display:inline-block;" id="moreMenuWrap">
+          <button id="moreMenuBtn" onclick="saToggleMoreMenu()" style="background:rgba(255,255,255,.07);border:1px solid rgba(80,110,200,.4);color:#c4b5fd;padding:5px 13px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:5px;">
+            ⋯ More
+          </button>
+          <div id="moreMenuDrop" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:220px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.55);z-index:9999;overflow:hidden;padding:6px;">
+            <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
+            <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
+            <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
+            <button onclick="openBugReportModal();saCloseMoreMenu();" class="saMoreItem" style="color:#fca5a5;">🐛 Report Bug</button>
+            <button id="bugInboxNavBtn" onclick="openBugInboxModal();saCloseMoreMenu();" class="saMoreItem" style="display:none;color:#fca5a5;">🐛 Bug Inbox</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
+            <a href="/logout" onclick="return confirm('Are you sure you want to log out?')" class="saMoreItem" style="text-decoration:none;color:#94a3b8;display:block;">🚪 Logout</a>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -15600,32 +15621,39 @@ input[type="range"]::-moz-range-progress {
                 <div class="t1">Group Console (All Teammates)</div>
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
-              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
                 <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <button class="btn btnMini" id="talkGroupBtn">&#128266; Speak</button>
-                <button class="btn btnMini" id="alwaysListenGroupBtn">Voice Mode</button>
-                <button class="btn btnMini" id="lightingModeBtn">Direct mode</button>
-                <button class="btn btnMini" id="screenGroupBtn">Share screen</button>
-                <button class="btn btnMini" id="gcClearAllBtn" title="Clear all teammate threads" style="color:#f7d36a;border-color:rgba(247,211,106,.35);">New session</button>
-                <button class="btn btnMini" id="orchestraBtn" style="display:none;border-color:rgba(124,58,237,.6);color:#c4b5fd;" title="Orchestra Mode — each teammate adds their expertise to one unified output">Orchestra</button>
-                <button class="btn btnMini" id="fusionBtn" style="display:none;border-color:rgba(59,130,246,.6);color:#93c5fd;" title="Fusion Mode — GPT-4o + Claude simultaneously, then synthesised into one answer">⚡ Fusion</button>
-                <button class="btn btnPrimary" id="conveneAll">Send to all</button>
+                <!-- ⋯ Tools overflow -->
+                <div style="position:relative;display:inline-block;" id="gcToolsWrap">
+                  <button class="btn btnMini" id="gcToolsBtn" onclick="saToggleGcTools()" style="border-color:rgba(80,110,200,.5);">⋯ Tools</button>
+                  <div id="gcToolsDrop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:190px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
+                    <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
+                    <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
+                    <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
+                    <button id="screenGroupBtn"     class="saMoreItem" style="color:#e2e8f0;">🖥 Share screen</button>
+                    <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+                    <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
+                    <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
+                    <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
+                  </div>
+                </div>
+                <button class="btn btnMini" id="pickGroupFiles" title="Attach files">📎 Files</button>
+                <input type="file" id="groupFiles" multiple style="display:none" />
+                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;">Send to all</button>
               </div>
             </div>
 
             <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
 
-            <div class="passRow" id="groupPassRow">
+            <div class="passRow" id="groupPassRow" style="display:none;" title="Analysis tools — appear after a group response">
+              <span style="font-size:10px;color:#64748b;margin-right:4px;">Analysis →</span>
               <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">&#128269; Risk</button>
               <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
               <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
               <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
-
             </div>
 
             <div class="pillRow">
-              <input type="file" id="groupFiles" multiple style="display:none" />
-              <button class="btn btnMini" id="pickGroupFiles" title="Attach files or use Share screen to capture a screenshot.">Upload files</button>
               <div class="tiny" id="uploadHint" style="display:none;"></div>
             </div>
             <div id="groupAttachList" class="pillRow"></div>
@@ -15704,15 +15732,23 @@ input[type="range"]::-moz-range-progress {
         <!-- Sticky input area -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
-          <div class="pillRow" style="margin-top:6px;">
+          <div class="pillRow" style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="file" id="dmFiles" multiple style="display:none" />
-            <button class="btn btnMini" id="pickDmFiles">📎 Files</button>
-            <button class="btn btnMini" id="screenDmBtn">🖥 Screen</button>
-            <button class="btn btnMini" id="talkDmBtn">🔊 Speak</button>
-            <button class="btn btnMini" id="alwaysListenDmBtn">🎙 Voice Mode</button>
-            <button class="btn btnMini" id="deepDiveBtn" style="display:none;border-color:rgba(245,158,11,.5);color:#fbbf24;" title="Deep Dive — 3 rounds of self-critique for a much deeper answer">🔬 Deep Dive</button>
+            <!-- + Attach overflow -->
+            <div style="position:relative;display:inline-block;" id="dmAttachWrap">
+              <button class="btn btnMini" id="dmAttachBtn" onclick="saToggleDmAttach()" style="font-weight:700;font-size:13px;padding:4px 10px;" title="Attach files, screen, voice & more">+</button>
+              <div id="dmAttachDrop" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;width:185px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
+                <button id="pickDmFiles"      class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files</button>
+                <button id="screenDmBtn"      class="saMoreItem" style="color:#e2e8f0;">🖥 Share Screen</button>
+                <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+                <button id="talkDmBtn"        class="saMoreItem" style="color:#93c5fd;">🔊 Speak once</button>
+                <button id="alwaysListenDmBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
+                <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+                <button id="deepDiveBtn"      class="saMoreItem" style="color:#fbbf24;display:none;" title="Deep Dive — 3 rounds of self-critique">🔬 Deep Dive</button>
+                <button id="streamToggleBtn"  class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
+              </div>
+            </div>
             <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
-            <button class="btn btnMini" id="streamToggleBtn" title="Toggle streaming mode — watch tokens arrive in real time" style="margin-left:4px;border-color:rgba(99,102,241,.5);">⚡ Stream</button>
           </div>
           <div id="dmAttachList" class="pillRow"></div>
           <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
@@ -30252,6 +30288,108 @@ document.addEventListener('click',e=>{
   };
 })();
 </script>
+
+<!-- ===== CONDENSED UI OVERFLOW MENUS ===== -->
+<script>
+(function(){
+  // ── Generic dropdown open/close ──────────────────────────────────────────
+  function openDrop(dropId, btnId){
+    var drop = document.getElementById(dropId);
+    var btn  = document.getElementById(btnId);
+    if(!drop) return;
+    var isOpen = drop.style.display !== 'none';
+    closeAllDrops();
+    if(!isOpen){ drop.style.display='block'; if(btn) btn.style.background='rgba(255,255,255,.12)'; }
+  }
+  function closeDrop(dropId, btnId){
+    var drop = document.getElementById(dropId);
+    var btn  = document.getElementById(btnId);
+    if(drop) drop.style.display='none';
+    if(btn)  btn.style.background='';
+  }
+  function closeAllDrops(){
+    ['moreMenuDrop','gcToolsDrop','dmAttachDrop'].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.style.display='none';
+    });
+    ['moreMenuBtn','gcToolsBtn','dmAttachBtn'].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) el.style.background='';
+    });
+  }
+
+  // ── Public togglers (called by onclick) ──────────────────────────────────
+  window.saToggleMoreMenu  = function(){ openDrop('moreMenuDrop',  'moreMenuBtn');  };
+  window.saCloseMoreMenu   = function(){ closeDrop('moreMenuDrop', 'moreMenuBtn'); closeAllDrops(); };
+  window.saToggleGcTools   = function(){ openDrop('gcToolsDrop',   'gcToolsBtn');   };
+  window.saToggleDmAttach  = function(){ openDrop('dmAttachDrop',  'dmAttachBtn');  };
+
+  // ── Close when clicking outside any dropdown ──────────────────────────────
+  document.addEventListener('click', function(e){
+    var wraps = ['moreMenuWrap','gcToolsWrap','dmAttachWrap'];
+    var clickedInside = wraps.some(function(id){
+      var el = document.getElementById(id);
+      return el && el.contains(e.target);
+    });
+    if(!clickedInside) closeAllDrops();
+  }, true);
+
+  // ── Close dropdown when an item inside it is clicked ─────────────────────
+  ['moreMenuDrop','gcToolsDrop','dmAttachDrop'].forEach(function(dropId){
+    setTimeout(function(){
+      var drop = document.getElementById(dropId);
+      if(!drop) return;
+      drop.addEventListener('click', function(e){
+        // Close after a short delay so the button's own onclick fires first
+        var tag = (e.target.tagName||'').toLowerCase();
+        if(tag === 'button' || tag === 'a'){
+          setTimeout(closeAllDrops, 80);
+        }
+      });
+    }, 500);
+  });
+
+  // ── Reveal pass/analysis buttons after a group response ──────────────────
+  // Hook into the existing conveneAll send flow by watching the group output
+  // container for new content (MutationObserver — zero coupling with existing JS)
+  function watchForGroupResponse(){
+    var gcBox = document.getElementById('gcBox');
+    if(!gcBox){ setTimeout(watchForGroupResponse, 1200); return; }
+    var shown = false;
+    var obs = new MutationObserver(function(){
+      if(!shown && gcBox.children.length > 0){
+        shown = true;
+        var row = document.getElementById('groupPassRow');
+        if(row){
+          row.style.display='flex';
+          row.style.animation='fadeInUp .3s ease both';
+        }
+      }
+    });
+    obs.observe(gcBox, {childList: true, subtree: true});
+  }
+  // Also reveal when gcClearAllBtn is clicked (new session resets it)
+  setTimeout(function(){
+    var clearBtn = document.getElementById('gcClearAllBtn');
+    if(clearBtn){
+      clearBtn.addEventListener('click', function(){
+        var row = document.getElementById('groupPassRow');
+        if(row){ row.style.display='none'; }
+      });
+    }
+    watchForGroupResponse();
+  }, 1500);
+
+  // ── Keyboard: Escape closes any open dropdown ─────────────────────────────
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') closeAllDrops();
+  });
+})();
+</script>
+<style>
+@keyframes fadeInUp{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+</style>
+<!-- ===== END CONDENSED UI ===== -->
 
 <!-- ===== STATS STRIP + WELCOME JS ===== -->
 <script>
