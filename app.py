@@ -10917,7 +10917,8 @@ def stripe_create_checkout():
 
 
 def _get_payment_link(plan_key: str) -> str:
-    """Return a direct Stripe payment link for a plan, if configured."""    links = {
+    """Return a direct Stripe payment link for a plan, if configured."""
+    links = {
         "founder": STRIPE_LINK_FOUNDER,
         "starter": STRIPE_LINK_SOLO,
         "growth":  STRIPE_LINK_TEAMS,
