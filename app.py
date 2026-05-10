@@ -6686,6 +6686,11 @@ def _api_followup_impl(data):
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
+    # Inject session brief (user-defined context that travels with every conversation)
+    session_brief = (data.get("session_brief") or "").strip()
+    if session_brief:
+        sys = sys + f"\n\n--- Session Brief ---\nThe user has set the following session context that applies to this conversation:\n{session_brief}\n--- End Session Brief ---"
+
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
@@ -11635,47 +11640,74 @@ HTML = r"""
       box-shadow: 0 0 40px rgba(124,58,237,.10) inset;
     }
 
+    /* ── Session Brief — replaces Group Console as center anchor ── */
     .operator{
       position:absolute;
       left:50%; top:50%;
       transform: translate(-50%,-50%);
-      width: 44%;
-      min-width: 340px;
-      max-width: 520px;
-      background: rgba(22,34,72,.82);
+      width: 200px;
+      background: rgba(10,14,32,.97);
       border:1px solid rgba(42,58,106,.9);
-      border-radius: 18px;
-      padding: 12px;
-      box-shadow: 0 0 28px rgba(0,0,0,.38);
-      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 13px 14px 11px;
+      box-shadow: 0 4px 32px rgba(0,0,0,.45);
       z-index: 20;
+      transition: border-color .2s;
     }
-
+    .operator:focus-within{
+      border-color: rgba(124,58,237,.6);
+    }
     .opHead{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      margin-bottom:8px;
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:7px;
     }
-    .opTitle{ display:flex; flex-direction:column; gap:2px; }
-    .opTitle .t1{ font-weight:700; font-size:13px; }
-    .opTitle .t2{ font-size:12px; color:var(--muted); }
+    .opTitle{ display:flex; flex-direction:column; gap:0; }
+    .opTitle .t1{
+      font-weight:800; font-size:10px;
+      text-transform:uppercase; letter-spacing:.09em;
+      color:#7c3aed;
+    }
+    .opTitle .t2{ display:none; }
+    .opBriefSaved{
+      font-size:9px; color:#334155; transition: color .3s;
+    }
+    .opBriefSaved.flash{ color:#6ee7b7; }
 
     .opText{
       width:100%;
-      height: 118px;
+      height: 72px;
       resize:none;
-      border-radius: 14px;
-      border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.92);
-      color: var(--text);
-      padding:10px;
+      border-radius: 10px;
+      border:1px solid rgba(42,58,106,.8);
+      background: rgba(7,10,20,.8);
+      color: #94a3b8;
+      padding:8px 10px;
       outline:none;
-      font-size:13px;
-      line-height:1.3;
+      font-size:11px;
+      line-height:1.5;
+      font-family: inherit;
+      transition: border-color .2s, color .2s;
     }
+    .opText:focus{
+      border-color: rgba(124,58,237,.55);
+      color: #e2e8f0;
+    }
+    .opText::placeholder{ color:#334155; }
 
-    .opRow{
-      display:flex; gap:10px; margin-top:10px; align-items:center; justify-content:space-between;
+    .opBriefFooter{
+      display:flex; align-items:center; justify-content:space-between;
+      margin-top:7px; padding-top:6px;
+      border-top:1px solid rgba(42,58,106,.5);
     }
+    .opBriefAgents{
+      display:flex; gap:3px;
+    }
+    .opBriefAv{
+      width:16px; height:16px; border-radius:4px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:8px; font-weight:700; color:#e6edff;
+    }
+    .opRow{ display:none; } /* hide old group console row */
 
     .tablePulseEnergy{
       animation: tablePulseEnergy 1.85s ease-in-out infinite;
@@ -11790,8 +11822,21 @@ HTML = r"""
       }
     }
 
-    /* Mobile-only team label — hidden by default on desktop */
-    .mobileTeamLabel{
+    /* Mobile brief banner visible in chat thread */
+    .briefBanner{
+      display:none;
+      background:rgba(124,58,237,.08);
+      border:1px solid rgba(124,58,237,.25);
+      border-radius:8px;
+      padding:6px 10px;
+      font-size:11px;
+      color:#7c3aed;
+      margin-bottom:8px;
+      line-height:1.4;
+    }
+    @media(max-width:720px){
+      .briefBanner{ display:block; }
+    }
       display: none;
       font-size: 12px;
       font-weight: 700;
@@ -13096,12 +13141,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
    Goal: the command center prompt box stays first, and teammate cards begin below it.
    This only affects mobile and does not remove any existing features. */
 @media (max-width: 720px){
+  /* ── Mobile: Session Brief pinned at top, seats as clean list ── */
   #tableWrap{
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
     justify-content: flex-start !important;
-    gap: 12px !important;
+    gap: 8px !important;
     height: auto !important;
     min-height: 0 !important;
     padding-bottom: 18px !important;
@@ -13109,26 +13155,26 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   #tableWrap > .operator{
     position: relative !important;
-    left: auto !important;
-    top: auto !important;
+    left: auto !important; top: auto !important;
     transform: none !important;
-    width: 100% !important;
+    width: 100% !important; max-width: none !important;
     min-width: 0 !important;
-    max-width: none !important;
-    margin: 0 0 4px 0 !important;
     order: 1 !important;
     z-index: 6 !important;
+    border-radius: 14px !important;
+    padding: 12px 14px !important;
+  }
+  #tableWrap > .operator .opText{
+    height: 56px !important;
+    font-size: 13px !important;
   }
 
   #tableWrap > .table{
     position: relative !important;
     inset: auto !important;
-    left: auto !important;
-    top: auto !important;
-    transform: none !important;
     width: 100% !important;
     max-width: min(560px, 100%) !important;
-    height: 92px !important;
+    height: 72px !important;
     aspect-ratio: auto !important;
     margin: 0 auto !important;
     order: 2 !important;
@@ -13137,35 +13183,24 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
   #tableWrap > .seat{
     position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    right: auto !important;
-    bottom: auto !important;
+    left: auto !important; top: auto !important;
+    right: auto !important; bottom: auto !important;
     transform: none !important;
-    width: 100% !important;
-    max-width: none !important;
-    min-height: 118px !important;
-    height: auto !important;
+    width: 100% !important; max-width: none !important;
+    min-height: 90px !important; height: auto !important;
     margin: 0 !important;
     order: 3 !important;
     z-index: 2 !important;
+    border-radius: 14px !important;
+    cursor: pointer !important;
   }
-
   #tableWrap > .seat:hover,
   #tableWrap > .seat.dragging,
-  #tableWrap > .seat:active{
-    transform: none !important;
-  }
-
+  #tableWrap > .seat:active{ transform: none !important; }
   #tableWrap > .seat .seatTools{
-    position: absolute !important;
-    right: 8px !important;
-    bottom: 8px !important;
+    position: absolute !important; right: 8px !important; bottom: 8px !important;
   }
-
-  #tableWrap > .operator .opText{
-    min-height: 124px !important;
-  }
+  #tableWrap > .operator .opText{ min-height: 56px !important; }
 }
 
 
@@ -15823,51 +15858,20 @@ input[type="range"]::-moz-range-progress {
           <div class="operator" id="operator">
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console (All Teammates)</div>
-                <div class="t2">Send one prompt here to trigger answers from everyone.</div>
+                <div class="t1">Session Brief</div>
               </div>
-              <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
-                <button class="btn btnMini" id="assembleBtn2">Assemble</button>
-                <!-- ⋯ Tools overflow -->
-                <div style="position:relative;display:inline-block;" id="gcToolsWrap">
-                  <button class="btn btnMini" id="gcToolsBtn" onclick="saToggleGcTools()" style="border-color:rgba(80,110,200,.5);">⋯ Tools</button>
-                  <div id="gcToolsDrop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:190px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
-                    <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
-                    <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
-                    <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
-                    <button id="screenGroupBtn"     class="saMoreItem" style="color:#e2e8f0;">🖥 Share screen</button>
-                    <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-                    <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
-                    <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
-                    <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
-                  </div>
-                </div>
-                <button class="btn btnMini" id="pickGroupFiles" title="Attach files">📎 Files</button>
-                <input type="file" id="groupFiles" multiple style="display:none" />
-                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;">Send to all</button>
-              </div>
+              <span class="opBriefSaved" id="briefSavedLabel">auto-saved</span>
             </div>
-
-            <textarea class="opText" id="opPrompt" placeholder="Type a group prompt for the entire table. To assemble only, say: All teammates to the round table" autocomplete="off" autocapitalize="off" autocorrect="off" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
-
-            <div class="passRow" id="groupPassRow" style="display:none;" title="Analysis tools — appear after a group response">
-              <span style="font-size:10px;color:#64748b;margin-right:4px;">Analysis →</span>
-              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">&#128269; Risk</button>
-              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
-              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
+            <textarea class="opText" id="opPrompt"
+              placeholder="What are you working on today? (Optional — every teammate will know this.)"
+              autocomplete="off" autocapitalize="sentences" autocorrect="on"
+              maxlength="600"
+              title="Session Brief — auto-injected into every agent conversation this session"
+            ></textarea>
+            <div class="opBriefFooter">
+              <div class="opBriefAgents" id="briefAgentDots"></div>
+              <span id="briefCharCount" style="font-size:9px;color:#334155;">0 / 600</span>
             </div>
-
-            <div class="pillRow">
-              <div class="tiny" id="uploadHint" style="display:none;"></div>
-            </div>
-            <div id="groupAttachList" class="pillRow"></div>
-
-            <div class="opRow">
-              <div class="tiny" id="opStatus"></div>
-              <div class="tiny" id="opHint" title="Say a teammate name to switch. Box clears on each switch." style="display:none;"></div>
-            </div>
-            <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
           </div>
 
         </div>
@@ -16093,6 +16097,25 @@ if (typeof window.showToast !== "function") {
 }
 
 
+    // ── TRUE CSS CIRCLE: seat positions computed by sin/cos math ──
+    // Each seat is placed at angle = -90° + (360°/n)*i so they form
+    // a mathematically perfect circle, starting from the top (12 o'clock).
+    function computeCirclePositions(n, wrapW, wrapH, radiusFraction) {
+      const r = (Math.min(wrapW, wrapH) * radiusFraction) / 2;
+      const cx = wrapW / 2;
+      const cy = wrapH / 2;
+      const positions = [];
+      for (let i = 0; i < n; i++) {
+        const angleDeg = -90 + (360 / n) * i;
+        const angleRad = angleDeg * Math.PI / 180;
+        positions.push({
+          x: cx + r * Math.cos(angleRad),
+          y: cy + r * Math.sin(angleRad)
+        });
+      }
+      return positions;
+    }
+    // Legacy POS kept for fallback (mobile ignores it)
     const POS = [
       {x: 50, y: 4},
       {x: 77, y: 12},
@@ -16107,6 +16130,62 @@ if (typeof window.showToast !== "function") {
     const STORE_KEY = "round_table_seat_positions_v1";
     const MODAL_POS_KEY = "round_table_modal_pos_v1";
     const MODAL_SIZE_KEY = "round_table_modal_size_v1";
+    const BRIEF_KEY = "sa_session_brief_v1";
+
+    // ── Session Brief helpers ─────────────────────────────────────
+    function getSessionBrief() {
+      try { return localStorage.getItem(BRIEF_KEY) || ""; } catch(e) { return ""; }
+    }
+    function saveSessionBrief(text) {
+      try { localStorage.setItem(BRIEF_KEY, text); } catch(e) {}
+    }
+    function initSessionBrief() {
+      const ta = document.getElementById("opPrompt");
+      const savedLabel = document.getElementById("briefSavedLabel");
+      const charCount = document.getElementById("briefCharCount");
+      const dotsEl = document.getElementById("briefAgentDots");
+      if (!ta) return;
+
+      // Load saved brief
+      const saved = getSessionBrief();
+      ta.value = saved;
+      if (charCount) charCount.textContent = saved.length + " / 600";
+
+      // Populate agent avatar dots in footer
+      if (dotsEl && state && state.registry) {
+        Object.values(state.registry).slice(0, 5).forEach(defn => {
+          const av = document.createElement("div");
+          av.className = "opBriefAv";
+          const avatarDef = (state.avatars || {})[defn.name] || {};
+          av.style.background = avatarDef.bg || "#1e3a8a";
+          av.title = defn.name;
+          av.textContent = (defn.name || "?").slice(0,1).toUpperCase();
+          dotsEl.appendChild(av);
+        });
+      }
+
+      // Auto-save on input with debounce
+      let briefTimer;
+      ta.addEventListener("input", () => {
+        const val = ta.value;
+        if (charCount) charCount.textContent = val.length + " / 600";
+        clearTimeout(briefTimer);
+        briefTimer = setTimeout(() => {
+          saveSessionBrief(val);
+          if (savedLabel) {
+            savedLabel.textContent = "saved";
+            savedLabel.classList.add("flash");
+            setTimeout(() => { savedLabel.classList.remove("flash"); savedLabel.textContent = "auto-saved"; }, 1200);
+          }
+        }, 600);
+      });
+
+      // Clear on Escape, keep focus
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { ta.blur(); e.preventDefault(); }
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.blur(); }
+      });
+    }
 
     let state = null;
     let selectedSeat = "";
@@ -17174,9 +17253,13 @@ function makeSeat(defn, idx){
           seat.style.left = saved[defn.name].left + "px";
           seat.style.top = saved[defn.name].top + "px";
         }else{
-          const pos = POS[idx % POS.length];
-          const left = (pos.x/100) * wrapRect.width - (w/2);
-          const top  = (pos.y/100) * wrapRect.height - (h/2);
+          // Compute circle position using sin/cos math
+          const allSeats = wrap.querySelectorAll(".seat:not(.operator)");
+          const totalSeats = (state && state.registry) ? Object.keys(state.registry).length : allSeats.length || 7;
+          const circlePos = computeCirclePositions(totalSeats, wrapRect.width, wrapRect.height, 0.78);
+          const pos = circlePos[idx % circlePos.length];
+          const left = pos.x - (w / 2);
+          const top  = pos.y - (h / 2);
           seat.style.left = left + "px";
           seat.style.top = top + "px";
         }
@@ -17587,6 +17670,7 @@ function makeSeat(defn, idx){
         });
       })();
       renderTable();
+      initSessionBrief();
       updateAlwaysButtons();
       try{ await refreshSessionObjectivePill(); }catch(e){}
     }
@@ -17954,6 +18038,19 @@ function makeSeat(defn, idx){
         return;
       }
       renderThread(data.thread, data.image_state || {});
+
+      // Show brief banner at top of thread if brief is set
+      const brief = getSessionBrief();
+      const threadEl = document.getElementById("thread");
+      if(brief && threadEl){
+        const existing = threadEl.querySelector(".briefBanner");
+        if(existing) existing.remove();
+        const banner = document.createElement("div");
+        banner.className = "briefBanner";
+        banner.innerHTML = "<strong style='font-weight:700;'>Session brief loaded</strong><br>" +
+          brief.slice(0, 120) + (brief.length > 120 ? "…" : "");
+        threadEl.insertBefore(banner, threadEl.firstChild);
+      }
     }
 
     $("refreshThread").onclick = refreshThread;
@@ -19221,7 +19318,7 @@ async function pollImageJob(jobId, seatName){
       const res = await fetch("/api/followup", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
+        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn, session_brief: getSessionBrief()})
       });
       const data = await res.json();
 
