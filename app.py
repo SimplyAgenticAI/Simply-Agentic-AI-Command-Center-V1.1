@@ -9587,6 +9587,7 @@ _TELEPROMPTER_HTML = """<!doctype html>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{--bg:#060c18;--sur:#0d1526;--bor:rgba(255,255,255,.09);--pur:#7c3aed;--purl:#c4b5fd;--tx:#e2e8f0;--mu:#64748b;}
 html,body{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;}
+body.mir #sb{transform:scaleX(-1);}
 #app{display:flex;flex-direction:column;height:100dvh;}
 
 /* ── Top bar ── */
@@ -9595,6 +9596,8 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui
 .tb{background:rgba(255,255,255,.06);border:1px solid var(--bor);color:var(--tx);padding:5px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:background .15s;}
 .tb:hover{background:rgba(255,255,255,.11);}
 .tb.active{background:rgba(124,58,237,.25);border-color:rgba(124,58,237,.55);color:var(--purl);}
+.tb.play-btn{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.4);color:#6ee7b7;}
+.tb.play-btn.playing{background:rgba(16,185,129,.28);border-color:#6ee7b7;}
 .tb.rec-btn{background:rgba(239,68,68,.14);border-color:rgba(239,68,68,.4);color:#f87171;}
 .tb.rec-live{background:rgba(239,68,68,.28);border-color:#f87171;}
 .sp{flex:1;}
@@ -9647,18 +9650,21 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
 #aierr{font-size:12px;color:#f87171;display:none;}
 #edf{display:flex;gap:8px;justify-content:flex-end;}
 
+/* ── Hint bar ── */
+#hint{font-size:11px;color:var(--mu);text-align:center;padding:4px;background:rgba(255,255,255,.02);border-top:1px solid var(--bor);}
+
 @media(max-width:600px){#sb{font-size:24px;padding:20px 14px;}input[type=range]{width:72px;}}
 </style>
 </head>
 <body>
 <div id="app">
 
-
 <!-- Top bar -->
 <div id="top">
   <h1>&#127916; Teleprompter</h1>
   <div id="dot"></div>
   <div id="tmr">0:00</div>
+  <button class="tb play-btn" id="btnPlay">&#9654; Play</button>
   <button class="tb" id="btnScript">&#9999;&#65039; Script</button>
   <button class="tb rec-btn" id="btnRec">&#9210; Record</button>
   <button class="tb" id="btnCam">&#128247; Camera</button>
@@ -9684,13 +9690,19 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
   <span id="pl">0%</span>
 </div>
 
+<!-- Hint -->
+<div id="hint">Space = play/pause &nbsp;|&nbsp; &#8592;&#8594; = step &nbsp;|&nbsp; Click any word to jump</div>
+
 <!-- Camera PiP -->
 <div id="pip"><video id="cv" autoplay muted playsinline></video></div>
 
-<!-- Countdown -->
-<div class="ov" id="cdov"><div id="cdnum">3</div><div style="font-size:17px;color:var(--mu);">Get ready&#8230;</div></div>
+<!-- Countdown overlay -->
+<div class="ov" id="cdov">
+  <div id="cdnum">3</div>
+  <div style="font-size:17px;color:var(--mu);">Get ready&#8230;</div>
+</div>
 
-<!-- Script editor -->
+<!-- Script editor overlay -->
 <div class="ov" id="edov">
   <div id="eed">
     <h2>&#9999;&#65039; Your Script</h2>
@@ -9698,9 +9710,9 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
     <div id="airow">
       <input id="ain" placeholder="Topic for AI&#8230; e.g. 60-second intro for my business">
       <div id="asp"></div>
-      <button class="tb active" id="btnWrite">Write</button>
-      <button class="tb active" id="btnTighten">Tighten</button>
-      <button class="tb active" id="btnHook">Hook</button>
+      <button class="tb active" id="btnWrite">&#10024; Write</button>
+      <button class="tb active" id="btnTighten">&#9986; Tighten</button>
+      <button class="tb active" id="btnHook">&#128293; Hook</button>
     </div>
     <div id="aierr"></div>
     <div id="edf">
@@ -9715,306 +9727,453 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
 <script>
 (function(){
 'use strict';
-var words=[], idx=0, sTmr=null, rTmr=null, rSec=0;
-var isRec=false, isPlay=false, mRec=null, chunks=[];
-var cStream=null, camOn=false, spd=6, fsz=38;
 
-var DEF="Welcome to Simply Agentic AI.\n\nA full team of specialised AI teammates — all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.";
+/* ── State ── */
+var words = [], curIdx = 0, scrollTimer = null, recTimer = null, recSec = 0;
+var isPlaying = false, isRecording = false;
+var mediaRecorder = null, recordChunks = [];
+var camStream = null, camOn = false, spd = 6, fsz = 38;
 
-function ge(id){return document.getElementById(id);}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+var DEFAULT_SCRIPT = "Welcome to Simply Agentic AI.\n\nA full team of specialised AI teammates — all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nReady to meet your team?";
 
-/* ── Script ── */
+/* ── DOM helper ── */
+function ge(id){ return document.getElementById(id); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ═══ SCRIPT / RENDERING ════════════════════════════════════ */
+
 function loadScript(txt){
-  words=txt.trim().split(/[ \t\r\n]+/).filter(Boolean);
-  idx=0;
-  ge('sb').innerHTML=words.map(function(w,i){
-    return '<span class="w near" id="w'+i+'">'+esc(w)+'&nbsp;</span>';
+  words = txt.trim().split(/\s+/).filter(Boolean);
+  curIdx = 0;
+  ge('sb').innerHTML = words.map(function(w, i){
+    return '<span class="w near" id="w' + i + '">' + esc(w) + '&nbsp;</span>';
   }).join('');
-  render();
+  renderWords();
 }
 
-function render(){
-  words.forEach(function(_,i){
-    var e=ge('w'+i); if(!e) return;
-    e.className='w'+(i<idx?' done':i===idx?' active':i<idx+10?' near':'');
+function renderWords(){
+  words.forEach(function(_, i){
+    var el = ge('w' + i);
+    if(!el) return;
+    if(i < curIdx)       el.className = 'w done';
+    else if(i === curIdx) el.className = 'w active';
+    else if(i < curIdx + 12) el.className = 'w near';
+    else                  el.className = 'w';
   });
-  scrollToCur();
-  ge('pl').textContent=(words.length?Math.round(idx/words.length*100):0)+'%';
+  scrollToCurrent();
+  ge('pl').textContent = words.length ? Math.round(curIdx / words.length * 100) + '%' : '0%';
 }
 
-function scrollToCur(){
-  var e=ge('w'+idx); if(!e) return;
-  var b=ge('sb'), br=b.getBoundingClientRect(), er=e.getBoundingClientRect();
-  b.scrollTo({top:Math.max(0,b.scrollTop+(er.top-br.top)-(br.height*0.38)),behavior:'smooth'});
+function scrollToCurrent(){
+  var el = ge('w' + curIdx);
+  if(!el) return;
+  var sb = ge('sb');
+  var sbRect = sb.getBoundingClientRect();
+  var elRect = el.getBoundingClientRect();
+  var target = sb.scrollTop + (elRect.top - sbRect.top) - (sbRect.height * 0.38);
+  sb.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
 }
 
-function posRL(){
-  var s=ge('sw'), rl=ge('rl');
-  if(s&&rl) rl.style.top=Math.round(s.offsetHeight*0.38)+'px';
+function posReadLine(){
+  var sw = ge('sw'), rl = ge('rl');
+  if(sw && rl) rl.style.top = Math.round(sw.offsetHeight * 0.38) + 'px';
 }
 
-function resetTop(){idx=0;render();ge('sb').scrollTo({top:0,behavior:'smooth'});}
+function resetScript(){
+  curIdx = 0;
+  renderWords();
+  ge('sb').scrollTo({ top: 0, behavior: 'smooth' });
+}
 
-/* ── Playback ── */
+/* ═══ PLAYBACK ══════════════════════════════════════════════ */
+
 function play(){
-  if(isPlay) return;
-  isPlay=true;
-  sTmr=setInterval(function(){
-    if(idx>=words.length-1){stopPlay();return;}
-    idx++;render();
-  },60000/(30+spd*13));
+  if(isPlaying || !words.length) return;
+  isPlaying = true;
+  ge('btnPlay').textContent = '\u23F8 Pause';
+  ge('btnPlay').classList.add('playing');
+  var interval = Math.round(60000 / (30 + spd * 13));
+  scrollTimer = setInterval(function(){
+    if(curIdx >= words.length - 1){ stopPlay(); return; }
+    curIdx++;
+    renderWords();
+  }, interval);
 }
 
 function stopPlay(){
-  isPlay=false;
-  if(sTmr){clearInterval(sTmr);sTmr=null;}
+  isPlaying = false;
+  if(scrollTimer){ clearInterval(scrollTimer); scrollTimer = null; }
+  ge('btnPlay').textContent = '\u25B6 Play';
+  ge('btnPlay').classList.remove('playing');
 }
 
-/* ── Controls ── */
-ge('spr').addEventListener('input',function(){
-  spd=+this.value;ge('spv').textContent=spd;
-  localStorage.setItem('tp_spd',spd);
-  if(isPlay){stopPlay();play();}
+function togglePlay(){
+  if(isPlaying) stopPlay(); else play();
+}
+
+/* ═══ CONTROLS ══════════════════════════════════════════════ */
+
+ge('btnPlay').addEventListener('click', togglePlay);
+
+ge('btnReset').addEventListener('click', function(){
+  stopPlay();
+  resetScript();
 });
-ge('fsr').addEventListener('input',function(){
-  fsz=+this.value;ge('fsv').textContent=fsz;
-  ge('sb').style.fontSize=fsz+'px';
-  localStorage.setItem('tp_fsz',fsz);
+
+ge('spr').addEventListener('input', function(){
+  spd = +this.value;
+  ge('spv').textContent = spd;
+  localStorage.setItem('tp_spd', spd);
+  if(isPlaying){ stopPlay(); play(); }
 });
-ge('btnReset').addEventListener('click',function(){stopPlay();resetTop();});
-ge('btnMir').addEventListener('click',function(){
+
+ge('fsr').addEventListener('input', function(){
+  fsz = +this.value;
+  ge('fsv').textContent = fsz;
+  ge('sb').style.fontSize = fsz + 'px';
+  localStorage.setItem('tp_fsz', fsz);
+});
+
+ge('btnMir').addEventListener('click', function(){
   document.body.classList.toggle('mir');
   ge('btnMir').classList.toggle('active');
 });
-document.addEventListener('click',function(e){
-  if(e.target.classList.contains('w')&&!ge('edov').classList.contains('show')){
-    idx=+e.target.id.replace('w','');render();
+
+/* Click a word to jump to it */
+ge('sb').addEventListener('click', function(e){
+  if(ge('edov').classList.contains('show')) return;
+  if(e.target.classList.contains('w')){
+    curIdx = parseInt(e.target.id.replace('w',''), 10) || 0;
+    renderWords();
   }
 });
 
-ge('sb').addEventListener('touchstart',function(e){this._tx=e.touches[0].clientX;},{passive:true});
-ge('sb').addEventListener('touchend',function(e){
-  var dx=e.changedTouches[0].clientX-(this._tx||0);
-  if(Math.abs(dx)>55){idx=dx<0?Math.min(idx+4,words.length-1):Math.max(idx-4,0);render();}
-},{passive:true});
+/* Touch swipe to step words */
+ge('sb').addEventListener('touchstart', function(e){ this._tx = e.touches[0].clientX; }, { passive: true });
+ge('sb').addEventListener('touchend', function(e){
+  var dx = e.changedTouches[0].clientX - (this._tx || 0);
+  if(Math.abs(dx) > 55){
+    curIdx = dx < 0 ? Math.min(curIdx + 4, words.length - 1) : Math.max(curIdx - 4, 0);
+    renderWords();
+  }
+}, { passive: true });
 
-document.addEventListener('keydown',function(e){
-  var inEd=ge('edov').classList.contains('show');
-  if(inEd&&e.code!=='Escape')return;
-  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
-  if(e.code==='Space'){e.preventDefault();isPlay?stopPlay():play();}
-  if(e.code==='ArrowRight'||e.code==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,words.length-1);render();}
-  if(e.code==='ArrowLeft'||e.code==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);render();}
-  if(e.code==='Home'){e.preventDefault();resetTop();}
-  if(e.code==='KeyR')ge('btnRec').click();
-  if(e.code==='KeyC')ge('btnCam').click();
-  if(e.code==='Escape'&&inEd)ge('edov').classList.remove('show');
+/* Keyboard shortcuts */
+document.addEventListener('keydown', function(e){
+  var inEditor = ge('edov').classList.contains('show');
+  if(inEditor && e.code !== 'Escape') return;
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  switch(e.code){
+    case 'Space':
+      e.preventDefault();
+      togglePlay();
+      break;
+    case 'ArrowRight':
+    case 'ArrowDown':
+      e.preventDefault();
+      curIdx = Math.min(curIdx + 1, words.length - 1);
+      renderWords();
+      break;
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      e.preventDefault();
+      curIdx = Math.max(curIdx - 1, 0);
+      renderWords();
+      break;
+    case 'Home':
+      e.preventDefault();
+      resetScript();
+      break;
+    case 'KeyR':
+      ge('btnRec').click();
+      break;
+    case 'KeyC':
+      ge('btnCam').click();
+      break;
+    case 'Escape':
+      if(inEditor) ge('edov').classList.remove('show');
+      break;
+  }
 });
 
-/* ── Script editor ── */
-ge('btnScript').addEventListener('click',function(){
-  ge('sta').value=words.join(' ');
+/* ═══ SCRIPT EDITOR ═════════════════════════════════════════ */
+
+ge('btnScript').addEventListener('click', function(){
+  ge('sta').value = words.join(' ');
+  ge('aierr').style.display = 'none';
+  ge('ain').value = '';
   ge('edov').classList.add('show');
-  ge('ain').value='';
-  ge('aierr').style.display='none';
-  setTimeout(function(){ge('sta').focus();},100);
+  setTimeout(function(){ ge('sta').focus(); }, 80);
 });
 
-ge('btnEdCancel').addEventListener('click',function(){ge('edov').classList.remove('show');});
+ge('btnEdCancel').addEventListener('click', function(){
+  ge('edov').classList.remove('show');
+});
 
-ge('btnEdSave').addEventListener('click',function(){
-  var t=ge('sta').value.trim();
-  if(!t)return;
-  localStorage.setItem('tp_s',t);
+ge('btnEdSave').addEventListener('click', function(){
+  var t = ge('sta').value.trim();
+  if(!t){ ge('sta').focus(); return; }
+  localStorage.setItem('tp_s', t);
   loadScript(t);
   ge('edov').classList.remove('show');
   play();
 });
 
-/* ── AI calls — simple direct POST ── */
-function aiCall(system, message, cb){
-  var err=ge('aierr');
-  err.style.display='none';
-  ge('asp').style.display='block';
-  // Disable AI buttons during call
-  ['btnWrite','btnTighten','btnHook'].forEach(function(id){ge(id).disabled=true;});
+/* ═══ AI SCRIPT TOOLS ════════════════════════════════════════ */
 
-  fetch('/api/teleprompter/ai',{
-    method:'POST',
-    credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({system:system,message:message})
-  })
-  .then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  })
-  .then(function(d){
-    ge('asp').style.display='none';
-    ['btnWrite','btnTighten','btnHook'].forEach(function(id){ge(id).disabled=false;});
-    if(d.ok && d.text){
-      cb(d.text);
-    } else {
-      err.textContent = d.error || 'AI request failed. Make sure you have an OpenAI key in Settings.';
-      err.style.display='block';
-    }
-  })
-  .catch(function(e){
-    ge('asp').style.display='none';
-    ['btnWrite','btnTighten','btnHook'].forEach(function(id){ge(id).disabled=false;});
-    err.textContent = 'Request failed: '+e.message;
-    err.style.display='block';
+function setAIBusy(busy){
+  ge('asp').style.display = busy ? 'block' : 'none';
+  ['btnWrite','btnTighten','btnHook'].forEach(function(id){
+    ge(id).disabled = busy;
   });
 }
 
-ge('btnWrite').addEventListener('click',function(){
-  var t=ge('ain').value.trim();
-  if(!t){ge('ain').focus();return;}
+function aiCall(system, message, cb){
+  ge('aierr').style.display = 'none';
+  setAIBusy(true);
+  fetch('/api/teleprompter/ai', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system: system, message: message })
+  })
+  .then(function(r){
+    if(!r.ok) throw new Error('Server error ' + r.status);
+    return r.json();
+  })
+  .then(function(d){
+    setAIBusy(false);
+    if(d.ok && d.text){
+      cb(d.text);
+    } else {
+      ge('aierr').textContent = d.error || 'AI failed. Check your OpenAI key in Settings.';
+      ge('aierr').style.display = 'block';
+    }
+  })
+  .catch(function(e){
+    setAIBusy(false);
+    ge('aierr').textContent = 'Request failed: ' + e.message;
+    ge('aierr').style.display = 'block';
+  });
+}
+
+ge('btnWrite').addEventListener('click', function(){
+  var t = ge('ain').value.trim();
+  if(!t){ ge('ain').focus(); return; }
   aiCall(
-    'Write a clear conversational teleprompter script. Natural spoken English only. No headers or brackets. Short punchy sentences. 90-150 words. End with a call to action.',
+    'Write a clear conversational teleprompter script. Natural spoken English only. No headers or markdown. Short punchy sentences. 90-150 words. End with a call to action.',
     t,
-    function(text){ge('sta').value=text;}
+    function(text){ ge('sta').value = text; }
   );
 });
 
-ge('btnTighten').addEventListener('click',function(){
-  var c=ge('sta').value.trim(); if(!c){alert('Paste a script first.');return;}
+ge('btnTighten').addEventListener('click', function(){
+  var c = ge('sta').value.trim();
+  if(!c){ ge('ain').focus(); ge('ain').placeholder = 'Write a script first, then tighten it'; return; }
   aiCall(
-    'Tighten this teleprompter script: shorter sentences, cut filler words, preserve the voice. Return ONLY the improved script, nothing else.',
+    'Tighten this teleprompter script: shorter sentences, remove filler words, keep the voice. Return ONLY the improved script.',
     c,
-    function(text){ge('sta').value=text;}
+    function(text){ ge('sta').value = text; }
   );
 });
 
-ge('btnHook').addEventListener('click',function(){
-  var c=ge('sta').value.trim(); if(!c){alert('Paste a script first.');return;}
+ge('btnHook').addEventListener('click', function(){
+  var c = ge('sta').value.trim();
+  if(!c){ ge('ain').focus(); ge('ain').placeholder = 'Write a script first, then improve the hook'; return; }
   aiCall(
-    'Rewrite ONLY the opening 1-2 sentences to be a much stronger hook. Return the full script with the improved opening.',
+    'Rewrite only the opening 1-2 sentences to be a much stronger hook that grabs attention immediately. Return the full script with the new opening.',
     c,
-    function(text){ge('sta').value=text;}
+    function(text){ ge('sta').value = text; }
   );
 });
 
-/* ── Camera ── */
-ge('btnCam').addEventListener('click',function(){camOn?stopCam():startCam();});
+/* ═══ CAMERA ═════════════════════════════════════════════════ */
+
+ge('btnCam').addEventListener('click', function(){ camOn ? stopCam() : startCam(); });
 
 function startCam(){
-  navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false})
-    .then(function(s){
-      if(cStream)cStream.getTracks().forEach(function(t){t.stop();});
-      cStream=s; ge('cv').srcObject=s;
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('Camera not supported in this browser. Use Chrome or Edge.');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    .then(function(stream){
+      if(camStream) camStream.getTracks().forEach(function(t){ t.stop(); });
+      camStream = stream;
+      ge('cv').srcObject = stream;
       ge('pip').classList.add('show');
       ge('btnCam').classList.add('active');
-      camOn=true;
-      makeDrag();
+      camOn = true;
+      makePipDraggable();
     })
-    .catch(function(e){alert('Camera error: '+e.message);});
+    .catch(function(e){
+      alert('Camera error: ' + e.message);
+    });
 }
 
 function stopCam(){
-  if(cStream)cStream.getTracks().forEach(function(t){t.stop();});
-  cStream=null; camOn=false;
+  if(camStream) camStream.getTracks().forEach(function(t){ t.stop(); });
+  camStream = null; camOn = false;
   ge('pip').classList.remove('show');
   ge('btnCam').classList.remove('active');
 }
 
-function makeDrag(){
-  var pip=ge('pip'),ox=0,oy=0,dn=false;
-  pip.addEventListener('mousedown',function(e){dn=true;ox=e.clientX-pip.offsetLeft;oy=e.clientY-pip.offsetTop;});
-  document.addEventListener('mousemove',function(e){
-    if(!dn)return;
-    pip.style.right='auto';pip.style.bottom='auto';
-    pip.style.left=Math.max(0,e.clientX-ox)+'px';
-    pip.style.top=Math.max(0,e.clientY-oy)+'px';
+function makePipDraggable(){
+  var pip = ge('pip'), ox = 0, oy = 0, dragging = false;
+  pip.addEventListener('mousedown', function(e){
+    dragging = true; ox = e.clientX - pip.offsetLeft; oy = e.clientY - pip.offsetTop;
   });
-  document.addEventListener('mouseup',function(){dn=false;});
+  document.addEventListener('mousemove', function(e){
+    if(!dragging) return;
+    pip.style.right = 'auto'; pip.style.bottom = 'auto';
+    pip.style.left = Math.max(0, e.clientX - ox) + 'px';
+    pip.style.top  = Math.max(0, e.clientY - oy) + 'px';
+  });
+  document.addEventListener('mouseup', function(){ dragging = false; });
 }
 
-/* ── Recording ── */
-ge('btnRec').addEventListener('click',function(){isRec?stopRec():startRec();});
+/* ═══ RECORDING ══════════════════════════════════════════════ */
+
+ge('btnRec').addEventListener('click', function(){
+  if(isRecording) stopRecording(); else startRecording();
+});
 
 function countdown(n){
-  return new Promise(function(res){
+  return new Promise(function(resolve){
     ge('cdov').classList.add('show');
-    ge('cdnum').textContent=n;
-    var iv=setInterval(function(){
+    ge('cdnum').textContent = n;
+    var iv = setInterval(function(){
       n--;
-      if(n<=0){clearInterval(iv);ge('cdov').classList.remove('show');res();}
-      else ge('cdnum').textContent=n;
-    },1000);
+      if(n <= 0){
+        clearInterval(iv);
+        ge('cdov').classList.remove('show');
+        resolve();
+      } else {
+        ge('cdnum').textContent = n;
+      }
+    }, 1000);
   });
 }
 
-function startRec(){
-  if(location.protocol!=='https:'&&location.hostname!=='localhost'){
-    alert('Recording requires HTTPS. Please open this page over a secure connection.');
+function startRecording(){
+  /* Guard: HTTPS required for getUserMedia in production */
+  if(location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+    alert('Recording requires a secure connection (HTTPS). Your site is running over HTTP — please access it via HTTPS.');
     return;
   }
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    alert('Your browser does not support media recording. Please use Chrome or Edge.');
+  if(!window.MediaRecorder){
+    alert('MediaRecorder is not supported in this browser. Please use Chrome, Edge, or Firefox.');
     return;
   }
-  navigator.mediaDevices.getUserMedia({audio:true,video:false})
-    .then(function(aStream){
-      var rStream=camOn&&cStream
-        ?new MediaStream([cStream.getVideoTracks()[0],aStream.getAudioTracks()[0]])
-        :aStream;
-      var mimes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
-      var mime=mimes.find(function(m){return MediaRecorder.isTypeSupported(m);})||'';
-      chunks=[];
-      mRec=new MediaRecorder(rStream,mime?{mimeType:mime}:{});
-      mRec.addEventListener('dataavailable',function(e){if(e.data&&e.data.size)chunks.push(e.data);});
-  .catch(function(e){
-    var msg=e.name==='NotAllowedError'?'Microphone permission denied. Click the lock icon in your address bar and allow the microphone.':
-          e.name==='NotFoundError'?'No microphone found. Plug in a mic and try again.':(e.message||'Microphone error');
-    alert(msg);
-  });
-      mRec.addEventListener('stop',function(){
-        var blob=new Blob(chunks,{type:mime||'video/webm'});
-        var url=URL.createObjectURL(blob);
-        var a=document.createElement('a');
-        a.href=url;a.download='recording-'+Date.now()+'.'+(mime.includes('mp4')?'mp4':'webm');
-        a.click();
-        setTimeout(function(){URL.revokeObjectURL(url);},5000);
-        aStream.getTracks().forEach(function(t){t.stop();});
-        alert('Recording saved! Check your downloads.');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('Media devices are not available. Make sure you are using a modern browser with a microphone.');
+    return;
+  }
+
+  /* Request microphone — camera is captured separately via camStream */
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(function(audioStream){
+      /* Combine with camera if it is on */
+      var recordStream = (camOn && camStream && camStream.getVideoTracks().length)
+        ? new MediaStream([camStream.getVideoTracks()[0], audioStream.getAudioTracks()[0]])
+        : audioStream;
+
+      /* Pick best supported MIME type */
+      var mimeTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'video/mp4'
+      ];
+      var mimeType = '';
+      for(var i = 0; i < mimeTypes.length; i++){
+        if(MediaRecorder.isTypeSupported(mimeTypes[i])){ mimeType = mimeTypes[i]; break; }
+      }
+
+      recordChunks = [];
+      mediaRecorder = new MediaRecorder(recordStream, mimeType ? { mimeType: mimeType } : {});
+
+      mediaRecorder.addEventListener('dataavailable', function(e){
+        if(e.data && e.data.size > 0) recordChunks.push(e.data);
       });
+
+      mediaRecorder.addEventListener('stop', function(){
+        /* Save the recording */
+        var ext = (mimeType.indexOf('mp4') !== -1) ? 'mp4' : 'webm';
+        var blob = new Blob(recordChunks, { type: mimeType || 'video/webm' });
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement('a');
+        a.href = url;
+        a.download = 'recording-' + Date.now() + '.' + ext;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 8000);
+        /* Stop audio tracks */
+        audioStream.getTracks().forEach(function(t){ t.stop(); });
+        alert('\u2705 Recording saved! Check your Downloads folder.');
+      });
+
+      /* Countdown then start */
       return countdown(3).then(function(){
-        mRec.start(500);isRec=true;rSec=0;
-        ge('tmr').style.display='block';
-        ge('dot').className='live';
-        ge('btnRec').textContent='\u23F9 Stop';
+        mediaRecorder.start(500);
+        isRecording = true;
+        recSec = 0;
+        ge('dot').className = 'live';
+        ge('tmr').style.display = 'block';
+        ge('btnRec').textContent = '\u23F9 Stop';
         ge('btnRec').classList.add('rec-live');
-        rTmr=setInterval(function(){
-          rSec++;var m=Math.floor(rSec/60),s=rSec%60;
-          ge('tmr').textContent=m+':'+(s<10?'0':'')+s;
-        },1000);
-        play();
+        ge('btnRec').classList.remove('rec-btn');
+        recTimer = setInterval(function(){
+          recSec++;
+          var m = Math.floor(recSec / 60), s = recSec % 60;
+          ge('tmr').textContent = m + ':' + (s < 10 ? '0' : '') + s;
+        }, 1000);
+        /* Auto-play the script */
+        if(!isPlaying) play();
       });
     })
-    .catch(function(e){alert('Mic error: '+e.message);});
+    .catch(function(e){
+      var msg;
+      if(e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError'){
+        msg = 'Microphone permission denied.\n\nClick the lock icon in your browser\'s address bar, allow the microphone, then refresh the page.';
+      } else if(e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError'){
+        msg = 'No microphone found. Plug in a microphone and try again.';
+      } else if(e.name === 'NotReadableError'){
+        msg = 'Microphone is in use by another app. Close other apps using the mic and try again.';
+      } else {
+        msg = 'Microphone error: ' + (e.message || e.name || 'Unknown error');
+      }
+      alert(msg);
+    });
 }
 
-function stopRec(){
-  if(mRec&&mRec.state!=='inactive')mRec.stop();
-  isRec=false;clearInterval(rTmr);stopPlay();
-  ge('tmr').style.display='none';
-  ge('dot').className='';
-  ge('btnRec').textContent='\u23FA Record';
+function stopRecording(){
+  if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  isRecording = false;
+  clearInterval(recTimer);
+  stopPlay();
+  ge('dot').className = '';
+  ge('tmr').style.display = 'none';
+  ge('btnRec').textContent = '\u23FA Record';
   ge('btnRec').classList.remove('rec-live');
+  ge('btnRec').classList.add('rec-btn');
 }
 
-/* ── Init ── */
-window.addEventListener('resize',posRL);
-var sv=localStorage.getItem('tp_spd'),fv=localStorage.getItem('tp_fsz');
-if(sv){spd=+sv;ge('spr').value=sv;ge('spv').textContent=sv;}
-if(fv){fsz=+fv;ge('fsr').value=fv;ge('fsv').textContent=fv;ge('sb').style.fontSize=fsz+'px';}
-loadScript(localStorage.getItem('tp_s')||DEF);
-posRL();
+/* ═══ INIT ═══════════════════════════════════════════════════ */
 
-// Mirror support
-if(document.body.classList.contains('mir')){ge('btnMir').classList.add('active');}
+window.addEventListener('resize', posReadLine);
+
+/* Restore saved preferences */
+var savedSpd = localStorage.getItem('tp_spd');
+var savedFsz = localStorage.getItem('tp_fsz');
+var savedScript = localStorage.getItem('tp_s');
+
+if(savedSpd){ spd = +savedSpd; ge('spr').value = savedSpd; ge('spv').textContent = savedSpd; }
+if(savedFsz){ fsz = +savedFsz; ge('fsr').value = savedFsz; ge('fsv').textContent = savedFsz; ge('sb').style.fontSize = savedFsz + 'px'; }
+
+loadScript(savedScript || DEFAULT_SCRIPT);
+posReadLine();
 
 })();
 </script>
@@ -13320,96 +13479,6 @@ label         { font-size: 14px !important; }
 </style>
 </head>
 <body>
-<canvas id="saCosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:1;transition:opacity .6s;"></canvas>
-<script>
-(function(){
-  var cv=document.getElementById('saCosmicWeb');
-  if(!cv) return;
-  // Respect user preference — default on
-  var _animPref = localStorage.getItem('sa_cosmic_anim');
-  if(_animPref === 'off') { cv.style.display='none'; return; }
-  var ctx=cv.getContext('2d');
-  var W,H,nodes=[],mouse={x:0,y:0};
-  var N=80,MAX_DIST=240,SPEED=0.22;
-  var auroras=[
-    {x:0.15,y:0.20,r:0.50,hue:265,phase:0,spd:0.0007},
-    {x:0.85,y:0.75,r:0.52,hue:220,phase:1.8,spd:0.0009},
-    {x:0.55,y:0.08,r:0.42,hue:280,phase:3.2,spd:0.0006},
-    {x:0.28,y:0.82,r:0.40,hue:200,phase:0.9,spd:0.0010},
-  ];
-  function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
-  function mkNode(){
-    var p=[[265,72],[240,75],[255,65],[210,80],[275,60]][Math.floor(Math.random()*5)];
-    return{x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*SPEED,vy:(Math.random()-.5)*SPEED,
-      r:1+Math.random()*2,hue:p[0]+Math.random()*20-10,sat:p[1],phase:Math.random()*Math.PI*2,
-      pulseSpd:0.01+Math.random()*0.016,isGold:Math.random()<0.05};
-  }
-  function init(){resize();nodes=[];for(var i=0;i<N;i++)nodes.push(mkNode());}
-  document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
-  var _raf;
-  function draw(){
-    _raf=requestAnimationFrame(draw);
-    ctx.clearRect(0,0,W,H);
-    auroras.forEach(function(a){
-      a.phase+=a.spd;
-      var cx=W*(a.x+Math.sin(a.phase*1.1)*0.05),cy=H*(a.y+Math.cos(a.phase*0.9)*0.06);
-      var rad=Math.min(W,H)*a.r,pulse=0.09+0.04*Math.sin(a.phase*2.3);
-      var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
-      g.addColorStop(0,'hsla('+(a.hue+20*Math.sin(a.phase*1.7))+',85%,60%,'+pulse+')');
-      g.addColorStop(0.5,'hsla('+a.hue+',78%,46%,'+(pulse*0.45)+')');
-      g.addColorStop(1,'transparent');
-      ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-    });
-    for(var i=0;i<N;i++){
-      var a=nodes[i];
-      for(var j=i+1;j<N;j++){
-        var b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,dist=Math.sqrt(dx*dx+dy*dy);
-        if(dist>MAX_DIST)continue;
-        var t=1-dist/MAX_DIST,alpha=t*t*(0.45+0.25*Math.sin(a.phase+b.phase));
-        var lg=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
-        var hA=a.isGold?48:a.hue,hB=b.isGold?48:b.hue;
-        lg.addColorStop(0,'hsla('+hA+','+a.sat+'%,82%,'+alpha+')');
-        lg.addColorStop(1,'hsla('+hB+','+b.sat+'%,82%,'+alpha+')');
-        ctx.strokeStyle=lg;ctx.lineWidth=t*1.8;
-        ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-      }
-    }
-    nodes.forEach(function(n){
-      n.phase+=n.pulseSpd;
-      var glow=0.5+0.4*Math.sin(n.phase),radius=n.r*(0.85+0.28*Math.sin(n.phase*0.7));
-      var hue=n.isGold?48:n.hue,sat=n.isGold?90:n.sat;
-      var gC=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*2.5);
-      gC.addColorStop(0,'hsla('+hue+',95%,97%,'+Math.min(glow*1.1,1)+')');
-      gC.addColorStop(0.5,'hsla('+hue+',90%,75%,'+(glow*0.8)+')');
-      gC.addColorStop(1,'transparent');
-      ctx.fillStyle=gC;ctx.beginPath();ctx.arc(n.x,n.y,radius*2.5,0,Math.PI*2);ctx.fill();
-      var mdx=mouse.x-n.x,mdy=mouse.y-n.y,md=Math.sqrt(mdx*mdx+mdy*mdy);
-      if(md<220&&md>1){n.vx+=mdx/md*0.001;n.vy+=mdy/md*0.001;}
-      var spd=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
-      if(spd>SPEED*2){n.vx=n.vx/spd*SPEED*2;n.vy=n.vy/spd*SPEED*2;}
-      n.x+=n.vx;n.y+=n.vy;
-      if(n.x<-30)n.x=W+28;if(n.x>W+30)n.x=-28;
-      if(n.y<-30)n.y=H+28;if(n.y>H+30)n.y=-28;
-    });
-  }
-  window.addEventListener('resize',function(){
-    resize();
-    nodes.forEach(function(n){if(n.x>W)n.x=Math.random()*W;if(n.y>H)n.y=Math.random()*H;});
-  });
-  // Expose toggle function globally
-  window.saToggleCosmicAnim = function(on){
-    if(on){
-      cv.style.display='';localStorage.setItem('sa_cosmic_anim','on');
-      if(!_raf){init();draw();}
-    } else {
-      cv.style.display='none';localStorage.setItem('sa_cosmic_anim','off');
-      if(_raf){cancelAnimationFrame(_raf);_raf=null;}
-    }
-    return on;
-  };
-  init();draw();
-})();
-</script>
   {{trial_banner|safe}}
   <div class="topbar">
     <div class="topbarMain">
@@ -14244,28 +14313,6 @@ label         { font-size: 14px !important; }
                             <span class="tiny" id="calGlowVal" style="opacity:.6;min-width:30px;">30%</span>
                           </div>
                         </div>
-                      </div>
-
-                      <!-- Background animation -->
-                      <div>
-                        <label style="margin:0 0 8px;display:block;font-size:13px;">Background animation</label>
-                        <div style="display:flex;align-items:center;gap:12px;">
-                          <button id="cosmicAnimToggleBtn"
-                            onclick="(function(){var on=localStorage.getItem('sa_cosmic_anim')!=='off';var next=!on;if(window.saToggleCosmicAnim)window.saToggleCosmicAnim(next);this.textContent=next?'✦ On — click to turn off':'◯ Off — click to turn on';this.style.background=next?'rgba(124,58,237,.3)':'rgba(255,255,255,.06)';}).call(this)"
-                            style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);color:#c4b5fd;background:rgba(124,58,237,.2);font-family:system-ui,sans-serif;transition:all .2s;">
-                            ✦ On — click to turn off
-                          </button>
-                          <span class="tiny" style="opacity:.55;">Cosmic neural web animation</span>
-                        </div>
-                        <script>
-                          (function(){
-                            var btn = document.getElementById('cosmicAnimToggleBtn');
-                            if(!btn) return;
-                            var isOn = localStorage.getItem('sa_cosmic_anim') !== 'off';
-                            btn.textContent = isOn ? '✦ On — click to turn off' : '◯ Off — click to turn on';
-                            btn.style.background = isOn ? 'rgba(124,58,237,.3)' : 'rgba(255,255,255,.06)';
-                          })();
-                        </script>
                       </div>
 
 
