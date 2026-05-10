@@ -11807,7 +11807,7 @@ HTML = r"""
       isolation:isolate;
       width: 190px;
       height: 124px;
-      background: rgba(14,22,48,.94);
+      background: rgba(14,22,48,.92);
       border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
       padding: 10px;
@@ -11815,45 +11815,19 @@ HTML = r"""
       display:flex;
       gap:10px;
       align-items:flex-start;
-      transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
       backdrop-filter: blur(10px);
-      box-shadow: 0 4px 24px rgba(0,0,0,.32), 0 1px 0 rgba(255,255,255,.04) inset;
+      box-shadow: 0 0 22px rgba(0,0,0,.28);
       user-select:none;
       touch-action: manipulation;
       z-index: 12;
     }
-    /* Colored top-accent bar derived from avatar bg — injected via JS inline style */
-    .seat::before{
-      content:"";
-      position:absolute;
-      top:0; left:0; right:0;
-      height:2px;
-      background: var(--seat-accent, rgba(124,58,237,.6));
-      opacity: .7;
-      border-radius: 16px 16px 0 0;
-      transition: opacity .15s;
-    }
     .seat:active{ cursor: grabbing; }
     .seat:hover{
-      transform: translateY(-3px);
-      border-color: rgba(124,58,237,.6);
-      background: rgba(18,28,62,.96);
-      box-shadow: 0 8px 32px rgba(0,0,0,.38), 0 1px 0 rgba(255,255,255,.05) inset;
+      transform: translateY(-2px);
+      border-color: rgba(124,58,237,.55);
+      background: rgba(16,26,58,.84);
     }
-    .seat:hover::before{ opacity: 1; }
-
-    /* Rank badge — top-right corner of each seat */
-    .seatRankBadge{
-      position:absolute;
-      top:7px; right:7px;
-      font-size:13px;
-      line-height:1;
-      opacity:.85;
-      pointer-events:none;
-      filter: drop-shadow(0 1px 3px rgba(0,0,0,.5));
-      transition: opacity .15s, transform .15s;
-    }
-    .seat:hover .seatRankBadge{ opacity:1; transform:scale(1.15); }
     .seat.dragging{
       transform: none;
       z-index: 30;
@@ -11893,10 +11867,10 @@ HTML = r"""
     .typingDots span:nth-child(3){ animation-delay:.36s; }
     @keyframes typingBounce { 0%,80%,100%{ transform:translateY(0); opacity:.5; } 40%{ transform:translateY(-5px); opacity:1; } }
 
-    .seatMeta{ display:flex; flex-direction:column; gap:3px; min-width:0; flex: 1 1 auto; pointer-events:none; }
-    .seatName{ font-weight:800; font-size:14px; letter-spacing:.01em; }
-    .seatRole{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.75; }
-    .seatStatus{ font-size:11px; color:var(--muted); opacity:.85; }
+    .seatMeta{ display:flex; flex-direction:column; gap:4px; min-width:0; flex: 1 1 auto; pointer-events:none; }
+    .seatName{ font-weight:800; font-size:13px; }
+    .seatRole{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .seatStatus{ font-size:12px; color:var(--muted); opacity:.95; }
 
     .seatTools{
       position:absolute;
@@ -17156,17 +17130,6 @@ function makeSeat(defn, idx){
       avatar.style.color = av.fg;
       avatar.innerText = av.sigil || defn.name.slice(0,1).toUpperCase();
 
-      // Colored top-accent bar matching the avatar colour
-      seat.style.setProperty("--seat-accent", av.bg);
-
-      // Rank badge — shows the user's community rank emoji on every seat
-      const rank = window._SA_RANK || {emoji:"🌱", tier:1};
-      const rankBadge = document.createElement("div");
-      rankBadge.className = "seatRankBadge";
-      rankBadge.title = rank.name || "Rank";
-      rankBadge.textContent = rank.emoji || "🌱";
-      seat.appendChild(rankBadge);
-
       const liveDot = document.createElement("div");
       liveDot.className = "liveDot idle";
       liveDot.id = "live_" + defn.name;
@@ -17600,7 +17563,6 @@ function makeSeat(defn, idx){
         const ulRes = await fetch('/api/community/my_unlocks');
         const ulData = await ulRes.json();
         window._SA_UNLOCKS = (ulData.ok && ulData.unlocks) ? ulData.unlocks : [];
-        window._SA_RANK   = (ulData.ok && ulData.rank)    ? ulData.rank    : {tier:1, emoji:"🌱", name:"Operator in Training"};
       } catch(_){ window._SA_UNLOCKS = []; }
       // Gate tier-locked feature buttons inline — no dependency on external scripts
       (function(){
@@ -25037,6 +24999,236 @@ $("saveFramework").onclick = async () => {
 
   enableEnterSend("opPrompt", conveneAll);
   enableEnterSend("followMsg", sendFollow);
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SIMPLY AGENTIC — GLOBAL HOTKEYS
+  //  Safe: only fires when no input/textarea/select/contenteditable
+  //  is focused, so typing in any box is never intercepted.
+  // ═══════════════════════════════════════════════════════════════
+  (function initHotkeys(){
+
+    // ── Guard: is the user typing in a field? ───────────────────
+    function inInput(){
+      const el = document.activeElement;
+      if(!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag==='input'||tag==='textarea'||tag==='select'||el.isContentEditable;
+    }
+
+    // ── Cheat-sheet overlay ─────────────────────────────────────
+    const SHEET_ID = 'sa-hotkey-sheet';
+    function buildSheet(){
+      if(document.getElementById(SHEET_ID)) return;
+      const overlay = document.createElement('div');
+      overlay.id = SHEET_ID;
+      overlay.style.cssText=[
+        'position:fixed;inset:0;z-index:99999;',
+        'background:rgba(4,6,14,.82);',
+        'display:flex;align-items:center;justify-content:center;',
+        'backdrop-filter:blur(4px);',
+        'animation:saHkFadeIn .14s ease;',
+      ].join('');
+
+      const box = document.createElement('div');
+      box.style.cssText=[
+        'background:rgba(12,18,44,.98);',
+        'border:1px solid rgba(42,58,106,.9);',
+        'border-radius:18px;padding:28px 32px;',
+        'min-width:340px;max-width:90vw;',
+        'box-shadow:0 24px 80px rgba(0,0,0,.65);',
+        'color:#e2e8f0;font-family:inherit;',
+      ].join('');
+
+      const title = document.createElement('div');
+      title.style.cssText='font-size:13px;font-weight:800;color:#c4b5fd;margin-bottom:18px;letter-spacing:.06em;text-transform:uppercase;';
+      title.textContent='Keyboard shortcuts';
+      box.appendChild(title);
+
+      const groups = [
+        {
+          label:'Teammates',
+          rows:[
+            ['1 – 7', 'Activate teammate by position'],
+          ]
+        },
+        {
+          label:'Tools',
+          rows:[
+            ['C', 'Calendar'],
+            ['L', 'Lead Lab'],
+            ['S', 'Social Studio'],
+            ['E', 'Email Broadcast'],
+            ['G', 'Focus Group Console'],
+          ]
+        },
+        {
+          label:'Navigation',
+          rows:[
+            ['Esc', 'Deselect seat / close overlay'],
+            ['?', 'Show this cheat sheet'],
+          ]
+        },
+      ];
+
+      groups.forEach(g => {
+        const grpLabel = document.createElement('div');
+        grpLabel.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:7px;margin-top:16px;';
+        grpLabel.textContent = g.label;
+        box.appendChild(grpLabel);
+
+        g.rows.forEach(([key, desc]) => {
+          const row = document.createElement('div');
+          row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(42,58,106,.35);gap:24px;';
+
+          const kbd = document.createElement('kbd');
+          kbd.style.cssText=[
+            'display:inline-flex;align-items:center;justify-content:center;',
+            'min-width:28px;padding:3px 8px;border-radius:7px;',
+            'background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);',
+            'color:#c4b5fd;font-size:12px;font-weight:700;',
+            'font-family:ui-monospace,monospace;letter-spacing:.04em;white-space:nowrap;',
+          ].join('');
+          kbd.textContent = key;
+
+          const lbl = document.createElement('span');
+          lbl.style.cssText='font-size:13px;color:#94a3b8;text-align:right;';
+          lbl.textContent = desc;
+
+          row.appendChild(kbd);
+          row.appendChild(lbl);
+          box.appendChild(row);
+        });
+      });
+
+      const hint = document.createElement('div');
+      hint.style.cssText='font-size:11px;color:#334155;margin-top:16px;text-align:center;';
+      hint.textContent='Press any key or click to close';
+      box.appendChild(hint);
+
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      // Close on click or any key
+      function closeSheet(e){
+        const el = document.getElementById(SHEET_ID);
+        if(el) el.remove();
+        document.removeEventListener('keydown', closeSheet, true);
+      }
+      overlay.addEventListener('click', closeSheet);
+      // Small delay so the ? keydown that opened it doesn't immediately close it
+      setTimeout(()=>{ document.addEventListener('keydown', closeSheet, true); }, 80);
+    }
+
+    // ── Toast helper (reuse app's if available) ─────────────────
+    function hkToast(msg){
+      if(typeof showToast === 'function'){ showToast(msg); return; }
+      const t = document.createElement('div');
+      t.style.cssText=[
+        'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);',
+        'background:rgba(12,18,44,.97);border:1px solid rgba(124,58,237,.5);',
+        'color:#c4b5fd;padding:8px 18px;border-radius:10px;font-size:13px;',
+        'z-index:99998;pointer-events:none;white-space:nowrap;',
+        'animation:saHkFadeIn .14s ease;',
+      ].join('');
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),320); }, 1600);
+    }
+
+    // ── Inject keyframe CSS once ────────────────────────────────
+    if(!document.getElementById('sa-hk-style')){
+      const s = document.createElement('style');
+      s.id = 'sa-hk-style';
+      s.textContent = '@keyframes saHkFadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}';
+      document.head.appendChild(s);
+    }
+
+    // ── Main keydown handler ────────────────────────────────────
+    document.addEventListener('keydown', function saHotkeyHandler(e){
+      // Never intercept when modifier keys are held (Ctrl, Cmd, Alt)
+      if(e.ctrlKey || e.metaKey || e.altKey) return;
+      // Never intercept when user is typing
+      if(inInput()) return;
+      // Ignore if cheat sheet is open (its own handler deals with it)
+      if(document.getElementById(SHEET_ID)) return;
+
+      const key = e.key;
+
+      // 1–7 — activate teammate by position ─────────────────────
+      if(key >= '1' && key <= '7'){
+        const idx = parseInt(key, 10) - 1;
+        // Build ordered list same way renderTable does
+        const order = (state && state.active_order) ? state.active_order : [];
+        const installed = (state && state.installed) ? state.installed : {};
+        const seats = order.filter(n => installed[n]);
+        if(idx < seats.length){
+          e.preventDefault();
+          const name = seats[idx];
+          if(typeof selectSeat === 'function') selectSeat(name);
+          hkToast('⌨ ' + name);
+        }
+        return;
+      }
+
+      switch(key.toLowerCase()){
+
+        // G — focus Group Console ─────────────────────────────
+        case 'g': {
+          e.preventDefault();
+          const op = document.getElementById('opPrompt');
+          if(op){ op.focus(); op.select(); hkToast('⌨ Group Console'); }
+          break;
+        }
+
+        // C — Calendar ────────────────────────────────────────
+        case 'c': {
+          e.preventDefault();
+          if(typeof showCalendarModal === 'function') showCalendarModal();
+          else if(typeof window.showCalendarModal === 'function') window.showCalendarModal();
+          hkToast('⌨ Calendar');
+          break;
+        }
+
+        // L — Lead Lab ────────────────────────────────────────
+        case 'l': {
+          e.preventDefault();
+          if(typeof showLeadLabModal === 'function') showLeadLabModal();
+          else if(typeof window.showLeadLabModal === 'function') window.showLeadLabModal();
+          hkToast('⌨ Lead Lab');
+          break;
+        }
+
+        // S — Social Studio ───────────────────────────────────
+        case 's': {
+          e.preventDefault();
+          if(typeof showSocialStudioModal === 'function') showSocialStudioModal();
+          else if(typeof window.showSocialStudioModal === 'function') window.showSocialStudioModal();
+          hkToast('⌨ Social Studio');
+          break;
+        }
+
+        // E — Email Broadcast ─────────────────────────────────
+        case 'e': {
+          e.preventDefault();
+          if(typeof showCRMModal === 'function') showCRMModal('crmViewBroadcast', 'Email Broadcast');
+          else if(typeof window.showCRMModal === 'function') window.showCRMModal('crmViewBroadcast', 'Email Broadcast');
+          hkToast('⌨ Email Broadcast');
+          break;
+        }
+
+        // ? — Cheat sheet ─────────────────────────────────────
+        case '?':
+        case '/': {
+          e.preventDefault();
+          buildSheet();
+          break;
+        }
+
+        default: break;
+      }
+    });
+
+  })(); // end initHotkeys
 
 })();
 
