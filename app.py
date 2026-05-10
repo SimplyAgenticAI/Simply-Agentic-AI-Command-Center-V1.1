@@ -9733,6 +9733,13 @@ var words = [], curIdx = 0, scrollTimer = null, recTimer = null, recSec = 0;
 var isPlaying = false, isRecording = false;
 var mediaRecorder = null, recordChunks = [];
 var camStream = null, camOn = false, spd = 6, fsz = 38;
+var _csrfToken = '';
+
+/* ── Fetch CSRF token once on load (required for all POST calls) ── */
+fetch('/api/csrf_token', { credentials: 'same-origin' })
+  .then(function(r){ return r.json(); })
+  .then(function(d){ if(d && d.csrf_token) _csrfToken = d.csrf_token; })
+  .catch(function(){});
 
 var DEFAULT_SCRIPT = "Welcome to Simply Agentic AI.\n\nA full team of specialised AI teammates — all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nReady to meet your team?";
 
@@ -9934,7 +9941,7 @@ function aiCall(system, message, cb){
   fetch('/api/teleprompter/ai', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
     body: JSON.stringify({ system: system, message: message })
   })
   .then(function(r){
@@ -11613,10 +11620,12 @@ HTML = r"""
       border-radius: 999px;
       background:
         radial-gradient(circle at 50% 50%, rgba(124,58,237,.22), rgba(11,16,36,.88) 52%, rgba(7,10,20,.96) 76%);
-      border: 1px solid rgba(42,58,106,.85);
+      border: 1px solid rgba(247,211,106,.28);
       box-shadow:
         0 0 0 1px rgba(17,24,39,.35) inset,
-        0 0 70px rgba(124,58,237,.18);
+        0 0 70px rgba(124,58,237,.18),
+        0 0 38px rgba(247,211,106,.10),
+        0 0 0 3px rgba(247,211,106,.06);
       overflow:hidden;
     }
     .table:before{
@@ -13515,8 +13524,8 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saCreateDrop">
             <a class="saDropItem" href="/teleprompter" style="text-decoration:none;color:inherit;">🎬 Teleprompter</a>
-            <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
+            <button class="saDropItem" id="socialStudioBtn" title="Create social content with AI — press S to open">📣 Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn" title="Build your offer with AI">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
@@ -13528,7 +13537,7 @@ label         { font-size: 14px !important; }
             <span>🔍 Research</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saResearchDrop">
-            <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
+            <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads — press L to open">🔬 Find Leads</button>
             <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
             <button class="saDropItem" id="frameworkResearchBtn" onclick="document.getElementById('frameworkBtn')&&document.getElementById('frameworkBtn').click()">🧠 Core Framework</button>
           </div>
@@ -13540,7 +13549,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saManageDrop">
             <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
-            <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
+            <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar — press C to open">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
           </div>
         </div>
@@ -15827,7 +15836,7 @@ input[type="range"]::-moz-range-progress {
                 <div class="t2">Send one prompt here to trigger answers from everyone.</div>
               </div>
               <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
-                <button class="btn btnMini" id="assembleBtn2">Assemble</button>
+                <button class="btn btnMini" id="assembleBtn2" title="Bring all teammates to the round table">Assemble</button>
                 <!-- ⋯ Tools overflow -->
                 <div style="position:relative;display:inline-block;" id="gcToolsWrap">
                   <button class="btn btnMini" id="gcToolsBtn" onclick="saToggleGcTools()" style="border-color:rgba(80,110,200,.5);">⋯ Tools</button>
@@ -15844,7 +15853,7 @@ input[type="range"]::-moz-range-progress {
                 </div>
                 <button class="btn btnMini" id="pickGroupFiles" title="Attach files">📎 Files</button>
                 <input type="file" id="groupFiles" multiple style="display:none" />
-                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;">Send to all</button>
+                <button class="btn btnPrimary" id="conveneAll" style="margin-left:auto;" title="Send one prompt to all teammates — press G to focus the console">Send to all</button>
               </div>
             </div>
 
@@ -25003,7 +25012,8 @@ $("saveFramework").onclick = async () => {
   // ═══════════════════════════════════════════════════════════════
   //  SIMPLY AGENTIC — GLOBAL HOTKEYS
   //  Safe: only fires when no input/textarea/select/contenteditable
-  //  is focused, so typing in any box is never intercepted.
+  //  is focused. Toggle behaviour: pressing a key again closes the
+  //  tool it opened, so C opens calendar and C again closes it.
   // ═══════════════════════════════════════════════════════════════
   (function initHotkeys(){
 
@@ -25013,6 +25023,29 @@ $("saveFramework").onclick = async () => {
       if(!el) return false;
       const tag = el.tagName.toLowerCase();
       return tag==='input'||tag==='textarea'||tag==='select'||el.isContentEditable;
+    }
+
+    // ── Modal state helpers ─────────────────────────────────────
+    // Returns the innerText of #modalTitle if the overlay is open, else ''
+    function openModalTitle(){
+      const ov = document.getElementById('overlay');
+      if(!ov || !ov.classList.contains('show')) return '';
+      const mt = document.getElementById('modalTitle');
+      return mt ? mt.innerText.toLowerCase().trim() : '';
+    }
+
+    function closeCurrentModal(){
+      if(typeof hideModal === 'function') hideModal();
+    }
+
+    // Toggle: if the named tool is already open → close, else → open
+    function toggleTool(matchTitle, openFn){
+      const current = openModalTitle();
+      if(current && current.includes(matchTitle.toLowerCase())){
+        closeCurrentModal();
+      } else {
+        openFn();
+      }
     }
 
     // ── Cheat-sheet overlay ─────────────────────────────────────
@@ -25032,10 +25065,10 @@ $("saveFramework").onclick = async () => {
       const box = document.createElement('div');
       box.style.cssText=[
         'background:rgba(12,18,44,.98);',
-        'border:1px solid rgba(42,58,106,.9);',
+        'border:1px solid rgba(247,211,106,.35);',
         'border-radius:18px;padding:28px 32px;',
         'min-width:340px;max-width:90vw;',
-        'box-shadow:0 24px 80px rgba(0,0,0,.65);',
+        'box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 24px rgba(247,211,106,.06);',
         'color:#e2e8f0;font-family:inherit;',
       ].join('');
 
@@ -25045,27 +25078,18 @@ $("saveFramework").onclick = async () => {
       box.appendChild(title);
 
       const groups = [
-        {
-          label:'Teammates',
-          rows:[
-            ['1 – 7', 'Activate teammate by position'],
+        { label:'Teammates', rows:[['1 – 7','Activate teammate by position']] },
+        { label:'Tools (press again to close)', rows:[
+            ['C','Calendar'],
+            ['L','Find Leads'],
+            ['S','Social Studio'],
+            ['E','Email Broadcast'],
+            ['G','Focus Group Console'],
           ]
         },
-        {
-          label:'Tools',
-          rows:[
-            ['C', 'Calendar'],
-            ['L', 'Lead Lab'],
-            ['S', 'Social Studio'],
-            ['E', 'Email Broadcast'],
-            ['G', 'Focus Group Console'],
-          ]
-        },
-        {
-          label:'Navigation',
-          rows:[
-            ['Esc', 'Deselect seat / close overlay'],
-            ['?', 'Show this cheat sheet'],
+        { label:'Navigation', rows:[
+            ['Esc','Deselect seat / close overlay'],
+            ['?','Show this cheat sheet'],
           ]
         },
       ];
@@ -25075,11 +25099,9 @@ $("saveFramework").onclick = async () => {
         grpLabel.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:7px;margin-top:16px;';
         grpLabel.textContent = g.label;
         box.appendChild(grpLabel);
-
         g.rows.forEach(([key, desc]) => {
           const row = document.createElement('div');
           row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(42,58,106,.35);gap:24px;';
-
           const kbd = document.createElement('kbd');
           kbd.style.cssText=[
             'display:inline-flex;align-items:center;justify-content:center;',
@@ -25089,13 +25111,10 @@ $("saveFramework").onclick = async () => {
             'font-family:ui-monospace,monospace;letter-spacing:.04em;white-space:nowrap;',
           ].join('');
           kbd.textContent = key;
-
           const lbl = document.createElement('span');
           lbl.style.cssText='font-size:13px;color:#94a3b8;text-align:right;';
           lbl.textContent = desc;
-
-          row.appendChild(kbd);
-          row.appendChild(lbl);
+          row.appendChild(kbd); row.appendChild(lbl);
           box.appendChild(row);
         });
       });
@@ -25104,22 +25123,19 @@ $("saveFramework").onclick = async () => {
       hint.style.cssText='font-size:11px;color:#334155;margin-top:16px;text-align:center;';
       hint.textContent='Press any key or click to close';
       box.appendChild(hint);
-
       overlay.appendChild(box);
       document.body.appendChild(overlay);
+      overlay.addEventListener('click', closeSheet);
+      setTimeout(()=>{ document.addEventListener('keydown', closeSheet, true); }, 80);
 
-      // Close on click or any key
-      function closeSheet(e){
+      function closeSheet(){
         const el = document.getElementById(SHEET_ID);
         if(el) el.remove();
         document.removeEventListener('keydown', closeSheet, true);
       }
-      overlay.addEventListener('click', closeSheet);
-      // Small delay so the ? keydown that opened it doesn't immediately close it
-      setTimeout(()=>{ document.addEventListener('keydown', closeSheet, true); }, 80);
     }
 
-    // ── Toast helper (reuse app's if available) ─────────────────
+    // ── Toast helper ────────────────────────────────────────────
     function hkToast(msg){
       if(typeof showToast === 'function'){ showToast(msg); return; }
       const t = document.createElement('div');
@@ -25135,7 +25151,7 @@ $("saveFramework").onclick = async () => {
       setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),320); }, 1600);
     }
 
-    // ── Inject keyframe CSS once ────────────────────────────────
+    // ── Keyframe CSS ────────────────────────────────────────────
     if(!document.getElementById('sa-hk-style')){
       const s = document.createElement('style');
       s.id = 'sa-hk-style';
@@ -25145,11 +25161,8 @@ $("saveFramework").onclick = async () => {
 
     // ── Main keydown handler ────────────────────────────────────
     document.addEventListener('keydown', function saHotkeyHandler(e){
-      // Never intercept when modifier keys are held (Ctrl, Cmd, Alt)
       if(e.ctrlKey || e.metaKey || e.altKey) return;
-      // Never intercept when user is typing
       if(inInput()) return;
-      // Ignore if cheat sheet is open (its own handler deals with it)
       if(document.getElementById(SHEET_ID)) return;
 
       const key = e.key;
@@ -25157,7 +25170,6 @@ $("saveFramework").onclick = async () => {
       // 1–7 — activate teammate by position ─────────────────────
       if(key >= '1' && key <= '7'){
         const idx = parseInt(key, 10) - 1;
-        // Build ordered list same way renderTable does
         const order = (state && state.active_order) ? state.active_order : [];
         const installed = (state && state.installed) ? state.installed : {};
         const seats = order.filter(n => installed[n]);
@@ -25180,43 +25192,51 @@ $("saveFramework").onclick = async () => {
           break;
         }
 
-        // C — Calendar ────────────────────────────────────────
+        // C — Calendar (toggle) ───────────────────────────────
         case 'c': {
           e.preventDefault();
-          if(typeof showCalendarModal === 'function') showCalendarModal();
-          else if(typeof window.showCalendarModal === 'function') window.showCalendarModal();
-          hkToast('⌨ Calendar');
+          toggleTool('calendar', function(){
+            if(typeof showCalendarModal === 'function') showCalendarModal();
+            else if(typeof window.showCalendarModal === 'function') window.showCalendarModal();
+            hkToast('⌨ Calendar');
+          });
           break;
         }
 
-        // L — Lead Lab ────────────────────────────────────────
+        // L — Lead Lab (toggle) ───────────────────────────────
         case 'l': {
           e.preventDefault();
-          if(typeof showLeadLabModal === 'function') showLeadLabModal();
-          else if(typeof window.showLeadLabModal === 'function') window.showLeadLabModal();
-          hkToast('⌨ Lead Lab');
+          toggleTool('lead lab', function(){
+            if(typeof showLeadLabModal === 'function') showLeadLabModal();
+            else if(typeof window.showLeadLabModal === 'function') window.showLeadLabModal();
+            hkToast('⌨ Find Leads');
+          });
           break;
         }
 
-        // S — Social Studio ───────────────────────────────────
+        // S — Social Studio (toggle) ──────────────────────────
         case 's': {
           e.preventDefault();
-          if(typeof showSocialStudioModal === 'function') showSocialStudioModal();
-          else if(typeof window.showSocialStudioModal === 'function') window.showSocialStudioModal();
-          hkToast('⌨ Social Studio');
+          toggleTool('social studio', function(){
+            if(typeof showSocialStudioModal === 'function') showSocialStudioModal();
+            else if(typeof window.showSocialStudioModal === 'function') window.showSocialStudioModal();
+            hkToast('⌨ Social Studio');
+          });
           break;
         }
 
-        // E — Email Broadcast ─────────────────────────────────
+        // E — Email Broadcast (toggle) ────────────────────────
         case 'e': {
           e.preventDefault();
-          if(typeof showCRMModal === 'function') showCRMModal('crmViewBroadcast', 'Email Broadcast');
-          else if(typeof window.showCRMModal === 'function') window.showCRMModal('crmViewBroadcast', 'Email Broadcast');
-          hkToast('⌨ Email Broadcast');
+          toggleTool('email broadcast', function(){
+            if(typeof showCRMModal === 'function') showCRMModal('crmViewBroadcast', 'Email Broadcast');
+            else if(typeof window.showCRMModal === 'function') window.showCRMModal('crmViewBroadcast', 'Email Broadcast');
+            hkToast('⌨ Email Broadcast');
+          });
           break;
         }
 
-        // ? — Cheat sheet ─────────────────────────────────────
+        // ? or / — Cheat sheet ────────────────────────────────
         case '?':
         case '/': {
           e.preventDefault();
