@@ -9068,7 +9068,10 @@ function startStripeCheckout() {
     .then(r => {
       if (r.redirected) { window.location.href = r.url; return; }
       return r.json().then(d => {
-        if (d && d.error) { alert('Stripe error: ' + d.error); resetBtn(); }
+        if (d && d.url) { window.location.href = d.url; }
+        else if (d && d.payment_link) { window.location.href = d.payment_link; }
+        else if (d && d.error) { alert('Stripe error: ' + d.error); resetBtn(); }
+        else { alert('Checkout error — please try again.'); resetBtn(); }
       });
     })
     .catch(e => { alert('Could not reach Stripe: ' + e); resetBtn(); });
@@ -9733,6 +9736,15 @@ var words = [], curIdx = 0, scrollTimer = null, recTimer = null, recSec = 0;
 var isPlaying = false, isRecording = false;
 var mediaRecorder = null, recordChunks = [];
 var camStream = null, camOn = false, spd = 6, fsz = 38;
+var _csrfToken = '';
+var _csrfReady = false;
+
+function _fetchCsrf(cb) {
+  fetch('/api/csrf_token', { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d && d.csrf_token){ _csrfToken = d.csrf_token; _csrfReady = true; } cb && cb(); })
+    .catch(function(){ cb && cb(); });
+}
 
 var DEFAULT_SCRIPT = "Welcome to Simply Agentic AI.\n\nA full team of specialised AI teammates — all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nReady to meet your team?";
 
@@ -9934,7 +9946,7 @@ function aiCall(system, message, cb){
   fetch('/api/teleprompter/ai', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
     body: JSON.stringify({ system: system, message: message })
   })
   .then(function(r){
@@ -10174,6 +10186,14 @@ if(savedFsz){ fsz = +savedFsz; ge('fsr').value = savedFsz; ge('fsv').textContent
 
 loadScript(savedScript || DEFAULT_SCRIPT);
 posReadLine();
+_fetchCsrf(function() {
+  ['btnWrite','btnTighten','btnHook'].forEach(function(id){
+    var el = ge(id); if(el){ el.disabled = false; el.title = ''; }
+  });
+});
+['btnWrite','btnTighten','btnHook'].forEach(function(id){
+  var el = ge(id); if(el){ el.disabled = true; el.title = 'Loading...'; }
+});
 
 })();
 </script>
@@ -11080,7 +11100,11 @@ def stripe_create_checkout():
     if not checkout_url:
         return jsonify({"ok": False, "error": "No checkout URL returned by Stripe."}), 500
 
-    return redirect(checkout_url, 303)
+    # Return JSON so the browser JS can do window.location.href — a direct
+    # server-side redirect(303) to Stripe's domain is cross-origin and gets
+    # blocked by CORS when called via fetch(), causing the "Could not connect"
+    # error the user sees.
+    return jsonify({"ok": True, "url": checkout_url})
 
 
 def _get_payment_link(plan_key: str) -> str:
@@ -38751,6 +38775,10 @@ def extension_download():
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
         api_key = _ext_api_key_for_user(uname)
         base_url = (PUBLIC_BASE_URL or "").rstrip("/")
+        if not base_url:
+            base_url = request.url_root.rstrip("/")
+            if base_url.startswith("http://"):
+                base_url = "https://" + base_url[7:]
         import json as _json
 
         def _fix(s):
