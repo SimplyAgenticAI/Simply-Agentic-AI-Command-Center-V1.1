@@ -17413,14 +17413,6 @@ function makeSeat(defn, idx, totalSeats){
       return seat;
     }
 
-      seat.addEventListener("pointercancel", () => {
-        dragging = false;
-        seat.classList.remove("dragging");
-      });
-
-      return seat;
-    }
-
 
 
     async function loadState(){
