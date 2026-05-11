@@ -11593,15 +11593,15 @@ HTML = r"""
       display:flex;
       align-items:flex-start;
       justify-content:center;
-      padding: 18px 0 18px 0;
+      padding: 18px 0 36px 0;
     }
 
     .tableWrap{
       position:relative;
       width: min(1100px, 95vw);
-      height: min(480px, 52vw);
-      min-height: 360px;
-      max-height: 520px;
+      height: min(560px, 58vw);
+      min-height: 420px;
+      max-height: 580px;
       margin-bottom: 0;
     }
 
@@ -11641,9 +11641,9 @@ HTML = r"""
       position:absolute;
       left:50%; top:50%;
       transform: translate(-50%,-50%);
-      width: 44%;
-      min-width: 340px;
-      max-width: 520px;
+      width: 34%;
+      min-width: 300px;
+      max-width: 420px;
       background: rgba(22,34,72,.82);
       border:1px solid rgba(42,58,106,.9);
       border-radius: 18px;
@@ -12041,8 +12041,8 @@ HTML = r"""
     .followBox{ height: 92px; }
 
     .underTable{
-      width: min(860px, 92vw);
-      margin: 0 auto 42px auto;
+      width: min(1100px, 95vw);
+      margin: 24px auto 42px auto;
       padding: 0 0 18px 0;
     }
 
@@ -17208,8 +17208,8 @@ function makeSeat(defn, idx, totalSeats){
         const cardW = 118, cardH = 150;
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
-        const rx = wrapRect.width  * 0.44;
-        const ry = wrapRect.height * 0.40;
+        const rx = wrapRect.width  * 0.43;
+        const ry = wrapRect.height * 0.36;
         const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
@@ -17400,8 +17400,8 @@ function makeSeat(defn, idx, totalSeats){
         const cardW = 118, cardH = 150;
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
-        const rx = wrapRect.width  * 0.44;
-        const ry = wrapRect.height * 0.40;
+        const rx = wrapRect.width  * 0.43;
+        const ry = wrapRect.height * 0.36;
         const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
