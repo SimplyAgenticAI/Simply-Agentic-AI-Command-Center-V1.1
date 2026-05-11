@@ -8073,32 +8073,45 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .rnb{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:rgba(28,40,80,.85);border:1px solid rgba(80,110,200,.45);border-radius:9px;color:rgba(210,220,255,.9);font-size:12px;font-weight:600;white-space:nowrap;}
 .rnb.hi{background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);color:var(--ac);}
 .rt-body{display:flex;}
-/* Grid-based table - bulletproof, no absolute positioning */
-.rt-arena{flex:1;background:radial-gradient(ellipse at 50% 50%,rgba(14,22,64,.6),rgba(7,9,26,.98));padding:20px;display:grid;grid-template-columns:1fr 1.5fr 1fr;grid-template-rows:auto auto auto;gap:14px;align-items:center;position:relative;}
-.rt-arena::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:52%;height:72%;border-radius:50%;border:1.5px solid rgba(70,90,180,.28);background:radial-gradient(ellipse,rgba(12,18,52,.3),transparent 70%);pointer-events:none;z-index:0;}
+/* Oval table arena — 5-row layout mirrors the real ellipse table */
+.rt-arena{flex:1;background:radial-gradient(ellipse at 50% 50%,rgba(14,22,64,.6),rgba(7,9,26,.98));padding:20px 16px;display:grid;grid-template-columns:1fr 1.4fr 1fr;grid-template-rows:auto auto auto auto auto;gap:10px;align-items:center;justify-items:center;position:relative;}
+.rt-arena::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:68%;height:48%;border-radius:50%;border:1px solid rgba(247,211,106,.25);background:radial-gradient(ellipse at 50% 35%,rgba(124,58,237,.22),rgba(11,16,36,.88) 55%,rgba(7,10,20,.97) 80%);box-shadow:0 0 60px rgba(124,58,237,.18),0 0 24px rgba(247,211,106,.06);pointer-events:none;z-index:0;}
+.rt-arena::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:70%;height:50%;border-radius:50%;border:1px dashed rgba(124,58,237,.22);pointer-events:none;z-index:0;}
 .rt-arena>*{position:relative;z-index:1;}
-.seat{background:rgba(13,20,46,.92);border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:9px 10px;display:flex;gap:9px;align-items:flex-start;box-shadow:0 4px 20px rgba(0,0,0,.35);position:relative;transition:border-color .25s;min-width:0;}
-.seat:hover{border-color:rgba(124,58,237,.5);}
-.seat.sel{border-color:rgba(124,58,237,.7);background:rgba(15,24,56,.9);box-shadow:0 0 0 1px rgba(124,58,237,.22),0 8px 28px rgba(0,0,0,.4);}
-.av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.09);}
-.sm{min-width:0;}
-.sn{font-size:12px;font-weight:800;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.sr{font-size:10px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-.ss{font-size:10px;color:var(--mt);margin-top:4px;}
-.sdot{position:absolute;right:8px;bottom:8px;width:9px;height:9px;border-radius:50%;border:1px solid rgba(0,0,0,.3);}
-.idle{background:rgba(141,255,179,.55);box-shadow:0 0 7px rgba(141,255,179,.3);}
-.think{background:rgba(255,207,112,.6);box-shadow:0 0 10px rgba(255,207,112,.3);animation:dp 1.1s ease-in-out infinite;}
+/* Vertical seat cards matching real interface */
+.seat{background:linear-gradient(160deg,rgba(20,30,64,.97),rgba(10,16,42,.97));border:1px solid rgba(42,58,106,.85);border-radius:14px;padding:11px 8px 26px;display:flex;flex-direction:column;align-items:center;gap:0;box-shadow:0 4px 20px rgba(0,0,0,.38),0 1px 0 rgba(255,255,255,.04) inset;position:relative;transition:border-color .2s,transform .18s,box-shadow .2s;min-width:0;width:100%;cursor:pointer;}
+.seat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--seat-accent,rgba(124,58,237,.6));opacity:.65;border-radius:14px 14px 0 0;}
+.seat:hover{border-color:rgba(124,58,237,.65);transform:translateY(-3px);box-shadow:0 8px 28px rgba(0,0,0,.45),0 0 20px rgba(124,58,237,.15);}
+.seat:hover::before{opacity:1;}
+.seat.sel{border-color:rgba(124,58,237,.92);background:rgba(22,18,70,.96);box-shadow:0 0 0 1px rgba(124,58,237,.2) inset,0 0 24px rgba(124,58,237,.42),0 6px 28px rgba(0,0,0,.5);}
+.seat.sel::before{background:rgba(124,58,237,.9);opacity:1;}
+/* Seat number badge */
+.snum{position:absolute;top:6px;right:7px;font-size:9px;font-weight:800;color:rgba(247,211,106,.55);letter-spacing:.04em;}
+.av{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#e6edff;flex-shrink:0;border:1px solid rgba(255,255,255,.09);margin-bottom:7px;}
+.sm{min-width:0;width:100%;display:flex;flex-direction:column;align-items:center;gap:2px;}
+.sn{font-size:11px;font-weight:800;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;width:100%;}
+.sr{font-size:9px;color:var(--mt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;width:100%;opacity:.75;}
+.ss{font-size:9px;color:var(--mt);margin-top:6px;display:flex;align-items:center;gap:3px;}
+.sdot{width:6px;height:6px;border-radius:50%;border:1px solid rgba(0,0,0,.3);flex-shrink:0;}
+.idle{background:rgba(51,65,85,.8);}
+.think{background:rgba(255,207,112,.6);box-shadow:0 0 8px rgba(255,207,112,.3);animation:dp 1.1s ease-in-out infinite;}
 @keyframes dp{0%,100%{transform:scale(1);}50%{transform:scale(1.55);}}
-.sedit{position:absolute;right:8px;top:8px;font-size:9px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
+/* Seat tool bar on hover */
+.sedit{position:absolute;bottom:0;left:0;right:0;font-size:9px;padding:4px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,15,38,.9);color:rgba(196,181,253,.8);border-radius:0 0 14px 14px;text-align:center;opacity:0;transition:opacity .15s;}
+.seat:hover .sedit{opacity:1;}
 .td{display:inline-flex;gap:3px;align-items:center;}
 .td span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.85);animation:tb 1.1s ease-in-out infinite;}
 .td span:nth-child(2){animation-delay:.18s;}.td span:nth-child(3){animation-delay:.36s;}
 @keyframes tb{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-4px);opacity:1;}}
-.op-card{background:rgba(13,20,46,.88);border:1px solid rgba(42,58,106,.75);border-radius:12px;padding:9px 12px;text-align:center;}
-.op-av{width:32px;height:32px;border-radius:9px;background:#0f766e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#e6edff;margin:0 auto 5px;}
-.op-name{font-size:12px;font-weight:700;color:var(--tx);}
-.op-btn{display:inline-block;margin-top:4px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(255,255,255,.05);border:1px solid rgba(42,58,106,.55);color:var(--mt);}
-.gc{background:rgba(10,15,36,.96);border:1px solid rgba(42,58,106,.88);border-radius:13px;padding:12px;box-shadow:0 0 36px rgba(0,0,0,.5);}
+/* Operator card — cyan, head of table */
+.op-card{background:linear-gradient(160deg,rgba(8,20,48,.97),rgba(10,16,42,.97));border:1px solid rgba(34,211,238,.5);border-radius:14px;padding:11px 8px 11px;text-align:center;box-shadow:0 0 20px rgba(34,211,238,.15),0 4px 20px rgba(0,0,0,.4);position:relative;width:100%;}
+.op-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(34,211,238,.8);border-radius:14px 14px 0 0;}
+.op-av{width:36px;height:36px;border-radius:11px;background:#0a1628;border:1px solid rgba(34,211,238,.35);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#67e8f9;margin:0 auto 6px;}
+.op-name{font-size:11px;font-weight:800;color:#67e8f9;}
+.op-sub{font-size:9px;color:var(--mt);margin-top:2px;}
+.op-btn{display:inline-block;margin-top:5px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.3);color:#67e8f9;}
+.gc{background:rgba(14,20,46,.96);border:1px solid rgba(247,211,106,.35);border-radius:14px;padding:12px;box-shadow:0 0 36px rgba(0,0,0,.5),0 0 28px rgba(247,211,106,.07),0 0 0 1px rgba(247,211,106,.08) inset;}
+.gc-send{margin-top:8px;width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:11px;font-weight:700;text-align:center;border:none;cursor:default;}
 .gc-t{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
 .gc-s{font-size:10px;color:var(--mt);line-height:1.45;margin-bottom:8px;}
 .gc-btns{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;}
@@ -8222,7 +8235,7 @@ footer a{color:var(--pl);text-decoration:none;}
   <div class="ctr">
     <span class="lbl">Live Interface Preview</span>
     <h2 class="h2">This Is What It Actually Looks Like</h2>
-    <p class="sub">All 7 teammates seated around the table. The center Group Console broadcasts to everyone. Click any seat to open their personal thread on the right.</p>
+    <p class="sub">Operator at the head of the table, 7 AI specialists seated around the oval. Gold-bordered Group Console in the center. Press 1–7 to switch teammates instantly — or click any seat to open their thread.</p>
   </div>
   <div class="rt-shell a4">
     <!-- Exact nav bar replica -->
@@ -8245,18 +8258,26 @@ footer a{color:var(--pl);text-decoration:none;}
     <div class="rt-body">
       <!-- 3-column grid table -->
       <div class="rt-arena">
-        <!-- Row 1: Sunshine | Operator | Atlis -->
-        <div class="seat"><div class="av" style="background:#9a3412;">S</div><div class="sm"><div class="sn">Sunshine</div><div class="sr">Sales Specialist</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <div class="op-card"><div class="op-av">O</div><div class="op-name">Operator</div><div class="op-btn">Profile</div></div>
-        <div class="seat"><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <!-- Row 2: Willow | Group Console | Ava -->
-        <div class="seat"><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-s">(All Teammates) &mdash; Send one prompt to trigger answers from everyone.</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#127897; Speak</div><div class="gcb">Voice Mode</div><div class="gcb">Direct mode</div><div class="gcb">Share screen</div><div class="gcb hi">Send to all</div></div><textarea class="gc-ta" readonly>Type a group prompt for the entire table. To assemble only, say: All teammates to the round table</textarea><div class="gc-pills"><div class="gcp">&#9888; Risk</div><div class="gcp">&#128202; Scale</div><div class="gcp">&#10022; Constraints</div><div class="gcp">&#9889; Optimize</div></div></div>
-        <div class="seat"><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <!-- Row 3: Orion | Alex (active) | Luna -->
-        <div class="seat"><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
-        <div class="seat sel"><div class="av" style="background:#1e3a8a;">A</div><div class="sm"><div class="sn">Alex</div><div class="sr">Chief Marketing...</div><div class="ss" style="color:#fcd34d;"><span class="td"><span></span><span></span><span></span></span></div></div><div class="sdot think"></div><div class="sedit">Edit</div></div>
-        <div class="seat"><div class="av" style="background:#7c2d12;">L</div><div class="sm"><div class="sn">Luna</div><div class="sr">Creative Engineer</div><div class="ss">Idle</div></div><div class="sdot idle"></div><div class="sedit">Edit</div></div>
+        <!-- Row 1: Operator at 12 o'clock (head of table) -->
+        <div></div>
+        <div class="op-card"><div style="font-size:10px;font-weight:800;color:rgba(103,232,249,.6);position:absolute;top:6px;right:7px;">&#9670;</div><div class="op-av">O</div><div class="op-name">Operator</div><div class="op-sub">Profile &amp; Context</div><div class="op-btn">Profile</div></div>
+        <div></div>
+        <!-- Row 2: Sunshine | gap | Alex (active) -->
+        <div class="seat" style="--seat-accent:#9a3412;"><span class="snum">01</span><div class="av" style="background:#9a3412;">S</div><div class="sm"><div class="sn">Sunshine</div><div class="sr">Sales Specialist</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div></div>
+        <div class="seat sel" style="--seat-accent:#1e3a8a;"><span class="snum">02</span><div class="av" style="background:#1e3a8a;">A</div><div class="sm"><div class="sn">Alex</div><div class="sr">Chief Marketing...</div></div><div class="ss"><div class="sdot think"></div><span class="td"><span></span><span></span><span></span></span></div><div class="sedit">Edit</div></div>
+        <!-- Row 3: Orion | Group Console | Willow -->
+        <div class="seat" style="--seat-accent:#374151;"><span class="snum">07</span><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div class="gc"><div class="gc-t">Group Console</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#8943; Tools</div><div class="gcb">&#128206; Files</div></div><textarea class="gc-ta" readonly>Type a prompt to send to all teammates at once...</textarea><div class="gc-send">Send to all teammates</div></div>
+        <div class="seat" style="--seat-accent:#4c1d95;"><span class="snum">03</span><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <!-- Row 4: Ava | gap | Luna -->
+        <div class="seat" style="--seat-accent:#0f766e;"><span class="snum">06</span><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div></div>
+        <div class="seat" style="--seat-accent:#7c2d12;"><span class="snum">04</span><div class="av" style="background:#7c2d12;">L</div><div class="sm"><div class="sn">Luna</div><div class="sr">Creative Engineer</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <!-- Row 5: Atlis at 6 o'clock (foot of table) -->
+        <div></div>
+        <div class="seat" style="--seat-accent:#111827;"><span class="snum">05</span><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div></div>
       </div>
       <!-- Right sidebar: Alex's thread -->
       <div class="rt-side">
@@ -39618,11 +39639,11 @@ var EPISODES = {
   2: {
     num:'EP 02', title:'Your AI teammates',
     steps:[
-      {t:'Find the <strong>round table</strong>', d:'The main screen shows a circular table with labelled seats around it.'},
-      {t:'Click any <strong>seat</strong>', d:'Each seat is a different AI specialist — Sales, Marketing, Operations, and more.'},
+      {t:'Find the <strong>oval table</strong>', d:'The main screen shows an oval conference table. Operator sits at the head (12 o\'clock). Your 7 teammates are seated around it.'},
+      {t:'Press <strong>1–7</strong> to jump to a seat', d:'Each seat has a number badge. Press that number on your keyboard to activate that teammate instantly — no clicking required.'},
+      {t:'Click any <strong>seat card</strong>', d:'Each card is a different AI specialist — Sales, Marketing, Operations, and more. Click to open their thread on the right.'},
       {t:'Type your request', d:'Just describe what you need in plain English. No special commands required.'},
-      {t:'Read the response', d:'Your teammate replies in the chat panel on the right side of the screen.'},
-      {t:'<strong>Switch teammates</strong> anytime', d:'Click a different seat mid-conversation to bring in another specialist.'},
+      {t:'<strong>Switch teammates</strong> anytime', d:'Press a number key or click a different seat mid-conversation to bring in another specialist.'},
     ],
     ani: buildEP2
   },
@@ -39735,36 +39756,73 @@ function buildEP1(container, id){
 }
 
 function buildEP2(container, id){
-  var seats=[['Alex','Sales'],['Jordan','Marketing'],['Sam','Ops'],['Morgan','Strategy']];
+  var seats=[
+    {n:'Sunshine',color:'#9a3412',letter:'S',num:'01'},
+    {n:'Alex',color:'#1e3a8a',letter:'A',num:'02'},
+    {n:'Willow',color:'#4c1d95',letter:'W',num:'03'},
+    {n:'Luna',color:'#7c2d12',letter:'L',num:'04'},
+    {n:'Atlis',color:'#111827',letter:'I',num:'05'},
+    {n:'Ava',color:'#0f766e',letter:'A',num:'06'},
+    {n:'Orion',color:'#374151',letter:'O',num:'07'},
+  ];
   var steps=[
     [0,function(){
       container.innerHTML='';
-      var s=div('ani-screen'); s.appendChild(mkBar('🤝 Round Table'));
-      var body=div('ani-body'); body.style.cssText='flex:1;padding:9px;display:flex;flex-direction:column;gap:6px;align-items:center;overflow:hidden;';
-      var circ=div('ani-circle'); circ.style.cssText='width:60px;height:60px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted);flex-shrink:0;'; circ.textContent='Round Table';
-      body.appendChild(circ);
-      var grid=div(''); grid.id=id+'g'; grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;';
+      var s=div('ani-screen'); s.appendChild(mkBar('🎯 Command Center — Oval Table'));
+      var body=div('ani-body');
+      body.style.cssText='flex:1;padding:8px;display:flex;flex-direction:column;gap:5px;overflow:hidden;';
+      // Oval table representation
+      var tbl=div('');
+      tbl.style.cssText='width:100%;height:28px;border-radius:50%;border:1px solid rgba(247,211,106,.35);background:radial-gradient(ellipse,rgba(124,58,237,.2),transparent 70%);display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+      tbl.innerHTML='<span style="font-size:8px;color:rgba(247,211,106,.6);font-weight:700;">Group Console</span>';
+      body.appendChild(tbl);
+      var grid=div(''); grid.id=id+'g';
+      grid.style.cssText='display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;width:100%;';
       body.appendChild(grid); s.appendChild(body); container.appendChild(s);
     }],
-    [400,function(){ var g=document.getElementById(id+'g'); if(!g)return; seats.forEach(function(st,i){ setTimeout(function(){ var d=div('ani-seat'); d.textContent=st[0]; g.appendChild(d); setTimeout(function(){d.classList.add('active');},120); },i*320); }); }],
-    [2800,function(){
+    [400,function(){
+      var g=document.getElementById(id+'g'); if(!g)return;
+      seats.slice(0,6).forEach(function(st,i){
+        setTimeout(function(){
+          var card=div('');
+          card.style.cssText='background:linear-gradient(160deg,rgba(20,30,64,.97),rgba(10,16,42,.97));border:1px solid rgba(42,58,106,.85);border-radius:7px;padding:5px 4px 12px;display:flex;flex-direction:column;align-items:center;position:relative;';
+          card.innerHTML='<span style="position:absolute;top:3px;right:4px;font-size:7px;font-weight:800;color:rgba(247,211,106,.55);">'+st.num+'</span><div style="width:18px;height:18px;border-radius:5px;background:'+st.color+';display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#e6edff;margin-bottom:3px;">'+st.letter+'</div><div style="font-size:7.5px;font-weight:800;color:#e2e8f0;text-align:center;">'+st.n+'</div>';
+          g.appendChild(card);
+        },i*220);
+      });
+    }],
+    [2000,function(){
       var body=container.querySelector('.ani-body'); if(!body)return;
-      var bubble=div('ani-card slide-in-u'); bubble.style.cssText='width:100%;font-size:9.5px;border-color:rgba(124,58,237,.4);';
-      bubble.innerHTML='<span style="color:#a78bfa;font-weight:700;">You →</span> Write a sales email for our launch';
+      var hotkey=div('slide-in-u');
+      hotkey.style.cssText='background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.35);border-radius:5px;padding:4px 6px;font-size:8px;color:#c4b5fd;text-align:center;';
+      hotkey.innerHTML='⌨ Press <strong style="color:#f7d36a;">1–7</strong> to activate any teammate instantly';
+      body.appendChild(hotkey);
+    }],
+    [3400,function(){
+      var g=document.getElementById(id+'g'); if(!g)return;
+      var cards=g.querySelectorAll('div');
+      if(cards[1]){
+        cards[1].style.border='1.5px solid rgba(124,58,237,.9)';
+        cards[1].style.background='rgba(22,18,70,.96)';
+        cards[1].style.boxShadow='0 0 12px rgba(124,58,237,.4)';
+      }
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var bubble=div('ani-card slide-in-u'); bubble.style.cssText='width:100%;font-size:8.5px;border-color:rgba(124,58,237,.4);margin-top:3px;';
+      bubble.innerHTML='<span style="color:#a78bfa;font-weight:700;">You →</span> Build a lead engine for NJ agents';
       body.appendChild(bubble);
     }],
-    [4000,function(){
+    [5000,function(){
       var body=container.querySelector('.ani-body'); if(!body)return;
       var sp=div('ani-muted slide-in-u'); sp.id=id+'sp'; sp.innerHTML='<span class="ani-spin"></span> Alex is writing…'; body.appendChild(sp);
     }],
-    [5800,function(){
+    [6600,function(){
       var sp=document.getElementById(id+'sp'); if(sp)sp.remove();
       var body=container.querySelector('.ani-body'); if(!body)return;
-      var r=div('ani-card slide-in-u'); r.style.cssText='width:100%;font-size:9.5px;border-color:rgba(16,185,129,.3);';
-      r.innerHTML='<span style="color:#6ee7b7;font-weight:700;">Alex →</span> Subject: Introducing [Product]…'; body.appendChild(r);
+      var r=div('ani-card slide-in-u'); r.style.cssText='width:100%;font-size:8.5px;border-color:rgba(16,185,129,.3);';
+      r.innerHTML='<span style="color:#6ee7b7;font-weight:700;">Alex →</span> Here\'s a 3-step lead engine…'; body.appendChild(r);
     }],
   ];
-  seq(id, steps, 9000, container);
+  seq(id, steps, 9500, container);
 }
 
 function buildEP3(container, id){
