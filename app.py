@@ -17226,18 +17226,19 @@ function makeSeat(defn, idx, totalSeats){
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
 
-      // Operator at position 0 (12 o'clock), teammates at 1..n
+      const order = activeOrder();
+      const installed = state.installed || {};
+      const seats = order.filter(n => installed[n]);
+
+      // totalSeats = operator (always at pos 0) + active teammates
       const totalSeats = seats.length + 1;
+
+      // Operator fixed at 12 o'clock (position 0)
       try{
         wrap.appendChild(makeOperatorSeat(totalSeats));
       }catch(err){
         console.error("Operator seat failed to render:", err);
       }
-
-
-      const order = activeOrder();
-      const installed = state.installed || {};
-      const seats = order.filter(n => installed[n]);
 
       if(seats.length === 0){
         // keep operator seat usable even with zero teammates
