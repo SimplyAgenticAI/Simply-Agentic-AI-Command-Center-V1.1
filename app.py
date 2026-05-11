@@ -6263,12 +6263,12 @@ def api_create_teammate():
             if max_custom == 0:
                 return jsonify({
                     "ok": False,
-                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 3 custom teammates, or Operator Pro for unlimited."
+                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 3 custom teammates, or Operator Pro for unlimited. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
                 }), 403
             else:
                 return jsonify({
                     "ok": False,
-                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to Operator Pro for unlimited custom teammates."
+                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to Operator Pro for unlimited custom teammates. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
                 }), 403
 
     try:
@@ -14065,9 +14065,24 @@ label         { font-size: 14px !important; }
                   Personal settings for this account. OpenAI key affects only your sessions. Email settings are used when you send email so you do not send from the owner's inbox.
                 </div>
 
-                <div class="formGrid2">
+                <!-- ── Subscription & Billing ─────────────────────────────── -->
+                <div id="billingSection" style="margin-bottom:18px;padding:14px 16px;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);border-radius:14px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Subscription &amp; Billing</div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span id="billingPlanBadge" style="display:inline-flex;align-items:center;padding:3px 11px;border-radius:99px;font-size:12px;font-weight:700;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;">Loading…</span>
+                        <span id="billingPlanPrice" style="font-size:12px;color:#64748b;"></span>
+                      </div>
+                      <div style="font-size:11px;color:#475569;margin-top:5px;">Upgrade, downgrade, update payment method, or cancel — all handled securely through Stripe.</div>
+                    </div>
+                    <button id="manageBillingBtn" class="btn" onclick="openBillingPortal()" style="flex-shrink:0;font-size:13px;font-weight:700;padding:8px 18px;border-color:rgba(124,58,237,.5);color:#c4b5fd;white-space:nowrap;">
+                      Manage subscription →
+                    </button>
+                  </div>
+                </div>
 
-                  <!-- LEFT: API Keys + Model -->
+                <div class="formGrid2">
                   <div style="display:flex;flex-direction:column;gap:12px;">
                     <div>
                       <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -19905,6 +19920,27 @@ Challenge weak assumptions. Surface risks.`;
       }
     }
 
+    // ── Billing Portal ────────────────────────────────────────────
+    async function openBillingPortal(){
+      const btn = $("manageBillingBtn");
+      if(btn){ btn.disabled = true; btn.textContent = "Opening…"; }
+      try{
+        const res = await fetch("/api/stripe/portal_url");
+        const d   = await res.json();
+        if(d && d.url){
+          window.open(d.url, "_blank");
+        } else {
+          const msg = (d && d.error) ? d.error : "Could not open billing portal. Please contact support.";
+          alert(msg);
+        }
+      } catch(e){
+        alert("Could not connect to billing system. Please try again.");
+      } finally {
+        if(btn){ btn.disabled = false; btn.textContent = "Manage subscription →"; }
+      }
+    }
+    window.openBillingPortal = openBillingPortal;
+
     async function loadSettings(){
       $("settingsStatus").innerText = "Loading...";
       try{
@@ -19941,6 +19977,25 @@ Challenge weak assumptions. Surface risks.`;
         // SMTP fields hidden from UI — values preserved in backend
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
+        // Populate billing plan badge
+        try{
+          const meRes = await fetch("/api/me");
+          const meData = await meRes.json();
+          if(meData && meData.user){
+            const planKey = meData.user.plan || "starter";
+            const planNames = {
+              "founder": {label:"🔥 Founder Access", price:"$27/mo"},
+              "starter": {label:"Solo Operator",     price:"$47/mo"},
+              "growth":  {label:"Team",              price:"$97/mo"},
+              "pro":     {label:"Operator Pro",      price:"$197/mo"},
+            };
+            const info = planNames[planKey] || {label: planKey, price:""};
+            const badge = $("billingPlanBadge");
+            const priceEl = $("billingPlanPrice");
+            if(badge) badge.textContent = info.label;
+            if(priceEl) priceEl.textContent = info.price;
+          }
+        }catch(e){}
         // Load tooltip level
         try {
           const lvl = s.tooltip_level || "medium";
@@ -31513,7 +31568,7 @@ def api_crm_clients_create():
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
             upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
-            return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts."}), 403
+            return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"}), 403
 
     cid = _crm_new_id("c")
     now = now_iso()
@@ -38880,7 +38935,7 @@ def api_extension_import_lead():
     plan_info = PLANS.get(plan_key) or PLANS["starter"]
     max_c     = plan_info.get("crm_contacts")
     if max_c is not None and len(crm.get("clients") or {}) >= max_c:
-        return jsonify({"ok": False, "error": f"Contact limit reached ({max_c}). Upgrade your plan."}), 403
+        return jsonify({"ok": False, "error": f"Contact limit reached ({max_c}). <a href='/stripe/manage' style='color:#c4b5fd;'>Upgrade your plan →</a>"}), 403
     cid  = _crm_new_id("c")
     now  = now_iso()
     tags = p.get("tags") or ["Facebook"]
