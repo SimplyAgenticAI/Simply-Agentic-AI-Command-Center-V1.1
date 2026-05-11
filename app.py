@@ -11598,9 +11598,10 @@ HTML = r"""
 
     .tableWrap{
       position:relative;
-      width:min(860px, 92vw);
-      height:min(860px, 92vw);
-      min-height: 860px;
+      width: min(1100px, 95vw);
+      height: min(480px, 52vw);
+      min-height: 360px;
+      max-height: 520px;
       margin-bottom: 0;
     }
 
@@ -11608,11 +11609,11 @@ HTML = r"""
       position:absolute;
       inset: 50% 50%;
       transform: translate(-50%,-50%);
-      width: 62%;
-      height: 62%;
-      border-radius: 999px;
+      width: 72%;
+      height: 72%;
+      border-radius: 50%;
       background:
-        radial-gradient(circle at 50% 35%, rgba(124,58,237,.28) 0%, rgba(11,16,36,.92) 48%, rgba(7,10,20,.98) 78%);
+        radial-gradient(ellipse at 50% 35%, rgba(124,58,237,.28) 0%, rgba(11,16,36,.92) 52%, rgba(7,10,20,.98) 80%);
       border: 1px solid rgba(124,58,237,.30);
       box-shadow:
         0 0 0 1px rgba(17,24,39,.5) inset,
@@ -11623,16 +11624,16 @@ HTML = r"""
     .table:before{
       content:"";
       position:absolute;
-      inset:14%;
-      border-radius:999px;
-      border: 1px dashed rgba(124,58,237,.35);
+      inset:10%;
+      border-radius:50%;
+      border: 1px dashed rgba(124,58,237,.30);
       opacity:.8;
     }
     .runes{
       position:absolute;
-      inset: 6%;
-      border-radius:999px;
-      border: 1px solid rgba(124,58,237,.18);
+      inset: 5%;
+      border-radius:50%;
+      border: 1px solid rgba(124,58,237,.15);
       box-shadow: 0 0 40px rgba(124,58,237,.10) inset;
     }
 
@@ -12346,9 +12347,9 @@ HTML = r"""
     @media (max-width: 980px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
-      .tableWrap{ min-height: 860px; }
+      .tableWrap{ min-height: 360px; }
       .row2{ grid-template-columns: 1fr; }
-      .underTable{ width: min(860px, 92vw); }
+      .underTable{ width: min(1100px, 95vw); }
       .modalForm .grid{ grid-template-columns: 1fr; }
       .modal{ width: calc(100vw - 22px); }
       .modalBarTitle{ max-width: 240px; }
@@ -15854,10 +15855,10 @@ input[type="range"]::-moz-range-progress {
           </div>
 
           <div class="operator" id="operator">
-            <!-- SVG ring overlay — dashed circle tracing the seat positions -->
+            <!-- SVG ring overlay — dashed ellipse tracing the seat positions -->
             <svg id="seatRingSVG" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible;" xmlns="http://www.w3.org/2000/svg">
-              <circle id="seatRingOuter" cx="50%" cy="50%" r="43.5%" fill="none"
-                stroke="rgba(124,58,237,.22)" stroke-width="1" stroke-dasharray="4 7"/>
+              <ellipse id="seatRingOuter" cx="50%" cy="50%" rx="44%" ry="40%" fill="none"
+                stroke="rgba(124,58,237,.20)" stroke-width="1" stroke-dasharray="4 7"/>
             </svg>
             <div class="opHead">
               <div class="opTitle">
@@ -16131,15 +16132,15 @@ if (typeof window.showToast !== "function") {
 }
 
 
-    // ── True CSS Circle: pure sin/cos seat positioning ──────────
-    // Replaces the old POS percentage array. Each seat is placed at
-    // angle = -90° + (360°/n)*i so position 0 is always at 12 o'clock.
-    function computeSeatPos(i, n, cx, cy, radius){
+    // ── Oval Table: ellipse seat positioning ─────────────────────
+    // rx = half the horizontal radius, ry = half the vertical radius
+    // Operator at i=0 (12 o'clock), teammates at i=1..n going clockwise.
+    function computeEllipsePos(i, n, cx, cy, rx, ry){
       const deg = -90 + (360 / n) * i;
       const rad = deg * Math.PI / 180;
       return {
-        cx: cx + radius * Math.cos(rad),
-        cy: cy + radius * Math.sin(rad)
+        cx: cx + rx * Math.cos(rad),
+        cy: cy + ry * Math.sin(rad)
       };
     }
 
@@ -17207,8 +17208,9 @@ function makeSeat(defn, idx, totalSeats){
         const cardW = 118, cardH = 150;
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
-        const radius = Math.min(wrapRect.width, wrapRect.height) * 0.87 / 2;
-        const pos = computeSeatPos(idx, totalSeats, cx, cy, radius);
+        const rx = wrapRect.width  * 0.44;
+        const ry = wrapRect.height * 0.40;
+        const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
       }
@@ -17398,8 +17400,9 @@ function makeSeat(defn, idx, totalSeats){
         const cardW = 118, cardH = 150;
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
-        const radius = Math.min(wrapRect.width, wrapRect.height) * 0.87 / 2;
-        const pos = computeSeatPos(0, totalSeats, cx, cy, radius);
+        const rx = wrapRect.width  * 0.44;
+        const ry = wrapRect.height * 0.40;
+        const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
       }
