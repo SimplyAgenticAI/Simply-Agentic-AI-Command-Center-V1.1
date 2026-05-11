@@ -24893,6 +24893,153 @@ $("saveFramework").onclick = async () => {
   enableEnterSend("opPrompt", conveneAll);
   enableEnterSend("followMsg", sendFollow);
 
+  // ═══════════════════════════════════════════════════════════════
+  //  SIMPLY AGENTIC — GLOBAL HOTKEYS
+  //  Safe: only fires when no input/textarea/select/contenteditable
+  //  is focused. Toggle: pressing a key again closes the tool it opened.
+  // ═══════════════════════════════════════════════════════════════
+  (function initHotkeys(){
+
+    function inInput(){
+      const el = document.activeElement;
+      if(!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag==='input'||tag==='textarea'||tag==='select'||el.isContentEditable;
+    }
+
+    function openModalTitle(){
+      const ov = document.getElementById('overlay');
+      if(!ov || !ov.classList.contains('show')) return '';
+      const mt = document.getElementById('modalTitle');
+      return mt ? mt.innerText.toLowerCase().trim() : '';
+    }
+
+    function closeCurrentModal(){
+      if(typeof hideModal === 'function') hideModal();
+    }
+
+    function toggleTool(matchTitle, openFn){
+      const current = openModalTitle();
+      if(current && current.includes(matchTitle.toLowerCase())){
+        closeCurrentModal();
+      } else {
+        openFn();
+      }
+    }
+
+    const SHEET_ID = 'sa-hotkey-sheet';
+    function buildSheet(){
+      if(document.getElementById(SHEET_ID)) return;
+      const overlay = document.createElement('div');
+      overlay.id = SHEET_ID;
+      overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(4,6,14,.82);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:saHkFadeIn .14s ease;';
+      const box = document.createElement('div');
+      box.style.cssText='background:rgba(12,18,44,.98);border:1px solid rgba(247,211,106,.35);border-radius:18px;padding:28px 32px;min-width:340px;max-width:90vw;box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 24px rgba(247,211,106,.06);color:#e2e8f0;font-family:inherit;';
+      const title = document.createElement('div');
+      title.style.cssText='font-size:13px;font-weight:800;color:#c4b5fd;margin-bottom:18px;letter-spacing:.06em;text-transform:uppercase;';
+      title.textContent='Keyboard shortcuts';
+      box.appendChild(title);
+      const groups = [
+        { label:'Teammates', rows:[['1 – 7','Activate teammate by position']] },
+        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console']] },
+        { label:'Navigation', rows:[['Esc','Deselect seat / close overlay'],['?','Show this cheat sheet']] },
+      ];
+      groups.forEach(g => {
+        const grpLabel = document.createElement('div');
+        grpLabel.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:7px;margin-top:16px;';
+        grpLabel.textContent = g.label;
+        box.appendChild(grpLabel);
+        g.rows.forEach(([key, desc]) => {
+          const row = document.createElement('div');
+          row.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(42,58,106,.35);gap:24px;';
+          const kbd = document.createElement('kbd');
+          kbd.style.cssText='display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 8px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;font-size:12px;font-weight:700;font-family:ui-monospace,monospace;letter-spacing:.04em;white-space:nowrap;';
+          kbd.textContent = key;
+          const lbl = document.createElement('span');
+          lbl.style.cssText='font-size:13px;color:#94a3b8;text-align:right;';
+          lbl.textContent = desc;
+          row.appendChild(kbd); row.appendChild(lbl);
+          box.appendChild(row);
+        });
+      });
+      const hint = document.createElement('div');
+      hint.style.cssText='font-size:11px;color:#334155;margin-top:16px;text-align:center;';
+      hint.textContent='Press any key or click to close';
+      box.appendChild(hint);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      function closeSheet(){ const el=document.getElementById(SHEET_ID); if(el) el.remove(); document.removeEventListener('keydown',closeSheet,true); }
+      overlay.addEventListener('click', closeSheet);
+      setTimeout(()=>{ document.addEventListener('keydown', closeSheet, true); }, 80);
+    }
+
+    function hkToast(msg){
+      if(typeof showToast==='function'){ showToast(msg); return; }
+      const t=document.createElement('div');
+      t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(12,18,44,.97);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;padding:8px 18px;border-radius:10px;font-size:13px;z-index:99998;pointer-events:none;white-space:nowrap;animation:saHkFadeIn .14s ease;';
+      t.textContent=msg; document.body.appendChild(t);
+      setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),320); },1600);
+    }
+
+    if(!document.getElementById('sa-hk-style')){
+      const s=document.createElement('style');
+      s.id='sa-hk-style';
+      s.textContent='@keyframes saHkFadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}';
+      document.head.appendChild(s);
+    }
+
+    document.addEventListener('keydown', function saHotkeyHandler(e){
+      if(e.ctrlKey||e.metaKey||e.altKey) return;
+      if(inInput()) return;
+      if(document.getElementById(SHEET_ID)) return;
+      const key = e.key;
+
+      if(key>='1' && key<='7'){
+        const idx = parseInt(key,10)-1;
+        const order = (state&&state.active_order)?state.active_order:[];
+        const installed = (state&&state.installed)?state.installed:{};
+        const seats = order.filter(n=>installed[n]);
+        if(idx<seats.length){
+          e.preventDefault();
+          const name=seats[idx];
+          if(typeof selectSeat==='function') selectSeat(name);
+          hkToast('⌨ '+name);
+        }
+        return;
+      }
+
+      switch(key.toLowerCase()){
+        case 'g':
+          e.preventDefault();
+          { const op=document.getElementById('opPrompt'); if(op){ op.focus(); op.select(); hkToast('⌨ Group Console'); } }
+          break;
+        case 'c':
+          e.preventDefault();
+          toggleTool('calendar',function(){ if(typeof showCalendarModal==='function') showCalendarModal(); else if(typeof window.showCalendarModal==='function') window.showCalendarModal(); hkToast('⌨ Calendar'); });
+          break;
+        case 'l':
+          e.preventDefault();
+          toggleTool('lead lab',function(){ if(typeof showLeadLabModal==='function') showLeadLabModal(); else if(typeof window.showLeadLabModal==='function') window.showLeadLabModal(); hkToast('⌨ Find Leads'); });
+          break;
+        case 's':
+          e.preventDefault();
+          toggleTool('social studio',function(){ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); else if(typeof window.showSocialStudioModal==='function') window.showSocialStudioModal(); hkToast('⌨ Social Studio'); });
+          break;
+        case 'e':
+          e.preventDefault();
+          toggleTool('email broadcast',function(){ if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast','Email Broadcast'); else if(typeof window.showCRMModal==='function') window.showCRMModal('crmViewBroadcast','Email Broadcast'); hkToast('⌨ Email Broadcast'); });
+          break;
+        case '?':
+        case '/':
+          e.preventDefault();
+          buildSheet();
+          break;
+        default: break;
+      }
+    });
+
+  })(); // end initHotkeys
+
 })();
 
 
