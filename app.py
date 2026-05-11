@@ -11663,7 +11663,7 @@ HTML = r"""
 
     .opText{
       width:100%;
-      height: 118px;
+      height: 72px;
       resize:none;
       border-radius: 14px;
       border:1px solid rgba(42,58,106,.9);
@@ -12746,7 +12746,7 @@ HTML = r"""
   }
 
   /* Give the prompt textarea breathing room */
-  .opText{ min-height: 108px; }
+  .opText{ min-height: 72px; }
 
   /* Avoid the bottom mobile bar covering content */
   .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
@@ -15906,7 +15906,7 @@ input[type="range"]::-moz-range-progress {
               <div class="tiny" id="opStatus"></div>
               <div class="tiny" id="opHint" title="Say a teammate name to switch. Box clears on each switch." style="display:none;"></div>
             </div>
-            <div class="tiny" id="micStatusGroup" style="margin-top:8px;">Mic: idle</div>
+            <div class="tiny" id="micStatusGroup" style="display:none;">Mic: idle</div>
           </div>
 
         </div>
