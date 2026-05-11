@@ -11612,11 +11612,12 @@ HTML = r"""
       height: 62%;
       border-radius: 999px;
       background:
-        radial-gradient(circle at 50% 50%, rgba(124,58,237,.22), rgba(11,16,36,.88) 52%, rgba(7,10,20,.96) 76%);
-      border: 1px solid rgba(42,58,106,.85);
+        radial-gradient(circle at 50% 35%, rgba(124,58,237,.28) 0%, rgba(11,16,36,.92) 48%, rgba(7,10,20,.98) 78%);
+      border: 1px solid rgba(124,58,237,.30);
       box-shadow:
-        0 0 0 1px rgba(17,24,39,.35) inset,
-        0 0 70px rgba(124,58,237,.18);
+        0 0 0 1px rgba(17,24,39,.5) inset,
+        0 0 80px rgba(124,58,237,.22),
+        0 0 160px rgba(124,58,237,.08);
       overflow:hidden;
     }
     .table:before{
@@ -11736,23 +11737,24 @@ HTML = r"""
     
     .seatOperator{
       border-color: rgba(34,211,238,.55) !important;
+      background: rgba(8,20,48,.96) !important;
       box-shadow:
-        0 0 0 1px rgba(17,24,39,.35) inset,
-        0 0 16px rgba(34,211,238,.24);
+        0 0 0 1px rgba(34,211,238,.10) inset,
+        0 0 22px rgba(34,211,238,.20),
+        0 4px 24px rgba(0,0,0,.5) !important;
     }
-    .seatOperatorPulse{
-      animation: operatorPulse 2.4s ease-in-out infinite;
-      border-color: rgba(34,211,238,.90) !important;
+    .seatOperator::before{
+      background: rgba(34,211,238,.8) !important;
+      opacity: .8 !important;
+    }
+    .seatOperator:hover{
+      border-color: rgba(34,211,238,.85) !important;
       box-shadow:
-        0 0 0 1px rgba(17,24,39,.35) inset,
-        0 0 34px rgba(34,211,238,.38),
-        0 0 52px rgba(124,58,237,.18);
+        0 0 0 1px rgba(34,211,238,.15) inset,
+        0 0 34px rgba(34,211,238,.35),
+        0 8px 32px rgba(0,0,0,.55) !important;
     }
-    @keyframes operatorPulse{
-      0%{ transform: translate(-50%,0) scale(1); }
-      50%{ transform: translate(-50%,0) scale(1.03); }
-      100%{ transform: translate(-50%,0) scale(1); }
-    }
+    /* seatOperatorPulse handled by standard seatPulse */
 
 .seatPulse{
       animation: seatPulse 1.9s ease-in-out infinite;
@@ -11809,18 +11811,18 @@ HTML = r"""
       overflow:hidden;
       isolation:isolate;
       width: 118px;
-      background: rgba(14,22,48,.93);
+      background: linear-gradient(160deg, rgba(20,30,64,.97) 0%, rgba(10,16,42,.97) 100%);
       border: 1px solid rgba(42,58,106,.85);
       border-radius: 16px;
-      padding: 14px 10px 11px;
+      padding: 14px 10px 30px;
       cursor: pointer;
       display:flex;
       flex-direction: column;
       align-items: center;
       gap: 0;
-      transition: transform .15s ease, border-color .2s ease, background .15s ease, box-shadow .2s ease;
-      backdrop-filter: blur(12px);
-      box-shadow: 0 4px 24px rgba(0,0,0,.35), 0 1px 0 rgba(255,255,255,.04) inset;
+      transition: transform .18s ease, border-color .2s ease, box-shadow .2s ease;
+      backdrop-filter: blur(14px);
+      box-shadow: 0 4px 28px rgba(0,0,0,.4), 0 1px 0 rgba(255,255,255,.05) inset;
       user-select:none;
       touch-action: manipulation;
       z-index: 12;
@@ -11836,10 +11838,9 @@ HTML = r"""
       transition: opacity .2s;
     }
     .seat:hover{
-      transform: translateY(-4px) scale(1.03);
-      border-color: rgba(124,58,237,.65);
-      background: rgba(18,28,62,.96);
-      box-shadow: 0 8px 32px rgba(0,0,0,.45), 0 1px 0 rgba(255,255,255,.06) inset;
+      transform: translateY(-5px) scale(1.04);
+      border-color: rgba(124,58,237,.7);
+      box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 28px rgba(124,58,237,.18), 0 1px 0 rgba(255,255,255,.07) inset;
     }
     .seat:hover::before{ opacity: 1; }
 
@@ -15856,9 +15857,7 @@ input[type="range"]::-moz-range-progress {
             <!-- SVG ring overlay — dashed circle tracing the seat positions -->
             <svg id="seatRingSVG" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible;" xmlns="http://www.w3.org/2000/svg">
               <circle id="seatRingOuter" cx="50%" cy="50%" r="43.5%" fill="none"
-                stroke="rgba(124,58,237,.18)" stroke-width="1" stroke-dasharray="4 6"/>
-              <circle id="seatRingInner" cx="50%" cy="50%" r="43.5%" fill="none"
-                stroke="rgba(247,211,106,.07)" stroke-width="8"/>
+                stroke="rgba(124,58,237,.22)" stroke-width="1" stroke-dasharray="4 7"/>
             </svg>
             <div class="opHead">
               <div class="opTitle">
@@ -17227,9 +17226,10 @@ function makeSeat(defn, idx, totalSeats){
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
 
-      // Operator seat (always available)
+      // Operator at position 0 (12 o'clock), teammates at 1..n
+      const totalSeats = seats.length + 1;
       try{
-        wrap.appendChild(makeOperatorSeat(0));
+        wrap.appendChild(makeOperatorSeat(totalSeats));
       }catch(err){
         console.error("Operator seat failed to render:", err);
       }
@@ -17256,7 +17256,7 @@ function makeSeat(defn, idx, totalSeats){
 
       seats.forEach((name, i) => {
         const defn = installed[name];
-        const seat = makeSeat(defn, i, seats.length);
+        const seat = makeSeat(defn, i + 1, totalSeats); // +1: Operator holds position 0
         wrap.appendChild(seat);
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
@@ -17328,152 +17328,89 @@ function makeSeat(defn, idx, totalSeats){
 
       updateTablePulseFromStatuses();
     }
-    function makeOperatorSeat(idx){
+    function makeOperatorSeat(totalSeats){
       const wrap = $("tableWrap");
+      const wrapRect = wrap.getBoundingClientRect();
 
       const seat = document.createElement("div");
       seat.className = "seat seatOperator";
       seat.dataset.name = "Operator";
       seat.tabIndex = 0;
+      seat.style.setProperty("--seat-accent", "#22d3ee");
 
-      const tools = document.createElement("div");
-      tools.className = "seatTools";
+      // Crown badge at top-right
+      const crownBadge = document.createElement("div");
+      crownBadge.className = "seatNum";
+      crownBadge.textContent = "◆";
+      crownBadge.style.color = "rgba(34,211,238,.7)";
+      crownBadge.style.fontSize = "10px";
+      seat.appendChild(crownBadge);
 
-      const profBtn = document.createElement("button");
-      profBtn.className = "seatToolBtn";
-      profBtn.innerText = "Profile";
-      profBtn.title = "Edit Operator Profile (shared context)";
-      profBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); });
-      profBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openOperatorProfileModal(); });
-      tools.appendChild(profBtn);
-
-      seat.appendChild(tools);
-
+      // Avatar
       const avatar = document.createElement("div");
       avatar.className = "avatar";
-      avatar.style.background = "#0f172a";
+      avatar.style.background = "#0a1628";
       avatar.style.color = "#67e8f9";
+      avatar.style.border = "1px solid rgba(34,211,238,.35)";
+      avatar.style.fontSize = "15px";
       avatar.innerText = "O";
       seat.appendChild(avatar);
 
-      const nameEl = document.createElement("div");
-      nameEl.className = "seatName";
-      nameEl.innerText = "Operator";
-      seat.appendChild(nameEl);
-
+      // Meta
       const meta = document.createElement("div");
       meta.className = "seatMeta";
-      meta.innerText = "";
+
+      const nm = document.createElement("div");
+      nm.className = "seatName";
+      nm.innerText = "Operator";
+
+      const rl = document.createElement("div");
+      rl.className = "seatRole";
+      rl.innerText = "Profile & Context";
+
+      meta.appendChild(nm);
+      meta.appendChild(rl);
       seat.appendChild(meta);
 
-      // Ghost Stack fix: on mobile force relative flow via JS — never absolute coords
+      // Hover tools
+      const tools = document.createElement("div");
+      tools.className = "seatTools";
+      const profBtn = document.createElement("button");
+      profBtn.className = "seatToolBtn";
+      profBtn.innerText = "Profile";
+      profBtn.title = "Edit Operator Profile";
+      profBtn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
+      profBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); openOperatorProfileModal(); });
+      tools.appendChild(profBtn);
+      seat.appendChild(tools);
+
+      // Fixed at 12 o'clock (position 0 in the circle)
       const isMobileOp = window.innerWidth <= 640;
       if(isMobileOp){
-        seat.style.position  = "relative";
-        seat.style.left      = "";
-        seat.style.top       = "";
-        seat.style.width     = "100%";
-        seat.style.height    = "auto";
+        seat.style.position = "relative";
+        seat.style.left = "";
+        seat.style.top = "";
+        seat.style.width = "100%";
+        seat.style.height = "auto";
         seat.style.transform = "none";
       } else {
-        try{
-          const saved = loadSeatPositions();
-          if(saved && saved["Operator"] && typeof saved["Operator"].left === "number" && typeof saved["Operator"].top === "number"){
-            seat.style.left = saved["Operator"].left + "px";
-            seat.style.top  = saved["Operator"].top + "px";
-          }else{
-            const r = wrap.getBoundingClientRect();
-            const w = 190, h = 124;
-            const pos = {x: 50, y: 18};
-            let left = (pos.x/100) * r.width - (w/2);
-            let top  = (pos.y/100) * r.height - (h/2);
-            const maxLeft = r.width - 110;
-            const maxTop  = r.height - 110;
-            if(r.width < 260 || r.height < 260){
-              left = 20; top = 20;
-            }else{
-              left = clamp(left, 10, Math.max(10, maxLeft));
-              top  = clamp(top, 10, Math.max(10, maxTop));
-            }
-            seat.style.left = left + "px";
-            seat.style.top  = top + "px";
-          }
-        }catch(_){
-          seat.style.left = "50%";
-          seat.style.top  = "12%";
-        }
+        const cardW = 118, cardH = 150;
+        const cx = wrapRect.width / 2;
+        const cy = wrapRect.height / 2;
+        const radius = Math.min(wrapRect.width, wrapRect.height) * 0.87 / 2;
+        const pos = computeSeatPos(0, totalSeats, cx, cy, radius);
+        seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
+        seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
       }
 
-      // Click / keyboard select — only the Profile button opens the modal (not the card itself)
-      seat.addEventListener("keydown", (e) => {
-        if(e.key === "Enter" || e.key === " "){
-          e.preventDefault(); profBtn.click();
-        }
+      // Click → open profile modal
+      seat.addEventListener("click", () => openOperatorProfileModal());
+      seat.addEventListener("keydown", e => {
+        if(e.key === "Enter" || e.key === " "){ e.preventDefault(); openOperatorProfileModal(); }
       });
 
-      // Drag behavior (same as other seats)
-      let dragging = false;
-      let moved = false;
-      let startX = 0, startY = 0;
-      let offsetX = 0, offsetY = 0;
-
-      seat.addEventListener("pointerdown", (e) => {
-        if(e.button !== undefined && e.button !== 0) return;
-        dragging = true;
-        moved = false;
-        startX = e.clientX;
-        startY = e.clientY;
-
-        const r = seat.getBoundingClientRect();
-        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
-        offsetX = (e.clientX - r.left) / sc;
-        offsetY = (e.clientY - r.top) / sc;
-
-        seat.classList.add("dragging");
-        seat.setPointerCapture(e.pointerId);
-      });
-
-      seat.addEventListener("pointermove", (e) => {
-        if(!dragging) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if(Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-
-        const boundsEl = (window.getRTBoundsElV4 ? window.getRTBoundsElV4() : wrap);
-        const boundsRect = boundsEl.getBoundingClientRect();
-        const sc = (window.getRTScaleV4 ? window.getRTScaleV4() : 1) || 1;
-
-        const left = ((e.clientX - boundsRect.left) / sc) - offsetX;
-        const top = ((e.clientY - boundsRect.top) / sc) - offsetY;
-
-        const maxLeft = (boundsEl.clientWidth || 0) - 30;
-        const maxTop = (boundsEl.clientHeight || 0) - 30;
-
-        seat.style.left = clamp(left, -80, Math.max(-80, maxLeft)) + "px";
-        seat.style.top = clamp(top, -80, Math.max(-80, maxTop)) + "px";
-      });
-
-      seat.addEventListener("pointerup", (e) => {
-        if(!dragging) return;
-        dragging = false;
-        seat.classList.remove("dragging");
-
-        try{
-          const saved = loadSeatPositions() || {};
-          const r = seat.getBoundingClientRect();
-          const wr = wrap.getBoundingClientRect();
-          saved["Operator"] = {left: (r.left - wr.left), top: (r.top - wr.top)};
-          saveSeatPositions(saved);
-        }catch(_){}
-
-        try{ seat.releasePointerCapture(e.pointerId); }catch(_){}
-
-        // If user dragged, don't also "click" select (prevents accidental open)
-        if(moved){
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      });
+      return seat;
+    }
 
       seat.addEventListener("pointercancel", () => {
         dragging = false;
