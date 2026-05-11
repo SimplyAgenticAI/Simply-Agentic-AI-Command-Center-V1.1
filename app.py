@@ -11599,9 +11599,9 @@ HTML = r"""
     .tableWrap{
       position:relative;
       width: min(1100px, 95vw);
-      height: min(560px, 58vw);
-      min-height: 420px;
-      max-height: 580px;
+      height: min(590px, 60vw);
+      min-height: 440px;
+      max-height: 610px;
       margin-bottom: 0;
     }
 
@@ -11676,7 +11676,7 @@ HTML = r"""
     }
 
     .opRow{
-      display:flex; gap:10px; margin-top:10px; align-items:center; justify-content:space-between;
+      display:flex; gap:10px; margin-top:4px; align-items:center; justify-content:space-between;
     }
 
     .tablePulseEnergy{
@@ -15857,7 +15857,7 @@ input[type="range"]::-moz-range-progress {
           <div class="operator" id="operator">
             <!-- SVG ring overlay — dashed ellipse tracing the seat positions -->
             <svg id="seatRingSVG" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible;" xmlns="http://www.w3.org/2000/svg">
-              <ellipse id="seatRingOuter" cx="50%" cy="50%" rx="43%" ry="34%" fill="none"
+              <ellipse id="seatRingOuter" cx="50%" cy="50%" rx="43%" ry="35%" fill="none"
                 stroke="rgba(124,58,237,.20)" stroke-width="1" stroke-dasharray="4 7"/>
             </svg>
             <div class="opHead">
@@ -17209,7 +17209,7 @@ function makeSeat(defn, idx, totalSeats){
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
         const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.34;
+        const ry = wrapRect.height * 0.35;
         const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
@@ -17401,7 +17401,7 @@ function makeSeat(defn, idx, totalSeats){
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
         const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.34;
+        const ry = wrapRect.height * 0.35;
         const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
