@@ -223,7 +223,7 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Round Table Command Center")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Simply Agentic AI")
 
 # Gmail OAuth (recommended for Gmail accounts; avoids SMTP 535 BadCredentials)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
@@ -772,6 +772,32 @@ app = Flask(__name__)
 # -----------------------------
 # Uploads static serving (additive)
 # -----------------------------
+@app.get("/static/og-image.png")
+def og_image():
+    """Social share OG image — served as SVG with PNG content-type hint.
+    Replace with a real 1200x630 PNG in /static/ for production; this SVG
+    fallback ensures no broken image on Slack/LinkedIn/Twitter previews.
+    """
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07091a"/>
+      <stop offset="100%" stop-color="#0e1630"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <ellipse cx="600" cy="315" rx="420" ry="180" fill="none" stroke="rgba(247,211,106,0.3)" stroke-width="2"/>
+  <circle cx="600" cy="135" r="10" fill="#7c3aed"/>
+  <text x="600" y="285" font-family="system-ui,sans-serif" font-size="64" font-weight="800"
+        fill="white" text-anchor="middle">Simply Agentic AI</text>
+  <text x="600" y="355" font-family="system-ui,sans-serif" font-size="28" font-weight="400"
+        fill="rgba(196,181,253,0.85)" text-anchor="middle">Your AI-powered business command center</text>
+  <text x="600" y="420" font-family="system-ui,sans-serif" font-size="22"
+        fill="rgba(247,211,106,0.7)" text-anchor="middle">7 AI Teammates · CRM · Broadcasts · Calendar · Lead Lab</text>
+</svg>"""
+    return svg, 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400"}
+
+
 @app.get("/uploads/<path:relpath>")
 def serve_upload(relpath):
     """Serve files saved under DATA/uploads. Requires login; enforces ownership."""
@@ -1896,6 +1922,58 @@ def _csrf_valid() -> bool:
     return bool(incoming) and hmac.compare_digest(expected, incoming)
 
 
+@app.get("/robots.txt")
+def robots_txt():
+    """Block crawlers from API, admin, and user pages. Allow marketing pages."""
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    content = f"""User-agent: *
+Disallow: /api/
+Disallow: /admin/
+Disallow: /stripe/
+Disallow: /getting-started
+Disallow: /extension/
+Disallow: /uploads/
+Allow: /
+Allow: /pricing
+Allow: /showcase
+Allow: /terms
+Allow: /privacy
+Allow: /login
+Allow: /register
+
+Sitemap: {base}/sitemap.xml
+"""
+    return content, 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    """XML sitemap for marketing pages."""
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    from datetime import date
+    today = date.today().isoformat()
+    urls = [
+        ("",          "1.0",  "daily"),
+        ("/pricing",  "0.9",  "weekly"),
+        ("/showcase", "0.8",  "weekly"),
+        ("/terms",    "0.5",  "monthly"),
+        ("/privacy",  "0.5",  "monthly"),
+        ("/login",    "0.6",  "monthly"),
+        ("/register", "0.7",  "monthly"),
+    ]
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for path, priority, freq in urls:
+        xml += f"""  <url>
+    <loc>{base}{path}</loc>
+    <lastmod>{today}</lastmod>
+    <changefreq>{freq}</changefreq>
+    <priority>{priority}</priority>
+  </url>\n"""
+    xml += "</urlset>"
+    return xml, 200, {"Content-Type": "application/xml; charset=utf-8"}
+
+
 @app.get("/manifest.json")
 def pwa_manifest():
     """PWA Web App Manifest — enables install to home screen."""
@@ -1925,9 +2003,10 @@ def pwa_manifest():
 
 @app.get("/api/debug/key_status")
 def api_debug_key_status():
-    """Temporary debug — shows which OpenAI key the server will use. Remove after diagnosis."""
+    """Admin-only debug — shows which OpenAI key the server will use."""
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not _is_admin_user(u): return jsonify({"ok": False, "error": "Admin only"}), 403
     uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
     u_record = load_users().get("users", {}).get(uname, {})
     raw_key = (u_record.get("settings") or {}).get("openai_key", "")
@@ -4035,6 +4114,31 @@ def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
+
+
+def _send_platform_email(to_addr: str, subject: str, body: str) -> bool:
+    """Send a platform-level transactional email (welcome, trial, cancellation).
+    Uses server SMTP env vars (SimplyAgenticAI@gmail.com). Never raises — logs
+    and returns False on failure so callers can continue regardless.
+    """
+    if not to_addr or not SMTP_USER or not SMTP_PASS:
+        return False
+    from_name = SMTP_FROM_NAME or "Simply Agentic AI"
+    try:
+        send_email_smtp_with_creds(
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            host=SMTP_HOST,
+            port=SMTP_PORT,
+            user=SMTP_USER,
+            password=SMTP_PASS,
+            from_name=from_name,
+        )
+        return True
+    except Exception as exc:
+        print(f"[PLATFORM EMAIL] Failed to {to_addr!r}: {exc}", flush=True)
+        return False
 
 
 def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
@@ -10771,6 +10875,33 @@ def register_post():
         if _referrer and _referrer != username:
             _record_referral(_referrer, email or username)
             _award_points(username, "Joined via referral", 50)
+
+    # Welcome email — fire-and-forget, never blocks the redirect
+    if email and not is_first_user:
+        _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
+        threading.Thread(target=_send_platform_email, args=(
+            email,
+            f"Welcome to Simply Agentic AI — you're in 🎉",
+            f"""Hi {username},
+
+Welcome to Simply Agentic AI — your AI-powered business command center.
+
+Here's how to get started in the next 5 minutes:
+
+1. Open the Command Center and click any teammate seat to start a conversation.
+2. Press keys 1–7 on your keyboard to switch between teammates instantly.
+3. Type ? at any time to see all keyboard shortcuts.
+4. Head to Settings to connect your OpenAI key for the best results.
+
+Your team is ready. Press 1 and say hello to Sunshine.
+
+If you ever need help, just reply to this email.
+
+— The Simply Agentic AI Team
+{_base}
+""",
+        ), daemon=True).start()
+
     return redirect(url_for("index"))
 _PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
 
@@ -10873,6 +11004,33 @@ def verify_email_post():
     session["user"] = username
     session.permanent = True
     _audit_log("register", {"email": email, "is_admin": is_first}, username=username)
+
+    # Welcome email — fire-and-forget
+    if email and not is_first:
+        _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
+        threading.Thread(target=_send_platform_email, args=(
+            email,
+            f"Welcome to Simply Agentic AI — you're in 🎉",
+            f"""Hi {username},
+
+Welcome to Simply Agentic AI — your AI-powered business command center.
+
+Here's how to get started in the next 5 minutes:
+
+1. Open the Command Center and click any teammate seat to start a conversation.
+2. Press keys 1–7 on your keyboard to switch between teammates instantly.
+3. Type ? at any time to see all keyboard shortcuts.
+4. Head to Settings to connect your OpenAI key for the best results.
+
+Your team is ready. Press 1 and say hello to Sunshine.
+
+If you ever need help, just reply to this email.
+
+— The Simply Agentic AI Team
+{_base}
+""",
+        ), daemon=True).start()
+
     return redirect(url_for("index"))
 def verify_resend():
     token = session.get("_pending_verify_token", "")
@@ -11144,7 +11302,13 @@ def stripe_webhook():
     Stripe sends POST events here.
     Set your webhook endpoint in the Stripe dashboard to:
       https://your-app.com/stripe/webhook
-    and subscribe to: checkout.session.completed
+    Subscribe to ALL of these events:
+      checkout.session.completed
+      customer.subscription.trial_will_end
+      customer.subscription.deleted
+      customer.subscription.updated
+      invoice.paid
+      invoice.payment_failed
     """
     payload    = request.get_data()
     sig_header = request.headers.get("Stripe-Signature", "")
@@ -11174,7 +11338,7 @@ def stripe_webhook():
         if session_id:
             _generate_seat_for_stripe(email, customer_id, session_id, name=name, plan=plan)
 
-    # Trial ending soon — log it for future email notifications
+    # Trial ending soon — send email 3 days before
     if event.get("type") == "customer.subscription.trial_will_end":
         try:
             sub_obj     = (event.get("data") or {}).get("object") or {}
@@ -11185,8 +11349,115 @@ def stripe_webhook():
                 "trial_end_epoch": trial_end,
                 "at": now_iso(),
             })
-        except Exception:
-            pass
+            if customer_id:
+                seats = (_load_seats().get("seats") or {})
+                for seat in seats.values():
+                    if seat.get("stripe_customer_id") == customer_id:
+                        to_email  = (seat.get("holder_email") or seat.get("stripe_email") or "").strip()
+                        plan_name = seat.get("plan_name", "Simply Agentic AI")
+                        if to_email:
+                            _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
+                            threading.Thread(target=_send_platform_email, args=(
+                                to_email,
+                                "Your Simply Agentic AI trial ends in 3 days",
+                                f"""Hi there,
+
+Your free trial of Simply Agentic AI ({plan_name}) ends in 3 days.
+
+After that, your card on file will be charged and you'll keep full access — no action needed.
+
+To change or cancel before the trial ends:
+{_base}/stripe/manage
+
+Questions? Just reply to this email.
+
+— The Simply Agentic AI Team
+{_base}
+""",
+                            ), daemon=True).start()
+                        break
+        except Exception as exc:
+            print(f"[WEBHOOK] trial_will_end error: {exc}", flush=True)
+
+    # Subscription cancelled — revoke access and send confirmation
+    if event.get("type") == "customer.subscription.deleted":
+        try:
+            sub_obj     = (event.get("data") or {}).get("object") or {}
+            customer_id = sub_obj.get("customer") or ""
+            if customer_id:
+                data  = _load_seats()
+                seats = data.get("seats") or {}
+                changed        = False
+                cancelled_email = ""
+                cancelled_plan  = ""
+                for code, seat in seats.items():
+                    if seat.get("stripe_customer_id") == customer_id:
+                        seats[code]["status"]       = "cancelled"
+                        seats[code]["cancelled_at"] = now_iso()
+                        cancelled_email = (seat.get("holder_email") or seat.get("stripe_email") or "").strip()
+                        cancelled_plan  = seat.get("plan_name", "Simply Agentic AI")
+                        changed = True
+                if changed:
+                    data["seats"] = seats
+                    _save_seats(data)
+                append_log("stripe_subscription_cancelled", {"customer_id": customer_id, "at": now_iso()})
+                if cancelled_email:
+                    _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
+                    threading.Thread(target=_send_platform_email, args=(
+                        cancelled_email,
+                        "Your Simply Agentic AI subscription has been cancelled",
+                        f"""Hi there,
+
+We've confirmed your Simply Agentic AI subscription ({cancelled_plan}) has been cancelled.
+
+Your data is preserved for 30 days. To reactivate at any time:
+{_base}/pricing
+
+We'd love to know what we could have done better — just reply to this email.
+
+— The Simply Agentic AI Team
+""",
+                    ), daemon=True).start()
+        except Exception as exc:
+            print(f"[WEBHOOK] subscription.deleted error: {exc}", flush=True)
+
+    # Payment failed — notify user to update card
+    if event.get("type") == "invoice.payment_failed":
+        try:
+            obj2          = (event.get("data") or {}).get("object") or {}
+            customer_id   = obj2.get("customer") or ""
+            attempt_count = obj2.get("attempt_count", 1)
+            if customer_id:
+                seats = (_load_seats().get("seats") or {})
+                for seat in seats.values():
+                    if seat.get("stripe_customer_id") == customer_id:
+                        to_email  = (seat.get("holder_email") or seat.get("stripe_email") or "").strip()
+                        plan_name = seat.get("plan_name", "Simply Agentic AI")
+                        if to_email:
+                            _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
+                            threading.Thread(target=_send_platform_email, args=(
+                                to_email,
+                                "Action needed: payment failed for Simply Agentic AI",
+                                f"""Hi there,
+
+We couldn't process your payment for Simply Agentic AI ({plan_name}).
+
+This is attempt {attempt_count}. Stripe will retry automatically, but to avoid interruption please update your payment method now:
+{_base}/stripe/manage
+
+Need help? Just reply to this email.
+
+— The Simply Agentic AI Team
+""",
+                            ), daemon=True).start()
+                        append_log("stripe_payment_failed", {
+                            "customer_id": customer_id,
+                            "attempt_count": attempt_count,
+                            "at": now_iso(),
+                        })
+                        break
+        except Exception as exc:
+            print(f"[WEBHOOK] invoice.payment_failed error: {exc}", flush=True)
 
     # Trial converted to paid — mark seat trial_active = False
     if event.get("type") in ("invoice.paid", "customer.subscription.updated"):
