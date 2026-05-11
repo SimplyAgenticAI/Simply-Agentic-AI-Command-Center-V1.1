@@ -11610,7 +11610,7 @@ HTML = r"""
       inset: 50% 50%;
       transform: translate(-50%,-50%);
       width: 72%;
-      height: 72%;
+      height: 40%;
       border-radius: 50%;
       background:
         radial-gradient(ellipse at 50% 35%, rgba(124,58,237,.28) 0%, rgba(11,16,36,.92) 52%, rgba(7,10,20,.98) 80%);
@@ -15857,7 +15857,7 @@ input[type="range"]::-moz-range-progress {
           <div class="operator" id="operator">
             <!-- SVG ring overlay — dashed ellipse tracing the seat positions -->
             <svg id="seatRingSVG" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible;" xmlns="http://www.w3.org/2000/svg">
-              <ellipse id="seatRingOuter" cx="50%" cy="50%" rx="44%" ry="40%" fill="none"
+              <ellipse id="seatRingOuter" cx="50%" cy="50%" rx="43%" ry="34%" fill="none"
                 stroke="rgba(124,58,237,.20)" stroke-width="1" stroke-dasharray="4 7"/>
             </svg>
             <div class="opHead">
@@ -17209,7 +17209,7 @@ function makeSeat(defn, idx, totalSeats){
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
         const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.36;
+        const ry = wrapRect.height * 0.34;
         const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
@@ -17401,7 +17401,7 @@ function makeSeat(defn, idx, totalSeats){
         const cx = wrapRect.width / 2;
         const cy = wrapRect.height / 2;
         const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.36;
+        const ry = wrapRect.height * 0.34;
         const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
         seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
         seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
