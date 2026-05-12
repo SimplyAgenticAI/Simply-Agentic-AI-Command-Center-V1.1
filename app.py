@@ -8716,71 +8716,152 @@ LOGIN_HTML = r"""
 
 </head><body>
 
-<!-- ===== COSMIC GRID LOGIN BACKGROUND ===== -->
+<!-- ===== COSMIC GRID — desktop interactive, mobile clean ===== -->
 <canvas id="cosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+<div id="cgTip" style="display:none;position:fixed;z-index:200;pointer-events:none;"></div>
 <script>
 (function(){
 'use strict';
-var cv=document.getElementById('cosmicWeb'),ctx=cv.getContext('2d');
-var W,H,T=0;
-var mouse={x:-1,y:-1};
+var cv  = document.getElementById('cosmicWeb');
+var ctx = cv.getContext('2d');
+var tip = document.getElementById('cgTip');
+var W, H, T = 0, HUE = 0;
+var isMob = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || window.innerWidth < 640;
+var mouse = { x: -999, y: -999 };
+var COLS, ROWS;
 
-/* ── Stars ── */
-var NSTARS=350,stars=[];
-function mkStar(){
-  var tier=Math.random();
-  return {
-    x:Math.random()*W, y:Math.random()*H,
-    r: tier<0.6 ? 0.4+Math.random()*0.8 : tier<0.9 ? 0.9+Math.random()*1.2 : 1.8+Math.random()*2.2,
-    a: 0.25+Math.random()*0.75,
-    phase: Math.random()*Math.PI*2,
-    spd: 0.004+Math.random()*0.012,
-    col: Math.random()<0.08?'#ffd080':Math.random()<0.06?'#80d4ff':'#ffffff'
-  };
+var TIPS = [
+  { icon:'🤖', title:'7 AI specialists in one command center',
+    body:'Each teammate has a unique role — Sunshine closes deals, Ava researches, Luna writes copy, Orion automates. Tap any seat or use the Group Console to send one prompt to all 7 at once.' },
+  { icon:'⚡', title:'Group Console — one prompt, seven answers',
+    body:'Type a prompt in the center console and hit Send to All. Get strategy, copy, risk analysis, and automation ideas back in under 30 seconds. Your whole AI team, one command.' },
+  { icon:'📋', title:'Built-in CRM + sales pipeline',
+    body:'Track leads from first touch to closed deal. Import contacts from Facebook, run email sequences, and let Sunshine draft personalised follow-ups that sound exactly like you.' },
+  { icon:'🎬', title:'Teleprompter for video creators',
+    body:'AI writes your script, you read it on screen while recording. Set scroll speed, add your camera feed as a PiP, hit record. No editor needed. Find it under the menu → Teleprompter.' },
+  { icon:'🧠', title:'Teammates remember your business',
+    body:'Every conversation builds context. Your teammates learn your offer, voice, and audience — so responses get sharper the more you use them. Like a team that actually pays attention.' },
+  { icon:'📡', title:'SMS + email broadcasts, built in',
+    body:'Connect Twilio for SMS or send email blasts to your list. Sunshine drafts personalised outreach for every contact — one by one or in bulk, directly from the CRM.' },
+  { icon:'🔌', title:'Chrome extension for Facebook leads',
+    body:'Install the Simply Agentic Chrome extension to import leads from Facebook profiles, groups, and marketplace straight into your pipeline — tagged and staged automatically.' },
+  { icon:'🎙', title:'Voice mode — talk to your team',
+    body:'Click the mic and speak your prompt. Teammates respond in text and can read their answer back via OpenAI TTS. Hands-free AI command — useful when you're driving or presenting.' },
+  { icon:'📊', title:'Dashboard shows exactly what's working',
+    body:'Messages sent, leads imported, pipeline stages, activity logs — all real-time. Know where your business stands at a glance, without opening a spreadsheet.' },
+  { icon:'🚀', title:'Build your own AI teammates',
+    body:'On Growth plans, build custom AI teammates with your own system prompts, names, avatars, and voices. Design the exact specialist your business needs — no code required.' },
+  { icon:'🔬', title:'Deep Dive — 3 rounds of self-critique',
+    body:'Activate Deep Dive on any chat. The AI reasons, critiques its own output, and refines it twice before responding. Slower, but produces consultant-level work worth paying for.' },
+  { icon:'💡', title:'Replace 10 tools with one',
+    body:'CRM, email marketing, content writer, strategist, social outreach, automation — Simply Agentic does it all, trained on your business, available 24/7 at a fraction of the cost.' },
+];
+
+var nodes = [], stars = [], shooters = [];
+
+function mkStars(){
+  stars = [];
+  var n = isMob ? 100 : 300;
+  for(var i=0;i<n;i++){
+    stars.push({ x:Math.random(), y:Math.random(),
+      r: Math.random()<0.65 ? 0.3+Math.random()*0.7 : 0.9+Math.random()*1.3,
+      a: 0.18+Math.random()*0.72,
+      ph: Math.random()*Math.PI*2,
+      spd: 0.005+Math.random()*0.014,
+      col: Math.random()<0.09?'#ffd080':Math.random()<0.06?'#90d8ff':'#ffffff' });
+  }
 }
 
-/* ── Shooting stars ── */
-var shooters=[];
+function buildNodes(){
+  nodes = [];
+  var cw = W/COLS, ch = H/ROWS;
+  var ti = 0;
+  for(var r=0;r<=ROWS;r++){
+    for(var c=0;c<=COLS;c++){
+      var hasTip = !isMob && c>0 && r>0 && c<COLS && r<ROWS && c%2===0 && r%2===0;
+      nodes.push({ cx:c*cw, cy:r*ch, col:c, row:r,
+        hue:(HUE+c*9+r*13)%360, ph:Math.random()*Math.PI*2,
+        pspd:0.008+Math.random()*0.012,
+        tipIdx: hasTip ? (ti++%TIPS.length) : -1,
+        lit:false, litT:0 });
+    }
+  }
+}
+
 function spawnShooter(){
-  shooters.push({
-    x: Math.random()*W*1.2, y: -20,
-    vx: -(40+Math.random()*60), vy: 30+Math.random()*60,
-    len: 80+Math.random()*120, alpha:1,
-    hue: Math.random()<0.5?260:200
-  });
+  if(isMob) return;
+  shooters.push({ x:Math.random()*W*1.2, y:-20,
+    vx:-(40+Math.random()*60), vy:30+Math.random()*60,
+    len:80+Math.random()*120, alpha:1, hue:Math.random()<0.5?260:200 });
 }
-setInterval(function(){ if(Math.random()<0.4) spawnShooter(); }, 2200);
-
-/* ── Grid config ── */
-var GRID_W = 18;  /* columns */
-var GRID_H = 12;  /* rows    */
-var HUE = 0;      /* slow colour cycle */
+setInterval(function(){ if(Math.random()<0.4) spawnShooter(); },2500);
 
 function resize(){
-  W=cv.width=window.innerWidth;
-  H=cv.height=window.innerHeight;
-  stars=[]; for(var i=0;i<NSTARS;i++) stars.push(mkStar());
+  isMob = window.innerWidth < 640;
+  COLS  = isMob ? 6 : 18;
+  ROWS  = isMob ? 8 : 12;
+  W = cv.width  = window.innerWidth;
+  H = cv.height = window.innerHeight;
+  mkStars(); buildNodes();
 }
 
+/* tip nodes — desktop click only */
+var activeTip=null, tipTO=null;
+
+function showTip(nd, mx, my){
+  if(nd.tipIdx<0) return;
+  var t=TIPS[nd.tipIdx];
+  var tw=300, pad=16;
+  var tx=Math.min(mx+14,W-tw-pad);
+  var ty=Math.min(my-20,H-180);
+  if(ty<pad) ty=my+14;
+  tip.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;">'+
+    '<span style="font-size:22px;flex-shrink:0;line-height:1.2;">'+t.icon+'</span>'+
+    '<div><div style="font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:5px;line-height:1.3;">'+t.title+'</div>'+
+    '<div style="font-size:12px;color:#94a3b8;line-height:1.55;">'+t.body+'</div></div></div>'+
+    '<div style="font-size:10px;color:#475569;margin-top:8px;text-align:right;">click anywhere to close</div>';
+  tip.style.cssText='display:block;left:'+tx+'px;top:'+ty+'px;width:'+tw+'px;'+
+    'background:rgba(8,12,30,.97);border:1px solid rgba(124,58,237,.55);'+
+    'border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,.75),'+
+    '0 0 0 1px rgba(247,211,106,.1);backdrop-filter:blur(14px);'+
+    'pointer-events:none;z-index:200;';
+  activeTip=nd; nd.lit=true;
+  clearTimeout(tipTO); tipTO=setTimeout(hideTip,7000);
+}
+function hideTip(){ tip.style.display='none'; activeTip=null; }
+function hitNode(mx,my){
+  var best=null,bd=18;
+  for(var i=0;i<nodes.length;i++){
+    var n=nodes[i]; if(n.tipIdx<0) continue;
+    var d=Math.sqrt((mx-n.cx)*(mx-n.cx)+(my-n.cy)*(my-n.cy));
+    if(d<bd){bd=d;best=n;}
+  }
+  return best;
+}
+
+if(!isMob){
+  cv.style.pointerEvents='auto'; cv.style.cursor='default';
+  cv.addEventListener('mousemove',function(e){ cv.style.cursor=hitNode(e.clientX,e.clientY)?'pointer':'default'; });
+  cv.addEventListener('click',function(e){
+    if(activeTip){hideTip();return;}
+    var h=hitNode(e.clientX,e.clientY); if(h) showTip(h,e.clientX,e.clientY);
+  });
+}
 document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
-document.addEventListener('touchmove',function(e){if(e.touches.length){mouse.x=e.touches[0].clientX;mouse.y=e.touches[0].clientY;}},{passive:true});
+document.addEventListener('mouseleave',function(){mouse.x=-999;mouse.y=-999;});
 
 function draw(){
-  T+=0.012;
-  HUE=(HUE+0.12)%360;
+  T+=(isMob?0.008:0.010); HUE=(HUE+0.14)%360;
   ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#02040c'; ctx.fillRect(0,0,W,H);
 
-  /* ── 1. Deep space ── */
-  ctx.fillStyle='#02040c';
-  ctx.fillRect(0,0,W,H);
-
-  /* ── 2. Nebula wash — 3 slow drifting colour clouds ── */
-  [
-    {fx:0.15+Math.sin(T*0.07)*0.06, fy:0.25+Math.cos(T*0.05)*0.06, h:255, r:0.62, a:0.11},
-    {fx:0.85+Math.cos(T*0.06)*0.05, fy:0.70+Math.sin(T*0.08)*0.05, h:210, r:0.55, a:0.09},
-    {fx:0.50+Math.sin(T*0.04)*0.08, fy:0.45+Math.cos(T*0.06)*0.07, h:(HUE+140)%360, r:0.80, a:0.06},
-  ].forEach(function(nb){
-    var cx=W*nb.fx, cy=H*nb.fy, rad=Math.min(W,H)*nb.r;
+  /* nebulae */
+  var nebs=isMob?[{fx:0.5,fy:0.45,h:255,r:0.7,a:0.09}]:[
+    {fx:0.14+Math.sin(T*0.07)*0.06,fy:0.24+Math.cos(T*0.05)*0.06,h:255,r:0.58,a:0.10},
+    {fx:0.86+Math.cos(T*0.06)*0.05,fy:0.72+Math.sin(T*0.08)*0.05,h:210,r:0.52,a:0.09},
+    {fx:0.50+Math.sin(T*0.04)*0.08,fy:0.44+Math.cos(T*0.06)*0.07,h:(HUE+140)%360,r:0.80,a:0.06}];
+  nebs.forEach(function(nb){
+    var cx=W*nb.fx,cy=H*nb.fy,rad=Math.min(W,H)*nb.r;
     var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
     g.addColorStop(0,'hsla('+nb.h+',72%,48%,'+nb.a+')');
     g.addColorStop(0.55,'hsla('+nb.h+',62%,36%,'+(nb.a*0.4)+')');
@@ -8788,140 +8869,116 @@ function draw(){
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   });
 
-  /* ── 3. Twinkling star field ── */
+  /* stars */
   stars.forEach(function(s){
-    s.phase+=s.spd;
-    var a=s.a*(0.45+0.55*Math.sin(s.phase));
-    ctx.globalAlpha=a;
-    ctx.fillStyle=s.col;
-    ctx.beginPath();
-    ctx.arc(s.x,s.y,s.r*(0.75+0.25*Math.sin(s.phase*0.7)),0,Math.PI*2);
-    ctx.fill();
-    /* Cross-sparkle for larger stars */
-    if(s.r>1.5){
-      ctx.globalAlpha=a*0.5;
-      var sz=s.r*3;
-      ctx.strokeStyle=s.col;
-      ctx.lineWidth=0.5;
-      ctx.beginPath();
-      ctx.moveTo(s.x-sz,s.y); ctx.lineTo(s.x+sz,s.y);
-      ctx.moveTo(s.x,s.y-sz); ctx.lineTo(s.x,s.y+sz);
-      ctx.stroke();
+    s.ph+=s.spd; var a=s.a*(0.45+0.55*Math.sin(s.ph));
+    ctx.globalAlpha=a; ctx.fillStyle=s.col;
+    ctx.beginPath(); ctx.arc(s.x*W,s.y*H,s.r*(0.75+0.25*Math.sin(s.ph*0.7)),0,Math.PI*2); ctx.fill();
+    if(s.r>1.4&&!isMob){
+      ctx.globalAlpha=a*0.4; ctx.strokeStyle=s.col; ctx.lineWidth=0.5;
+      var sz=s.r*2.8;
+      ctx.beginPath(); ctx.moveTo(s.x*W-sz,s.y*H); ctx.lineTo(s.x*W+sz,s.y*H);
+      ctx.moveTo(s.x*W,s.y*H-sz); ctx.lineTo(s.x*W,s.y*H+sz); ctx.stroke();
     }
   });
   ctx.globalAlpha=1;
 
-  /* ── 4. COSMIC GRID ── */
-  var cellW=W/GRID_W, cellH=H/GRID_H;
-  /* Slow drift — the grid breathes very slightly */
-  var drift=Math.sin(T*0.4)*4;
-
-  /* Vertical lines */
-  for(var c=0;c<=GRID_W;c++){
-    var x=c*cellW+drift*(c/GRID_W-0.5)*2;
-    /* Intensity peaks at mouse proximity */
-    var mDist=Math.abs(mouse.x-x)/W;
-    var glow=Math.max(0,1-mDist*4);
-    var baseA=c%3===0?0.30:c%6===0?0.22:0.12;
-    var lineA=baseA+glow*0.35;
-    var lineH=(HUE+c*8)%360;
+  /* grid */
+  var cw=W/COLS, ch=H/ROWS, drift=Math.sin(T*0.4)*(isMob?1.2:3.2);
+  for(var c=0;c<=COLS;c++){
+    var x=c*cw+drift*(c/COLS-0.5)*2;
+    var gl=isMob?0:Math.max(0,1-Math.abs(mouse.x-x)/W*4);
+    var ba=c%3===0?0.28:c%6===0?0.20:0.10; var la=ba+gl*0.38;
+    var lh=(HUE+c*8)%360;
     var lg=ctx.createLinearGradient(x,0,x,H);
-    lg.addColorStop(0,  'transparent');
-    lg.addColorStop(0.15,'hsla('+lineH+',80%,70%,'+lineA+')');
-    lg.addColorStop(0.5, 'hsla('+lineH+',85%,78%,'+(lineA*1.3)+')');
-    lg.addColorStop(0.85,'hsla('+lineH+',80%,70%,'+lineA+')');
-    lg.addColorStop(1,  'transparent');
-    ctx.strokeStyle=lg;
-    ctx.lineWidth=c%6===0?1.2:c%3===0?0.8:0.45;
+    lg.addColorStop(0,'transparent'); lg.addColorStop(0.15,'hsla('+lh+',82%,72%,'+la+')');
+    lg.addColorStop(0.5,'hsla('+lh+',88%,80%,'+(la*1.25)+')'); lg.addColorStop(0.85,'hsla('+lh+',82%,72%,'+la+')');
+    lg.addColorStop(1,'transparent'); ctx.strokeStyle=lg;
+    ctx.lineWidth=c%6===0?1.0:c%3===0?0.70:0.38;
     ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
   }
-
-  /* Horizontal lines */
-  for(var r=0;r<=GRID_H;r++){
-    var y=r*cellH+drift*(r/GRID_H-0.5)*2;
-    var mDistH=Math.abs(mouse.y-y)/H;
-    var glowH=Math.max(0,1-mDistH*4);
-    var baseAH=r%3===0?0.28:r%6===0?0.20:0.11;
-    var lineAH=baseAH+glowH*0.32;
-    var lineHH=(HUE+r*12+60)%360;
-    var lgH=ctx.createLinearGradient(0,y,W,y);
-    lgH.addColorStop(0,  'transparent');
-    lgH.addColorStop(0.15,'hsla('+lineHH+',80%,70%,'+lineAH+')');
-    lgH.addColorStop(0.5, 'hsla('+lineHH+',85%,78%,'+(lineAH*1.3)+')');
-    lgH.addColorStop(0.85,'hsla('+lineHH+',80%,70%,'+lineAH+')');
-    lgH.addColorStop(1,  'transparent');
-    ctx.strokeStyle=lgH;
-    ctx.lineWidth=r%6===0?1.2:r%3===0?0.75:0.40;
+  for(var r=0;r<=ROWS;r++){
+    var y=r*ch+drift*(r/ROWS-0.5)*2;
+    var gl2=isMob?0:Math.max(0,1-Math.abs(mouse.y-y)/H*4);
+    var ba2=r%3===0?0.26:r%6===0?0.18:0.09; var la2=ba2+gl2*0.30;
+    var lhh=(HUE+r*12+60)%360;
+    var lgh=ctx.createLinearGradient(0,y,W,y);
+    lgh.addColorStop(0,'transparent'); lgh.addColorStop(0.15,'hsla('+lhh+',82%,72%,'+la2+')');
+    lgh.addColorStop(0.5,'hsla('+lhh+',88%,80%,'+(la2*1.25)+')'); lgh.addColorStop(0.85,'hsla('+lhh+',82%,72%,'+la2+')');
+    lgh.addColorStop(1,'transparent'); ctx.strokeStyle=lgh;
+    ctx.lineWidth=r%6===0?1.0:r%3===0?0.65:0.35;
     ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
   }
 
-  /* Grid intersection dots — glow brighter near mouse */
-  for(var c2=0;c2<=GRID_W;c2++){
-    for(var r2=0;r2<=GRID_H;r2++){
-      var ix=c2*cellW, iy=r2*cellH;
-      var dx=mouse.x-ix, dy=mouse.y-iy;
-      var dd=Math.sqrt(dx*dx+dy*dy);
-      var proximity=Math.max(0,1-dd/200);
-      var dotA=0.15+proximity*0.65;
-      /* Only draw visible dots */
-      if(dotA<0.06) continue;
-      var dotH=(HUE+c2*9+r2*13)%360;
-      var dotR=proximity>0.1?2.5+proximity*3:c2%3===0&&r2%3===0?1.8:1.0;
-      if(proximity>0.1){
-        var dg=ctx.createRadialGradient(ix,iy,0,ix,iy,dotR*5);
-        dg.addColorStop(0,'hsla('+dotH+',95%,92%,'+dotA+')');
-        dg.addColorStop(0.5,'hsla('+dotH+',85%,70%,'+(dotA*0.4)+')');
-        dg.addColorStop(1,'transparent');
-        ctx.fillStyle=dg;
-        ctx.beginPath(); ctx.arc(ix,iy,dotR*5,0,Math.PI*2); ctx.fill();
-      }
-      ctx.fillStyle='hsla('+dotH+',90%,88%,'+dotA+')';
-      ctx.beginPath(); ctx.arc(ix,iy,dotR,0,Math.PI*2); ctx.fill();
+  /* nodes */
+  for(var i=0;i<nodes.length;i++){
+    var n=nodes[i]; n.ph+=n.pspd; n.hue=(HUE+n.col*9+n.row*13)%360;
+    var ix=n.cx, iy=n.cy, hasTip=n.tipIdx>=0;
+    var prox=0;
+    if(!isMob&&mouse.x>-900){ var dxm=mouse.x-ix,dym=mouse.y-iy; prox=Math.max(0,1-Math.sqrt(dxm*dxm+dym*dym)/180); }
+    if(n.lit) n.litT=Math.min(n.litT+0.04,1); else n.litT=Math.max(n.litT-0.03,0);
+    var pulse=0.5+0.5*Math.sin(n.ph);
+    var dotA=(isMob?0.10:0.13)+prox*0.60+n.litT*0.5;
+    var dotR=hasTip?(2.0+prox*3.5+n.litT*2.5+pulse*0.6):(isMob?(0.6+pulse*0.2):(0.9+prox*1.8+pulse*0.3));
+    if(dotA<0.04&&!hasTip) continue;
+    if(hasTip){
+      var ringA=0.10+prox*0.28+n.litT*0.38+pulse*0.05;
+      var dg=ctx.createRadialGradient(ix,iy,0,ix,iy,dotR*4.5);
+      dg.addColorStop(0,'hsla('+n.hue+',95%,92%,'+ringA+')');
+      dg.addColorStop(0.5,'hsla('+n.hue+',85%,72%,'+(ringA*0.5)+')');
+      dg.addColorStop(1,'transparent');
+      ctx.fillStyle=dg; ctx.beginPath(); ctx.arc(ix,iy,dotR*4.5,0,Math.PI*2); ctx.fill();
+    } else if(prox>0.05){
+      var dg2=ctx.createRadialGradient(ix,iy,0,ix,iy,dotR*4);
+      dg2.addColorStop(0,'hsla('+n.hue+',90%,88%,'+(dotA*0.6)+')'); dg2.addColorStop(1,'transparent');
+      ctx.fillStyle=dg2; ctx.beginPath(); ctx.arc(ix,iy,dotR*4,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle='hsla('+n.hue+',92%,90%,'+Math.min(dotA,0.9)+')';
+    ctx.beginPath(); ctx.arc(ix,iy,dotR,0,Math.PI*2); ctx.fill();
+  }
+
+  /* mouse glow */
+  if(!isMob&&mouse.x>-900){
+    var mg=ctx.createRadialGradient(mouse.x,mouse.y,0,mouse.x,mouse.y,100);
+    mg.addColorStop(0,'hsla('+(HUE+180)%360+',88%,88%,0.12)'); mg.addColorStop(1,'transparent');
+    ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(mouse.x,mouse.y,100,0,Math.PI*2); ctx.fill();
+  }
+
+  /* shooting stars */
+  if(!isMob){
+    var dt=0.016;
+    for(var si=shooters.length-1;si>=0;si--){
+      var sh=shooters[si]; sh.x+=sh.vx*dt; sh.y+=sh.vy*dt; sh.alpha-=0.011;
+      if(sh.alpha<=0||sh.y>H+40){shooters.splice(si,1);continue;}
+      var ex=sh.x-sh.vx*dt*(sh.len/55),ey=sh.y-sh.vy*dt*(sh.len/55);
+      var sg=ctx.createLinearGradient(ex,ey,sh.x,sh.y);
+      sg.addColorStop(0,'transparent'); sg.addColorStop(0.7,'hsla('+sh.hue+',90%,85%,'+(sh.alpha*0.55)+')');
+      sg.addColorStop(1,'hsla('+sh.hue+',100%,98%,'+sh.alpha+')');
+      ctx.strokeStyle=sg; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(sh.x,sh.y); ctx.stroke();
+      var hg=ctx.createRadialGradient(sh.x,sh.y,0,sh.x,sh.y,7);
+      hg.addColorStop(0,'hsla('+sh.hue+',100%,98%,'+(sh.alpha*0.9)+')'); hg.addColorStop(1,'transparent');
+      ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(sh.x,sh.y,7,0,Math.PI*2); ctx.fill();
     }
   }
-
-  /* ── 5. Mouse proximity glow ── */
-  if(mouse.x>0){
-    var mg=ctx.createRadialGradient(mouse.x,mouse.y,0,mouse.x,mouse.y,120);
-    mg.addColorStop(0,'hsla('+(HUE+180)%360+',88%,88%,0.14)');
-    mg.addColorStop(0.5,'hsla('+(HUE+180)%360+',78%,70%,0.05)');
-    mg.addColorStop(1,'transparent');
-    ctx.fillStyle=mg;
-    ctx.beginPath(); ctx.arc(mouse.x,mouse.y,120,0,Math.PI*2); ctx.fill();
-  }
-
-  /* ── 6. Shooting stars ── */
-  var dt=0.016;
-  for(var s2=shooters.length-1;s2>=0;s2--){
-    var sh=shooters[s2];
-    sh.x+=sh.vx*dt; sh.y+=sh.vy*dt; sh.alpha-=0.012;
-    if(sh.alpha<=0||sh.y>H+40){ shooters.splice(s2,1); continue; }
-    var ex=sh.x-sh.vx*dt*(sh.len/60);
-    var ey=sh.y-sh.vy*dt*(sh.len/60);
-    var sg=ctx.createLinearGradient(ex,ey,sh.x,sh.y);
-    sg.addColorStop(0,'transparent');
-    sg.addColorStop(0.7,'hsla('+sh.hue+',90%,85%,'+(sh.alpha*0.6)+')');
-    sg.addColorStop(1,'hsla('+sh.hue+',100%,98%,'+sh.alpha+')');
-    ctx.strokeStyle=sg;
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(sh.x,sh.y); ctx.stroke();
-    /* Head glow */
-    var hg=ctx.createRadialGradient(sh.x,sh.y,0,sh.x,sh.y,8);
-    hg.addColorStop(0,'hsla('+sh.hue+',100%,98%,'+(sh.alpha*0.9)+')');
-    hg.addColorStop(1,'transparent');
-    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(sh.x,sh.y,8,0,Math.PI*2); ctx.fill();
-  }
-
   requestAnimationFrame(draw);
 }
-
-window.addEventListener('resize', resize);
+window.addEventListener('resize',resize);
 resize(); draw();
 })();
 </script>
+<style>
+@media(min-width:641px){
+  #cgHint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    font-size:11px;color:rgba(148,163,184,.45);pointer-events:none;z-index:10;
+    white-space:nowrap;letter-spacing:.04em;opacity:0;
+    animation:hintFadeIn 6s ease forwards;animation-delay:2.5s;}
+  @keyframes hintFadeIn{0%{opacity:0;}15%{opacity:1;}75%{opacity:1;}100%{opacity:0;}}
+}
+@media(max-width:640px){#cgHint{display:none;}}
+</style>
+<div id="cgHint">✦ click the glowing nodes to discover tips</div>
 <!-- ===== END COSMIC GRID ===== -->
-
-
 
 <div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -31733,375 +31790,6 @@ document.addEventListener('click',e=>{
 })();
 </script>
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
-
-<!-- ═══════════════════════════════════════════════════════════════
-     MOBILE LAYOUT v3 — COMPLETE REBUILD
-     Architecture on mobile (≤720px):
-       [sticky top nav]
-       [seat cards — clean scrollable list]
-       [pinned chat panel — always at bottom, swaps teammate on tap]
-     All desktop-only panels hidden. Zero ghost boxes. Zero bleed.
-═══════════════════════════════════════════════════════════════ -->
-<style>
-/* ╔══════════════════════════════════════════════════════════╗
-   ║  MOBILE MASTER RESET — kills every ghost / overlap       ║
-   ║  Must be the LAST CSS in the document to win cascade     ║
-   ╚══════════════════════════════════════════════════════════╝ */
-@media (max-width:720px){
-
-  /* 1. Kill ALL height on the desktop right-column panels */
-  .side,
-  .sideCard,
-  .stage > .side,
-  .stage .sideCard,
-  #thread,
-  #seatPassRow,
-  #threadActionsRow,
-  #followRow,
-  .followBox,
-  #followMsg,
-  #sendFollow,
-  #dmAttachBtn,
-  #dmAttachDrop,
-  #dmAttachWrap,
-  #dmFiles,
-  #dmAttachList,
-  #micStatusDm,
-  .groupCard,
-  .underTable,
-  #sharedMemoryCard,
-  #groupReplies,
-  #groupPassRow {
-    display:   none   !important;
-    height:    0      !important;
-    min-height:0      !important;
-    max-height:0      !important;
-    overflow:  hidden !important;
-    position:  static !important;
-  }
-
-  /* 2. tableWrap: strict flex column, zero absolute positioning */
-  #tableWrap,
-  .tableWrap {
-    position:       relative   !important;
-    display:        flex       !important;
-    flex-direction: column     !important;
-    align-items:    stretch    !important;
-    width:          100%       !important;
-    max-width:      100%       !important;
-    height:         auto       !important;
-    min-height:     0          !important;
-    overflow:       visible    !important;
-    padding:        8px 12px 280px !important; /* bottom padding = chat panel height */
-    gap:            10px       !important;
-    box-sizing:     border-box !important;
-    transform:      none       !important;
-  }
-
-  /* 3. Hide the decorative round-table circle */
-  #tableWrap .table,
-  .tableWrap .table,
-  #tableWrap #rtStage > .table { display:none !important; }
-
-  /* 4. Operator console — push to bottom of seat list */
-  #tableWrap .operator,
-  .tableWrap .operator {
-    position:  relative !important;
-    left:      auto     !important;
-    top:       auto     !important;
-    transform: none     !important;
-    width:     100%     !important;
-    order:     9999     !important;
-    margin:    0        !important;
-  }
-
-  /* 5. Every seat card: clean document-flow list item */
-  #tableWrap .seat,
-  .tableWrap .seat,
-  #tableWrap #rtStage .seat {
-    position:   relative    !important;
-    left:       auto        !important;
-    top:        auto        !important;
-    right:      auto        !important;
-    bottom:     auto        !important;
-    transform:  none        !important;
-    width:      100%        !important;
-    max-width:  100%        !important;
-    height:     auto        !important;
-    min-height: 76px        !important;
-    margin:     0           !important;
-    overflow:   hidden      !important;   /* contain children — no bleed */
-    isolation:  isolate     !important;   /* new stacking context */
-    z-index:    1           !important;
-    box-sizing: border-box  !important;
-    flex-shrink:0           !important;
-  }
-
-  /* 6. rtStage (v8 wrapper) must also be a flat flex column */
-  #tableWrap #rtStage,
-  #rtStage {
-    position:       static    !important;
-    display:        flex      !important;
-    flex-direction: column    !important;
-    gap:            10px      !important;
-    width:          100%      !important;
-    height:         auto      !important;
-    transform:      none      !important;
-  }
-
-  /* 7. stage grid → single column */
-  .stage {
-    display:               grid    !important;
-    grid-template-columns: 1fr     !important;
-  }
-}
-</style>
-
-<!-- ── Pinned mobile chat panel ── -->
-<div id="saMobChat" style="display:none;">
-  <div id="saMobChatHdr">
-    <div id="saMobAv">?</div>
-    <div id="saMobInfo">
-      <div id="saMobName" style="font-size:15px;font-weight:800;color:#e2e8f0;">Select a teammate</div>
-      <div id="saMobRole" style="font-size:11px;color:#64748b;margin-top:1px;"></div>
-    </div>
-  </div>
-  <div class="thread" id="saMobThread"></div>
-  <div id="saMobInputRow">
-    <textarea id="saMobMsg" placeholder="Message teammate…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" rows="1"></textarea>
-    <button id="saMobSend">↵</button>
-  </div>
-  <div id="saMobMic">Mic: idle</div>
-</div>
-
-<style>
-/* ── Chat panel styles ── */
-@media (max-width:720px){
-  #saMobChat {
-    display:        flex          !important;
-    flex-direction: column;
-    position:       fixed;
-    bottom:         0;
-    left:           0;
-    right:          0;
-    height:         260px;
-    z-index:        8600;
-    background:     rgba(7,11,26,.98);
-    border-top:     1.5px solid rgba(124,58,237,.5);
-    border-radius:  18px 18px 0 0;
-    box-shadow:     0 -6px 36px rgba(0,0,0,.7);
-    overflow:       hidden;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  #saMobChatHdr {
-    display:         flex;
-    align-items:     center;
-    gap:             10px;
-    padding:         9px 14px 7px;
-    border-bottom:   1px solid rgba(42,58,106,.5);
-    background:      rgba(12,17,38,.98);
-    flex-shrink:     0;
-  }
-  #saMobAv {
-    width:           34px;
-    height:          34px;
-    border-radius:   10px;
-    background:      #374151;
-    display:         flex;
-    align-items:     center;
-    justify-content: center;
-    font-size:       14px;
-    font-weight:     900;
-    color:           #fff;
-    flex-shrink:     0;
-    transition:      background .25s;
-  }
-  #saMobThread {
-    flex:                   1;
-    overflow-y:             auto;
-    padding:                8px 14px;
-    -webkit-overflow-scrolling: touch;
-    min-height:             0;
-  }
-  #saMobInputRow {
-    display:     flex;
-    gap:         8px;
-    align-items: flex-end;
-    padding:     7px 12px 8px;
-    border-top:  1px solid rgba(42,58,106,.45);
-    flex-shrink: 0;
-  }
-  #saMobMsg {
-    flex:          1;
-    background:    rgba(14,22,48,.9);
-    border:        1px solid rgba(42,58,106,.65);
-    border-radius: 10px;
-    padding:       9px 12px;
-    font-size:     15px;
-    color:         #e2e8f0;
-    resize:        none;
-    min-height:    40px;
-    max-height:    80px;
-    font-family:   inherit;
-    outline:       none;
-    line-height:   1.4;
-  }
-  #saMobMsg:focus { border-color: rgba(124,58,237,.7); }
-  #saMobSend {
-    width:           44px;
-    height:          44px;
-    background:      rgba(79,70,229,.9);
-    border:          1px solid rgba(124,58,237,.6);
-    border-radius:   10px;
-    color:           #fff;
-    font-size:       18px;
-    display:         flex;
-    align-items:     center;
-    justify-content: center;
-    cursor:          pointer;
-    flex-shrink:     0;
-  }
-  #saMobMic {
-    font-size:   11px;
-    color:       rgba(100,116,139,.5);
-    padding:     0 14px 4px;
-    flex-shrink: 0;
-  }
-}
-@media (min-width:721px){
-  #saMobChat { display:none !important; }
-}
-</style>
-
-<script>
-(function(){
-'use strict';
-function ge(id){ return document.getElementById(id); }
-var isMobile = function(){ return window.innerWidth <= 720; };
-var _active = null;
-
-/* ── Update chat panel header ── */
-function updateHeader(name){
-  var av = ge('saMobAv'), nm = ge('saMobName'), rl = ge('saMobRole');
-  if(!av||!nm) return;
-  var color = '#7c3aed';
-  try{
-    var seatEl = document.querySelector('.seat[data-name="'+CSS.escape(name)+'"]');
-    if(seatEl){
-      var avEl = seatEl.querySelector('[class*="Avatar"],[class*="seatAv"],[class*=" av"],.av');
-      if(!avEl) avEl = seatEl.querySelector('[style*="background"]');
-      if(avEl) color = avEl.style.background || color;
-    }
-    var d = (window.state&&window.state.installed||{})[name]||{};
-    rl.textContent = d.job_title || d.role || '';
-  }catch(e){ rl.textContent = ''; }
-  av.textContent = (name||'?')[0].toUpperCase();
-  av.style.background = color;
-  nm.textContent = name;
-}
-
-/* ── Sync thread into panel ── */
-function syncThread(){
-  var dt = ge('thread'), mt = ge('saMobThread');
-  if(dt && mt){
-    mt.innerHTML = dt.innerHTML ||
-      '<div style="color:#334155;font-size:13px;padding:8px 0;text-align:center;">No messages yet.</div>';
-    mt.scrollTop = mt.scrollHeight;
-  }
-}
-
-/* ── Select teammate ── */
-function pickSeat(name){
-  if(!isMobile()) return;
-  _active = name;
-  updateHeader(name);
-  /* Mark card active */
-  document.querySelectorAll('.seat').forEach(function(s){
-    s.classList.toggle('sel', s.getAttribute('data-name')===name);
-  });
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(name)
-      .then(function(){ setTimeout(syncThread,300); })
-      .catch(function(){ setTimeout(syncThread,300); });
-  }
-}
-
-/* ── Send ── */
-function doSend(){
-  var msg = ge('saMobMsg');
-  if(!msg||!_active) return;
-  var text = msg.value.trim();
-  if(!text) return;
-  var fm = ge('followMsg'), sf = ge('sendFollow');
-  if(fm && sf){ fm.value=text; sf.click(); msg.value=''; msg.style.height='auto'; setTimeout(syncThread,700); return; }
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(_active).then(function(){
-      var fm2=ge('followMsg'),sf2=ge('sendFollow');
-      if(fm2&&sf2){fm2.value=text;sf2.click();msg.value='';}
-    });
-  }
-}
-
-var sb = ge('saMobSend');
-if(sb) sb.addEventListener('click', doSend);
-var ma = ge('saMobMsg');
-if(ma){
-  ma.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}});
-  ma.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px';});
-}
-
-/* ── Hook seat taps ── */
-function hookSeats(){
-  document.querySelectorAll('.seat[data-name]').forEach(function(seat){
-    if(seat._mobHooked) return;
-    seat._mobHooked = true;
-    seat.addEventListener('click', function(e){
-      if(!isMobile()) return;
-      pickSeat(seat.getAttribute('data-name'));
-    }, true);
-  });
-}
-
-/* ── Watch desktop thread for live sync ── */
-function watchThread(){
-  var dt = ge('thread');
-  if(!dt||!window.MutationObserver) return;
-  new MutationObserver(function(){
-    if(!isMobile()||!_active) return;
-    syncThread();
-    var mic=ge('micStatusDm'), sm=ge('saMobMic');
-    if(mic&&sm) sm.textContent=mic.textContent;
-  }).observe(dt,{childList:true,subtree:true,characterData:true});
-}
-
-/* ── Patch selectSeat so panel updates on any selection ── */
-function patchSelectSeat(){
-  var orig = window.selectSeat;
-  if(!orig||orig._mobPatched) return;
-  var p = function(name){
-    var r = orig.apply(this,arguments);
-    if(isMobile()){ _active=name; updateHeader(name); Promise.resolve(r).then(function(){setTimeout(syncThread,300);}).catch(function(){}); }
-    return r;
-  };
-  p._mobPatched = true;
-  window.selectSeat = p;
-}
-
-function tryInit(){
-  if(typeof window.selectSeat==='function'){ patchSelectSeat(); hookSeats(); watchThread(); }
-  else { setTimeout(tryInit, 500); }
-}
-
-/* MutationObserver for dynamic seat renders */
-if(window.MutationObserver){
-  new MutationObserver(function(){ hookSeats(); }).observe(document.documentElement,{childList:true,subtree:true});
-}
-
-setTimeout(tryInit, 900);
-setTimeout(hookSeats, 1500);
-})();
-</script>
-<!-- ===== END MOBILE LAYOUT v3 ===== -->
 
 </body>
 </html>
