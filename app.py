@@ -9714,7 +9714,7 @@ _TELEPROMPTER_HTML = """<!doctype html>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{--bg:#060c18;--sur:#0d1526;--bor:rgba(255,255,255,.09);--pur:#7c3aed;--purl:#c4b5fd;--tx:#e2e8f0;--mu:#64748b;}
-html,body{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;overflow:hidden;touch-action:pan-y;}
 body.mir #sb{transform:scaleX(-1);}
 #app{display:flex;flex-direction:column;height:100dvh;}
 
@@ -9781,7 +9781,25 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
 /* ── Hint bar ── */
 #hint{font-size:11px;color:var(--mu);text-align:center;padding:4px;background:rgba(255,255,255,.02);border-top:1px solid var(--bor);}
 
-@media(max-width:600px){#sb{font-size:24px;padding:20px 14px;}input[type=range]{width:72px;}}
+@media(max-width:600px){
+  #top{padding:6px 10px;gap:4px;}
+  #top h1{font-size:13px;}
+  .tb{padding:5px 9px;font-size:12px;}
+  #sb{font-size:24px;padding:20px 14px;}
+  input[type=range]{width:72px;}
+  #bot{gap:7px;padding:8px 10px;flex-wrap:wrap;}
+  /* Stack speed/size sliders more compactly */
+  .sr{gap:4px;}
+  .sl{font-size:11px;}
+  /* Make the hint bar smaller */
+  #hint{font-size:10px;padding:3px;}
+  /* Script editor full-screen on mobile */
+  #eed{max-height:96vh;border-radius:12px 12px 0 0;padding:16px;}
+  #sta{min-height:140px;font-size:14px;}
+  #airow{flex-wrap:wrap;gap:6px;}
+  #ain{min-width:100%;order:1;}
+  .tb.active{flex:1;justify-content:center;}
+}
 </style>
 </head>
 <body>
@@ -9820,6 +9838,7 @@ input[type=range]{accent-color:var(--pur);cursor:pointer;width:100px;}
 
 <!-- Hint -->
 <div id="hint">Space = play/pause &nbsp;|&nbsp; &#8592;&#8594; = step &nbsp;|&nbsp; Click any word to jump</div>
+<div id="hintMobile" style="display:none;font-size:10px;color:var(--mu);text-align:center;padding:4px;background:rgba(255,255,255,.02);border-top:1px solid var(--bor);">Tap Play to start &nbsp;|&nbsp; Swipe &#8592;&#8594; to step &nbsp;|&nbsp; Tap any word to jump</div>
 
 <!-- Camera PiP -->
 <div id="pip"><video id="cv" autoplay muted playsinline></video></div>
@@ -9865,10 +9884,26 @@ var _csrfToken = '';
 var _csrfReady = false;
 
 function _fetchCsrf(cb) {
+  // Set a hard timeout so buttons are never permanently stuck
+  var done = false;
+  var timer = setTimeout(function(){
+    if(!done){ done = true; _csrfReady = true; cb && cb(); }
+  }, 3000);
+
   fetch('/api/csrf_token', { credentials: 'same-origin' })
     .then(function(r){ return r.json(); })
-    .then(function(d){ if(d && d.csrf_token){ _csrfToken = d.csrf_token; _csrfReady = true; } cb && cb(); })
-    .catch(function(){ cb && cb(); });
+    .then(function(d){
+      if(!done){
+        done = true;
+        clearTimeout(timer);
+        if(d && d.csrf_token){ _csrfToken = d.csrf_token; }
+        _csrfReady = true;
+        cb && cb();
+      }
+    })
+    .catch(function(){
+      if(!done){ done = true; clearTimeout(timer); _csrfReady = true; cb && cb(); }
+    });
 }
 
 var DEFAULT_SCRIPT = "Welcome to Simply Agentic AI.\n\nA full team of specialised AI teammates — all in one place.\n\nNo more switching between tools. No more dropped follow-ups.\n\nJust smart, consistent work that sounds exactly like you.\n\nReady to meet your team?";
@@ -10068,13 +10103,22 @@ function setAIBusy(busy){
 function aiCall(system, message, cb){
   ge('aierr').style.display = 'none';
   setAIBusy(true);
+
+  var headers = { 'Content-Type': 'application/json' };
+  if(_csrfToken) headers['X-CSRF-Token'] = _csrfToken;
+
   fetch('/api/teleprompter/ai', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
+    headers: headers,
     body: JSON.stringify({ system: system, message: message })
   })
   .then(function(r){
+    if(r.status === 401){
+      // Session expired — reload so user can re-login
+      window.location.href = '/login?next=/teleprompter';
+      throw new Error('Please log in again.');
+    }
     if(!r.ok) throw new Error('Server error ' + r.status);
     return r.json();
   })
@@ -10083,7 +10127,7 @@ function aiCall(system, message, cb){
     if(d.ok && d.text){
       cb(d.text);
     } else {
-      ge('aierr').textContent = d.error || 'AI failed. Check your OpenAI key in Settings.';
+      ge('aierr').textContent = d.error || 'AI unavailable — check your OpenAI key in Settings.';
       ge('aierr').style.display = 'block';
     }
   })
@@ -10301,6 +10345,15 @@ function stopRecording(){
 
 window.addEventListener('resize', posReadLine);
 
+/* Show the correct hint bar for the current device */
+(function switchHint(){
+  var isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || window.innerWidth < 600;
+  if(isMobile){
+    var h = ge('hint'); if(h) h.style.display = 'none';
+    var hm = ge('hintMobile'); if(hm) hm.style.display = '';
+  }
+})();
+
 /* Restore saved preferences */
 var savedSpd = localStorage.getItem('tp_spd');
 var savedFsz = localStorage.getItem('tp_fsz');
@@ -10311,13 +10364,17 @@ if(savedFsz){ fsz = +savedFsz; ge('fsr').value = savedFsz; ge('fsv').textContent
 
 loadScript(savedScript || DEFAULT_SCRIPT);
 posReadLine();
+
+/* AI button init — disable until CSRF is ready, but never stay stuck */
+['btnWrite','btnTighten','btnHook'].forEach(function(id){
+  var el = ge(id); if(el){ el.disabled = true; el.title = 'Loading…'; }
+});
+
 _fetchCsrf(function() {
   ['btnWrite','btnTighten','btnHook'].forEach(function(id){
-    var el = ge(id); if(el){ el.disabled = false; el.title = ''; }
+    var el = ge(id);
+    if(el){ el.disabled = false; el.title = ''; }
   });
-});
-['btnWrite','btnTighten','btnHook'].forEach(function(id){
-  var el = ge(id); if(el){ el.disabled = true; el.title = 'Loading...'; }
 });
 
 })();
@@ -16276,7 +16333,7 @@ input[type="range"]::-moz-range-progress {
     </div>
 
     <div class="side">
-      <div class="sideCard" style="display:flex;flex-direction:column;overflow:hidden;">
+      <div class="sideCard" style="display:flex;flex-direction:column;">
         <!-- Header -->
         <div class="sideHead" style="flex-shrink:0;">
           <div class="sideTitle">
@@ -16307,7 +16364,7 @@ input[type="range"]::-moz-range-progress {
         <!-- Sticky input area -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
-          <div class="pillRow" style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+          <div class="pillRow" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             <input type="file" id="dmFiles" multiple style="display:none" />
             <!-- + Attach overflow -->
             <div style="position:relative;display:inline-block;" id="dmAttachWrap">
@@ -16323,7 +16380,7 @@ input[type="range"]::-moz-range-progress {
                 <button id="streamToggleBtn"  class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
               </div>
             </div>
-            <button class="btn btnPrimary" id="sendFollow" style="margin-left:auto;">Send ↵</button>
+            <button class="btn btnPrimary" id="sendFollow" style="flex:1;min-width:80px;justify-content:center;">Send ↵</button>
           </div>
           <div id="dmAttachList" class="pillRow"></div>
           <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
@@ -27091,6 +27148,77 @@ if(typeof maybeAutoShowOnboarding === "function"){
     }
   }
 }
+
+/* ===== MOBILE POLISH v3 — eliminates all card overlap & cutoff issues ===== */
+@media (max-width: 640px) {
+  /* Kill the fixed sideCard height entirely on portrait phones.
+     It must flow naturally in a column layout — no invisible tall ghost box. */
+  .sideCard {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  /* Thread needs a bounded scroll area inside the natural-height card */
+  .sideCard #thread {
+    flex: 1 1 auto !important;
+    max-height: 45vh !important;
+    min-height: 80px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  /* The input area at bottom of sideCard must never be clipped */
+  .sideCard > div:last-child {
+    flex-shrink: 0 !important;
+    padding-bottom: max(20px, env(safe-area-inset-bottom)) !important;
+    overflow: visible !important;
+  }
+  /* Send button — full-width so it's always reachable */
+  #sendFollow {
+    width: 100% !important;
+    min-height: 44px !important;
+    justify-content: center !important;
+    margin-left: 0 !important;
+    margin-top: 8px !important;
+  }
+  /* pillRow containing + btn and Send — stack vertically on mobile */
+  .sideCard .pillRow {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  /* + attach button full-width on mobile */
+  #dmAttachBtn {
+    width: 100% !important;
+    text-align: center !important;
+    justify-content: center !important;
+  }
+  /* "Mic: idle" label — keep it but shrink it so it doesn't push layout */
+  #micStatusDm {
+    font-size: 11px !important;
+    color: rgba(100,116,139,.7) !important;
+    margin-top: 2px !important;
+  }
+  #micStatusGroup {
+    font-size: 11px !important;
+  }
+  /* Dropdowns must appear above everything */
+  #dmAttachDrop, #gcToolsDrop {
+    z-index: 99999 !important;
+    position: fixed !important;
+    bottom: 80px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+  }
+  /* .side must not be a fixed-height scroll container on mobile */
+  .side {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
 </style>
 
 <!-- ═══════════════════════════════════════════════════════════════════════
@@ -34550,6 +34678,147 @@ ADD_UI_POLISH_V8 = r'''
   .tableWrap#tableWrap .table,
   #tableWrap #rtStage .table {
     display: none !important;
+  }
+}
+</style>
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE POLISH FINAL — v1 Launch-Ready
+   Fixes: (1) sideCard ghost-height causing text bleed behind seat cards
+          (2) Send button cut off
+          (3) Speak button / Mic:idle misplaced
+          (4) Dropdown menus hidden behind cards
+   Appended LAST — beats all previous rules.
+══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 720px) {
+
+  /* ── 1. Kill the tall sideCard ghost that creates text-behind-cards ── */
+  .sideCard,
+  .side .sideCard,
+  .side > .sideCard {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* ── 2. .side must also not stretch to viewport height on mobile ── */
+  .side {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* ── 3. Thread: bounded scroll, no ghost space below ── */
+  #thread {
+    height: auto !important;
+    max-height: 40vh !important;
+    min-height: 60px !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    flex: 1 1 auto !important;
+  }
+
+  /* ── 4. Send button: always full-width, never clipped ── */
+  #sendFollow {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    min-height: 46px !important;
+    justify-content: center !important;
+    font-size: 15px !important;
+    margin-top: 8px !important;
+    margin-left: 0 !important;
+  }
+
+  /* ── 5. Input area bottom row: stack cleanly ── */
+  .sideCard .pillRow:has(#sendFollow),
+  .sideCard .pillRow:has(#dmAttachBtn) {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  #dmAttachWrap {
+    width: 100% !important;
+  }
+  #dmAttachBtn {
+    width: 100% !important;
+    text-align: center !important;
+    padding: 10px !important;
+  }
+
+  /* ── 6. Mic status: subtle, never layout-breaking ── */
+  #micStatusDm,
+  #micStatusGroup {
+    font-size: 11px !important;
+    opacity: 0.65 !important;
+    margin-top: 4px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* ── 7. Dropdown menus: float above everything on mobile ── */
+  #dmAttachDrop {
+    position: fixed !important;
+    bottom: 80px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    top: auto !important;
+    z-index: 99999 !important;
+    max-height: 60vh !important;
+    overflow-y: auto !important;
+  }
+  #gcToolsDrop {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 80px !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    z-index: 99999 !important;
+  }
+
+  /* ── 8. The bottom input wrapper inside sideCard ── */
+  .sideCard > div:last-child {
+    padding-bottom: max(24px, env(safe-area-inset-bottom)) !important;
+    flex-shrink: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* ── 9. Seat cards must clip their own content, not let it bleed ── */
+  #tableWrap .seat,
+  .tableWrap .seat {
+    overflow: hidden !important;
+    isolation: isolate !important;
+    z-index: 1 !important;
+  }
+
+  /* ── 10. sideCard passRow (Risk/Scale buttons) — wrap gracefully ── */
+  #seatPassRow,
+  .passRow {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .passBtn {
+    flex: 1 1 auto !important;
+    text-align: center !important;
+    min-width: 60px !important;
+  }
+}
+
+/* Ensure sideCard never applies a tall height in the 640-720px range either */
+@media (max-width: 640px) {
+  .sideCard {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .side {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 }
 </style>
