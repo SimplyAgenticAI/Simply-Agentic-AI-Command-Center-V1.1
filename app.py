@@ -8716,376 +8716,212 @@ LOGIN_HTML = r"""
 
 </head><body>
 
-<!-- ===== COSMIC SPIDER WEB v3 — massive radial web + stars + neural pulses ===== -->
+<!-- ===== COSMIC GRID LOGIN BACKGROUND ===== -->
 <canvas id="cosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
 <script>
 (function(){
 'use strict';
 var cv=document.getElementById('cosmicWeb'),ctx=cv.getContext('2d');
-var W,H,t=0;
-var mouse={x:-9999,y:-9999,on:false};
+var W,H,T=0;
+var mouse={x:-1,y:-1};
 
-/* ═══════════════════════════════════════════════════════
-   ARCHITECTURE:
-   1. Static star-field   — tiny twinkling points of light
-   2. Radial web rings    — concentric silk circles from center
-   3. Radial web spokes   — threads radiating outward like a wheel
-   4. Cross-web threads   — diagonal silk connecting ring intersections
-   5. Hub nodes           — glowing neural cell bodies at intersections
-   6. Neurological pulses — bright signals travelling along spokes/threads
-   7. Deep nebula glow    — slow colour wash underneath
-   8. Touch distortion    — web threads pull & ripple toward cursor
-═══════════════════════════════════════════════════════ */
-
-/* ── STAR FIELD ── */
-var STAR_COUNT=280, stars=[];
+/* ── Stars ── */
+var NSTARS=350,stars=[];
 function mkStar(){
+  var tier=Math.random();
   return {
-    x:Math.random(),y:Math.random(),
-    r:Math.random()*1.4+0.2,
-    alpha:Math.random()*0.7+0.15,
-    twinklePhase:Math.random()*Math.PI*2,
-    twinkleSpd:0.008+Math.random()*0.018,
-    color:Math.random()<0.12?'#ffe8a0':Math.random()<0.08?'#a0e8ff':'#ffffff'
+    x:Math.random()*W, y:Math.random()*H,
+    r: tier<0.6 ? 0.4+Math.random()*0.8 : tier<0.9 ? 0.9+Math.random()*1.2 : 1.8+Math.random()*2.2,
+    a: 0.25+Math.random()*0.75,
+    phase: Math.random()*Math.PI*2,
+    spd: 0.004+Math.random()*0.012,
+    col: Math.random()<0.08?'#ffd080':Math.random()<0.06?'#80d4ff':'#ffffff'
   };
 }
-function initStars(){ stars=[]; for(var i=0;i<STAR_COUNT;i++) stars.push(mkStar()); }
 
-/* ── WEB GEOMETRY ── */
-var N_RINGS   = 8;    /* concentric silk rings                */
-var N_SPOKES  = 16;   /* radial threads from centre           */
-var HUE_SHIFT = 0;    /* global hue rotation                  */
-var WEB_DRIFT = 0;    /* slow whole-web rotation              */
-
-/* Intersection nodes — one per (ring × spoke) + center hub */
-var nodes=[], hubNodes=[];
-function buildNodes(){
-  nodes=[]; hubNodes=[];
-  var cx=W*0.5, cy=H*0.5;
-  var maxR=Math.min(W,H)*0.48;
-  /* Center hub */
-  hubNodes.push({x:cx,y:cy,ox:cx,oy:cy,vx:0,vy:0,
-    ring:-1,spoke:-1,r:3.8,phase:0,pulseSpd:0.018,
-    hBase:265,isHub:true});
-  for(var r=0;r<N_RINGS;r++){
-    var radius=maxR*((r+1)/N_RINGS)*(0.88+0.12*Math.sin(r*1.3));
-    for(var s=0;s<N_SPOKES;s++){
-      var baseAngle=(2*Math.PI*s/N_SPOKES)+WEB_DRIFT;
-      /* Slight irregularity — real webs aren't perfect */
-      var jitter=(Math.random()-0.5)*0.08;
-      var angle=baseAngle+jitter;
-      var rJitter=radius*(0.92+Math.random()*0.16);
-      var x=cx+Math.cos(angle)*rJitter;
-      var y=cy+Math.sin(angle)*rJitter;
-      var isHub=(r===0)||(r===N_RINGS-1)||(s%4===0&&r%2===0);
-      nodes.push({
-        x:x,y:y,ox:x,oy:y,vx:0,vy:0,
-        ring:r,spoke:s,
-        r:isHub?2.8:1.4,
-        phase:Math.random()*Math.PI*2,
-        pulseSpd:0.01+Math.random()*0.012,
-        hBase:220+s*8+r*15,
-        isHub:isHub
-      });
-    }
-  }
+/* ── Shooting stars ── */
+var shooters=[];
+function spawnShooter(){
+  shooters.push({
+    x: Math.random()*W*1.2, y: -20,
+    vx: -(40+Math.random()*60), vy: 30+Math.random()*60,
+    len: 80+Math.random()*120, alpha:1,
+    hue: Math.random()<0.5?260:200
+  });
 }
+setInterval(function(){ if(Math.random()<0.4) spawnShooter(); }, 2200);
 
-/* ── SIGNAL PULSES ── */
-var pulses=[];
-function spawnPulse(){
-  if(nodes.length<2) return;
-  var type=Math.random();
-  var p;
-  if(type<0.5){
-    /* Spoke pulse: from center hub outward along a spoke */
-    var spoke=Math.floor(Math.random()*N_SPOKES);
-    var chain=[];
-    for(var r=0;r<N_RINGS;r++){
-      var n=nodes[r*N_SPOKES+spoke];
-      if(n) chain.push(n);
-    }
-    if(chain.length<2) return;
-    p={chain:chain,seg:0,t:0,spd:0.04+Math.random()*0.04,
-      hue:(HUE_SHIFT+Math.random()*120)%360,size:7+Math.random()*5};
-  } else {
-    /* Ring pulse: around a ring */
-    var ring=Math.floor(Math.random()*N_RINGS);
-    var chain=[];
-    for(var s=0;s<N_SPOKES;s++){
-      var n=nodes[ring*N_SPOKES+s];
-      if(n) chain.push(n);
-    }
-    if(chain.length<2) return;
-    p={chain:chain,seg:0,t:0,spd:0.05+Math.random()*0.04,
-      hue:(HUE_SHIFT+180+Math.random()*80)%360,size:5+Math.random()*4};
-  }
-  pulses.push(p);
-}
+/* ── Grid config ── */
+var GRID_W = 18;  /* columns */
+var GRID_H = 12;  /* rows    */
+var HUE = 0;      /* slow colour cycle */
 
 function resize(){
   W=cv.width=window.innerWidth;
   H=cv.height=window.innerHeight;
-  buildNodes();
-  initStars();
+  stars=[]; for(var i=0;i<NSTARS;i++) stars.push(mkStar());
 }
 
-function init(){
-  resize();
-  for(var k=0;k<8;k++) spawnPulse();
-  setInterval(spawnPulse,1800);
-  setInterval(function(){for(var i=0;i<3;i++)spawnPulse();},6000);
-}
+document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
+document.addEventListener('touchmove',function(e){if(e.touches.length){mouse.x=e.touches[0].clientX;mouse.y=e.touches[0].clientY;}},{passive:true});
 
-/* ── INPUT ── */
-cv.style.pointerEvents='none';
-document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;mouse.on=true;});
-document.addEventListener('touchmove',function(e){if(e.touches.length){mouse.x=e.touches[0].clientX;mouse.y=e.touches[0].clientY;mouse.on=true;}},{passive:true});
-document.addEventListener('mouseleave',function(){mouse.on=false;});
-document.addEventListener('touchend',function(){mouse.on=false;});
-document.addEventListener('click',function(){for(var i=0;i<8;i++)spawnPulse();});
-
-/* ── MAIN DRAW ── */
 function draw(){
-  t+=0.008;
-  HUE_SHIFT=(HUE_SHIFT+0.18)%360;
-  WEB_DRIFT+=0.00025; /* slow whole-web rotation */
-
+  T+=0.012;
+  HUE=(HUE+0.12)%360;
   ctx.clearRect(0,0,W,H);
 
-  /* ── 1. Deep space void ── */
-  ctx.fillStyle='#030508';
+  /* ── 1. Deep space ── */
+  ctx.fillStyle='#02040c';
   ctx.fillRect(0,0,W,H);
 
-  /* ── 2. Nebula glow layers ── */
-  var nebs=[
-    {fx:0.18+Math.sin(t*0.11)*0.06,fy:0.28+Math.cos(t*0.09)*0.05,h:265,r:0.60,a:0.10},
-    {fx:0.82+Math.cos(t*0.08)*0.05,fy:0.72+Math.sin(t*0.10)*0.06,h:210,r:0.55,a:0.08},
-    {fx:0.50+Math.sin(t*0.07)*0.08,fy:0.50+Math.cos(t*0.06)*0.07,h:(HUE_SHIFT+120)%360,r:0.70,a:0.06},
-    {fx:0.25+Math.cos(t*0.13)*0.04,fy:0.80+Math.sin(t*0.12)*0.04,h:280,r:0.40,a:0.07},
-  ];
-  nebs.forEach(function(nb){
-    var cx=W*nb.fx,cy=H*nb.fy,rad=Math.min(W,H)*nb.r;
+  /* ── 2. Nebula wash — 3 slow drifting colour clouds ── */
+  [
+    {fx:0.15+Math.sin(T*0.07)*0.06, fy:0.25+Math.cos(T*0.05)*0.06, h:255, r:0.62, a:0.11},
+    {fx:0.85+Math.cos(T*0.06)*0.05, fy:0.70+Math.sin(T*0.08)*0.05, h:210, r:0.55, a:0.09},
+    {fx:0.50+Math.sin(T*0.04)*0.08, fy:0.45+Math.cos(T*0.06)*0.07, h:(HUE+140)%360, r:0.80, a:0.06},
+  ].forEach(function(nb){
+    var cx=W*nb.fx, cy=H*nb.fy, rad=Math.min(W,H)*nb.r;
     var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
-    var hh=(nb.h+HUE_SHIFT*0.4)%360;
-    g.addColorStop(0,'hsla('+hh+',75%,50%,'+nb.a+')');
-    g.addColorStop(0.5,'hsla('+hh+',65%,38%,'+(nb.a*0.45)+')');
+    g.addColorStop(0,'hsla('+nb.h+',72%,48%,'+nb.a+')');
+    g.addColorStop(0.55,'hsla('+nb.h+',62%,36%,'+(nb.a*0.4)+')');
     g.addColorStop(1,'transparent');
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   });
 
-  /* ── 3. Star field ── */
+  /* ── 3. Twinkling star field ── */
   stars.forEach(function(s){
-    s.twinklePhase+=s.twinkleSpd;
-    var a=s.alpha*(0.55+0.45*Math.sin(s.twinklePhase));
-    ctx.fillStyle=s.color.replace(')',','+a+')').replace('rgb','rgba').replace('#ffffff','rgba(255,255,255,'+a+')').replace('#ffe8a0','rgba(255,232,160,'+a+')').replace('#a0e8ff','rgba(160,232,255,'+a+')');
-    /* Simple approach for all colors */
+    s.phase+=s.spd;
+    var a=s.a*(0.45+0.55*Math.sin(s.phase));
     ctx.globalAlpha=a;
-    ctx.fillStyle=s.color;
+    ctx.fillStyle=s.col;
     ctx.beginPath();
-    ctx.arc(s.x*W,s.y*H,s.r*(0.7+0.3*Math.sin(s.twinklePhase)),0,Math.PI*2);
+    ctx.arc(s.x,s.y,s.r*(0.75+0.25*Math.sin(s.phase*0.7)),0,Math.PI*2);
     ctx.fill();
+    /* Cross-sparkle for larger stars */
+    if(s.r>1.5){
+      ctx.globalAlpha=a*0.5;
+      var sz=s.r*3;
+      ctx.strokeStyle=s.col;
+      ctx.lineWidth=0.5;
+      ctx.beginPath();
+      ctx.moveTo(s.x-sz,s.y); ctx.lineTo(s.x+sz,s.y);
+      ctx.moveTo(s.x,s.y-sz); ctx.lineTo(s.x,s.y+sz);
+      ctx.stroke();
+    }
   });
   ctx.globalAlpha=1;
 
-  /* ── Apply mouse distortion to nodes ── */
-  var allNodes=hubNodes.concat(nodes);
-  var cx=W*0.5,cy=H*0.5;
-  allNodes.forEach(function(n){
-    /* Elastic return to origin */
-    n.vx+=(n.ox-n.x)*0.0022;
-    n.vy+=(n.oy-n.y)*0.0022;
-    /* Very slow web breathing */
-    var breathAngle=Math.atan2(n.oy-cy,n.ox-cx);
-    var breathAmt=Math.sin(t*0.5+breathAngle)*0.8;
-    n.vx+=Math.cos(breathAngle)*breathAmt*0.004;
-    n.vy+=Math.sin(breathAngle)*breathAmt*0.004;
-    /* Slow rotation drift */
-    var dx=n.x-cx,dy=n.y-cy;
-    n.vx-=dy*0.00008;
-    n.vy+=dx*0.00008;
-    /* Mouse pull */
-    if(mouse.on){
-      var mdx=mouse.x-n.x,mdy=mouse.y-n.y;
-      var md=Math.sqrt(mdx*mdx+mdy*mdy);
-      if(md<200&&md>1){
-        var f=(1-md/200)*0.025;
-        n.vx+=mdx/md*f; n.vy+=mdy/md*f;
+  /* ── 4. COSMIC GRID ── */
+  var cellW=W/GRID_W, cellH=H/GRID_H;
+  /* Slow drift — the grid breathes very slightly */
+  var drift=Math.sin(T*0.4)*4;
+
+  /* Vertical lines */
+  for(var c=0;c<=GRID_W;c++){
+    var x=c*cellW+drift*(c/GRID_W-0.5)*2;
+    /* Intensity peaks at mouse proximity */
+    var mDist=Math.abs(mouse.x-x)/W;
+    var glow=Math.max(0,1-mDist*4);
+    var baseA=c%3===0?0.30:c%6===0?0.22:0.12;
+    var lineA=baseA+glow*0.35;
+    var lineH=(HUE+c*8)%360;
+    var lg=ctx.createLinearGradient(x,0,x,H);
+    lg.addColorStop(0,  'transparent');
+    lg.addColorStop(0.15,'hsla('+lineH+',80%,70%,'+lineA+')');
+    lg.addColorStop(0.5, 'hsla('+lineH+',85%,78%,'+(lineA*1.3)+')');
+    lg.addColorStop(0.85,'hsla('+lineH+',80%,70%,'+lineA+')');
+    lg.addColorStop(1,  'transparent');
+    ctx.strokeStyle=lg;
+    ctx.lineWidth=c%6===0?1.2:c%3===0?0.8:0.45;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+
+  /* Horizontal lines */
+  for(var r=0;r<=GRID_H;r++){
+    var y=r*cellH+drift*(r/GRID_H-0.5)*2;
+    var mDistH=Math.abs(mouse.y-y)/H;
+    var glowH=Math.max(0,1-mDistH*4);
+    var baseAH=r%3===0?0.28:r%6===0?0.20:0.11;
+    var lineAH=baseAH+glowH*0.32;
+    var lineHH=(HUE+r*12+60)%360;
+    var lgH=ctx.createLinearGradient(0,y,W,y);
+    lgH.addColorStop(0,  'transparent');
+    lgH.addColorStop(0.15,'hsla('+lineHH+',80%,70%,'+lineAH+')');
+    lgH.addColorStop(0.5, 'hsla('+lineHH+',85%,78%,'+(lineAH*1.3)+')');
+    lgH.addColorStop(0.85,'hsla('+lineHH+',80%,70%,'+lineAH+')');
+    lgH.addColorStop(1,  'transparent');
+    ctx.strokeStyle=lgH;
+    ctx.lineWidth=r%6===0?1.2:r%3===0?0.75:0.40;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+
+  /* Grid intersection dots — glow brighter near mouse */
+  for(var c2=0;c2<=GRID_W;c2++){
+    for(var r2=0;r2<=GRID_H;r2++){
+      var ix=c2*cellW, iy=r2*cellH;
+      var dx=mouse.x-ix, dy=mouse.y-iy;
+      var dd=Math.sqrt(dx*dx+dy*dy);
+      var proximity=Math.max(0,1-dd/200);
+      var dotA=0.15+proximity*0.65;
+      /* Only draw visible dots */
+      if(dotA<0.06) continue;
+      var dotH=(HUE+c2*9+r2*13)%360;
+      var dotR=proximity>0.1?2.5+proximity*3:c2%3===0&&r2%3===0?1.8:1.0;
+      if(proximity>0.1){
+        var dg=ctx.createRadialGradient(ix,iy,0,ix,iy,dotR*5);
+        dg.addColorStop(0,'hsla('+dotH+',95%,92%,'+dotA+')');
+        dg.addColorStop(0.5,'hsla('+dotH+',85%,70%,'+(dotA*0.4)+')');
+        dg.addColorStop(1,'transparent');
+        ctx.fillStyle=dg;
+        ctx.beginPath(); ctx.arc(ix,iy,dotR*5,0,Math.PI*2); ctx.fill();
       }
-    }
-    n.vx*=0.92; n.vy*=0.92;
-    n.x+=n.vx; n.y+=n.vy;
-    n.phase+=n.pulseSpd;
-  });
-
-  /* ── 4. Web ring threads ── */
-  for(var r=0;r<N_RINGS;r++){
-    for(var s=0;s<N_SPOKES;s++){
-      var a=nodes[r*N_SPOKES+s];
-      var b=nodes[r*N_SPOKES+((s+1)%N_SPOKES)];
-      if(!a||!b) continue;
-      var hA=(a.hBase+HUE_SHIFT)%360;
-      var hB=(b.hBase+HUE_SHIFT)%360;
-      var ringAlpha=0.28+0.18*Math.sin(t*1.2+r*0.8);
-      var lg=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
-      lg.addColorStop(0,'hsla('+hA+',85%,72%,'+ringAlpha+')');
-      lg.addColorStop(0.5,'hsla('+((hA+hB)/2|0)+',92%,88%,'+(ringAlpha*0.65)+')');
-      lg.addColorStop(1,'hsla('+hB+',85%,72%,'+ringAlpha+')');
-      ctx.strokeStyle=lg;
-      ctx.lineWidth=(r===0||r===N_RINGS-1)?0.9:(0.5+0.4*((N_RINGS-r)/N_RINGS));
-      ctx.beginPath();
-      /* Natural silk sag — quadratic curve */
-      var mx2=(a.x+b.x)/2+(b.y-a.y)*0.05;
-      var my2=(a.y+b.y)/2-(b.x-a.x)*0.05;
-      ctx.moveTo(a.x,a.y);
-      ctx.quadraticCurveTo(mx2,my2,b.x,b.y);
-      ctx.stroke();
+      ctx.fillStyle='hsla('+dotH+',90%,88%,'+dotA+')';
+      ctx.beginPath(); ctx.arc(ix,iy,dotR,0,Math.PI*2); ctx.fill();
     }
   }
 
-  /* ── 5. Web spokes (radial threads) ── */
-  for(var s=0;s<N_SPOKES;s++){
-    var hub=hubNodes[0];
-    for(var r=0;r<N_RINGS;r++){
-      var nodeA=(r===0)?hub:nodes[(r-1)*N_SPOKES+s];
-      var nodeB=nodes[r*N_SPOKES+s];
-      if(!nodeA||!nodeB) continue;
-      var spokeH=(s*22+HUE_SHIFT)%360;
-      var spokeAlpha=0.35+0.20*Math.sin(t*0.9+s*0.4);
-      var thickness=(r<3)?1.4:(r<6)?1.0:0.7;
-      ctx.strokeStyle='hsla('+spokeH+',80%,70%,'+spokeAlpha+')';
-      ctx.lineWidth=thickness;
-      ctx.beginPath();
-      ctx.moveTo(nodeA.x,nodeA.y);
-      ctx.lineTo(nodeB.x,nodeB.y);
-      ctx.stroke();
-    }
+  /* ── 5. Mouse proximity glow ── */
+  if(mouse.x>0){
+    var mg=ctx.createRadialGradient(mouse.x,mouse.y,0,mouse.x,mouse.y,120);
+    mg.addColorStop(0,'hsla('+(HUE+180)%360+',88%,88%,0.14)');
+    mg.addColorStop(0.5,'hsla('+(HUE+180)%360+',78%,70%,0.05)');
+    mg.addColorStop(1,'transparent');
+    ctx.fillStyle=mg;
+    ctx.beginPath(); ctx.arc(mouse.x,mouse.y,120,0,Math.PI*2); ctx.fill();
   }
 
-  /* ── 6. Diagonal cross-web threads (neurological connections) ── */
-  var crossPairs=[
-    [0,2],[1,3],[2,5],[3,6],[4,7],[0,4],[1,5],[2,6],
-    [3,7],[4,8],[0,6],[2,8],[1,7],[3,9],[5,11],[7,13]
-  ];
-  crossPairs.forEach(function(pair){
-    var s1=pair[0]%N_SPOKES,s2=pair[1]%N_SPOKES;
-    var ringMid=Math.floor(N_RINGS/2);
-    var na=nodes[ringMid*N_SPOKES+s1];
-    var nb=nodes[(ringMid+1)*N_SPOKES+s2];
-    if(!na||!nb) return;
-    var dx=na.x-nb.x,dy=na.y-nb.y;
-    var dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist>W*0.5) return;
-    var crossH=(na.hBase+nb.hBase)/2+HUE_SHIFT;
-    var crossAlpha=0.15+0.10*Math.sin(t*0.7+s1+s2);
-    ctx.strokeStyle='hsla('+(crossH%360)+',75%,68%,'+crossAlpha+')';
-    ctx.lineWidth=0.5;
-    ctx.setLineDash([4,8]);
-    ctx.beginPath();
-    ctx.moveTo(na.x,na.y); ctx.lineTo(nb.x,nb.y); ctx.stroke();
-    ctx.setLineDash([]);
-  });
-
-  /* ── 7. Cursor distortion threads ── */
-  if(mouse.on){
-    var mx=mouse.x,my=mouse.y;
-    allNodes.forEach(function(n){
-      var ddx=mx-n.x,ddy=my-n.y;
-      var dd=Math.sqrt(ddx*ddx+ddy*ddy);
-      if(dd<180&&dd>1){
-        var str=(1-dd/180);
-        var ch=(n.hBase+HUE_SHIFT+160)%360;
-        ctx.strokeStyle='hsla('+ch+',88%,82%,'+(str*0.5)+')';
-        ctx.lineWidth=str*2.2;
-        ctx.beginPath();
-        /* Curved pull-thread to cursor */
-        var midx=(n.x+mx)/2+(my-n.y)*0.12;
-        var midy=(n.y+my)/2-(mx-n.x)*0.12;
-        ctx.moveTo(n.x,n.y);
-        ctx.quadraticCurveTo(midx,midy,mx,my);
-        ctx.stroke();
-      }
-    });
-    /* Cursor glow */
-    var cg=ctx.createRadialGradient(mx,my,0,mx,my,55);
-    cg.addColorStop(0,'hsla('+(HUE_SHIFT*1.5%360)+',90%,92%,0.22)');
-    cg.addColorStop(1,'transparent');
-    ctx.fillStyle=cg;
-    ctx.beginPath(); ctx.arc(mx,my,55,0,Math.PI*2); ctx.fill();
+  /* ── 6. Shooting stars ── */
+  var dt=0.016;
+  for(var s2=shooters.length-1;s2>=0;s2--){
+    var sh=shooters[s2];
+    sh.x+=sh.vx*dt; sh.y+=sh.vy*dt; sh.alpha-=0.012;
+    if(sh.alpha<=0||sh.y>H+40){ shooters.splice(s2,1); continue; }
+    var ex=sh.x-sh.vx*dt*(sh.len/60);
+    var ey=sh.y-sh.vy*dt*(sh.len/60);
+    var sg=ctx.createLinearGradient(ex,ey,sh.x,sh.y);
+    sg.addColorStop(0,'transparent');
+    sg.addColorStop(0.7,'hsla('+sh.hue+',90%,85%,'+(sh.alpha*0.6)+')');
+    sg.addColorStop(1,'hsla('+sh.hue+',100%,98%,'+sh.alpha+')');
+    ctx.strokeStyle=sg;
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(sh.x,sh.y); ctx.stroke();
+    /* Head glow */
+    var hg=ctx.createRadialGradient(sh.x,sh.y,0,sh.x,sh.y,8);
+    hg.addColorStop(0,'hsla('+sh.hue+',100%,98%,'+(sh.alpha*0.9)+')');
+    hg.addColorStop(1,'transparent');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(sh.x,sh.y,8,0,Math.PI*2); ctx.fill();
   }
-
-  /* ── 8. Neural signal pulses ── */
-  for(var p=pulses.length-1;p>=0;p--){
-    var pulse=pulses[p];
-    pulse.t+=pulse.spd;
-    if(pulse.t>=1){
-      pulse.seg++;
-      if(pulse.seg>=pulse.chain.length-1){ pulses.splice(p,1); continue; }
-      pulse.t=0;
-    }
-    var na=pulse.chain[pulse.seg], nb=pulse.chain[pulse.seg+1];
-    if(!na||!nb) continue;
-    var px2=na.x+(nb.x-na.x)*pulse.t;
-    var py2=na.y+(nb.y-na.y)*pulse.t;
-    var sz=pulse.size;
-    /* Outer glow */
-    var gp=ctx.createRadialGradient(px2,py2,0,px2,py2,sz*2.5);
-    gp.addColorStop(0,'hsla('+pulse.hue+',100%,97%,0.92)');
-    gp.addColorStop(0.3,'hsla('+pulse.hue+',90%,75%,0.55)');
-    gp.addColorStop(0.7,'hsla('+pulse.hue+',80%,60%,0.18)');
-    gp.addColorStop(1,'transparent');
-    ctx.fillStyle=gp;
-    ctx.beginPath(); ctx.arc(px2,py2,sz*2.5,0,Math.PI*2); ctx.fill();
-    /* Bright core */
-    ctx.fillStyle='hsla('+pulse.hue+',100%,99%,1)';
-    ctx.beginPath(); ctx.arc(px2,py2,sz*0.45,0,Math.PI*2); ctx.fill();
-    /* Trailing comet tail */
-    var trailLen=0.3;
-    var tx=px2-(nb.x-na.x)*trailLen;
-    var ty=py2-(nb.y-na.y)*trailLen;
-    var trail=ctx.createLinearGradient(tx,ty,px2,py2);
-    trail.addColorStop(0,'transparent');
-    trail.addColorStop(1,'hsla('+pulse.hue+',95%,88%,0.6)');
-    ctx.strokeStyle=trail;
-    ctx.lineWidth=sz*0.55;
-    ctx.beginPath(); ctx.moveTo(tx,ty); ctx.lineTo(px2,py2); ctx.stroke();
-  }
-
-  /* ── 9. Hub node rendering ── */
-  allNodes.forEach(function(n){
-    var glow=0.5+0.5*Math.sin(n.phase);
-    var radius=n.r*(0.85+0.3*Math.sin(n.phase*0.7));
-    var hue=(n.hBase+HUE_SHIFT)%360;
-    var coronaR=n.isHub?radius*9:radius*6;
-    var gc=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,coronaR);
-    gc.addColorStop(0,'hsla('+hue+',90%,90%,'+(glow*(n.isHub?0.75:0.50))+')');
-    gc.addColorStop(0.4,'hsla('+hue+',80%,70%,'+(glow*0.25)+')');
-    gc.addColorStop(1,'transparent');
-    ctx.fillStyle=gc;
-    ctx.beginPath(); ctx.arc(n.x,n.y,coronaR,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='hsla('+hue+',95%,97%,'+(0.6+glow*0.4)+')';
-    ctx.beginPath(); ctx.arc(n.x,n.y,radius*(0.8+glow*0.4),0,Math.PI*2); ctx.fill();
-  });
-
-  /* ── 10. Center hub special glow ── */
-  var hub=hubNodes[0];
-  var hGlow=0.5+0.5*Math.sin(t*1.4);
-  var hg=ctx.createRadialGradient(hub.x,hub.y,0,hub.x,hub.y,60+hGlow*20);
-  hg.addColorStop(0,'hsla('+(HUE_SHIFT%360)+',100%,98%,'+(0.55+hGlow*0.35)+')');
-  hg.addColorStop(0.3,'hsla('+((HUE_SHIFT+40)%360)+',90%,80%,0.3)');
-  hg.addColorStop(0.7,'hsla('+((HUE_SHIFT+80)%360)+',80%,60%,0.1)');
-  hg.addColorStop(1,'transparent');
-  ctx.fillStyle=hg;
-  ctx.beginPath(); ctx.arc(hub.x,hub.y,60+hGlow*20,0,Math.PI*2); ctx.fill();
 
   requestAnimationFrame(draw);
 }
 
-window.addEventListener('resize',function(){resize();});
-init(); draw();
+window.addEventListener('resize', resize);
+resize(); draw();
 })();
 </script>
-<!-- ===== END COSMIC SPIDER WEB v3 ===== -->
+<!-- ===== END COSMIC GRID ===== -->
+
+
 
 <div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -31899,359 +31735,373 @@ document.addEventListener('click',e=>{
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
 <!-- ═══════════════════════════════════════════════════════════════
-     MOBILE PERSISTENT CHAT PANEL v2
-     — Pinned panel at the bottom of the page (not a popup)
-     — Always visible once a teammate is selected
-     — Thread + input + send, updates live when switching seats
-     — Complete nuclear fix for text-behind-cards bug
-     ═══════════════════════════════════════════════════════════════ -->
+     MOBILE LAYOUT v3 — COMPLETE REBUILD
+     Architecture on mobile (≤720px):
+       [sticky top nav]
+       [seat cards — clean scrollable list]
+       [pinned chat panel — always at bottom, swaps teammate on tap]
+     All desktop-only panels hidden. Zero ghost boxes. Zero bleed.
+═══════════════════════════════════════════════════════════════ -->
 <style>
-/* ── NUCLEAR FIX: Kill every ghost height on sideCard on mobile ──────── */
-@media (max-width: 720px) {
-  /* The sideCard used to get height:calc(100svh-120px) from a later rule,
-     creating a tall transparent ghost box that sat behind the seat cards.
-     This block is the absolute last rule in the stylesheet so it wins. */
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  MOBILE MASTER RESET — kills every ghost / overlap       ║
+   ║  Must be the LAST CSS in the document to win cascade     ║
+   ╚══════════════════════════════════════════════════════════╝ */
+@media (max-width:720px){
+
+  /* 1. Kill ALL height on the desktop right-column panels */
   .side,
   .sideCard,
-  .side .sideCard,
-  .stage .side,
-  .stage .side .sideCard {
-    position:  static   !important;
-    height:    auto     !important;
-    max-height:none     !important;
-    min-height:0        !important;
-    overflow:  visible  !important;
-    /* Hide the desktop chat panel — replaced by #saMobilePanel below */
-    display:   none     !important;
+  .stage > .side,
+  .stage .sideCard,
+  #thread,
+  #seatPassRow,
+  #threadActionsRow,
+  #followRow,
+  .followBox,
+  #followMsg,
+  #sendFollow,
+  #dmAttachBtn,
+  #dmAttachDrop,
+  #dmAttachWrap,
+  #dmFiles,
+  #dmAttachList,
+  #micStatusDm,
+  .groupCard,
+  .underTable,
+  #sharedMemoryCard,
+  #groupReplies,
+  #groupPassRow {
+    display:   none   !important;
+    height:    0      !important;
+    min-height:0      !important;
+    max-height:0      !important;
+    overflow:  hidden !important;
+    position:  static !important;
   }
 
-  /* Thread inside desktop sideCard — also hidden on mobile */
-  #thread, #followRow, #followMsg, #sendFollow,
-  #dmAttachBtn, #dmAttachDrop, #dmAttachWrap,
-  #dmFiles, #dmAttachList, #micStatusDm,
-  #seatPassRow, #threadActionsRow { display:none !important; }
-
-  /* Seat cards — must have their own stacking context so nothing bleeds */
-  #tableWrap .seat,
-  .tableWrap .seat {
-    position:  relative  !important;
-    z-index:   2         !important;
-    overflow:  hidden    !important;
-    isolation: isolate   !important;
-    transform: none      !important;
-  }
-
-  /* tableWrap must be a clean flex column — no absolute children */
+  /* 2. tableWrap: strict flex column, zero absolute positioning */
   #tableWrap,
-  .tableWrap#tableWrap {
-    position:   relative  !important;
-    display:    flex      !important;
-    flex-direction: column !important;
-    height:     auto      !important;
-    min-height: 0         !important;
-    overflow:   visible   !important;
-    gap:        10px      !important;
-    padding:    8px 12px  !important;
-    /* Space at bottom for the pinned panel */
-    padding-bottom: 260px !important;
+  .tableWrap {
+    position:       relative   !important;
+    display:        flex       !important;
+    flex-direction: column     !important;
+    align-items:    stretch    !important;
+    width:          100%       !important;
+    max-width:      100%       !important;
+    height:         auto       !important;
+    min-height:     0          !important;
+    overflow:       visible    !important;
+    padding:        8px 12px 280px !important; /* bottom padding = chat panel height */
+    gap:            10px       !important;
+    box-sizing:     border-box !important;
+    transform:      none       !important;
   }
 
-  /* Hide decorative round-table circle on mobile */
+  /* 3. Hide the decorative round-table circle */
   #tableWrap .table,
-  .tableWrap .table { display: none !important; }
+  .tableWrap .table,
+  #tableWrap #rtStage > .table { display:none !important; }
 
-  /* Operator console (group prompt) stays visible but at bottom */
+  /* 4. Operator console — push to bottom of seat list */
   #tableWrap .operator,
   .tableWrap .operator {
-    position:  relative  !important;
-    left:      auto      !important;
-    top:       auto      !important;
-    transform: none      !important;
-    width:     100%      !important;
-    order:     999       !important;
-  }
-}
-
-/* ── Persistent Mobile Chat Panel ────────────────────────────────── */
-#saMobilePanel {
-  display: none; /* JS shows this on mobile */
-}
-
-@media (max-width: 720px) {
-  #saMobilePanel {
-    display:    flex !important;
-    flex-direction: column;
-    position:   fixed;
-    bottom:     0;
-    left:       0;
-    right:      0;
-    height:     248px;
-    background: rgba(8,12,28,.98);
-    border-top: 1.5px solid rgba(124,58,237,.55);
-    border-radius: 18px 18px 0 0;
-    box-shadow: 0 -8px 40px rgba(0,0,0,.65);
-    z-index:    8500;
-    overflow:   hidden;
-    padding-bottom: env(safe-area-inset-bottom);
+    position:  relative !important;
+    left:      auto     !important;
+    top:       auto     !important;
+    transform: none     !important;
+    width:     100%     !important;
+    order:     9999     !important;
+    margin:    0        !important;
   }
 
-  /* Header row */
-  .sa-mp-hdr {
-    display:     flex;
-    align-items: center;
-    gap:         10px;
-    padding:     9px 14px 7px;
-    border-bottom: 1px solid rgba(42,58,106,.55);
-    flex-shrink: 0;
-    background:  rgba(14,20,46,.98);
-  }
-  .sa-mp-av {
-    width:  34px; height: 34px;
-    border-radius: 10px;
-    display:       flex;
-    align-items:   center;
-    justify-content: center;
-    font-size:  14px;
-    font-weight:900;
-    color: #fff;
-    flex-shrink: 0;
-    transition: background .3s;
-  }
-  .sa-mp-name  { font-size:15px; font-weight:800; color:#e2e8f0; }
-  .sa-mp-role  { font-size:11px; color:#64748b; margin-top:1px; }
-  .sa-mp-placeholder {
-    font-size:  13px;
-    color:      #475569;
-    font-style: italic;
+  /* 5. Every seat card: clean document-flow list item */
+  #tableWrap .seat,
+  .tableWrap .seat,
+  #tableWrap #rtStage .seat {
+    position:   relative    !important;
+    left:       auto        !important;
+    top:        auto        !important;
+    right:      auto        !important;
+    bottom:     auto        !important;
+    transform:  none        !important;
+    width:      100%        !important;
+    max-width:  100%        !important;
+    height:     auto        !important;
+    min-height: 76px        !important;
+    margin:     0           !important;
+    overflow:   hidden      !important;   /* contain children — no bleed */
+    isolation:  isolate     !important;   /* new stacking context */
+    z-index:    1           !important;
+    box-sizing: border-box  !important;
+    flex-shrink:0           !important;
   }
 
-  /* Thread scroll area */
-  #saMpThread {
-    flex:      1;
-    overflow-y:auto;
-    padding:   8px 14px;
-    -webkit-overflow-scrolling: touch;
-    min-height: 0;
+  /* 6. rtStage (v8 wrapper) must also be a flat flex column */
+  #tableWrap #rtStage,
+  #rtStage {
+    position:       static    !important;
+    display:        flex      !important;
+    flex-direction: column    !important;
+    gap:            10px      !important;
+    width:          100%      !important;
+    height:         auto      !important;
+    transform:      none      !important;
   }
 
-  /* Input area */
-  .sa-mp-input {
-    flex-shrink: 0;
-    padding:     7px 12px 8px;
-    border-top:  1px solid rgba(42,58,106,.45);
-    display:     flex;
-    gap:         8px;
-    align-items: flex-end;
-    background:  rgba(8,12,28,.98);
+  /* 7. stage grid → single column */
+  .stage {
+    display:               grid    !important;
+    grid-template-columns: 1fr     !important;
   }
-  #saMpMsg {
-    flex: 1;
-    background: rgba(14,22,48,.9);
-    border:     1px solid rgba(42,58,106,.65);
-    border-radius: 10px;
-    padding:    9px 12px;
-    font-size:  15px;
-    color:      #e2e8f0;
-    resize:     none;
-    min-height: 40px;
-    max-height: 84px;
-    font-family:inherit;
-    outline:    none;
-    line-height:1.4;
-  }
-  #saMpMsg:focus { border-color: rgba(124,58,237,.75); }
-  #saMpSend {
-    width:  44px; height: 44px;
-    flex-shrink: 0;
-    background:  rgba(79,70,229,.9);
-    border:      1px solid rgba(124,58,237,.65);
-    border-radius: 10px;
-    color:  #fff;
-    font-size: 18px;
-    display:  flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: background .15s;
-  }
-  #saMpSend:hover, #saMpSend:active { background: rgba(99,88,255,.95); }
 }
 </style>
 
-<!-- Persistent mobile chat panel DOM -->
-<div id="saMobilePanel">
-  <div class="sa-mp-hdr" id="saMpHdr">
-    <div class="sa-mp-av" id="saMpAv" style="background:#374151;">?</div>
-    <div id="saMpInfo">
-      <div class="sa-mp-placeholder">Tap a teammate above to chat</div>
+<!-- ── Pinned mobile chat panel ── -->
+<div id="saMobChat" style="display:none;">
+  <div id="saMobChatHdr">
+    <div id="saMobAv">?</div>
+    <div id="saMobInfo">
+      <div id="saMobName" style="font-size:15px;font-weight:800;color:#e2e8f0;">Select a teammate</div>
+      <div id="saMobRole" style="font-size:11px;color:#64748b;margin-top:1px;"></div>
     </div>
   </div>
-  <div class="thread" id="saMpThread">
-    <div class="tiny" style="color:#334155;padding:8px 0;text-align:center;">Select a teammate to open their chat.</div>
+  <div class="thread" id="saMobThread"></div>
+  <div id="saMobInputRow">
+    <textarea id="saMobMsg" placeholder="Message teammate…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" rows="1"></textarea>
+    <button id="saMobSend">↵</button>
   </div>
-  <div class="sa-mp-input">
-    <textarea id="saMpMsg" placeholder="Message teammate…" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-    <button id="saMpSend" aria-label="Send message">↵</button>
-  </div>
+  <div id="saMobMic">Mic: idle</div>
 </div>
+
+<style>
+/* ── Chat panel styles ── */
+@media (max-width:720px){
+  #saMobChat {
+    display:        flex          !important;
+    flex-direction: column;
+    position:       fixed;
+    bottom:         0;
+    left:           0;
+    right:          0;
+    height:         260px;
+    z-index:        8600;
+    background:     rgba(7,11,26,.98);
+    border-top:     1.5px solid rgba(124,58,237,.5);
+    border-radius:  18px 18px 0 0;
+    box-shadow:     0 -6px 36px rgba(0,0,0,.7);
+    overflow:       hidden;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #saMobChatHdr {
+    display:         flex;
+    align-items:     center;
+    gap:             10px;
+    padding:         9px 14px 7px;
+    border-bottom:   1px solid rgba(42,58,106,.5);
+    background:      rgba(12,17,38,.98);
+    flex-shrink:     0;
+  }
+  #saMobAv {
+    width:           34px;
+    height:          34px;
+    border-radius:   10px;
+    background:      #374151;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    font-size:       14px;
+    font-weight:     900;
+    color:           #fff;
+    flex-shrink:     0;
+    transition:      background .25s;
+  }
+  #saMobThread {
+    flex:                   1;
+    overflow-y:             auto;
+    padding:                8px 14px;
+    -webkit-overflow-scrolling: touch;
+    min-height:             0;
+  }
+  #saMobInputRow {
+    display:     flex;
+    gap:         8px;
+    align-items: flex-end;
+    padding:     7px 12px 8px;
+    border-top:  1px solid rgba(42,58,106,.45);
+    flex-shrink: 0;
+  }
+  #saMobMsg {
+    flex:          1;
+    background:    rgba(14,22,48,.9);
+    border:        1px solid rgba(42,58,106,.65);
+    border-radius: 10px;
+    padding:       9px 12px;
+    font-size:     15px;
+    color:         #e2e8f0;
+    resize:        none;
+    min-height:    40px;
+    max-height:    80px;
+    font-family:   inherit;
+    outline:       none;
+    line-height:   1.4;
+  }
+  #saMobMsg:focus { border-color: rgba(124,58,237,.7); }
+  #saMobSend {
+    width:           44px;
+    height:          44px;
+    background:      rgba(79,70,229,.9);
+    border:          1px solid rgba(124,58,237,.6);
+    border-radius:   10px;
+    color:           #fff;
+    font-size:       18px;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    cursor:          pointer;
+    flex-shrink:     0;
+  }
+  #saMobMic {
+    font-size:   11px;
+    color:       rgba(100,116,139,.5);
+    padding:     0 14px 4px;
+    flex-shrink: 0;
+  }
+}
+@media (min-width:721px){
+  #saMobChat { display:none !important; }
+}
+</style>
 
 <script>
 (function(){
 'use strict';
 function ge(id){ return document.getElementById(id); }
-function isMobile(){ return window.innerWidth <= 720; }
+var isMobile = function(){ return window.innerWidth <= 720; };
+var _active = null;
 
-var _seat = null;
-
-/* ── Update panel header when a seat is selected ── */
-function updatePanelHeader(name){
-  if(!name){ return; }
-  var av    = ge('saMpAv');
-  var info  = ge('saMpInfo');
+/* ── Update chat panel header ── */
+function updateHeader(name){
+  var av = ge('saMobAv'), nm = ge('saMobName'), rl = ge('saMobRole');
+  if(!av||!nm) return;
   var color = '#7c3aed';
   try{
     var seatEl = document.querySelector('.seat[data-name="'+CSS.escape(name)+'"]');
     if(seatEl){
-      var avEl = seatEl.querySelector('.seatAvatar,[class*="Avatar"],[class*="av"]');
-      if(avEl && avEl.style.background) color = avEl.style.background;
+      var avEl = seatEl.querySelector('[class*="Avatar"],[class*="seatAv"],[class*=" av"],.av');
+      if(!avEl) avEl = seatEl.querySelector('[style*="background"]');
+      if(avEl) color = avEl.style.background || color;
     }
-    var defn = (window.state&&window.state.installed||{})[name]||{};
-    var role = defn.job_title || defn.role || '';
-    info.innerHTML = '<div class="sa-mp-name">'+name+'</div>'+(role?'<div class="sa-mp-role">'+role+'</div>':'');
-  }catch(e){
-    info.innerHTML = '<div class="sa-mp-name">'+name+'</div>';
-  }
-  if(av){ av.textContent = (name||'?')[0].toUpperCase(); av.style.background = color; }
+    var d = (window.state&&window.state.installed||{})[name]||{};
+    rl.textContent = d.job_title || d.role || '';
+  }catch(e){ rl.textContent = ''; }
+  av.textContent = (name||'?')[0].toUpperCase();
+  av.style.background = color;
+  nm.textContent = name;
 }
 
-/* ── Sync thread from desktop #thread into #saMpThread ── */
+/* ── Sync thread into panel ── */
 function syncThread(){
-  var dt = ge('thread');
-  var mt = ge('saMpThread');
+  var dt = ge('thread'), mt = ge('saMobThread');
   if(dt && mt){
-    mt.innerHTML = dt.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">No messages yet.</div>';
+    mt.innerHTML = dt.innerHTML ||
+      '<div style="color:#334155;font-size:13px;padding:8px 0;text-align:center;">No messages yet.</div>';
     mt.scrollTop = mt.scrollHeight;
   }
 }
 
-/* ── Hook into selectSeat ── */
-function patchSelectSeat(){
-  var orig = window.selectSeat;
-  if(typeof orig !== 'function' || orig._saMpPatched) return;
-  var patched = function(name){
-    var result = orig.apply(this, arguments);
-    if(isMobile()){
-      _seat = name;
-      updatePanelHeader(name);
-      /* Give refreshThread a moment then sync */
-      Promise.resolve(result).then(function(){
-        setTimeout(syncThread, 300);
-      }).catch(function(){ setTimeout(syncThread,300); });
-    }
-    return result;
-  };
-  patched._saMpPatched = true;
-  window.selectSeat = patched;
-}
-
-/* ── Observe desktop thread for live sync ── */
-function watchThread(){
-  var dt = ge('thread');
-  if(!dt || !window.MutationObserver) return;
-  var obs = new MutationObserver(function(){
-    if(!isMobile()) return;
-    var mt = ge('saMpThread');
-    if(mt){ mt.innerHTML = dt.innerHTML; mt.scrollTop = mt.scrollHeight; }
+/* ── Select teammate ── */
+function pickSeat(name){
+  if(!isMobile()) return;
+  _active = name;
+  updateHeader(name);
+  /* Mark card active */
+  document.querySelectorAll('.seat').forEach(function(s){
+    s.classList.toggle('sel', s.getAttribute('data-name')===name);
   });
-  obs.observe(dt, {childList:true, subtree:true, characterData:true});
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(name)
+      .then(function(){ setTimeout(syncThread,300); })
+      .catch(function(){ setTimeout(syncThread,300); });
+  }
 }
 
-/* ── Send message ── */
-function mpSend(){
-  var msg = ge('saMpMsg');
-  if(!msg || !_seat) return;
+/* ── Send ── */
+function doSend(){
+  var msg = ge('saMobMsg');
+  if(!msg||!_active) return;
   var text = msg.value.trim();
   if(!text) return;
-  /* Route through desktop followMsg + sendFollow */
-  try{
-    var fm = ge('followMsg');
-    var sf = ge('sendFollow');
-    if(fm && sf){
-      fm.value = text;
-      sf.click();
-      msg.value = '';
-      msg.style.height = 'auto';
-      setTimeout(syncThread, 600);
-      return;
-    }
-  }catch(e){}
-  /* Fallback: direct convene */
-  try{
-    if(typeof window.selectSeat === 'function'){
-      window.selectSeat(_seat).then(function(){
-        var fm2 = ge('followMsg');
-        var sf2 = ge('sendFollow');
-        if(fm2 && sf2){ fm2.value = text; sf2.click(); msg.value = ''; }
-      });
-    }
-  }catch(e){}
+  var fm = ge('followMsg'), sf = ge('sendFollow');
+  if(fm && sf){ fm.value=text; sf.click(); msg.value=''; msg.style.height='auto'; setTimeout(syncThread,700); return; }
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(_active).then(function(){
+      var fm2=ge('followMsg'),sf2=ge('sendFollow');
+      if(fm2&&sf2){fm2.value=text;sf2.click();msg.value='';}
+    });
+  }
 }
 
-var sendBtn = ge('saMpSend');
-if(sendBtn) sendBtn.addEventListener('click', mpSend);
-
-var msgArea = ge('saMpMsg');
-if(msgArea){
-  msgArea.addEventListener('keydown', function(e){
-    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); mpSend(); }
-  });
-  /* Auto-grow textarea */
-  msgArea.addEventListener('input', function(){
-    this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 84) + 'px';
-  });
+var sb = ge('saMobSend');
+if(sb) sb.addEventListener('click', doSend);
+var ma = ge('saMobMsg');
+if(ma){
+  ma.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}});
+  ma.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px';});
 }
 
-/* ── Install seat card tap handlers on mobile ── */
+/* ── Hook seat taps ── */
 function hookSeats(){
   document.querySelectorAll('.seat[data-name]').forEach(function(seat){
-    if(seat._saMpHooked) return;
-    seat._saMpHooked = true;
-    seat.addEventListener('click', function(){
+    if(seat._mobHooked) return;
+    seat._mobHooked = true;
+    seat.addEventListener('click', function(e){
       if(!isMobile()) return;
-      var name = seat.getAttribute('data-name');
-      if(!name) return;
-      /* Mark this seat active visually */
-      document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sel','active'); });
-      seat.classList.add('sel');
-      /* Select on backend */
-      if(typeof window.selectSeat === 'function'){
-        window.selectSeat(name).then(function(){ setTimeout(syncThread,300); }).catch(function(){});
-      }
-    }, true); /* capture so we fire first */
+      pickSeat(seat.getAttribute('data-name'));
+    }, true);
   });
 }
 
-/* Try patching selectSeat, retry until available */
-function tryPatch(){
-  if(typeof window.selectSeat === 'function'){ patchSelectSeat(); hookSeats(); watchThread(); }
-  else { setTimeout(tryPatch, 400); }
+/* ── Watch desktop thread for live sync ── */
+function watchThread(){
+  var dt = ge('thread');
+  if(!dt||!window.MutationObserver) return;
+  new MutationObserver(function(){
+    if(!isMobile()||!_active) return;
+    syncThread();
+    var mic=ge('micStatusDm'), sm=ge('saMobMic');
+    if(mic&&sm) sm.textContent=mic.textContent;
+  }).observe(dt,{childList:true,subtree:true,characterData:true});
 }
 
-/* Also re-hook whenever new seats are added dynamically */
+/* ── Patch selectSeat so panel updates on any selection ── */
+function patchSelectSeat(){
+  var orig = window.selectSeat;
+  if(!orig||orig._mobPatched) return;
+  var p = function(name){
+    var r = orig.apply(this,arguments);
+    if(isMobile()){ _active=name; updateHeader(name); Promise.resolve(r).then(function(){setTimeout(syncThread,300);}).catch(function(){}); }
+    return r;
+  };
+  p._mobPatched = true;
+  window.selectSeat = p;
+}
+
+function tryInit(){
+  if(typeof window.selectSeat==='function'){ patchSelectSeat(); hookSeats(); watchThread(); }
+  else { setTimeout(tryInit, 500); }
+}
+
+/* MutationObserver for dynamic seat renders */
 if(window.MutationObserver){
-  var mo = new MutationObserver(function(){ hookSeats(); });
-  document.addEventListener('DOMContentLoaded', function(){
-    mo.observe(document.body, {childList:true, subtree:true});
-  });
+  new MutationObserver(function(){ hookSeats(); }).observe(document.documentElement,{childList:true,subtree:true});
 }
 
-setTimeout(tryPatch, 800);
-setTimeout(hookSeats, 1400);
-
+setTimeout(tryInit, 900);
+setTimeout(hookSeats, 1500);
 })();
 </script>
-<!-- ===== END MOBILE PERSISTENT CHAT PANEL ===== -->
+<!-- ===== END MOBILE LAYOUT v3 ===== -->
 
 </body>
 </html>
