@@ -8716,6 +8716,7 @@ LOGIN_HTML = r"""
 
 </head><body>
 
+{% raw %}
 <!-- ===== COSMIC GRID — desktop interactive, mobile clean ===== -->
 <canvas id="cosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
 <div id="cgTip" style="display:none;position:fixed;z-index:200;pointer-events:none;"></div>
@@ -8979,6 +8980,7 @@ resize(); draw();
 </style>
 <div id="cgHint">✦ click the glowing nodes to discover tips</div>
 <!-- ===== END COSMIC GRID ===== -->
+{% endraw %}
 
 <div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -31789,6 +31791,7 @@ document.addEventListener('click',e=>{
 
 })();
 </script>
+{% raw %}
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
 <!-- ═══════════════════════════════════════════════════════
@@ -32005,6 +32008,7 @@ setTimeout(tryInit,900); setTimeout(hookSeats,1500);
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v3 ===== -->
+{% endraw %}
 
 </body>
 </html>
