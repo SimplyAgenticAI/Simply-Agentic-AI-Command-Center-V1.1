@@ -8720,154 +8720,242 @@ LOGIN_HTML = r"""
 <canvas id="cosmicWeb" aria-hidden="true" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
 <script>
 (function(){
+  'use strict';
   var cv=document.getElementById('cosmicWeb'),ctx=cv.getContext('2d');
-  var W,H,nodes=[],mouse={x:0,y:0};
-  var N=100,MAX_DIST=280,SPEED=0.28;
+  var W,H,nodes=[],pulses=[];
+  var mouse={x:-9999,y:-9999,active:false};
+  var hueShift=0;
 
-  // aurora blobs — slow-drifting radial glow patches
-  var auroras=[
-    {x:0.18,y:0.25,r:0.52,hue:265,phase:0,spd:0.0007},
-    {x:0.82,y:0.72,r:0.55,hue:220,phase:1.8,spd:0.0009},
-    {x:0.55,y:0.12,r:0.44,hue:280,phase:3.2,spd:0.0006},
-    {x:0.30,y:0.80,r:0.42,hue:200,phase:0.9,spd:0.0011},
-    {x:0.70,y:0.45,r:0.38,hue:245,phase:2.5,spd:0.0008},
-  ];
+  /* ── Config ── */
+  var N_NODES   = 55;   /* anchor points — the web intersections        */
+  var MAX_DIST  = 200;  /* max thread length                             */
+  var SPEED     = 0.22; /* idle drift speed                              */
+  var TOUCH_RAD = 130;  /* radius where mouse distorts threads           */
+  var TOUCH_STR = 0.018;/* how hard threads pull toward cursor           */
+  var PULSE_INT = 3200; /* ms between random signal pulses               */
+
+  /* ── Anchor node factory ── */
+  function mkNode(){
+    /* Cluster into a loose web structure — bias toward viewport center */
+    var cx=W*0.5, cy=H*0.5;
+    var angle=Math.random()*Math.PI*2;
+    var dist=Math.random()*Math.max(W,H)*0.62;
+    return {
+      x: cx + Math.cos(angle)*dist*(0.4+Math.random()*0.6),
+      y: cy + Math.sin(angle)*dist*(0.4+Math.random()*0.6),
+      ox:0, oy:0, /* original position for elastic return */
+      vx:(Math.random()-.5)*SPEED,
+      vy:(Math.random()-.5)*SPEED,
+      r: 1.6+Math.random()*2.4,
+      /* Iridescent hue — each node has its own phase offset */
+      hBase: Math.random()*360,
+      phase: Math.random()*Math.PI*2,
+      pulseSpd: 0.009+Math.random()*0.014,
+      isAnchor: Math.random()<0.18  /* larger "hub" nodes */
+    };
+  }
+
+  /* ── Light pulse along a thread ── */
+  function spawnPulse(){
+    /* pick a random connected pair */
+    var a=nodes[Math.floor(Math.random()*nodes.length)];
+    var b=nodes[Math.floor(Math.random()*nodes.length)];
+    if(a===b) return;
+    var dx=a.x-b.x,dy=a.y-b.y;
+    if(Math.sqrt(dx*dx+dy*dy)>MAX_DIST) return;
+    pulses.push({a:a,b:b,t:0,spd:0.008+Math.random()*0.008,hue:(hueShift+Math.random()*80)%360});
+  }
 
   function resize(){
     W=cv.width=window.innerWidth;
     H=cv.height=window.innerHeight;
   }
 
-  function mkNode(){
-    // color palette: purple, blue, occasional gold accent
-    var palettes=[
-      [265,72],[240,75],[255,65],[210,80],[275,60],[230,70]
-    ];
-    var p=palettes[Math.floor(Math.random()*palettes.length)];
-    return{
-      x:Math.random()*W, y:Math.random()*H,
-      vx:(Math.random()-.5)*SPEED, vy:(Math.random()-.5)*SPEED,
-      r:1.2+Math.random()*2.2,
-      hue:p[0]+Math.random()*20-10,
-      sat:p[1],
-      phase:Math.random()*Math.PI*2,
-      pulseSpd:0.012+Math.random()*0.018,
-      isGold:Math.random()<0.06   // rare gold nodes for sparkle
-    };
-  }
-
   function init(){
     resize();
     nodes=[];
-    for(var i=0;i<N;i++) nodes.push(mkNode());
+    for(var i=0;i<N_NODES;i++){
+      var n=mkNode();
+      n.ox=n.x; n.oy=n.y;
+      nodes.push(n);
+    }
+    /* Seed a few pulses immediately */
+    for(var k=0;k<4;k++) spawnPulse();
   }
 
-  // subtle mouse parallax — nodes nudge gently toward cursor
-  document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
+  /* ── Mouse / touch distortion ── */
+  document.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;mouse.active=true;});
+  document.addEventListener('touchmove',function(e){
+    if(e.touches.length){mouse.x=e.touches[0].clientX;mouse.y=e.touches[0].clientY;mouse.active=true;}
+  },{passive:true});
+  document.addEventListener('mouseleave',function(){mouse.active=false;});
+  document.addEventListener('touchend',function(){mouse.active=false;});
 
+  /* Periodic pulses */
+  setInterval(spawnPulse, PULSE_INT);
+  /* Extra burst of pulses on touch/click */
+  document.addEventListener('click',function(){for(var i=0;i<5;i++) spawnPulse();});
+
+  /* ── Main draw loop ── */
   function draw(){
+    hueShift=(hueShift+0.25)%360;
     ctx.clearRect(0,0,W,H);
 
-    // ── Aurora layer ──────────────────────────────────────────
-    auroras.forEach(function(a){
-      a.phase+=a.spd;
-      var cx=W*(a.x+Math.sin(a.phase*1.1)*0.06);
-      var cy=H*(a.y+Math.cos(a.phase*0.9)*0.07);
-      var rad=Math.min(W,H)*a.r;
-      var pulse=0.11+0.05*Math.sin(a.phase*2.3);
-      var hShift=a.hue+22*Math.sin(a.phase*1.7);
+    /* Deep space background — rich void */
+    ctx.fillStyle='#04060f';
+    ctx.fillRect(0,0,W,H);
+
+    /* Slow cosmic nebula glow — 3 drifting blobs */
+    var nebulae=[
+      {px:0.22,py:0.30,ph:hueShift,      r:0.55},
+      {px:0.78,py:0.68,ph:(hueShift+140)%360,r:0.50},
+      {px:0.52,py:0.10,ph:(hueShift+260)%360,r:0.38},
+    ];
+    nebulae.forEach(function(nb){
+      var cx=W*(nb.px+Math.sin(hueShift*0.007)*0.04);
+      var cy=H*(nb.py+Math.cos(hueShift*0.006)*0.05);
+      var rad=Math.min(W,H)*nb.r;
       var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
-      g.addColorStop(0,'hsla('+hShift+',85%,60%,'+pulse+')');
-      g.addColorStop(0.45,'hsla('+hShift+',78%,46%,'+(pulse*0.5)+')');
+      g.addColorStop(0,'hsla('+nb.ph+',70%,45%,0.09)');
+      g.addColorStop(0.5,'hsla('+nb.ph+',60%,35%,0.04)');
       g.addColorStop(1,'transparent');
-      ctx.fillStyle=g;
-      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
     });
 
-    // ── Filaments (edges) ─────────────────────────────────────
-    for(var i=0;i<N;i++){
+    /* ── Web threads ── */
+    for(var i=0;i<N_NODES;i++){
       var a=nodes[i];
-      for(var j=i+1;j<N;j++){
+      for(var j=i+1;j<N_NODES;j++){
         var b=nodes[j];
         var dx=a.x-b.x, dy=a.y-b.y;
         var dist=Math.sqrt(dx*dx+dy*dy);
         if(dist>MAX_DIST) continue;
+
         var t=1-dist/MAX_DIST;
-        var alpha=t*t*(0.55+0.30*Math.sin(a.phase+b.phase));
-        // gradient filament blending both node colors
+        var alpha=t*t*(0.45+0.28*Math.sin(a.phase+b.phase));
+
+        /* Iridescent thread — hue shifts along the strand */
+        var hA=(a.hBase+hueShift)%360;
+        var hB=(b.hBase+hueShift)%360;
         var lg=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
-        var hA=a.isGold?48:a.hue, hB=b.isGold?48:b.hue;
-        lg.addColorStop(0,'hsla('+hA+','+a.sat+'%,82%,'+alpha+')');
-        lg.addColorStop(0.5,'hsla('+((hA+hB)/2|0)+',90%,90%,'+(alpha*0.6)+')');
-        lg.addColorStop(1,'hsla('+hB+','+b.sat+'%,82%,'+alpha+')');
+        lg.addColorStop(0,  'hsla('+hA+',88%,76%,'+alpha+')');
+        lg.addColorStop(0.33,'hsla('+((hA+hB*0.5)%360|0)+',95%,90%,'+(alpha*0.7)+')');
+        lg.addColorStop(0.66,'hsla('+((hA*0.5+hB)%360|0)+',92%,85%,'+(alpha*0.8)+')');
+        lg.addColorStop(1,  'hsla('+hB+',88%,76%,'+alpha+')');
         ctx.strokeStyle=lg;
-        ctx.lineWidth=t*2.2;
+        /* Thicker near anchor hubs, hair-thin at long distance */
+        ctx.lineWidth=t*(a.isAnchor||b.isAnchor?2.0:1.2)+0.3;
         ctx.beginPath();
+        /* Slight curve — makes it feel like real silk */
+        var midX=(a.x+b.x)/2 + dy*0.08;
+        var midY=(a.y+b.y)/2 - dx*0.08;
         ctx.moveTo(a.x,a.y);
-        ctx.lineTo(b.x,b.y);
+        ctx.quadraticCurveTo(midX,midY,b.x,b.y);
         ctx.stroke();
       }
     }
 
-    // ── Nodes ─────────────────────────────────────────────────
-    nodes.forEach(function(n){
+    /* ── Light pulses travelling along threads ── */
+    for(var p=pulses.length-1;p>=0;p--){
+      var pulse=pulses[p];
+      pulse.t+=pulse.spd;
+      if(pulse.t>=1){ pulses.splice(p,1); continue; }
+      var px=pulse.a.x+(pulse.b.x-pulse.a.x)*pulse.t;
+      var py=pulse.a.y+(pulse.b.y-pulse.a.y)*pulse.t;
+      var gp=ctx.createRadialGradient(px,py,0,px,py,10);
+      gp.addColorStop(0,'hsla('+pulse.hue+',100%,98%,0.95)');
+      gp.addColorStop(0.4,'hsla('+pulse.hue+',90%,80%,0.5)');
+      gp.addColorStop(1,'transparent');
+      ctx.fillStyle=gp;
+      ctx.beginPath(); ctx.arc(px,py,10,0,Math.PI*2); ctx.fill();
+      /* bright core dot */
+      ctx.fillStyle='hsla('+pulse.hue+',100%,98%,0.98)';
+      ctx.beginPath(); ctx.arc(px,py,2.2,0,Math.PI*2); ctx.fill();
+    }
+
+    /* ── Anchor nodes ── */
+    for(var i=0;i<N_NODES;i++){
+      var n=nodes[i];
       n.phase+=n.pulseSpd;
-      var glow=0.55+0.45*Math.sin(n.phase);
-      var radius=n.r*(0.85+0.3*Math.sin(n.phase*0.7));
-      var hue=n.isGold?48:n.hue;
-      var sat=n.isGold?90:n.sat;
+      var glow=0.5+0.5*Math.sin(n.phase);
+      var radius=n.r*(n.isAnchor?1.7:1.0)*(0.85+0.3*Math.sin(n.phase*0.7));
+      var hue=(n.hBase+hueShift)%360;
 
-      // outer corona
-      var gOuter=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*9);
-      gOuter.addColorStop(0,'hsla('+hue+','+sat+'%,85%,'+(glow*0.42)+')');
-      gOuter.addColorStop(0.5,'hsla('+hue+','+sat+'%,70%,'+(glow*0.18)+')');
-      gOuter.addColorStop(1,'transparent');
-      ctx.fillStyle=gOuter;
-      ctx.beginPath();
-      ctx.arc(n.x,n.y,radius*9,0,Math.PI*2);
-      ctx.fill();
+      /* Soft corona */
+      var gc=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*7);
+      gc.addColorStop(0,'hsla('+hue+',90%,88%,'+(glow*0.55)+')');
+      gc.addColorStop(0.45,'hsla('+hue+',80%,70%,'+(glow*0.22)+')');
+      gc.addColorStop(1,'transparent');
+      ctx.fillStyle=gc;
+      ctx.beginPath(); ctx.arc(n.x,n.y,radius*7,0,Math.PI*2); ctx.fill();
 
-      // inner core
-      var gCore=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,radius*2.8);
-      gCore.addColorStop(0,'hsla('+hue+',95%,97%,'+Math.min(glow*1.1,1)+')');
-      gCore.addColorStop(0.3,'hsla('+hue+',90%,80%,'+(glow*0.95)+')');
-      gCore.addColorStop(0.7,'hsla('+hue+','+sat+'%,65%,'+(glow*0.5)+')');
-      gCore.addColorStop(1,'transparent');
-      ctx.fillStyle=gCore;
-      ctx.beginPath();
-      ctx.arc(n.x,n.y,radius*2.2,0,Math.PI*2);
-      ctx.fill();
-    });
+      /* Bright core */
+      ctx.fillStyle='hsla('+hue+',95%,97%,'+(0.65+glow*0.35)+')';
+      ctx.beginPath(); ctx.arc(n.x,n.y,radius*(0.9+glow*0.4),0,Math.PI*2); ctx.fill();
+    }
 
-    // ── Move nodes ────────────────────────────────────────────
-    nodes.forEach(function(n){
-      // gentle mouse attraction (very subtle, not distracting)
-      var mdx=mouse.x-n.x, mdy=mouse.y-n.y;
-      var md=Math.sqrt(mdx*mdx+mdy*mdy);
-      if(md<260&&md>1){
-        n.vx+=mdx/md*0.0012;
-        n.vy+=mdy/md*0.0012;
+    /* ── Cursor silk ripple — threads visibly pull toward pointer ── */
+    if(mouse.active){
+      var mx=mouse.x, my=mouse.y;
+      for(var i=0;i<N_NODES;i++){
+        var n=nodes[i];
+        var ddx=mx-n.x, ddy=my-n.y;
+        var dd=Math.sqrt(ddx*ddx+ddy*ddy);
+        if(dd<TOUCH_RAD*1.6 && dd>1){
+          var str=(1-dd/(TOUCH_RAD*1.6))*0.4;
+          /* Draw a faint silk thread to cursor */
+          var th=(n.hBase+hueShift+180)%360;
+          ctx.strokeStyle='hsla('+th+',85%,80%,'+(str*0.6)+')';
+          ctx.lineWidth=str*1.8;
+          ctx.beginPath();
+          ctx.moveTo(n.x,n.y);
+          ctx.lineTo(mx,my);
+          ctx.stroke();
+        }
       }
-      // speed cap
-      var spd=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
-      if(spd>SPEED*2.2){n.vx=n.vx/spd*SPEED*2.2;n.vy=n.vy/spd*SPEED*2.2;}
+      /* Cursor node glow */
+      var cg=ctx.createRadialGradient(mx,my,0,mx,my,40);
+      cg.addColorStop(0,'hsla('+(hueShift*2%360)+',90%,90%,0.18)');
+      cg.addColorStop(1,'transparent');
+      ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(mx,my,40,0,Math.PI*2); ctx.fill();
+    }
+
+    /* ── Physics: drift + mouse attraction + elastic damping ── */
+    for(var i=0;i<N_NODES;i++){
+      var n=nodes[i];
+      /* Mouse pull */
+      if(mouse.active){
+        var mdx=mouse.x-n.x, mdy=mouse.y-n.y;
+        var md=Math.sqrt(mdx*mdx+mdy*mdy);
+        if(md<TOUCH_RAD&&md>1){
+          var f=(1-md/TOUCH_RAD)*TOUCH_STR;
+          n.vx+=mdx/md*f; n.vy+=mdy/md*f;
+        }
+      }
+      /* Slight home attraction so the web stays coherent */
+      n.vx+=(n.ox-n.x)*0.00018;
+      n.vy+=(n.oy-n.y)*0.00018;
+      /* Damping */
+      n.vx*=0.985; n.vy*=0.985;
+      /* Speed cap */
+      var spd2=Math.sqrt(n.vx*n.vx+n.vy*n.vy);
+      if(spd2>SPEED*3){n.vx=n.vx/spd2*SPEED*3;n.vy=n.vy/spd2*SPEED*3;}
       n.x+=n.vx; n.y+=n.vy;
-      // wrap edges softly
-      if(n.x<-30) n.x=W+28;
-      if(n.x>W+30) n.x=-28;
-      if(n.y<-30) n.y=H+28;
-      if(n.y>H+30) n.y=-28;
-    });
+      /* Soft wrap at edges */
+      if(n.x<-40){n.x=W+38;n.ox=n.x;}
+      if(n.x>W+40){n.x=-38;n.ox=n.x;}
+      if(n.y<-40){n.y=H+38;n.oy=n.y;}
+      if(n.y>H+40){n.y=-38;n.oy=n.y;}
+    }
 
     requestAnimationFrame(draw);
   }
 
   window.addEventListener('resize',function(){
     resize();
-    // reposition nodes that are now off-screen
     nodes.forEach(function(n){
-      if(n.x>W) n.x=Math.random()*W;
-      if(n.y>H) n.y=Math.random()*H;
+      if(n.x>W){n.x=Math.random()*W;n.ox=n.x;}
+      if(n.y>H){n.y=Math.random()*H;n.oy=n.y;}
     });
   });
 
@@ -8875,7 +8963,7 @@ LOGIN_HTML = r"""
   draw();
 })();
 </script>
-<!-- ===== END COSMIC WEB ===== -->
+<!-- ===== END COSMIC SPIDER WEB ===== -->
 
 <div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
@@ -31239,6 +31327,454 @@ document.addEventListener('click',e=>{
 })();
 </script>
 <!-- ===== END STATS + WELCOME JS ===== -->
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MOBILE BOTTOM SHEET — tapping a seat card slides up a chat panel
+     instead of rendering sideCard on top of the seat list
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+/* ── Bottom Sheet Shell ── */
+#saSheetBackdrop{
+  display:none;position:fixed;inset:0;
+  background:rgba(2,4,14,.55);
+  backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px);
+  z-index:8800;
+}
+#saBottomSheet{
+  display:none;
+  position:fixed;
+  bottom:0;left:0;right:0;
+  background:rgba(9,13,30,.98);
+  border:1px solid rgba(124,58,237,.45);
+  border-bottom:none;
+  border-radius:20px 20px 0 0;
+  box-shadow:0 -12px 60px rgba(0,0,0,.7);
+  z-index:8801;
+  max-height:82vh;
+  display:none;
+  flex-direction:column;
+  overflow:hidden;
+  padding-bottom:env(safe-area-inset-bottom);
+  transition:transform .32s cubic-bezier(.32,0,.15,1);
+  transform:translateY(100%);
+  will-change:transform;
+}
+#saBottomSheet.sa-sheet-open{
+  display:flex;
+  transform:translateY(0);
+}
+/* Handle bar */
+.sa-sheet-handle{
+  width:36px;height:4px;
+  background:rgba(255,255,255,.18);
+  border-radius:2px;
+  margin:10px auto 4px;
+  flex-shrink:0;
+  cursor:grab;
+}
+/* Header */
+.sa-sheet-hdr{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 16px 10px;
+  border-bottom:1px solid rgba(42,58,106,.55);
+  flex-shrink:0;
+}
+.sa-sheet-av{
+  width:34px;height:34px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:900;color:#fff;
+  flex-shrink:0;
+}
+.sa-sheet-name{font-size:15px;font-weight:800;color:#e2e8f0;}
+.sa-sheet-role{font-size:12px;color:#64748b;margin-top:1px;}
+.sa-sheet-close{
+  margin-left:auto;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);border-radius:8px;
+  color:#94a3b8;font-size:15px;
+  width:30px;height:30px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;
+}
+.sa-sheet-close:hover{background:rgba(255,255,255,.12);}
+/* Thread */
+#saSheetThread{
+  flex:1;
+  overflow-y:auto;
+  padding:10px 14px;
+  -webkit-overflow-scrolling:touch;
+  min-height:80px;
+}
+/* Pass row inside sheet */
+#saSheetPassRow{
+  padding:6px 14px 0;
+  display:flex;gap:6px;flex-wrap:wrap;
+  flex-shrink:0;
+}
+/* Input area */
+.sa-sheet-input{
+  flex-shrink:0;
+  border-top:1px solid rgba(42,58,106,.5);
+  padding:10px 14px 8px;
+}
+#saSheetMsg{
+  width:100%;
+  background:rgba(14,22,48,.9);
+  border:1px solid rgba(42,58,106,.6);
+  border-radius:10px;
+  padding:10px 12px;
+  font-size:15px;
+  color:#e2e8f0;
+  resize:none;
+  min-height:44px;
+  max-height:110px;
+  font-family:inherit;
+  outline:none;
+  display:block;
+  margin-bottom:8px;
+}
+#saSheetMsg:focus{border-color:rgba(124,58,237,.7);}
+.sa-sheet-btn-row{
+  display:flex;gap:8px;align-items:center;
+}
+#saSheetAttachBtn{
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(42,58,106,.55);
+  border-radius:9px;
+  color:#94a3b8;
+  font-size:15px;font-weight:700;
+  padding:0;
+  width:44px;height:44px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;
+}
+#saSheetSendBtn{
+  flex:1;
+  background:rgba(79,70,229,.9);
+  border:1px solid rgba(124,58,237,.6);
+  border-radius:9px;
+  color:#fff;
+  font-size:15px;font-weight:700;
+  height:44px;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  gap:6px;
+  transition:background .15s;
+}
+#saSheetSendBtn:hover{background:rgba(99,88,255,.95);}
+.sa-sheet-mic{
+  font-size:11px;color:rgba(100,116,139,.6);
+  margin-top:4px;text-align:left;
+}
+
+/* ── Only activate sheet on mobile ── */
+@media (min-width:721px){
+  #saSheetBackdrop,#saBottomSheet{ display:none !important; }
+}
+
+/* ── On mobile, clicking a seat triggers sheet not sideCard ── */
+@media (max-width:720px){
+  /* Hide the desktop sideCard panel while sheet is active */
+  body.sa-sheet-active .side{ display:none !important; }
+  /* Ensure seat cards show active ring even on mobile */
+  .seat.sa-sheet-seat{
+    border-color:rgba(124,58,237,.85) !important;
+    background:rgba(20,12,52,.98) !important;
+    box-shadow:0 0 0 2px rgba(124,58,237,.35) !important;
+  }
+}
+</style>
+
+<!-- Bottom sheet DOM -->
+<div id="saSheetBackdrop" onclick="saCloseSheet()"></div>
+<div id="saBottomSheet" role="dialog" aria-modal="true" aria-label="Chat with teammate">
+  <div class="sa-sheet-handle" id="saSheetHandle"></div>
+  <div class="sa-sheet-hdr">
+    <div class="sa-sheet-av" id="saSheetAv">A</div>
+    <div>
+      <div class="sa-sheet-name" id="saSheetName">Teammate</div>
+      <div class="sa-sheet-role" id="saSheetRole"></div>
+    </div>
+    <button class="sa-sheet-close" onclick="saCloseSheet()" aria-label="Close chat">✕</button>
+  </div>
+  <div class="passRow" id="saSheetPassRow" style="display:none;">
+    <button class="btn btnMini passBtn" id="saSheetPassRisk">⚠️ Risk</button>
+    <button class="btn btnMini passBtn" id="saSheetPassScale">📈 Scale</button>
+    <button class="btn btnMini passBtn" id="saSheetPassConstr">🧩 Constraints</button>
+    <button class="btn btnMini passBtn" id="saSheetPassOpt">⚡ Optimize</button>
+  </div>
+  <div class="thread" id="saSheetThread"></div>
+  <div class="sa-sheet-input">
+    <textarea id="saSheetMsg" placeholder="Message teammate…" rows="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    <div class="sa-sheet-btn-row">
+      <button id="saSheetAttachBtn" title="Attach / voice / more">+</button>
+      <button id="saSheetSendBtn">Send ↵</button>
+    </div>
+    <div class="sa-sheet-mic" id="saSheetMic">Mic: idle</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ── Only run on mobile ── */
+  function isMobile(){ return window.innerWidth <= 720; }
+
+  /* ── DOM refs ── */
+  function ge(id){ return document.getElementById(id); }
+
+  var _sheetOpen  = false;
+  var _sheetSeat  = null;
+  var _dragStartY = 0;
+  var _sheetY     = 0;
+  var _dragging   = false;
+
+  /* ── Open sheet ── */
+  window.saOpenSheet = function(name){
+    if(!isMobile()) return false;
+
+    _sheetSeat = name;
+
+    /* Visual: show avatar + name */
+    var seat = document.querySelector('.seat[data-name="'+CSS.escape(name)+'"]');
+    var color = '#7c3aed';
+    if(seat){
+      var av = seat.querySelector('.seatAvatar,.av,[class*="Avatar"]');
+      if(av) color = av.style.background || color;
+    }
+
+    ge('saSheetAv').textContent  = (name||'?')[0].toUpperCase();
+    ge('saSheetAv').style.background = color;
+    ge('saSheetName').textContent = name;
+
+    /* Role from state if available */
+    try{
+      var defn = (window.state&&window.state.installed||{})[name]||{};
+      ge('saSheetRole').textContent = defn.job_title || defn.role || '';
+    }catch(_){ ge('saSheetRole').textContent = ''; }
+
+    /* Mirror thread content from the desktop sideCard thread */
+    var desktop = ge('thread');
+    var sheetThread = ge('saSheetThread');
+    if(desktop && sheetThread){
+      sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
+    }
+
+    /* Show pass row if desktop one is visible */
+    var desktopPass = ge('seatPassRow');
+    var sheetPass   = ge('saSheetPassRow');
+    if(sheetPass){
+      sheetPass.style.display = (desktopPass && desktopPass.style.display !== 'none') ? 'flex' : 'none';
+    }
+
+    /* Mark active seat */
+    document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
+    if(seat) seat.classList.add('sa-sheet-seat');
+
+    /* Show */
+    ge('saSheetBackdrop').style.display='block';
+    ge('saBottomSheet').style.display='flex';
+    document.body.classList.add('sa-sheet-active');
+
+    /* Animate in */
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        ge('saBottomSheet').classList.add('sa-sheet-open');
+      });
+    });
+
+    _sheetOpen = true;
+
+    /* Focus input */
+    setTimeout(function(){
+      var msg = ge('saSheetMsg');
+      if(msg) msg.focus();
+    }, 380);
+
+    /* Scroll thread to bottom */
+    setTimeout(function(){
+      var t = ge('saSheetThread');
+      if(t) t.scrollTop = t.scrollHeight;
+    }, 350);
+
+    return true;
+  };
+
+  /* ── Close sheet ── */
+  window.saCloseSheet = function(){
+    if(!_sheetOpen) return;
+    _sheetOpen = false;
+    _sheetSeat = null;
+
+    ge('saBottomSheet').classList.remove('sa-sheet-open');
+    ge('saBottomSheet').style.transform = 'translateY(100%)';
+
+    setTimeout(function(){
+      ge('saSheetBackdrop').style.display='none';
+      ge('saBottomSheet').style.display='none';
+      ge('saBottomSheet').style.transform='';
+      document.body.classList.remove('sa-sheet-active');
+      document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
+    }, 340);
+  };
+
+  /* ── Swipe down to dismiss ── */
+  var handle = ge('saSheetHandle');
+  var sheet  = ge('saBottomSheet');
+  if(handle && sheet){
+    handle.addEventListener('touchstart',function(e){
+      _dragging  = true;
+      _dragStartY = e.touches[0].clientY;
+      _sheetY    = 0;
+      sheet.style.transition = 'none';
+    },{passive:true});
+
+    document.addEventListener('touchmove',function(e){
+      if(!_dragging) return;
+      var dy = e.touches[0].clientY - _dragStartY;
+      if(dy < 0) dy = 0;
+      _sheetY = dy;
+      sheet.style.transform = 'translateY('+dy+'px)';
+    },{passive:true});
+
+    document.addEventListener('touchend',function(){
+      if(!_dragging) return;
+      _dragging = false;
+      sheet.style.transition = '';
+      if(_sheetY > 90){ saCloseSheet(); }
+      else { sheet.style.transform = 'translateY(0)'; }
+    });
+  }
+
+  /* ── Send button ── */
+  function sheetSend(){
+    var msg = ge('saSheetMsg');
+    if(!msg) return;
+    var text = msg.value.trim();
+    if(!text || !_sheetSeat) return;
+
+    /* Route through existing sendFollowup if available */
+    try{
+      if(typeof window.selectSeat === 'function'){
+        window.selectSeat(_sheetSeat).then(function(){
+          var fmsg = ge('followMsg');
+          if(fmsg){ fmsg.value = text; }
+          var sfBtn = ge('sendFollow');
+          if(sfBtn) sfBtn.click();
+          msg.value = '';
+          /* Refresh sheet thread after a moment */
+          setTimeout(function(){
+            var desktop = ge('thread');
+            var st = ge('saSheetThread');
+            if(desktop && st){ st.innerHTML = desktop.innerHTML; st.scrollTop = st.scrollHeight; }
+          }, 800);
+        });
+      }
+    }catch(err){
+      console.warn('[saSheet] send error', err);
+    }
+  }
+
+  var sendBtn = ge('saSheetSendBtn');
+  if(sendBtn) sendBtn.addEventListener('click', sheetSend);
+
+  var sheetMsgEl = ge('saSheetMsg');
+  if(sheetMsgEl){
+    sheetMsgEl.addEventListener('keydown',function(e){
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sheetSend(); }
+    });
+  }
+
+  /* ── Pass-through buttons ── */
+  ['saSheetPassRisk','saSheetPassScale','saSheetPassConstr','saSheetPassOpt'].forEach(function(id, idx){
+    var srcIds = ['passSeatRisk','passSeatScale','passSeatConstr','passSeatOpt'];
+    var el = ge(id);
+    if(el){ el.addEventListener('click', function(){
+      var src = ge(srcIds[idx]);
+      if(src) src.click();
+    }); }
+  });
+
+  /* ── Attach button mirrors desktop ── */
+  var sheetAttach = ge('saSheetAttachBtn');
+  if(sheetAttach){
+    sheetAttach.addEventListener('click',function(){
+      var dmBtn = ge('dmAttachBtn');
+      if(dmBtn) dmBtn.click();
+    });
+  }
+
+  /* ── Intercept seat clicks on mobile ── */
+  function installSeatIntercept(){
+    document.querySelectorAll('.seat[data-name]').forEach(function(seat){
+      if(seat._saSheetHooked) return;
+      seat._saSheetHooked = true;
+      seat.addEventListener('click', function(e){
+        if(!isMobile()) return; /* desktop: normal behaviour */
+        e.stopPropagation();
+        var name = seat.getAttribute('data-name');
+        if(!name) return;
+        /* Select seat on the backend first so thread loads */
+        if(typeof window.selectSeat === 'function'){
+          window.selectSeat(name).then(function(){
+            saOpenSheet(name);
+          }).catch(function(){
+            saOpenSheet(name);
+          });
+        } else {
+          saOpenSheet(name);
+        }
+      }, true); /* capture phase so we fire before the seat's own handler */
+    });
+  }
+
+  /* Run after state/seats are rendered */
+  function tryInstall(){
+    var seats = document.querySelectorAll('.seat[data-name]');
+    if(seats.length > 0){ installSeatIntercept(); return; }
+    setTimeout(tryInstall, 600);
+  }
+
+  /* Also re-hook after any DOM mutations (dynamic seat re-render) */
+  if(window.MutationObserver){
+    var mo = new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        if(m.addedNodes.length) installSeatIntercept();
+      });
+    });
+    mo.observe(document.body, {childList:true, subtree:true});
+  }
+
+  /* Sync sheet thread when desktop thread updates */
+  var desktopThread = ge('thread');
+  if(desktopThread && window.MutationObserver){
+    var to = new MutationObserver(function(){
+      if(!_sheetOpen) return;
+      var st = ge('saSheetThread');
+      if(st){
+        st.innerHTML = desktopThread.innerHTML;
+        st.scrollTop = st.scrollHeight;
+      }
+      /* Also sync mic status */
+      var mic = ge('micStatusDm');
+      var sheetMic = ge('saSheetMic');
+      if(mic && sheetMic) sheetMic.textContent = mic.textContent;
+    });
+    to.observe(desktopThread, {childList:true, subtree:true, characterData:true});
+  }
+
+  /* Keyboard: Escape closes sheet */
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape' && _sheetOpen) saCloseSheet();
+  });
+
+  /* Delay first install until seats likely exist */
+  setTimeout(tryInstall, 1200);
+
+})();
+</script>
+<!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
 </body>
 </html>
